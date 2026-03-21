@@ -1,0 +1,11 @@
+{
+	"redefinable-internals": [
+		"function_exists",
+		"defined",
+		"parse_url",
+		"html_entity_decode",
+		"filter_var",
+		"file_exists",
+		"getimagesize"
+	]
+}
