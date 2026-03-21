@@ -171,7 +171,7 @@ class Helpers {
 			foreach ( $terms as $term ) {
 				if ( $term instanceof Term ) {
 					$link = ( strpos( $term->link(), '?taxonomy=' ) === FALSE ) ? $term->link() : '';
-					// we need this approach to respest sorting of nested taxonomy terms
+					// we need this approach to respect sorting of nested taxonomy terms
 					// like when using plugin https://cs.wordpress.org/plugins/taxonomy-terms-order/
 					$children = [];
 					if ( $term->children ) {
