@@ -1,0 +1,28 @@
+includes:
+    - vendor/szepeviktor/phpstan-wordpress/extension.neon
+
+parameters:
+    level: 5
+    paths:
+        - src/
+    scanDirectories:
+        - vendor/
+    treatPhpDocTypesAsCertain: false
+    reportUnmatchedIgnoredErrors: false
+    ignoreErrors:
+        - '#Offset .relative. does not exist on array#'
+        - '#Access to an undefined property Timber\\Term::#'
+        - '#Call to static method .* on an unknown class Timber#'
+        - '#expects (GdImage|resource), (resource|GdImage|\(GdImage\|false\)) given#'
+        - '#should return resource but returns#'
+        - '#Function icl_\w+ not found#'
+        - '#Action callback returns .* but should not return anything#'
+        - '#Cannot assign offset .* to string#'
+        # Timber MenuItem::$children may not exist on all menu items
+        - '#in isset\(\) is not nullable#'
+        -
+            message: '#is unused#'
+            path: src/Resizer.php
+        -
+            message: '#will always evaluate to true#'
+            path: src/Resizer.php
