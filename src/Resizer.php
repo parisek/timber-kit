@@ -160,7 +160,13 @@ class Resizer {
 		$target_dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
 		$target_dir = $this->image_cache_dir . '/' . $target_dirname;
 		$target_path = $target_dir . '/' . $filename . '.' . $this->target_format;
-		$target_url = content_url( 'cache/image/' . $target_dirname . '/' . $filename . '.' . $this->target_format );
+		// Derive URL from the configured cache directory relative to WP_CONTENT_DIR
+		$relative_cache_dir = $this->image_cache_dir;
+		if ( defined( 'WP_CONTENT_DIR' ) && strpos( $relative_cache_dir, WP_CONTENT_DIR ) === 0 ) {
+			$relative_cache_dir = substr( $relative_cache_dir, strlen( WP_CONTENT_DIR ) );
+		}
+		$relative_cache_dir = ltrim( (string) $relative_cache_dir, '/\\' );
+		$target_url = content_url( $relative_cache_dir . '/' . $target_dirname . '/' . $filename . '.' . $this->target_format );
 
 		// Skip processing if target file already exists (unless force regenerate is enabled)
 		if ( ! file_exists( $target_path ) || $this->force_regenerate ) {
