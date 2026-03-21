@@ -18,7 +18,11 @@
         "parisek/twig-typography": "^1.0",
         "symfony/twig-bridge": "^5.4 || ^6.2 || ^7.0",
         "symfony/var-dumper": "^5.4 || ^6.2 || ^7.0",
-        "twig/string-extra": "^3.0"
+        "twig/string-extra": "^3.0",
+        "ext-gd": "*"
+    },
+    "suggest": {
+        "ext-imagick": "Required for smart-crop feature in Resizer"
     },
     "require-dev": {
         "phpunit/phpunit": "^11.0 || ^12.0",

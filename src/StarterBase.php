@@ -1519,8 +1519,10 @@ class StarterBase extends Site {
 			return $upload;
 		}
 
-		$editor->resize( $this->max_upload_width, $this->max_upload_height );
-		$editor->save( $upload['file'] );
+		$resized = $editor->resize( $this->max_upload_width, $this->max_upload_height );
+		if ( ! is_wp_error( $resized ) ) {
+			$editor->save( $upload['file'] );
+		}
 
 		return $upload;
 	}
