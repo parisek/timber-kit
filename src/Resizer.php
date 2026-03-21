@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * Resizer — Image resizing and optimization via Spatie/Image.
+ *
+ * @package Parisek\TimberKit
+ */
+
 namespace Parisek\TimberKit;
 
 use Spatie\Image\Image;
@@ -9,7 +15,15 @@ use Spatie\Image\Enums\CropPosition;
 use Spatie\Image\Enums\Fit;
 
 /**
- * Used for resizer Twig filter.
+ * Handles on-the-fly image resizing, format conversion, and smart cropping.
+ *
+ * Generates responsive image variants from WordPress uploads, stores the
+ * results in the content cache directory, and returns structured arrays
+ * suitable for `<picture>` / `<img>` markup. Supports standard positional
+ * cropping via Spatie/Image and entropy-based smart cropping via GD/Imagick.
+ *
+ * All defaults (format, quality, cache path, force-regenerate) are
+ * overridable through WordPress filters prefixed with `timber_kit_resizer_`.
  */
 class Resizer {
 
@@ -62,7 +76,13 @@ class Resizer {
 	private bool $force_regenerate;
 
 	/**
-	 * Constructor - Initialize with default values that can be filtered
+	 * Initialize resizer settings, each of which can be overridden via a WordPress filter.
+	 *
+	 * Filters available:
+	 *   - `timber_kit_resizer_target_format`   — output image format (default: avif)
+	 *   - `timber_kit_resizer_target_quality`  — output quality 0-100 (default: 100)
+	 *   - `timber_kit_resizer_image_cache_dir` — absolute path to cache directory
+	 *   - `timber_kit_resizer_force_regenerate` — skip cache and always regenerate
 	 */
 	public function __construct() {
 		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );
@@ -268,14 +288,17 @@ class Resizer {
 	}
 
 	/**
-	 * Calculate Shannon entropy for an image slice
+	 * Calculate Shannon entropy for a rectangular slice of a GD image.
 	 *
-	 * @param resource $gdImage GD image resource.
-	 * @param int      $x       X coordinate of slice.
-	 * @param int      $y       Y coordinate of slice.
-	 * @param int      $width   Width of slice.
-	 * @param int      $height  Height of slice.
-	 * @return float Entropy value (0-8, higher = more detail).
+	 * Builds a 256-bucket grayscale histogram for the slice and computes
+	 * H = -Σ(p × log₂(p)). Higher values indicate more visual detail.
+	 *
+	 * @param \GdImage $gdImage GD image object (expected grayscale/edge-detected).
+	 * @param int      $x       Left offset of the slice in pixels.
+	 * @param int      $y       Top offset of the slice in pixels.
+	 * @param int      $width   Width of the slice in pixels.
+	 * @param int      $height  Height of the slice in pixels.
+	 * @return float Shannon entropy value (0–8); 0 when slice has no pixels.
 	 */
 	private function calculateSliceEntropy( $gdImage, int $x, int $y, int $width, int $height ): float {
 		$histogram = array_fill( 0, 256, 0 );
@@ -308,10 +331,14 @@ class Resizer {
 	}
 
 	/**
-	 * Create edge-detected copy of image for entropy analysis
+	 * Create a greyscale, edge-detected copy of a GD image for entropy analysis.
 	 *
-	 * @param resource $gdImage Source GD image resource.
-	 * @return resource Edge-detected GD image resource.
+	 * Copies the source image, converts it to greyscale, applies the built-in
+	 * edge-detection filter, then boosts contrast. The returned image must be
+	 * destroyed by the caller when no longer needed.
+	 *
+	 * @param \GdImage $gdImage Source GD image object.
+	 * @return \GdImage New GD image object with edge detection applied.
 	 */
 	private function createEdgeDetectedImage( $gdImage ) {
 		$width = imagesx( $gdImage );
@@ -334,12 +361,16 @@ class Resizer {
 	}
 
 	/**
-	 * Find optimal crop using entropy slice algorithm
+	 * Find the optimal crop rectangle using a coarse-to-fine entropy slice algorithm.
 	 *
-	 * @param resource $gdImage    Edge-detected GD image.
-	 * @param int      $cropWidth  Target crop width.
-	 * @param int      $cropHeight Target crop height.
-	 * @return array Rectangle with keys: x, y, width, height.
+	 * Independently optimises the X and Y offsets by scanning horizontal and
+	 * vertical slices of the edge-detected image for maximum Shannon entropy,
+	 * first with a coarse step and then refined to single-pixel precision.
+	 *
+	 * @param \GdImage $gdImage    Edge-detected GD image object.
+	 * @param int      $cropWidth  Desired crop width in pixels.
+	 * @param int      $cropHeight Desired crop height in pixels.
+	 * @return array{x: int, y: int, width: int, height: int} Optimal crop rectangle.
 	 */
 	private function getEntropyCropBySlicing( $gdImage, int $cropWidth, int $cropHeight ): array {
 		$imgWidth = imagesx( $gdImage );
@@ -457,16 +488,22 @@ class Resizer {
 	}
 
 	/**
-	 * Find optimal crop using entropy grid algorithm
+	 * Find the optimal crop rectangle using a grid-based entropy algorithm.
 	 *
-	 * @param resource $gdImage    Edge-detected GD image.
-	 * @param int      $cropWidth  Target crop width.
-	 * @param int      $cropHeight Target crop height.
-	 * @param int      $gridWidth  Grid cell width in pixels.
-	 * @param int      $gridHeight Grid cell height in pixels.
-	 * @param int      $subRows    Subgrid height in cells.
-	 * @param int      $subCols    Subgrid width in cells.
-	 * @return array Rectangle with keys: x, y, width, height.
+	 * Divides the image into a regular grid of cells, computes Shannon entropy
+	 * for each cell, then slides a subgrid window across the entropy grid to
+	 * find the region with the highest cumulative entropy. The final crop is
+	 * centred on that subgrid. This generally produces better results than
+	 * the slice algorithm for complex images.
+	 *
+	 * @param \GdImage $gdImage    Edge-detected GD image object.
+	 * @param int      $cropWidth  Desired crop width in pixels.
+	 * @param int      $cropHeight Desired crop height in pixels.
+	 * @param int      $gridWidth  Width of each grid cell in pixels (default 16).
+	 * @param int      $gridHeight Height of each grid cell in pixels (default 16).
+	 * @param int      $subRows    Number of cell rows in the sliding subgrid window (default 3).
+	 * @param int      $subCols    Number of cell columns in the sliding subgrid window (default 3).
+	 * @return array{x: int, y: int, width: int, height: int} Optimal crop rectangle.
 	 */
 	private function getEntropyCropByGridding( $gdImage, int $cropWidth, int $cropHeight, int $gridWidth = 16, int $gridHeight = 16, int $subRows = 3, int $subCols = 3 ): array {
 		$imgWidth = imagesx( $gdImage );
@@ -497,11 +534,25 @@ class Resizer {
 	}
 
 	/**
-	 * Generate responsive image variants
+	 * Generate responsive image variants from a WordPress image array.
 	 *
-	 * @param array $image Image data array with src, alt, width, height, etc.
-	 * @param array $variants Array of variant specifications [width, height, media, style, quality].
-	 * @return array Array of processed image variants.
+	 * Accepts the image array produced by Timber's `formatImage` helper (or a
+	 * plain associative array with at least a `src` key) and a list of variant
+	 * specifications. Each variant is a numerically-indexed array of the form
+	 * `[width, height, media_breakpoint, image_style, quality]`. Missing values
+	 * fall back to 0 / `'center'` / the configured default quality.
+	 *
+	 * Returns an array where each entry has the keys `src`, `type`, `width`,
+	 * `height`, `media`, `alt`, `caption`, and `description`. The last entry
+	 * is always the unmodified original image as a fallback. Returns an empty
+	 * array when `$variants` is empty or `$image` has no usable `src`.
+	 *
+	 * @param array|mixed $image    Timber/WordPress image data. When an indexed
+	 *                              array is passed (multiple sizes), the last
+	 *                              element is used as the source image.
+	 * @param array       $variants List of variant spec arrays
+	 *                              `[width, height, media, image_style, quality]`.
+	 * @return array Processed image variants, each with src/type/width/height/media/alt/caption/description keys.
 	 */
 	public function resizer( $image, array $variants ): array {
 

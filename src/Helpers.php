@@ -2,14 +2,38 @@
 
 declare(strict_types=1);
 
+/**
+ * Helpers — Static utility methods for formatting ACF data for Twig templates.
+ *
+ * @package Parisek\TimberKit
+ */
+
 namespace Parisek\TimberKit;
 
 use Timber\Term;
 use Timber\Timber;
 use Timber\ImageHelper;
 
+/**
+ * Collection of static helpers that normalise ACF field values into plain
+ * arrays suitable for consumption in Twig templates.
+ */
 class Helpers {
 
+	/**
+	 * Normalise an ACF image field value into a flat array (or list of arrays).
+	 *
+	 * Accepts an image in any of the formats ACF may return: a Timber image
+	 * object, an associative array, a numeric attachment ID, a URL string, or
+	 * an indexed list of any of the above (e.g. a gallery field).  SVG
+	 * dimensions that WordPress misreports as 1 px are coerced to null.
+	 *
+	 * @param object|array|int|string $image    Image value as returned by ACF.
+	 * @param int|null                $post_id  Post ID the field belongs to (unused, kept for API parity).
+	 * @param array|null              $field    ACF field definition array (unused, kept for API parity).
+	 * @return array Indexed list of image data arrays. An empty array is
+	 *               returned when the input cannot be resolved.
+	 */
 	public static function formatImage( $image, $post_id = null, $field = null ) {
 
 		$data = [];
@@ -90,6 +114,21 @@ class Helpers {
 		return $data;
 	}
 
+	/**
+	 * Normalise an ACF file field value into a flat array.
+	 *
+	 * Accepts a file in any format ACF may return: a Timber post object, an
+	 * associative array, a numeric attachment ID, or a URL string.  For PDF
+	 * attachments a `preview` key is populated with the result of
+	 * {@see formatImage()} using the PDF's generated thumbnail.
+	 *
+	 * @param object|array|int|string $file     File value as returned by ACF.
+	 * @param int|null                $post_id  Post ID the field belongs to (unused, kept for API parity).
+	 * @param array|null              $field    ACF field definition array (unused, kept for API parity).
+	 * @return array{id: int|null, src: string, type: string, subtype: string, filename: string, filesize: string, alt: string, caption: string, description: string, preview: array}|string
+	 *               Associative file data array, or an empty string when the
+	 *               file cannot be resolved.
+	 */
 	public static function formatFile( $file, $post_id = null, $field = null ) {
 		$attachment = null;
 
@@ -155,6 +194,20 @@ class Helpers {
 		];
 	}
 
+	/**
+	 * Normalise an ACF video (file) field value into a single flat array.
+	 *
+	 * Delegates to {@see formatImage()} (video attachments share the same
+	 * structure) and unwraps the outer indexed list so the caller receives a
+	 * single associative array instead of a list.
+	 *
+	 * @param object|array|int|string $file     Video value as returned by ACF.
+	 * @param int|null                $post_id  Post ID the field belongs to (unused, kept for API parity).
+	 * @param array|null              $field    ACF field definition array (unused, kept for API parity).
+	 * @return array{id: int|null, src: string, type: string, width: int|null, height: int|null, alt: string, caption: string, description: string}|false|null
+	 *               Single video data array, false if the list was empty, or
+	 *               null when the input is not countable.
+	 */
 	public static function formatVideo( $file, $post_id = null, $field = null ) {
 		// use formatImage for simplicity as video has similar structure
 		$video = self::formatImage( $file, $post_id, $field );
@@ -163,6 +216,20 @@ class Helpers {
 		return $video;
 	}
 
+	/**
+	 * Normalise a list of Timber Term objects into a flat array structure.
+	 *
+	 * Each term is represented as an associative array. Children are resolved
+	 * via `Timber::get_terms()` to honour any custom sort order (e.g. the
+	 * Taxonomy Terms Order plugin) and recursively formatted.  Terms whose
+	 * archive URL contains `?taxonomy=` (i.e. WordPress falls back to a query
+	 * string) are given an empty `url`.
+	 *
+	 * @param iterable $terms List of Timber\Term objects.
+	 * @return array<int, array{id: int, title: string, url: string, children: array}>
+	 *               Indexed list of term data arrays, each optionally
+	 *               containing nested `children` in the same format.
+	 */
 	public static function formatTerms( $terms ) {
 
 		$items = [];
@@ -194,8 +261,31 @@ class Helpers {
 	}
 
 	/**
-	 * Resize image into multiple variants
-	 * @deprecated This function is deprecated, use ImageHelper::resize directly, kept for backward compatibility only
+	 * Resize an image into multiple variants and generate WebP alternatives.
+	 *
+	 * For each entry in `$variants` the image is resized via
+	 * `ImageHelper::resize()` and, when the resized file exists on disk and
+	 * the source is not already WebP, a WebP copy is generated via
+	 * `ImageHelper::img_to_webp()`.  Variants are sorted descending by their
+	 * `media` breakpoint value.  SVG images are returned as-is without any
+	 * processing.  A fallback entry pointing to the original `src` is always
+	 * appended last.
+	 *
+	 * @deprecated Use ImageHelper::resize() directly. Kept for backward compatibility only.
+	 *
+	 * @param array                    $image    Image data array with at least a `src` key, as
+	 *                                           returned by {@see formatImage()}.  An indexed list
+	 *                                           is also accepted; the last element is used.
+	 * @param array<int, array{0: int|string, 1: int|string, 2: int|string, 3: string}> $variants
+	 *                                           Each entry is a four-element indexed array:
+	 *                                           `[width, height, min-width breakpoint in px, crop position]`.
+	 *                                           Empty values default to 0 / `'crop'`.
+	 * @return array<int, array{src: string, type: string, width: int, height: int, media?: string, alt?: string, caption?: string, description?: string}>
+	 *               Indexed list of image variant arrays.  Each entry contains
+	 *               at minimum `src`, `type`, `width`, `height`, and `media`.
+	 *               The final fallback entry also carries `alt`, `caption`, and
+	 *               `description`.  Returns an empty array when `$image` has no
+	 *               valid `src`.
 	 */
 	public static function resizeImage( $image, $variants ) {
 
@@ -298,13 +388,40 @@ class Helpers {
 		return $images;
 	}
 
+	/**
+	 * Determine whether an array is associative (keyed) rather than indexed.
+	 *
+	 * Compares the array's keys against a zero-based integer sequence.  An
+	 * empty array is considered indexed (returns false).
+	 *
+	 * @param array $array Array to test.
+	 * @return bool True if the array has non-sequential or non-integer keys, false otherwise.
+	 */
 	public static function isAssoc( array $array ) {
 		$keys = array_keys( $array );
 		return array_keys( $keys ) !== $keys;
 	}
 
 	/**
-	 * Normalize pagination from Timber to Bootstrap
+	 * Normalise a Timber pagination object into a Bootstrap-compatible array.
+	 *
+	 * Extracts `current`, `total`, `pages`, `first`, `last`, `next`, and
+	 * `previous` from the Timber pagination object.  The `first` and `last`
+	 * entries are derived from the resolved page list and carry a `disabled`
+	 * flag when the page is the currently active one.  `next` and `previous`
+	 * are always present in the output and marked as disabled when no link is
+	 * available.
+	 *
+	 * @param object $pagination Timber pagination object, typically from `$post->pagination()`.
+	 * @return array{
+	 *     current?: int,
+	 *     total?: int,
+	 *     pages?: array<int, array{url: string, title: string, current: bool}>,
+	 *     first?: array{url: string, title: string, disabled: bool},
+	 *     last?: array{url: string, title: string, disabled: bool},
+	 *     next: array{url: string, title: string, disabled: bool},
+	 *     previous: array{url: string, title: string, disabled: bool}
+	 * }
 	 */
 	public static function pagination( object $pagination ) {
 		$content = [];
@@ -370,7 +487,21 @@ class Helpers {
 	}
 
 	/**
-	 * Format ACF fields
+	 * Retrieve and format all ACF fields attached to a post, term, or options page.
+	 *
+	 * Resolves the post ID from a WP_Post / Timber post object, a term object,
+	 * a numeric ID, a string (options page key), or — when null is passed —
+	 * from `get_queried_object_id()` (which also covers Gutenberg block
+	 * contexts).  Each field value is passed through {@see fieldFormatter()}.
+	 * Fields with an empty formatted value are omitted from the result.
+	 *
+	 * @param object|int|string|null $post       Post object, term object, numeric post ID,
+	 *                                            options-page string key, or null to use the
+	 *                                            current queried object.
+	 * @param bool                   $is_preview True when rendering inside a Gutenberg block
+	 *                                            preview (suppresses shortcode execution for
+	 *                                            certain form plugins).
+	 * @return array<string, mixed> Associative array keyed by ACF field name with formatted values.
 	 */
 	public static function formatFields( $post = null, $is_preview = false ) {
 
@@ -414,6 +545,30 @@ class Helpers {
 		return $content;
 	}
 
+	/**
+	 * Format a single ACF field array into a template-ready value.
+	 *
+	 * Dispatches to type-specific formatting logic:
+	 * - `link` → {@see formatLink()}
+	 * - `wysiwyg` / `textarea` → shortcodes expanded, bogus markup stripped
+	 * - `image` → {@see formatImage()}
+	 * - `gallery` → each item formatted by type (image / file / video)
+	 * - `file` → {@see formatFile()}
+	 * - `post_object` → Contact Form 7 / WPForms shortcodes rendered (or kept
+	 *   as raw strings during preview)
+	 * - `oembed` → iframe `src` attribute extracted
+	 * - `repeater` / `group` → sub-fields recursively formatted
+	 * - `flexible_content` → layout sub-fields recursively formatted
+	 *
+	 * After type-specific handling the `field_formatter_{type}` WordPress
+	 * filter is applied, allowing custom overrides per field type.
+	 *
+	 * @param array|mixed  $field      ACF field definition array containing at minimum
+	 *                                  `type` and `value` keys.
+	 * @param int|string|null $post_id  Post ID used by nested formatters (may be a block ID string).
+	 * @param bool         $is_preview True when rendering inside a Gutenberg block preview.
+	 * @return mixed Formatted field value, or false when `$field` is empty.
+	 */
 	public static function fieldFormatter( $field, $post_id = null, $is_preview = false ) {
 
 		// we need to allow post_id null when we are using it during preview block without saving
@@ -575,7 +730,22 @@ class Helpers {
 	}
 
 	/**
-	 * Translate ACF link
+	 * Normalise an ACF link field value and optionally translate it via WPML.
+	 *
+	 * - Moves `target` into `attributes['target']` and removes it from the
+	 *   root level when empty.
+	 * - Sanitises `title` with `wp_kses()`, allowing only inline tags
+	 *   (`<strong>`, `<b>`, `<i>`, `<em>`, `<br>`).
+	 * - When WPML is active and the field has `wpml_cf_preferences === 2`,
+	 *   resolves the URL to the translated permalink of the target post,
+	 *   preserving any original query string and fragment.
+	 * - External / `_blank` links are returned without WPML URL translation.
+	 *
+	 * @param array|mixed  $value    ACF link field value (associative array with `url`, `title`,
+	 *                               and optionally `target`).  Non-array values are returned as-is.
+	 * @param int|null     $post_id  Post ID the field belongs to (unused directly; kept for API parity).
+	 * @param array        $field    ACF field definition array; `wpml_cf_preferences` is read from here.
+	 * @return array|mixed Normalised link array, or the original value unchanged when it is not an array.
 	 */
 	public static function formatLink( $value, $post_id, $field ) {
 
@@ -651,6 +821,23 @@ class Helpers {
 		return $value;
 	}
 
+	/**
+	 * Convert a Timber menu (or menu name) into a nested flat array structure.
+	 *
+	 * Recursively processes menu items and their children.  WordPress default
+	 * CSS classes (`menu-item*`, `current_page*`, `page_item*`, `page-item*`)
+	 * are stripped from each item's class list.  When WPML (sitepress) is
+	 * active, item descriptions are registered as translatable strings and
+	 * replaced with their translated equivalents.  Any ACF fields attached to
+	 * the menu item (via {@see formatFields()}) are merged into the item array.
+	 *
+	 * @param \Timber\Menu|string $menu_or_name  A Timber Menu object or a registered menu name/slug.
+	 * @param \Timber\MenuItem|null $parent_item When null the root items of the menu are processed;
+	 *                                            otherwise the children of this item are processed
+	 *                                            (used for recursive calls).
+	 * @return array<int, array{id: int, title: string, url: string, description: string, attributes: array{target: string|null, class: string}, in_active_trail: bool, is_active: bool, below: array}>
+	 *               Indexed list of menu item arrays with nested `below` lists.
+	 */
 	public static function formatMenu( $menu_or_name, $parent_item = null ) {
 
 		// If a menu name (string) was passed, fetch the menu object once.
@@ -709,6 +896,18 @@ class Helpers {
 		return $items;
 	}
 
+	/**
+	 * Build a language-switcher array from WPML's active languages.
+	 *
+	 * Returns an empty array when WPML is not installed (the `ICL_SITEPRESS_VERSION`
+	 * constant is absent).  For languages where the translated content is
+	 * missing (`language['missing'] === true`) the `url` is set to an empty
+	 * string so templates can disable the link.
+	 *
+	 * @return array<int, array{id: string, title: string, url: string, home_url: string, is_active: bool}>
+	 *               Indexed list of language items, or an empty array when
+	 *               WPML is not active.
+	 */
 	public static function formatLanguageSwitcher() {
 
 		if ( ! defined( 'ICL_SITEPRESS_VERSION' ) ) {
@@ -741,8 +940,16 @@ class Helpers {
 	}
 
 	/**
-	 * This function extracts the slug from a URL
-	 * useful for url_to_postid() when using WPML with prefixes
+	 * Extract the path (slug) from a URL, stripping the WPML language prefix if present.
+	 *
+	 * Useful as a fallback for `url_to_postid()` when WPML is active with
+	 * language URL prefixes (e.g. `/cs/my-page`): WordPress may return 0 for
+	 * a valid URL in a non-default language, so stripping the prefix first
+	 * allows a second lookup against the default-language slug.
+	 *
+	 * @param string $url Absolute URL to process.
+	 * @return string URL path without domain and without leading language prefix,
+	 *                always starting with `/` (or an empty string for the site root).
 	 */
 	public static function extract_slug_from_url( $url ) {
 

@@ -2,6 +2,12 @@
 
 declare(strict_types=1);
 
+/**
+ * StarterBase — Configurable WordPress/Timber base class.
+ *
+ * @package Parisek\TimberKit
+ */
+
 namespace Parisek\TimberKit;
 
 use Timber\Site;
@@ -17,19 +23,42 @@ use Parisek\Twig\CommonExtension;
 use Parisek\Twig\AttributeExtension;
 use Parisek\Twig\TypographyExtension;
 
+/**
+ * Base class for WordPress themes using Timber/Twig templating.
+ *
+ * Provides configurable defaults for security hardening, media processing,
+ * Gutenberg block management, ACF integration, and Twig extensions.
+ * Extend this class and override protected properties in the child constructor
+ * before calling parent::__construct().
+ */
 class StarterBase extends Site {
 
+	/** @var string|false Theme text domain, set from wp_get_theme(). */
 	public $theme_name;
 
 	/**
 	 * Configurable properties — override in child constructor before calling parent::__construct()
 	 */
+
+	/** @var array<string, string> Navigation menus to register (slug => label). */
 	protected array $menus = [];
+
+	/** @var array<string, string> Font stylesheets to enqueue (handle-suffix => relative path from static/). */
 	protected array $font_stylesheets = [];
+
+	/** @var string[] Font files to preload (relative paths from static/). */
 	protected array $preload_fonts = [];
+
+	/** @var string[] Post types included in frontend search results. */
 	protected array $search_post_types = [ 'post' ];
+
+	/** @var string[] Post types treated as articles (skip block wrapper in render_block). */
 	protected array $article_post_types = [ 'post' ];
+
+	/** @var array{slug: string, title: string} Custom Gutenberg block category definition. */
 	protected array $block_category = [ 'slug' => 'custom', 'title' => 'Custom' ];
+
+	/** @var string[] Core Gutenberg blocks allowed in the editor. ACF blocks are always allowed. */
 	protected array $allowed_core_blocks = [
 		'core/paragraph',
 		'core/heading',
@@ -47,41 +76,90 @@ class StarterBase extends Site {
 		'core/shortcode',
 		'core/block',
 	];
+
+	/** @var string Relative path to favicon SVG from the static/ directory. */
 	protected string $favicon_path = 'images/touch/favicon.svg';
+
+	/** @var string Relative path to typography YAML config from the static/ directory. */
 	protected string $typography_config = 'typography.yml';
+
+	/** @var string Twig template used to wrap core Gutenberg blocks on non-article pages. */
 	protected string $block_wrapper_template = '@component/content/content.twig';
 
 	/**
 	 * Security & cleanup — override in child constructor to disable
 	 */
+
+	/** @var bool Remove unnecessary meta tags from wp_head. */
 	protected bool $cleanup_wp_head = true;
+
+	/** @var bool Disable XML-RPC and remove X-Pingback header. */
 	protected bool $disable_xmlrpc = true;
+
+	/** @var bool Remove emoji scripts, styles, and filters. */
 	protected bool $disable_emojis = true;
+
+	/** @var bool Disable all RSS/RDF/Atom feeds (returns 404). */
 	protected bool $disable_feeds = true;
+
+	/** @var bool Remove comment support from posts and pages. */
 	protected bool $disable_comments = true;
+
+	/** @var bool Disable frontend search (redirects to 404). */
 	protected bool $disable_search = true;
+
+	/** @var bool Remove default dashboard widgets and hide dashboard for non-admins. */
 	protected bool $cleanup_dashboard = true;
+
+	/** @var bool Remove updates and comments nodes from the admin toolbar. */
 	protected bool $cleanup_admin_bar = true;
+
+	/** @var bool Grant editor role theme_options cap, hide unnecessary admin pages, enable WPML translate. */
 	protected bool $editor_role_enhancements = true;
+
+	/** @var string Admin URL path editors are redirected to after login. */
 	protected string $editor_login_redirect_url = 'edit.php?post_type=page';
+
+	/** @var bool Prevent the site from sending pingbacks to itself. */
 	protected bool $disable_self_pingbacks = true;
+
+	/** @var bool Restrict REST API /wp/v2/users endpoint to authenticated users. */
 	protected bool $restrict_rest_users = true;
 
 	/**
 	 * Media processing — replaces clean-image-filenames + imsanity plugins
 	 */
+
+	/** @var bool Sanitize uploaded filenames (remove diacritics, lowercase, normalize). */
 	protected bool $clean_image_filenames = true;
+
+	/** @var int Maximum width in pixels for uploaded images (0 to disable). */
 	protected int $max_upload_width = 2560;
+
+	/** @var int Maximum height in pixels for uploaded images (0 to disable). */
 	protected int $max_upload_height = 2560;
 
 	/**
 	 * Gutenberg enhancements
 	 */
+
+	/** @var bool Enable wide/full alignment support in Gutenberg. */
 	protected bool $gutenberg_align_wide = true;
+
+	/** @var bool Enable responsive embed wrappers. */
 	protected bool $gutenberg_responsive_embeds = true;
+
+	/** @var bool Enable editor styles and enqueue gutenberg-editor.css. */
 	protected bool $gutenberg_editor_styles = true;
+
+	/** @var bool Remove core block patterns from the inserter. */
 	protected bool $gutenberg_disable_core_patterns = true;
 
+	/**
+	 * Register all WordPress actions and filters, then call parent Site constructor.
+	 *
+	 * @return void
+	 */
 	public function __construct() {
 		add_action( 'after_setup_theme', array( $this, 'theme_supports' ) );
 		add_filter( 'timber/context', array( $this, 'timber_context' ) );
@@ -187,7 +265,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Register Menu.
+	 * Register navigation menus defined in $this->menus.
+	 *
+	 * Hooked to `init`.
+	 *
+	 * @return void
 	 */
 	public function register_menus() {
 		foreach ( $this->menus as $slug => $label ) {
@@ -196,7 +278,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Register Post Type.
+	 * Include PHP files from templates/ directory (excluding gutenberg/) to register post types.
+	 *
+	 * Hooked to `acf/init`.
+	 *
+	 * @return void
 	 */
 	public function register_post_types() {
 
@@ -214,8 +300,13 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Add generic variables to global context.
-	 * Override in child class for project-specific context (header, footer, etc.)
+	 * Add generic variables to the global Timber context.
+	 *
+	 * Override in child class for project-specific context (header, footer, etc.).
+	 * Hooked to `timber/context`.
+	 *
+	 * @param array $context The Timber context array.
+	 * @return array Modified context with homeUrl, templateUrl, frontPage, langcode, and search_query.
 	 */
 	public function timber_context( $context ) {
 
@@ -232,6 +323,13 @@ class StarterBase extends Site {
 		return $context;
 	}
 
+	/**
+	 * Register theme support features (title-tag, thumbnails, HTML5, editor styles, etc.).
+	 *
+	 * Hooked to `after_setup_theme`.
+	 *
+	 * @return void
+	 */
 	public function theme_supports() {
 		// Add default posts and comments RSS feed links to head.
 		// add_theme_support( 'automatic-feed-links' );
@@ -292,7 +390,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Register Twig Functions.
+	 * Register Twig extensions, filters, and functions (component_*, page_*, template_exists, etc.).
+	 *
+	 * Hooked to `timber/twig`.
+	 *
+	 * @param Environment $twig The Twig environment instance.
+	 * @return Environment Modified Twig environment with all extensions and functions.
 	 */
 	public function timber_twig( $twig ) {
 		$twig->addExtension( new StringLoaderExtension() );
@@ -410,7 +513,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Register Twig Namespace.
+	 * Register Twig template namespaces (@component, @macro, @page, @icons, @images, @wordpress).
+	 *
+	 * Hooked to `timber/loader/loader`.
+	 *
+	 * @param \Twig\Loader\FilesystemLoader $loader The Twig filesystem loader.
+	 * @return \Twig\Loader\FilesystemLoader Modified loader with registered paths.
 	 */
 	public function timber_twig_loader( $loader ) {
 		$loader->addPath( get_template_directory() . '/static/templates/component', 'component' );
@@ -423,7 +531,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Change Timber's cache folder.
+	 * Set Timber's Twig cache directory to wp-content/cache/timber.
+	 *
+	 * Hooked to `timber/twig/environment/options`.
+	 *
+	 * @param array $options Twig environment options.
+	 * @return array Modified options with custom cache path.
 	 */
 	public function timber_cache_location( $options ) {
 		$options['cache'] = WP_CONTENT_DIR . '/cache/timber';
@@ -432,7 +545,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Change Timber's image url.
+	 * Redirect Timber image URLs to wp-content/cache/image, with WPML compatibility.
+	 *
+	 * Hooked to `timber/image/new_url`.
+	 *
+	 * @param string $location The original image URL.
+	 * @return string Modified image URL pointing to cache directory.
 	 */
 	public function timber_image_new_url( $location ) {
 		$upload_dir = wp_upload_dir();
@@ -454,7 +572,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Change Timber's image path.
+	 * Redirect Timber image filesystem paths to wp-content/cache/image, with WPML compatibility.
+	 *
+	 * Hooked to `timber/image/new_path`.
+	 *
+	 * @param string $location The original image filesystem path.
+	 * @return string Modified path pointing to cache directory.
 	 */
 	public function timber_image_new_path( $location ) {
 		$upload_dir = wp_upload_dir();
@@ -477,7 +600,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Enqueue scripts and styles.
+	 * Enqueue frontend CSS and JS assets, dequeue jQuery, remove WPML block styles.
+	 *
+	 * Hooked to `enqueue_block_assets`.
+	 *
+	 * @return void
 	 */
 	public function assets() {
 
@@ -508,7 +635,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Preload resources in head
+	 * Add font files from $this->preload_fonts to preload resource hints.
+	 *
+	 * Hooked to `wp_preload_resources`.
+	 *
+	 * @param array $preload_resources Existing preload resource entries.
+	 * @return array Modified preload resources with font entries appended.
 	 */
 	public function preload_resources( array $preload_resources ): array {
 
@@ -525,7 +657,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Enqueue scripts and styles for admin.
+	 * Enqueue resizable editor sidebar script and styles on block editor screens.
+	 *
+	 * Hooked to `admin_enqueue_scripts`.
+	 *
+	 * @return void
 	 */
 	public function admin_enqueue_scripts() {
 		$screen = get_current_screen();
@@ -540,7 +676,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Enqueue scripts and styles for block editor.
+	 * Enqueue Gutenberg editor CSS and theme JS module in the block editor.
+	 *
+	 * Hooked to `enqueue_block_editor_assets`.
+	 *
+	 * @return void
 	 */
 	public function enqueue_block_editor_assets() {
 		wp_enqueue_style( $this->theme_name . '-gutenberg-editor', get_template_directory_uri() . '/static/dist/css/gutenberg-editor.css', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/css/gutenberg-editor.css' ) ) );
@@ -548,7 +688,13 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Allow only specific blocks in Gutenberg editor
+	 * Restrict Gutenberg to allowed core blocks plus all ACF blocks.
+	 *
+	 * Hooked to `allowed_block_types_all`.
+	 *
+	 * @param bool|string[] $allowed_block_types Default allowed block types.
+	 * @param \WP_Block_Editor_Context $block_editor_context The current block editor context.
+	 * @return string[] Filtered list of allowed block type names.
 	 */
 	public function allowed_block_types_all( $allowed_block_types, $block_editor_context ) {
 
@@ -568,7 +714,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Load Dynamicaly Gutenberg Blocks with modern block.json
+	 * Register Gutenberg blocks from block.json files and include PHP files in block directories.
+	 *
+	 * Scans templates/gutenberg and static/templates/component for block.json and .php files.
+	 * Hooked to `init`.
+	 *
+	 * @return void
 	 */
 	public function gutenberg_blocks() {
 
@@ -598,8 +749,16 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Identify if gutenberg parent block
-	 * from https://github.com/WordPress/gutenberg/issues/17358#issuecomment-1698655247
+	 * Attach parent block info to parsed block data for nested block detection.
+	 *
+	 * Hooked to `render_block_data`.
+	 *
+	 * @see https://github.com/WordPress/gutenberg/issues/17358#issuecomment-1698655247
+	 *
+	 * @param array $parsed_block The parsed block array.
+	 * @param array $source_block The raw source block array.
+	 * @param \WP_Block|null $parent_block The parent WP_Block instance, or null if top-level.
+	 * @return array Modified parsed block with 'parent' key added.
 	 */
 	public function render_block_data( $parsed_block, $source_block, $parent_block ) {
 
@@ -617,7 +776,14 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Add custom wrapper to all core Gutenberg blocks
+	 * Wrap top-level core Gutenberg blocks with a Twig content template on non-article pages.
+	 *
+	 * Skips nested blocks, non-core blocks, layout blocks, and article post types.
+	 * Hooked to `render_block`.
+	 *
+	 * @param string $block_content The rendered block HTML.
+	 * @param array  $block         The parsed block data including blockName and attributes.
+	 * @return string Possibly wrapped block HTML.
 	 */
 	public function render_block( $block_content, $block ) {
 
@@ -661,7 +827,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Custom categories for Gutenberg Blocks
+	 * Add a custom block category to the Gutenberg block inserter.
+	 *
+	 * Hooked to `block_categories_all`.
+	 *
+	 * @param array[] $categories Existing block categories.
+	 * @return array[] Categories with the custom category appended.
 	 */
 	public function block_categories_all( $categories ) {
 		return array_merge(
@@ -676,8 +847,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Hide WordPress core update notifications from all users except administrators
-	 * From https://www.cssigniter.com/hide-the-wordpress-update-notifications-from-all-users-except-administrators/
+	 * Hide WordPress core update notifications from non-administrator users.
+	 *
+	 * Hooked to `admin_head`.
+	 *
+	 * @return void
 	 */
 	public function hide_core_update_notifications() {
 		if ( ! current_user_can( 'update_core' ) ) {
@@ -686,8 +860,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * ACF Wysiwyg set height to lower value then default
-	 * From https://gist.github.com/courtneymyers/eb51f918181746181871f7ae516b428b
+	 * Output CSS/JS to reduce ACF WYSIWYG editor height and enable Alpine.js attribute compatibility.
+	 *
+	 * Hooked to `acf/input/admin_footer`.
+	 *
+	 * @return void
 	 */
 	public function acf_input_admin_footer() {
 
@@ -724,8 +901,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * ACF Wysiwyg set height to lower value then default
-	 * From https://gist.github.com/courtneymyers/eb51f918181746181871f7ae516b428b
+	 * Add custom body margin styles to TinyMCE editor content.
+	 *
+	 * Hooked to `tiny_mce_before_init`.
+	 *
+	 * @param array $mceInit TinyMCE initialization settings.
+	 * @return array Modified settings with custom content_style.
 	 */
 	public function tiny_mce_before_init( $mceInit ) {
 		$styles = 'body.mce-content-body { margin-top:0;margin-bottom:0 }';
@@ -738,7 +919,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Create custom admin pages
+	 * Register the ACF "Theme Settings" options page.
+	 *
+	 * Hooked to `acf/init`.
+	 *
+	 * @return void
 	 */
 	public function acf_options_page() {
 		if ( function_exists( 'acf_add_options_page' ) ) {
@@ -758,7 +943,12 @@ class StarterBase extends Site {
 
 
 	/**
-	 * Add Settings link to admin top bar
+	 * Add "Theme Settings" link under the site name in the admin toolbar.
+	 *
+	 * Hooked to `admin_bar_menu`.
+	 *
+	 * @param \WP_Admin_Bar $wp_admin_bar The admin bar instance.
+	 * @return void
 	 */
 	public function admin_bar_menu( $wp_admin_bar ) {
 		$wp_admin_bar->add_node( [
@@ -770,7 +960,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Clear Breeze cache when ACF options page is saved
+	 * Clear Breeze cache when the ACF options page is saved.
+	 *
+	 * Hooked to `acf/save_post`.
+	 *
+	 * @param int|string $post_id The post ID or 'options' for the options page.
+	 * @return void
 	 */
 	public function clear_cache_on_options_save( $post_id ) {
 		if ( $post_id !== 'options' ) {
@@ -783,7 +978,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Google Maps API key
+	 * Provide Google Maps API key from GOOGLE_MAPS_API_KEY constant to ACF.
+	 *
+	 * Hooked to `acf/fields/google_map/api`.
+	 *
+	 * @param array $api ACF Google Map API settings.
+	 * @return array Modified API settings with key if constant is defined.
 	 */
 	public function acf_google_map_api( $api ) {
 		// Place CONSTANT definition to wp-config.php
@@ -795,7 +995,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * ACF load JSON files from component directories
+	 * Add subdirectories of templates/ and static/templates/component/ to ACF JSON load paths.
+	 *
+	 * Hooked to `acf/settings/load_json`.
+	 *
+	 * @param string[] $paths Existing ACF JSON load paths.
+	 * @return string[] Modified paths with component directories appended.
 	 */
 	public function acf_load_json( $paths ) {
 
@@ -819,7 +1024,15 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * ACF save JSON files to component directories
+	 * Route ACF JSON save to the appropriate component/template directory based on location rules.
+	 *
+	 * Inspects ACF field group location rules (block, post_type, taxonomy, nav_menu_item,
+	 * options_page) or post_type/taxonomy config to determine the save directory.
+	 * Hooked to `acf/json/save_paths`.
+	 *
+	 * @param string[] $paths Default save paths.
+	 * @param array    $post  The ACF field group or post type/taxonomy configuration.
+	 * @return string[] Modified save paths targeting the correct directory.
 	 */
 	public function acf_json_save_paths( $paths, $post ) {
 
@@ -928,7 +1141,15 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * ACF save JSON file name
+	 * Determine the ACF JSON filename based on location rules or content type.
+	 *
+	 * Returns 'acf.json' for block and post_type locations, or '{type}.json' for
+	 * post type/taxonomy configurations. Hooked to `acf/json/save_file_name`.
+	 *
+	 * @param string $filename  Default filename.
+	 * @param array  $post      The ACF field group or configuration.
+	 * @param string $load_path The load path being saved to.
+	 * @return string Determined JSON filename.
 	 */
 	public function acf_json_save_file_name( $filename, $post, $load_path ) {
 
@@ -976,8 +1197,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Template redirect
-	 * Allow paging on custom post types
+	 * Convert 'page' query var to 'paged' on singular posts and prevent canonical redirect.
+	 *
+	 * Enables pagination on single post templates. Hooked to `template_redirect`.
+	 *
+	 * @return void
 	 */
 	public function template_redirect() {
 
@@ -996,15 +1220,24 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Define custom page templates in code
+	 * Define custom page templates in code. Override in child class to add templates.
+	 *
+	 * Hooked to `theme_page_templates`.
+	 *
+	 * @param array<string, string> $templates Existing page templates (filename => label).
+	 * @return array<string, string> Page templates, unmodified by default.
 	 */
 	public function theme_page_templates( $templates ) {
 		return $templates;
 	}
 
 	/**
-	 * Allow to filter by custom taxonomies in administration
-	 * https://wordpress.stackexchange.com/a/387502
+	 * Add taxonomy dropdown filters on custom post type admin list screens.
+	 *
+	 * Only applies to non-default post types with taxonomies that have show_admin_column enabled.
+	 * Hooked to `restrict_manage_posts`.
+	 *
+	 * @return void
 	 */
 	public function restrict_manage_posts() {
 
@@ -1048,7 +1281,13 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Add default CSS classes to image
+	 * Append 'img-fluid' CSS class to all attachment images.
+	 *
+	 * Hooked to `wp_get_attachment_image_attributes`.
+	 *
+	 * @param array    $attr       Image element attributes.
+	 * @param \WP_Post $attachment The attachment post object.
+	 * @return array Modified attributes with 'img-fluid' class added.
 	 */
 	public function wp_get_attachment_image_attributes( $attr, $attachment ) {
 
@@ -1060,22 +1299,40 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Set maximum quality, use resizer for optimization.
+	 * Set JPEG quality to 100% (optimization handled by the Resizer).
+	 *
+	 * Hooked to `jpeg_quality`.
+	 *
+	 * @param int $quality Default JPEG quality.
+	 * @return int Always 100.
 	 */
 	public function jpeg_quality( $quality ) {
 		return 100;
 	}
 
 	/**
-	 * Set maximum quality, use resizer for optimization.
+	 * Set WP image editor quality to 100% (optimization handled by the Resizer).
+	 *
+	 * Hooked to `wp_editor_set_quality`.
+	 *
+	 * @param int $quality Default editor quality.
+	 * @return int Always 100.
 	 */
 	public function wp_editor_set_quality( $quality ) {
 		return 100;
 	}
 
 	/**
-	 * Fix wrong order in ACF gallery, relationship, post_object fields with WPML
-	 * from https://www.pixelbar.be/blog/fix-wrong-order-in-acf-gallery-and-relationship-fields-with-wpml/
+	 * Fix wrong order in ACF post_object fields with WPML by translating post IDs.
+	 *
+	 * Hooked to `acf/format_value/type=post_object`.
+	 *
+	 * @see https://www.pixelbar.be/blog/fix-wrong-order-in-acf-gallery-and-relationship-fields-with-wpml/
+	 *
+	 * @param mixed  $value    The field value (array of post IDs or single value).
+	 * @param int    $field_id The ACF field ID.
+	 * @param array  $field    The ACF field settings.
+	 * @return mixed Translated post IDs array, or original value if WPML is inactive.
 	 */
 	public function fix_wrong_acf_orders_with_ids( $value, $field_id, $field ) {
 
@@ -1098,6 +1355,14 @@ class StarterBase extends Site {
 		return $wpml_value;
 	}
 
+	/**
+	 * Restrict frontend search queries to post types defined in $this->search_post_types.
+	 *
+	 * Hooked to `pre_get_posts`.
+	 *
+	 * @param \WP_Query $query The current query object.
+	 * @return \WP_Query Modified query.
+	 */
 	public function search_post_type_filter( $query ) {
 
 		if ( $query->is_search && ! is_admin() ) {
@@ -1107,6 +1372,13 @@ class StarterBase extends Site {
 		return $query;
 	}
 
+	/**
+	 * Remove Full Site Editing global styles enqueued in wp_footer (WP 6.9+).
+	 *
+	 * Hooked to `init`.
+	 *
+	 * @return void
+	 */
 	public function remove_global_styles_and_svg_filters() {
 		// Remove Global Styles enqueued by Full Site Editing (WordPress 5.9+)
 		// In WP 6.9+ global styles moved from wp_enqueue_scripts to wp_footer
@@ -1115,7 +1387,13 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Clean up Timber generated images when attachment is deleted
+	 * Delete cached Timber/Resizer images when an attachment is deleted.
+	 *
+	 * Scans wp-content/cache/image for files matching the attachment basename.
+	 * Hooked to `delete_attachment`.
+	 *
+	 * @param int $attachment_id The ID of the deleted attachment.
+	 * @return void
 	 */
 	public function cleanup_cached_images( $attachment_id ) {
 		// Get the file path of the deleted attachment
@@ -1182,7 +1460,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Prevent uploading images with duplicate filenames but different extensions like sample.jpg and sample.png
+	 * Prevent uploading images when a file with the same basename but different extension already exists.
+	 *
+	 * Hooked to `wp_handle_upload_prefilter`.
+	 *
+	 * @param array $file The upload data array with 'name', 'type', 'tmp_name', 'error', 'size'.
+	 * @return array Upload data, possibly with 'error' set if a duplicate basename is found.
 	 */
 	public function prevent_duplicate_filename_uploads( $file ) {
 		// Only check for image files
@@ -1238,7 +1521,14 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Redirect site icon URL to custom favicon in theme directory
+	 * Override site icon URL with the theme's custom favicon.
+	 *
+	 * Hooked to `get_site_icon_url`.
+	 *
+	 * @param string $url     Default site icon URL.
+	 * @param int    $size    Requested icon size in pixels.
+	 * @param int    $blog_id Blog ID for multisite.
+	 * @return string Favicon URL from theme's static directory.
 	 */
 	public function get_site_icon_url( $url, $size, $blog_id ) {
 		return get_template_directory_uri() . '/static/' . $this->favicon_path;
@@ -1249,7 +1539,11 @@ class StarterBase extends Site {
 	// =========================================================================
 
 	/**
-	 * Remove unnecessary meta tags from wp_head
+	 * Remove unnecessary meta tags and links from wp_head (feeds, RSD, generator, etc.).
+	 *
+	 * Hooked to `init`.
+	 *
+	 * @return void
 	 */
 	public function cleanup_wp_head() {
 		remove_action( 'wp_head', 'feed_links', 2 );
@@ -1264,7 +1558,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Remove X-Pingback HTTP header
+	 * Remove X-Pingback HTTP header from responses.
+	 *
+	 * Hooked to `wp_headers`.
+	 *
+	 * @param array $headers HTTP response headers.
+	 * @return array Headers with X-Pingback removed.
 	 */
 	public function remove_x_pingback_header( $headers ) {
 		unset( $headers['X-Pingback'] );
@@ -1272,7 +1571,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Disable WordPress emoji scripts, styles and filters
+	 * Remove WordPress emoji scripts, styles, and mail/feed filters.
+	 *
+	 * Hooked to `init`.
+	 *
+	 * @return void
 	 */
 	public function disable_emojis() {
 		remove_action( 'admin_print_styles', 'print_emoji_styles' );
@@ -1286,7 +1589,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Disable all RSS/RDF/Atom feeds — return 404
+	 * Disable all RSS/RDF/Atom feeds by returning 404 and removing feed links.
+	 *
+	 * Hooked to `init`.
+	 *
+	 * @return void
 	 */
 	public function disable_feeds() {
 		$disable_feed = function () {
@@ -1310,7 +1617,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Disable comment support from posts and pages
+	 * Remove comment support from posts and pages post types.
+	 *
+	 * Hooked to `init`.
+	 *
+	 * @return void
 	 */
 	public function disable_comments() {
 		remove_post_type_support( 'post', 'comments' );
@@ -1318,7 +1629,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Disable frontend search — redirect to 404
+	 * Disable frontend search by converting search queries to 404.
+	 *
+	 * Hooked to `parse_query`.
+	 *
+	 * @param \WP_Query $query The current query object.
+	 * @return void
 	 */
 	public function disable_search( $query ) {
 		if ( ! is_admin() && is_search() ) {
@@ -1330,7 +1646,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Remove dashboard widgets
+	 * Remove default dashboard widgets (activity, plugins, drafts, comments, etc.).
+	 *
+	 * Hooked to `wp_dashboard_setup`.
+	 *
+	 * @return void
 	 */
 	public function cleanup_dashboard_widgets() {
 		global $wp_meta_boxes;
@@ -1348,7 +1668,11 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Remove dashboard page for non-administrators
+	 * Remove dashboard page from admin menu for non-administrators.
+	 *
+	 * Hooked to `admin_menu`.
+	 *
+	 * @return void
 	 */
 	public function cleanup_dashboard_menu() {
 		if ( ! current_user_can( 'administrator' ) ) {
@@ -1357,7 +1681,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Remove updates and comments nodes from admin toolbar
+	 * Remove 'updates' and 'comments' nodes from the admin toolbar.
+	 *
+	 * Hooked to `admin_bar_menu`.
+	 *
+	 * @param \WP_Admin_Bar $wp_admin_bar The admin bar instance.
+	 * @return void
 	 */
 	public function cleanup_admin_bar_items( $wp_admin_bar ) {
 		$wp_admin_bar->remove_node( 'updates' );
@@ -1365,8 +1694,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Editor role: hide unnecessary admin pages, grant theme_options cap,
-	 * hide themes/widgets/customize pages
+	 * Hide unnecessary admin pages for non-admins, grant editor theme_options cap.
+	 *
+	 * Removes comments, discussion, tools, themes, widgets, and customize pages as appropriate.
+	 * Hooked to `admin_menu`.
+	 *
+	 * @return void
 	 */
 	public function editor_admin_menu() {
 		remove_menu_page( 'edit-comments.php' );
@@ -1390,8 +1723,18 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Allow editor/administrator to edit privacy page settings
+	 * Allow editors and administrators to manage privacy page settings.
+	 *
+	 * Removes the manage_options requirement for manage_privacy_options capability.
+	 * Hooked to `map_meta_cap`.
+	 *
 	 * @see https://wordpress.stackexchange.com/questions/318666/how-to-allow-editor-to-edit-privacy-page-settings-only
+	 *
+	 * @param string[] $caps    Required primitive capabilities for the requested capability.
+	 * @param string   $cap     The capability being checked.
+	 * @param int      $user_id The user ID being checked.
+	 * @param array    $args    Additional arguments passed to the capability check.
+	 * @return string[] Modified required capabilities.
 	 */
 	public function editor_privacy_page_cap( $caps, $cap, $user_id, $args ) {
 		if ( ! is_user_logged_in() ) {
@@ -1409,7 +1752,14 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Redirect non-admin users to pages list after login
+	 * Redirect non-administrator users to the configured URL after login.
+	 *
+	 * Hooked to `login_redirect`.
+	 *
+	 * @param string   $redirect_to             Default redirect URL.
+	 * @param string   $requested_redirect_to   Requested redirect URL from login form.
+	 * @param \WP_User|\WP_Error $user          The authenticated user or error.
+	 * @return string Redirect URL.
 	 */
 	public function editor_login_redirect( $redirect_to, $requested_redirect_to, $user ) {
 		if ( $user instanceof \WP_User && ! in_array( 'administrator', $user->roles, true ) ) {
@@ -1419,7 +1769,13 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Allow editor to translate with WPML
+	 * Allow editors with 'translate' capability to translate content in WPML.
+	 *
+	 * Hooked to `wpml_user_can_translate`.
+	 *
+	 * @param bool     $user_can_translate Whether the user can translate.
+	 * @param \WP_User $user               The user being checked.
+	 * @return bool True if user is an editor with translate cap, otherwise original value.
 	 */
 	public function editor_wpml_translate( $user_can_translate, $user ) {
 		if ( in_array( 'editor', (array) $user->roles, true ) && current_user_can( 'translate' ) ) {
@@ -1429,7 +1785,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Disable self-pingbacks
+	 * Remove links pointing to the site's own URL from pingback list.
+	 *
+	 * Hooked to `pre_ping`.
+	 *
+	 * @param string[] $links Pingback URLs (passed by reference).
+	 * @return void
 	 */
 	public function disable_self_pingbacks( &$links ) {
 		$home_url = home_url();
@@ -1441,7 +1802,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Restrict REST API /wp/v2/users endpoint to authenticated users only
+	 * Block unauthenticated access to the REST API /wp/v2/users endpoint.
+	 *
+	 * Hooked to `rest_authentication_errors`.
+	 *
+	 * @param \WP_Error|null|true $result Existing authentication result.
+	 * @return \WP_Error|null|true WP_Error with 401 status for unauthenticated user requests, otherwise passthrough.
 	 */
 	public function restrict_rest_users_endpoint( $result ) {
 		if ( $result !== null ) {
@@ -1465,8 +1831,12 @@ class StarterBase extends Site {
 	// =========================================================================
 
 	/**
-	 * Clean uploaded filenames — remove diacritics, lowercase, normalize
-	 * Replaces clean-image-filenames plugin
+	 * Sanitize uploaded filenames: remove diacritics, lowercase, replace spaces with hyphens.
+	 *
+	 * Replaces the clean-image-filenames plugin. Hooked to `sanitize_file_name`.
+	 *
+	 * @param string $filename The original uploaded filename.
+	 * @return string Cleaned filename with extension preserved.
 	 */
 	public function clean_uploaded_filename( $filename ) {
 		$info = pathinfo( $filename );
@@ -1490,8 +1860,13 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Resize uploaded images if they exceed max dimensions
-	 * Replaces imsanity plugin
+	 * Downscale uploaded images exceeding max_upload_width or max_upload_height.
+	 *
+	 * Supports JPEG, PNG, GIF, and WebP. Replaces the imsanity plugin.
+	 * Hooked to `wp_handle_upload`.
+	 *
+	 * @param array $upload Upload data with 'file', 'url', and 'type' keys.
+	 * @return array Unmodified upload data (image is resized in place).
 	 */
 	public function resize_uploaded_image( $upload ) {
 		if ( ! isset( $upload['file'] ) || ! isset( $upload['type'] ) ) {
