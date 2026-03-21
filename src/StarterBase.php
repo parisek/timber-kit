@@ -229,8 +229,6 @@ class StarterBase extends Site {
 		}
 		$context['ccnstL'] = get_privacy_policy_url();
 		$context['search_query'] = get_search_query();
-		$breadcrumbs = new \Breadcrumb();
-		$context['breadcrumb'] = $breadcrumbs->get();
 
 		return $context;
 	}

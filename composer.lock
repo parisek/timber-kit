@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "d9125678d9fa92334d0fa423d97dc301",
+    "content-hash": "82563f908b41e7aa686b9cbbe0da34f1",
     "packages": [
         {
             "name": "drupal/core-render",
@@ -4017,7 +4017,7 @@
     "prefer-stable": false,
     "prefer-lowest": false,
     "platform": {
-        "php": "^8.2"
+        "php": "^8.3"
     },
     "platform-dev": {},
     "plugin-api-version": "2.9.0"
