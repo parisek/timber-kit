@@ -1,5 +1,0 @@
-name: timber-kit
-type: php
-php_version: "8.3"
-omit_containers: [db]
-disable_settings_management: true
