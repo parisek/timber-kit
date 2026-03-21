@@ -227,7 +227,6 @@ class StarterBase extends Site {
 		} else {
 			$context['langcode'] = get_bloginfo( 'language' );
 		}
-		$context['ccnstL'] = get_privacy_policy_url();
 		$context['search_query'] = get_search_query();
 
 		return $context;

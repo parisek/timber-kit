@@ -65,10 +65,10 @@ class Resizer {
 	 * Constructor - Initialize with default values that can be filtered
 	 */
 	public function __construct() {
-		$this->target_format = apply_filters( 'portadesign_resizer_target_format', self::DEFAULT_FORMAT );
-		$this->target_quality = (int) apply_filters( 'portadesign_resizer_target_quality', self::DEFAULT_QUALITY );
-		$this->image_cache_dir = apply_filters( 'portadesign_resizer_image_cache_dir', WP_CONTENT_DIR . self::CACHE_DIR_PATH );
-		$this->force_regenerate = (bool) apply_filters( 'portadesign_resizer_force_regenerate', self::FORCE_REGENERATE );
+		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );
+		$this->target_quality = (int) apply_filters( 'timber_kit_resizer_target_quality', self::DEFAULT_QUALITY );
+		$this->image_cache_dir = apply_filters( 'timber_kit_resizer_image_cache_dir', WP_CONTENT_DIR . self::CACHE_DIR_PATH );
+		$this->force_regenerate = (bool) apply_filters( 'timber_kit_resizer_force_regenerate', self::FORCE_REGENERATE );
 	}
 
 	/**

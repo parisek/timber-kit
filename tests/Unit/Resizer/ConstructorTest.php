@@ -21,7 +21,7 @@ class ConstructorTest extends ResizerTestCase {
 
 	public function test_custom_target_format(): void {
 		Functions\when( 'apply_filters' )->alias( function ( $filter, $default ) {
-			if ( $filter === 'portadesign_resizer_target_format' ) {
+			if ( $filter === 'timber_kit_resizer_target_format' ) {
 				return 'webp';
 			}
 			return $default;
@@ -34,7 +34,7 @@ class ConstructorTest extends ResizerTestCase {
 
 	public function test_custom_quality(): void {
 		Functions\when( 'apply_filters' )->alias( function ( $filter, $default ) {
-			if ( $filter === 'portadesign_resizer_target_quality' ) {
+			if ( $filter === 'timber_kit_resizer_target_quality' ) {
 				return 85;
 			}
 			return $default;
@@ -47,7 +47,7 @@ class ConstructorTest extends ResizerTestCase {
 
 	public function test_custom_cache_dir(): void {
 		Functions\when( 'apply_filters' )->alias( function ( $filter, $default ) {
-			if ( $filter === 'portadesign_resizer_image_cache_dir' ) {
+			if ( $filter === 'timber_kit_resizer_image_cache_dir' ) {
 				return '/custom/cache/path';
 			}
 			return $default;
@@ -60,7 +60,7 @@ class ConstructorTest extends ResizerTestCase {
 
 	public function test_force_regenerate(): void {
 		Functions\when( 'apply_filters' )->alias( function ( $filter, $default ) {
-			if ( $filter === 'portadesign_resizer_force_regenerate' ) {
+			if ( $filter === 'timber_kit_resizer_force_regenerate' ) {
 				return true;
 			}
 			return $default;
@@ -73,7 +73,7 @@ class ConstructorTest extends ResizerTestCase {
 
 	public function test_quality_filters_affect_normalization(): void {
 		Functions\when( 'apply_filters' )->alias( function ( $filter, $default ) {
-			if ( $filter === 'portadesign_resizer_target_quality' ) {
+			if ( $filter === 'timber_kit_resizer_target_quality' ) {
 				return 75;
 			}
 			return $default;
