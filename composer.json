@@ -1,0 +1,40 @@
+{
+    "name": "parisek/timber-kit",
+    "description": "WordPress/Timber starter kit — StarterBase, Helpers, Resizer",
+    "type": "library",
+    "license": "GPL-2.0-or-later",
+    "authors": [
+        {
+            "name": "Petr Parimucha",
+            "email": "petr.parimucha@portadesign.cz"
+        }
+    ],
+    "require": {
+        "php": "^8.3",
+        "timber/timber": "^2.0",
+        "spatie/image": "^3.8",
+        "parisek/twig-common": "^1.0",
+        "parisek/twig-attribute": "^1.0",
+        "parisek/twig-typography": "^1.0",
+        "symfony/twig-bridge": "^5.4 || ^6.2 || ^7.0",
+        "symfony/var-dumper": "^5.4 || ^6.2 || ^7.0",
+        "twig/string-extra": "^3.0"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^11.0 || ^12.0",
+        "brain/monkey": "^2.7",
+        "phpstan/phpstan": "^2.1",
+        "szepeviktor/phpstan-wordpress": "^2.0",
+        "php-stubs/acf-pro-stubs": "^6.5"
+    },
+    "autoload": {
+        "psr-4": {
+            "Parisek\\TimberKit\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Tests\\": "tests/"
+        }
+    }
+}
