@@ -211,7 +211,7 @@ class FieldFormatterTest extends HelpersTestCase {
 		} );
 
 		$field = [
-			'type'  => 'wywiwyg', // note: typo in original code
+			'type'  => 'wysiwyg',
 			'value' => '<p>[hello] world</p>',
 		];
 

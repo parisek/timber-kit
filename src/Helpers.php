@@ -429,10 +429,10 @@ class Helpers {
 
 			$field['value'] = self::formatLink( $field['value'], $post_id, $field );
 
-		} elseif ( in_array( $field['type'], [ 'wywiwyg', 'textarea' ] ) ) {
+		} elseif ( in_array( $field['type'], [ 'wysiwyg', 'textarea' ] ) ) {
 
 			// we need to check wysiwyg fields for <br data-mce-bogus="1"> to properly check if empty
-			if ( is_string( $field ) && empty( trim( preg_replace( '/\s\s+/', ' ', strip_tags( $field['value'] ) ) ) ) ) {
+			if ( is_string( $field['value'] ) && empty( trim( preg_replace( '/\s\s+/', ' ', strip_tags( $field['value'] ) ) ) ) ) {
 				$field['value'] = '';
 			}
 

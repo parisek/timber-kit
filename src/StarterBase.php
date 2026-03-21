@@ -1453,7 +1453,7 @@ class StarterBase extends Site {
 		if ( preg_match( '#^/wp/v2/users#', $rest_route ) && ! is_user_logged_in() ) {
 			return new \WP_Error(
 				'rest_cannot_access',
-				__( 'Only authenticated users can access the User endpoint.', 'starter_theme' ),
+				__( 'Only authenticated users can access the User endpoint.', $this->theme_name ),
 				[ 'status' => 401 ]
 			);
 		}
