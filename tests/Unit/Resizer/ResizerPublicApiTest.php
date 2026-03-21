@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\Resizer;
 
 use Brain\Monkey\Functions;
+use Parisek\TimberKit\Resizer;
 use Tests\Unit\ResizerTestCase;
 
 class ResizerPublicApiTest extends ResizerTestCase {
@@ -506,6 +507,56 @@ class ResizerPublicApiTest extends ResizerTestCase {
 		$this->assertCount( 2, $result );
 		$this->assertSame( 250, $result[0]['width'] );
 		$this->assertSame( 100, $result[0]['height'] );
+
+		\Patchwork\restoreAll();
+	}
+
+	public function test_custom_cache_dir_reflected_in_url(): void {
+		// Create resizer with custom cache dir via filter
+		Functions\when( 'apply_filters' )->alias( function ( $filter, $default ) {
+			if ( $filter === 'timber_kit_resizer_image_cache_dir' ) {
+				return '/tmp/wp-content/custom/resized';
+			}
+			return $default;
+		} );
+		$resizer = new Resizer();
+
+		Functions\when( 'wp_check_filetype' )->alias( function ( $path ) {
+			if ( str_contains( $path, '.avif' ) ) {
+				return [ 'type' => 'image/avif', 'ext' => 'avif' ];
+			}
+			return [ 'type' => 'image/jpeg', 'ext' => 'jpg' ];
+		} );
+		Functions\when( 'wp_upload_dir' )->justReturn( [
+			'basedir' => '/tmp/wp-content/uploads',
+			'baseurl' => 'https://example.com/wp-content/uploads',
+		] );
+		Functions\when( 'sanitize_file_name' )->alias( function ( $name ) {
+			return $name;
+		} );
+		Functions\when( 'content_url' )->alias( function ( $path ) {
+			return 'https://example.com/wp-content/' . $path;
+		} );
+
+		\Patchwork\redefine( 'file_exists', function ( string $path ) {
+			return true;
+		} );
+
+		$image = [
+			'src'         => 'https://example.com/wp-content/uploads/photo.jpg',
+			'width'       => 1200,
+			'height'      => 800,
+			'alt'         => 'Photo',
+			'caption'     => '',
+			'description' => '',
+		];
+
+		$result = $resizer->resizer( $image, [ [ '800', '600', '768', 'crop' ] ] );
+
+		$this->assertCount( 2, $result );
+		// URL should use the custom cache dir, not hardcoded 'cache/image/'
+		$this->assertStringContainsString( 'custom/resized/800x600-crop', $result[0]['src'] );
+		$this->assertStringNotContainsString( 'cache/image/', $result[0]['src'] );
 
 		\Patchwork\restoreAll();
 	}
