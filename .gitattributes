@@ -1,0 +1,11 @@
+# Distribution: only src/, composer.json, LICENSE, README.md go into archive
+/.ddev               export-ignore
+/.github             export-ignore
+/.editorconfig       export-ignore
+/.gitattributes      export-ignore
+/.gitignore          export-ignore
+/tests               export-ignore
+/phpunit.xml         export-ignore
+/phpstan.neon        export-ignore
+/patchwork.json      export-ignore
+CHANGELOG.md         export-ignore

@@ -2,7 +2,7 @@
     "name": "parisek/timber-kit",
     "description": "WordPress/Timber starter kit — StarterBase, Helpers, Resizer",
     "type": "library",
-    "license": "GPL-2.0-or-later",
+    "license": "GPL-3.0-or-later",
     "authors": [
         {
             "name": "Petr Parimucha",
