@@ -18,6 +18,8 @@ parameters:
         - '#Function icl_\w+ not found#'
         - '#Action callback returns .* but should not return anything#'
         - '#Cannot assign offset .* to string#'
+        # Breadcrumb class is provided by consuming project
+        - '#class Breadcrumb#'
         -
             message: '#is unused#'
             path: src/Resizer.php

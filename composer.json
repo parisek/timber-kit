@@ -10,7 +10,7 @@
         }
     ],
     "require": {
-        "php": "^8.2",
+        "php": "^8.3",
         "timber/timber": "^2.0",
         "spatie/image": "^3.8",
         "parisek/twig-common": "^1.0",
