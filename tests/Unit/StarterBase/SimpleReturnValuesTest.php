@@ -41,6 +41,8 @@ class SimpleReturnValuesTest extends StarterBaseTestCase {
 	}
 
 	public function test_timber_cache_location_sets_cache_path(): void {
+		\Brain\Monkey\Functions\when( 'wp_mkdir_p' )->justReturn( true );
+
 		$options = [];
 		$result = $this->base->timber_cache_location( $options );
 
