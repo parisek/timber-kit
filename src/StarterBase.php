@@ -541,8 +541,8 @@ class StarterBase extends Site {
 	public function timber_cache_location( $options ) {
 		$cache_dir = WP_CONTENT_DIR . '/cache/timber';
 
-		if ( ! is_dir( $cache_dir ) ) {
-			wp_mkdir_p( $cache_dir );
+		if ( ! \is_dir( $cache_dir ) ) {
+			\wp_mkdir_p( $cache_dir );
 		}
 
 		$options['cache'] = $cache_dir;
