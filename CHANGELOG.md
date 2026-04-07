@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-04-07
+
+### Added
+- ACF JSON save/load support for `user_form` location rule — field groups assigned to user forms are saved to `templates/user/`
+
 ## [1.0.0] - 2026-03-21
 
 ### Added
