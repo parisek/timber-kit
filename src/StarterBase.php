@@ -1033,7 +1033,7 @@ class StarterBase extends Site {
 	 * Route ACF JSON save to the appropriate component/template directory based on location rules.
 	 *
 	 * Inspects ACF field group location rules (block, post_type, taxonomy, nav_menu_item,
-	 * options_page) or post_type/taxonomy config to determine the save directory.
+	 * options_page, user_form) or post_type/taxonomy config to determine the save directory.
 	 * Hooked to `acf/json/save_paths`.
 	 *
 	 * @param string[] $paths Default save paths.
@@ -1103,6 +1103,17 @@ class StarterBase extends Site {
 						$location_rule['param'] === 'options_page' && ! empty( $location_rule['value'] ) ) {
 
 						$path = get_template_directory() . '/templates/options-page';
+						if ( is_dir( $path ) ) {
+							$paths = [ $path ];
+
+							break 2;
+						}
+
+					} elseif (
+						isset( $location_rule['param'], $location_rule['value'] ) &&
+						$location_rule['param'] === 'user_form' && ! empty( $location_rule['value'] ) ) {
+
+						$path = get_template_directory() . '/templates/user';
 						if ( is_dir( $path ) ) {
 							$paths = [ $path ];
 
