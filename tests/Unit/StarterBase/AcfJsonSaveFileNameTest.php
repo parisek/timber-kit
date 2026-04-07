@@ -74,4 +74,18 @@ class AcfJsonSaveFileNameTest extends StarterBaseTestCase {
 
 		$this->assertSame( 'group_abc123.json', $result );
 	}
+
+	public function test_returns_acf_json_for_user_form_location(): void {
+		$post = [
+			'location' => [
+				[
+					[ 'param' => 'user_form', 'value' => 'all' ],
+				],
+			],
+		];
+
+		$result = $this->base->acf_json_save_file_name( 'group_123.json', $post, '' );
+
+		$this->assertSame( 'acf.json', $result );
+	}
 }

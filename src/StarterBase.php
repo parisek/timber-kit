@@ -1149,7 +1149,7 @@ class StarterBase extends Site {
 	/**
 	 * Determine the ACF JSON filename based on location rules or content type.
 	 *
-	 * Returns 'acf.json' for block and post_type locations, or '{type}.json' for
+	 * Returns 'acf.json' for block, post_type, and user_form locations, or '{type}.json' for
 	 * post type/taxonomy configurations. Hooked to `acf/json/save_file_name`.
 	 *
 	 * @param string $filename  Default filename.
@@ -1179,6 +1179,19 @@ class StarterBase extends Site {
 					if (
 						isset( $location_rule['param'], $location_rule['value'] ) &&
 						$location_rule['param'] === 'post_type' && ! empty( $location_rule['value'] ) ) {
+						return 'acf.json';
+					}
+				}
+			}
+		}
+
+		// find user form from ACF location rules
+		if ( isset( $post['location'] ) && is_array( $post['location'] ) ) {
+			foreach ( $post['location'] as $location_group ) {
+				foreach ( $location_group as $location_rule ) {
+					if (
+						isset( $location_rule['param'], $location_rule['value'] ) &&
+						$location_rule['param'] === 'user_form' && ! empty( $location_rule['value'] ) ) {
 						return 'acf.json';
 					}
 				}
