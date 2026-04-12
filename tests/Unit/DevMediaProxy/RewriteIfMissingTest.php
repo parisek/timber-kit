@@ -98,6 +98,19 @@ class RewriteIfMissingTest extends TestCase {
 		$this->assertSame( $this->origin_base_url . '/2020/07/nested/bar.png', $result );
 	}
 
+	public function test_relative_path_traversal_is_rejected(): void {
+		$url = $this->uploads_base_url . '/2024/01/../../secrets.txt';
+
+		$result = DevMediaProxy::rewriteIfMissing(
+			$url,
+			$this->uploads_base_url,
+			$this->uploads_base_dir,
+			$this->origin_base_url
+		);
+
+		$this->assertSame( $url, $result );
+	}
+
 	public function test_malformed_url_is_unchanged(): void {
 		$url = 'not-a-url';
 
@@ -122,5 +135,18 @@ class RewriteIfMissingTest extends TestCase {
 		);
 
 		$this->assertSame( $this->origin_base_url . '/2024/01/missing.jpg', $result );
+	}
+
+	public function test_origin_credentials_are_stripped_from_rewritten_url(): void {
+		$url = $this->uploads_base_url . '/2024/01/missing.jpg';
+
+		$result = DevMediaProxy::rewriteIfMissing(
+			$url,
+			$this->uploads_base_url,
+			$this->uploads_base_dir,
+			'https://user:pass@origin.test/wp-content/uploads'
+		);
+
+		$this->assertSame( 'https://origin.test/wp-content/uploads/2024/01/missing.jpg', $result );
 	}
 }

@@ -190,7 +190,7 @@ class ResizeUploadedImageTest extends StarterBaseTestCase {
 		}
 
 		$target = $file . '.' . $extension;
-		rename( $file, $target );
+		$this->assertTrue( rename( $file, $target ), 'Failed to rename temporary image file.' );
 		$this->temp_files[] = $target;
 
 		$image = imagecreatetruecolor( $width, $height );
@@ -204,22 +204,28 @@ class ResizeUploadedImageTest extends StarterBaseTestCase {
 		switch ( $extension ) {
 			case 'jpg':
 			case 'jpeg':
-				imagejpeg( $image, $target );
+				$this->assertTrue( imagejpeg( $image, $target ), 'Failed to write JPEG test image.' );
 				break;
 			case 'png':
-				imagepng( $image, $target );
+				$this->assertTrue( imagepng( $image, $target ), 'Failed to write PNG test image.' );
 				break;
 			case 'gif':
-				imagegif( $image, $target );
+				$this->assertTrue( imagegif( $image, $target ), 'Failed to write GIF test image.' );
 				break;
 			case 'webp':
 				if ( ! function_exists( 'imagewebp' ) ) {
 					$this->markTestSkipped( 'GD WebP support is not available.' );
 				}
-				imagewebp( $image, $target );
+				$this->assertTrue( imagewebp( $image, $target ), 'Failed to write WebP test image.' );
 				break;
 			default:
 				$this->fail( 'Unsupported image extension: ' . $extension );
+		}
+
+		if ( PHP_VERSION_ID < 80500 ) {
+			imagedestroy( $image );
+		} else {
+			unset( $image );
 		}
 
 		return $target;

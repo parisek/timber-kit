@@ -282,4 +282,56 @@ class HooksTest extends TestCase {
 
 		$this->assertSame( [], $result );
 	}
+
+	public function test_filter_resizer_missing_source_variants_respects_probe_limit(): void {
+		$head_calls = 0;
+		Functions\when( 'add_filter' )->justReturn( true );
+		Functions\when( 'apply_filters' )->alias(
+			function ( string $tag, mixed $default ) {
+				if ( 'timber_kit_resizer_remote_variant_probe_limit' === $tag ) {
+					return 0;
+				}
+
+				return $default;
+			}
+		);
+		Functions\when( 'content_url' )->justReturn( 'https://local.test/wp-content' );
+		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/avif', 'ext' => 'avif' ] );
+		Functions\when( 'wp_remote_head' )->alias( function () use ( &$head_calls ) {
+			++$head_calls;
+			return [ 'response' => [ 'code' => 200 ] ];
+		} );
+		Functions\when( 'wp_remote_retrieve_response_code' )->alias( function ( array $response ) {
+			return $response['response']['code'] ?? 0;
+		} );
+		Functions\when( 'is_wp_error' )->justReturn( false );
+
+		DevMediaProxy::register( 'https://origin.test' );
+
+		$result = DevMediaProxy::filter_resizer_missing_source_variants(
+			null,
+			[
+				[
+					'width' => 800,
+					'height' => 600,
+					'media' => 768,
+					'image_style' => 'crop',
+				],
+			],
+			'photo',
+			[
+				'alt' => 'Photo',
+				'caption' => '',
+				'description' => '',
+			],
+			[
+				'uploads_base_url' => $this->uploads_base_url,
+				'target_format' => 'avif',
+				'image_cache_dir' => '/var/www/html/wp-content/cache/image',
+			]
+		);
+
+		$this->assertSame( [], $result );
+		$this->assertSame( 0, $head_calls );
+	}
 }

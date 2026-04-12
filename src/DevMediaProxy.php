@@ -48,6 +48,9 @@ final class DevMediaProxy {
 	 */
 	private static array $remote_variant_exists_cache = [];
 
+	/** @var int Number of remote variant probes made in current request. */
+	private static int $remote_variant_probe_count = 0;
+
 	/**
 	 * Register WordPress filters for missing media URL rewriting.
 	 *
@@ -55,7 +58,7 @@ final class DevMediaProxy {
 	 * @return void
 	 */
 	public static function register( string $origin_base_url ): void {
-		$origin_base_url = self::normalize_base_url( $origin_base_url );
+		$origin_base_url = self::normalize_origin_base_url( $origin_base_url );
 		if ( '' === $origin_base_url ) {
 			return;
 		}
@@ -98,6 +101,7 @@ final class DevMediaProxy {
 		self::$uploads_base_dir = '';
 		self::$origin_base_url  = '';
 		self::$remote_variant_exists_cache = [];
+		self::$remote_variant_probe_count = 0;
 	}
 
 	/**
@@ -112,7 +116,7 @@ final class DevMediaProxy {
 	public static function rewriteIfMissing( string $url, string $uploads_base_url, string $uploads_base_dir, string $origin_base_url ): string {
 		$uploads_base_url = self::normalize_base_url( $uploads_base_url );
 		$uploads_base_dir = self::normalize_base_dir( $uploads_base_dir );
-		$origin_base_url  = self::normalize_base_url( $origin_base_url );
+		$origin_base_url  = self::normalize_origin_base_url( $origin_base_url );
 
 		if ( '' === $url || '' === $uploads_base_url || '' === $uploads_base_dir || '' === $origin_base_url ) {
 			return $url;
@@ -140,7 +144,7 @@ final class DevMediaProxy {
 		}
 
 		$relative_path = substr( $parts['path'], strlen( $uploads_path_prefix ) );
-		if ( '' === $relative_path ) {
+		if ( '' === $relative_path || str_contains( $relative_path, '..' ) || str_contains( $relative_path, '\\' ) ) {
 			return $url;
 		}
 
@@ -346,6 +350,34 @@ final class DevMediaProxy {
 	}
 
 	/**
+	 * Normalize origin base URLs and strip userinfo to avoid credential leaks.
+	 *
+	 * @param string $origin_base_url Configured origin URL.
+	 * @return string
+	 */
+	private static function normalize_origin_base_url( string $origin_base_url ): string {
+		$origin_base_url = self::normalize_base_url( $origin_base_url );
+		if ( '' === $origin_base_url ) {
+			return '';
+		}
+
+		$parts = parse_url( $origin_base_url );
+		if ( false === $parts || ! isset( $parts['scheme'], $parts['host'] ) ) {
+			return $origin_base_url;
+		}
+
+		$normalized = $parts['scheme'] . '://' . $parts['host'];
+		if ( isset( $parts['port'] ) ) {
+			$normalized .= ':' . $parts['port'];
+		}
+		if ( isset( $parts['path'] ) && is_string( $parts['path'] ) ) {
+			$normalized .= rtrim( $parts['path'], '/' );
+		}
+
+		return $normalized;
+	}
+
+	/**
 	 * Resolve the effective origin uploads base URL.
 	 *
 	 * If the configured origin is just a domain, reuse the local uploads path.
@@ -447,14 +479,6 @@ final class DevMediaProxy {
 		if ( isset( $origin_parts['port'] ) ) {
 			$remote_site_base .= ':' . $origin_parts['port'];
 		}
-		if ( isset( $origin_parts['user'] ) && is_string( $origin_parts['user'] ) && $origin_parts['user'] !== '' ) {
-			$credentials = $origin_parts['user'];
-			if ( isset( $origin_parts['pass'] ) && is_string( $origin_parts['pass'] ) ) {
-				$credentials .= ':' . $origin_parts['pass'];
-			}
-			$remote_site_base = $origin_parts['scheme'] . '://' . $credentials . '@' . $origin_parts['host'] . ( isset( $origin_parts['port'] ) ? ':' . $origin_parts['port'] : '' );
-		}
-
 		$origin_path = isset( $origin_parts['path'] ) && is_string( $origin_parts['path'] ) ? rtrim( $origin_parts['path'], '/' ) : '';
 		$uploads_path = isset( $uploads_parts['path'] ) && is_string( $uploads_parts['path'] ) ? rtrim( $uploads_parts['path'], '/' ) : '';
 
@@ -484,6 +508,13 @@ final class DevMediaProxy {
 			return true;
 		}
 
+		$probe_limit = max( 0, (int) apply_filters( 'timber_kit_resizer_remote_variant_probe_limit', 6 ) );
+		if ( self::$remote_variant_probe_count >= $probe_limit ) {
+			self::$remote_variant_exists_cache[ $url ] = false;
+			return false;
+		}
+
+		++self::$remote_variant_probe_count;
 		$timeout = (float) apply_filters( 'timber_kit_resizer_remote_variant_probe_timeout', 2.0 );
 		$response = wp_remote_head(
 			$url,
