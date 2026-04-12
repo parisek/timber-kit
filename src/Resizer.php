@@ -76,6 +76,13 @@ class Resizer {
 	private bool $force_regenerate;
 
 	/**
+	 * In-request cache for remote variant probes.
+	 *
+	 * @var array<string, bool>
+	 */
+	private static array $remote_variant_exists_cache = [];
+
+	/**
 	 * Initialize resizer settings, each of which can be overridden via a WordPress filter.
 	 *
 	 * Filters available:
@@ -145,6 +152,148 @@ class Resizer {
 		} );
 
 		return $normalized;
+	}
+
+	/**
+	 * Build a remote variant URL on the configured media origin.
+	 *
+	 * @param array  $variant       Variant specification.
+	 * @param string $filename      Sanitized base filename.
+	 * @param array  $default_image Default image data for metadata.
+	 * @param string $origin_url    Configured media origin.
+	 * @param string $uploads_base_url Local uploads base URL.
+	 * @return array
+	 */
+	private function buildRemoteVariant( array $variant, string $filename, array $default_image, string $origin_url, string $uploads_base_url ): array {
+		$target_dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
+		$remote_cache_base_url = $this->getRemoteCacheBaseUrl( $origin_url, $uploads_base_url );
+
+		$filetype = wp_check_filetype( $filename . '.' . $this->target_format );
+		$actual_mime = $filetype['type'] ?? 'image/' . $this->target_format;
+
+		return [
+			'src' => $remote_cache_base_url . '/' . $target_dirname . '/' . $filename . '.' . $this->target_format,
+			'type' => $actual_mime,
+			'width' => $variant['width'],
+			'height' => $variant['height'],
+			'media' => ( ! empty( $variant['media'] ) ) ? '(min-width: ' . $variant['media'] . 'px)' : '',
+			'alt' => $default_image['alt'],
+			'caption' => $default_image['caption'],
+			'description' => $default_image['description'],
+		];
+	}
+
+	/**
+	 * Check whether remote variants can be derived from configured origin.
+	 *
+	 * @return bool
+	 */
+	private function canUseRemoteVariants(): bool {
+		return defined( 'TIMBERKIT_MEDIA_ORIGIN' ) && trim( (string) constant( 'TIMBERKIT_MEDIA_ORIGIN' ) ) !== '';
+	}
+
+	/**
+	 * Check whether a remote variant URL exists.
+	 *
+	 * @param string $url Remote variant URL.
+	 * @return bool
+	 */
+	private function remoteVariantExists( string $url ): bool {
+		if ( isset( self::$remote_variant_exists_cache[ $url ] ) ) {
+			return self::$remote_variant_exists_cache[ $url ];
+		}
+
+		$probe_enabled = (bool) apply_filters( 'timber_kit_resizer_probe_remote_variants', true );
+		if ( ! $probe_enabled ) {
+			self::$remote_variant_exists_cache[ $url ] = true;
+			return true;
+		}
+
+		$timeout = (float) apply_filters( 'timber_kit_resizer_remote_variant_probe_timeout', 2.0 );
+		$response = wp_remote_head(
+			$url,
+			[
+				'timeout' => $timeout,
+				'redirection' => 3,
+			]
+		);
+
+		if ( is_wp_error( $response ) ) {
+			self::$remote_variant_exists_cache[ $url ] = false;
+			return false;
+		}
+
+		$status_code = (int) wp_remote_retrieve_response_code( $response );
+		$exists = $status_code >= 200 && $status_code < 400;
+		self::$remote_variant_exists_cache[ $url ] = $exists;
+
+		return $exists;
+	}
+
+	/**
+	 * Return the configured media origin or an empty string.
+	 *
+	 * @return string
+	 */
+	private function getMediaOrigin(): string {
+		if ( ! defined( 'TIMBERKIT_MEDIA_ORIGIN' ) ) {
+			return '';
+		}
+
+		return rtrim( trim( (string) constant( 'TIMBERKIT_MEDIA_ORIGIN' ) ), '/' );
+	}
+
+	/**
+	 * Build remote cache base URL from media origin and local uploads URL.
+	 *
+	 * Supports both domain-only origins and full uploads base URLs.
+	 *
+	 * @param string $origin_url Configured media origin.
+	 * @param string $uploads_base_url Local uploads base URL.
+	 * @return string
+	 */
+	private function getRemoteCacheBaseUrl( string $origin_url, string $uploads_base_url ): string {
+		$origin_url = rtrim( $origin_url, '/' );
+		$uploads_base_url = rtrim( $uploads_base_url, '/' );
+
+		$cache_relative_dir = $this->image_cache_dir;
+		if ( defined( 'WP_CONTENT_DIR' ) && strpos( $cache_relative_dir, WP_CONTENT_DIR ) === 0 ) {
+			$cache_relative_dir = substr( $cache_relative_dir, strlen( WP_CONTENT_DIR ) );
+		}
+		$cache_relative_dir = '/' . ltrim( (string) $cache_relative_dir, '/\\' );
+		$content_url_parts = parse_url( content_url() );
+		$content_path = isset( $content_url_parts['path'] ) && is_string( $content_url_parts['path'] ) ? rtrim( $content_url_parts['path'], '/' ) : '';
+
+		$uploads_parts = parse_url( $uploads_base_url );
+		$origin_parts = parse_url( $origin_url );
+
+		if ( false === $origin_parts || ! isset( $origin_parts['scheme'], $origin_parts['host'] ) ) {
+			return $origin_url . $content_path . $cache_relative_dir;
+		}
+
+		$remote_site_base = $origin_parts['scheme'] . '://' . $origin_parts['host'];
+		if ( isset( $origin_parts['port'] ) ) {
+			$remote_site_base .= ':' . $origin_parts['port'];
+		}
+		if ( isset( $origin_parts['user'] ) && is_string( $origin_parts['user'] ) && $origin_parts['user'] !== '' ) {
+			$credentials = $origin_parts['user'];
+			if ( isset( $origin_parts['pass'] ) && is_string( $origin_parts['pass'] ) ) {
+				$credentials .= ':' . $origin_parts['pass'];
+			}
+			$remote_site_base = $origin_parts['scheme'] . '://' . $credentials . '@' . $origin_parts['host'] . ( isset( $origin_parts['port'] ) ? ':' . $origin_parts['port'] : '' );
+		}
+
+		$origin_path = isset( $origin_parts['path'] ) && is_string( $origin_parts['path'] ) ? rtrim( $origin_parts['path'], '/' ) : '';
+		$uploads_path = isset( $uploads_parts['path'] ) && is_string( $uploads_parts['path'] ) ? rtrim( $uploads_parts['path'], '/' ) : '';
+
+		// If the origin already includes the uploads base path, trim it back to the site root.
+		if ( '' !== $origin_path && '' !== $uploads_path && str_ends_with( $origin_path, $uploads_path ) ) {
+			$remote_site_base .= substr( $origin_path, 0, -strlen( $uploads_path ) );
+		} elseif ( '' !== $origin_path && $origin_path !== $uploads_path ) {
+			$remote_site_base .= $origin_path;
+		}
+
+		return rtrim( $remote_site_base, '/' ) . $content_path . $cache_relative_dir;
 	}
 
 	/**
@@ -597,8 +746,23 @@ class Resizer {
 		// Get actual source file path by converting URL to filesystem path
 		$source_path = str_replace( $baseurl, $basedir, $default_image['src'] );
 
-		// if source file not exists return default image
+		// If the source file is not present locally but we have a media origin,
+		// link to the already-generated remote variants instead of bailing out.
 		if ( ! file_exists( $source_path ) ) {
+			if ( $this->canUseRemoteVariants() ) {
+				$images = [];
+				$origin_url = $this->getMediaOrigin();
+				foreach ( $normalized_variants as $variant ) {
+					$remote_variant = $this->buildRemoteVariant( $variant, $filename, $default_image, $origin_url, $baseurl );
+					if ( $this->remoteVariantExists( $remote_variant['src'] ) ) {
+						$images[] = $remote_variant;
+					}
+				}
+				$images[] = $default_image;
+
+				return $images;
+			}
+
 			return [ $default_image ];
 		}
 
