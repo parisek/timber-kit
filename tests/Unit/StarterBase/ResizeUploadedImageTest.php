@@ -214,17 +214,13 @@ class ResizeUploadedImageTest extends StarterBaseTestCase {
 				break;
 			case 'webp':
 				if ( ! function_exists( 'imagewebp' ) ) {
-					imagedestroy( $image );
 					$this->markTestSkipped( 'GD WebP support is not available.' );
 				}
 				imagewebp( $image, $target );
 				break;
 			default:
-				imagedestroy( $image );
 				$this->fail( 'Unsupported image extension: ' . $extension );
 		}
-
-		imagedestroy( $image );
 
 		return $target;
 	}
