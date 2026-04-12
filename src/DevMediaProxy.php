@@ -5,7 +5,27 @@ declare(strict_types=1);
 namespace Parisek\TimberKit;
 
 /**
- * Rewrites missing local uploads URLs to a configured upstream origin.
+ * Development-only media proxy for environments without synchronized uploads.
+ *
+ * The proxy keeps frontend and wp-admin usable when attachments exist on an
+ * upstream site but are missing from the local filesystem. It does that by
+ * rewriting local uploads URLs to a configured origin only when the local file
+ * is absent.
+ *
+ * Current responsibilities:
+ * - rewrite attachment and image URLs produced by core WordPress APIs
+ * - rewrite nested media-library payloads such as JS `sizes[*].url` and `icon`
+ * - provide remote Resizer variants through the
+ *   `timber_kit_resizer_missing_source_variants` filter
+ *
+ * The class is intentionally the integration point for dev-media behavior, so
+ * other subsystems such as Resizer only expose hooks and do not need to know
+ * about `TIMBERKIT_MEDIA_ORIGIN` directly.
+ *
+ * Likely future extensions can stay here as well:
+ * - additional rewrite surfaces for content-rendered images if needed
+ * - smarter remote variant strategies such as warmup or signed generation
+ * - optional diagnostics or logging for missing local media
  */
 final class DevMediaProxy {
 
