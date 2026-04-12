@@ -22,6 +22,13 @@ final class DevMediaProxy {
 	private static string $origin_base_url = '';
 
 	/**
+	 * In-request cache for remote variant probes.
+	 *
+	 * @var array<string, bool>
+	 */
+	private static array $remote_variant_exists_cache = [];
+
+	/**
 	 * Register WordPress filters for missing media URL rewriting.
 	 *
 	 * @param string $origin_base_url Upstream uploads base URL.
@@ -54,6 +61,7 @@ final class DevMediaProxy {
 		add_filter( 'wp_calculate_image_srcset', array( self::class, 'filter_srcset' ), 10, 5 );
 		add_filter( 'wp_get_attachment_image_attributes', array( self::class, 'filter_image_attributes' ), 99, 3 );
 		add_filter( 'wp_prepare_attachment_for_js', array( self::class, 'filter_attachment_for_js' ), 10, 3 );
+		add_filter( 'timber_kit_resizer_missing_source_variants', array( self::class, 'filter_resizer_missing_source_variants' ), 10, 5 );
 
 		self::$registered = true;
 	}
@@ -69,6 +77,7 @@ final class DevMediaProxy {
 		self::$uploads_base_url = '';
 		self::$uploads_base_dir = '';
 		self::$origin_base_url  = '';
+		self::$remote_variant_exists_cache = [];
 	}
 
 	/**
@@ -241,6 +250,40 @@ final class DevMediaProxy {
 	}
 
 	/**
+	 * Provide remote cache/image variants to Resizer when local source files are missing.
+	 *
+	 * @param mixed  $images Existing images from previous filters.
+	 * @param array  $variants Normalized Resizer variants.
+	 * @param string $filename Sanitized base filename.
+	 * @param array  $default_image Default image metadata.
+	 * @param array  $context Additional Resizer context.
+	 * @return mixed
+	 */
+	public static function filter_resizer_missing_source_variants( mixed $images, array $variants, string $filename, array $default_image, array $context ): mixed {
+		if ( is_array( $images ) ) {
+			return $images;
+		}
+
+		if ( self::$origin_base_url === '' ) {
+			return $images;
+		}
+
+		$uploads_base_url = isset( $context['uploads_base_url'] ) && is_string( $context['uploads_base_url'] ) ? $context['uploads_base_url'] : self::$uploads_base_url;
+		$target_format = isset( $context['target_format'] ) && is_string( $context['target_format'] ) ? $context['target_format'] : 'avif';
+		$image_cache_dir = isset( $context['image_cache_dir'] ) && is_string( $context['image_cache_dir'] ) ? $context['image_cache_dir'] : ( defined( 'WP_CONTENT_DIR' ) ? WP_CONTENT_DIR . '/cache/image' : '/cache/image' );
+
+		$remote_images = [];
+		foreach ( $variants as $variant ) {
+			$remote_variant = self::build_remote_resizer_variant( $variant, $filename, $default_image, $target_format, $image_cache_dir, $uploads_base_url );
+			if ( self::remote_variant_exists( $remote_variant['src'] ) ) {
+				$remote_images[] = $remote_variant;
+			}
+		}
+
+		return $remote_images;
+	}
+
+	/**
 	 * Rewrite a single URL using current runtime configuration.
 	 *
 	 * @param string $url URL to rewrite.
@@ -315,6 +358,131 @@ final class DevMediaProxy {
 	 */
 	private static function normalize_base_dir( string $base_dir ): string {
 		return rtrim( trim( $base_dir ), DIRECTORY_SEPARATOR );
+	}
+
+	/**
+	 * Build a remote Resizer variant URL and metadata.
+	 *
+	 * @param array  $variant Normalized Resizer variant.
+	 * @param string $filename Sanitized filename.
+	 * @param array  $default_image Default image metadata.
+	 * @param string $target_format Target format.
+	 * @param string $image_cache_dir Cache directory.
+	 * @param string $uploads_base_url Local uploads base URL.
+	 * @return array<string, mixed>
+	 */
+	private static function build_remote_resizer_variant( array $variant, string $filename, array $default_image, string $target_format, string $image_cache_dir, string $uploads_base_url ): array {
+		$target_dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
+		$remote_cache_base_url = self::get_remote_cache_base_url( self::$origin_base_url, $uploads_base_url, $image_cache_dir );
+		$filetype = wp_check_filetype( $filename . '.' . $target_format );
+		$actual_mime = $filetype['type'] ?? 'image/' . $target_format;
+
+		return [
+			'src' => $remote_cache_base_url . '/' . $target_dirname . '/' . $filename . '.' . $target_format,
+			'type' => $actual_mime,
+			'width' => $variant['width'],
+			'height' => $variant['height'],
+			'media' => ! empty( $variant['media'] ) ? '(min-width: ' . $variant['media'] . 'px)' : '',
+			'alt' => $default_image['alt'] ?? '',
+			'caption' => $default_image['caption'] ?? '',
+			'description' => $default_image['description'] ?? '',
+		];
+	}
+
+	/**
+	 * Resolve the remote cache/image base URL for Resizer variants.
+	 *
+	 * @param string $origin_url Configured origin.
+	 * @param string $uploads_base_url Local uploads base URL.
+	 * @param string $image_cache_dir Cache directory path.
+	 * @return string
+	 */
+	private static function get_remote_cache_base_url( string $origin_url, string $uploads_base_url, string $image_cache_dir ): string {
+		$origin_url = rtrim( $origin_url, '/' );
+		$uploads_base_url = rtrim( $uploads_base_url, '/' );
+
+		$content_url_parts = parse_url( content_url() );
+		$content_path = isset( $content_url_parts['path'] ) && is_string( $content_url_parts['path'] ) ? rtrim( $content_url_parts['path'], '/' ) : '';
+		$cache_relative_dir = $image_cache_dir;
+		if ( defined( 'WP_CONTENT_DIR' ) && strpos( $cache_relative_dir, WP_CONTENT_DIR ) === 0 ) {
+			$cache_relative_dir = substr( $cache_relative_dir, strlen( WP_CONTENT_DIR ) );
+		} elseif ( '' !== $content_path ) {
+			$content_dir_name = basename( $content_path );
+			$content_marker = '/' . trim( $content_dir_name, '/' ) . '/';
+			$content_marker_pos = strpos( str_replace( '\\', '/', $cache_relative_dir ), $content_marker );
+			if ( false !== $content_marker_pos ) {
+				$cache_relative_dir = substr( str_replace( '\\', '/', $cache_relative_dir ), $content_marker_pos + strlen( $content_marker ) - 1 );
+			}
+		}
+		$cache_relative_dir = '/' . ltrim( (string) $cache_relative_dir, '/\\' );
+
+		$uploads_parts = parse_url( $uploads_base_url );
+		$origin_parts = parse_url( $origin_url );
+
+		if ( false === $origin_parts || ! isset( $origin_parts['scheme'], $origin_parts['host'] ) ) {
+			return $origin_url . $content_path . $cache_relative_dir;
+		}
+
+		$remote_site_base = $origin_parts['scheme'] . '://' . $origin_parts['host'];
+		if ( isset( $origin_parts['port'] ) ) {
+			$remote_site_base .= ':' . $origin_parts['port'];
+		}
+		if ( isset( $origin_parts['user'] ) && is_string( $origin_parts['user'] ) && $origin_parts['user'] !== '' ) {
+			$credentials = $origin_parts['user'];
+			if ( isset( $origin_parts['pass'] ) && is_string( $origin_parts['pass'] ) ) {
+				$credentials .= ':' . $origin_parts['pass'];
+			}
+			$remote_site_base = $origin_parts['scheme'] . '://' . $credentials . '@' . $origin_parts['host'] . ( isset( $origin_parts['port'] ) ? ':' . $origin_parts['port'] : '' );
+		}
+
+		$origin_path = isset( $origin_parts['path'] ) && is_string( $origin_parts['path'] ) ? rtrim( $origin_parts['path'], '/' ) : '';
+		$uploads_path = isset( $uploads_parts['path'] ) && is_string( $uploads_parts['path'] ) ? rtrim( $uploads_parts['path'], '/' ) : '';
+
+		if ( '' !== $origin_path && '' !== $uploads_path && str_ends_with( $origin_path, $uploads_path ) ) {
+			$remote_site_base .= substr( $origin_path, 0, -strlen( $uploads_path ) );
+		} elseif ( '' !== $origin_path && $origin_path !== $uploads_path ) {
+			$remote_site_base .= $origin_path;
+		}
+
+		return rtrim( $remote_site_base, '/' ) . $content_path . $cache_relative_dir;
+	}
+
+	/**
+	 * Check whether a remote variant URL exists.
+	 *
+	 * @param string $url Remote variant URL.
+	 * @return bool
+	 */
+	private static function remote_variant_exists( string $url ): bool {
+		if ( isset( self::$remote_variant_exists_cache[ $url ] ) ) {
+			return self::$remote_variant_exists_cache[ $url ];
+		}
+
+		$probe_enabled = (bool) apply_filters( 'timber_kit_resizer_probe_remote_variants', true );
+		if ( ! $probe_enabled ) {
+			self::$remote_variant_exists_cache[ $url ] = true;
+			return true;
+		}
+
+		$timeout = (float) apply_filters( 'timber_kit_resizer_remote_variant_probe_timeout', 2.0 );
+		$response = wp_remote_head(
+			$url,
+			[
+				'timeout' => $timeout,
+				'redirection' => 3,
+			]
+		);
+
+		if ( is_wp_error( $response ) ) {
+			self::$remote_variant_exists_cache[ $url ] = false;
+			return false;
+		}
+
+		$status_code = (int) wp_remote_retrieve_response_code( $response );
+		$exists = $status_code >= 200 && $status_code < 400;
+		self::$remote_variant_exists_cache[ $url ] = $exists;
+
+		return $exists;
 	}
 
 	/**

@@ -22,7 +22,8 @@ abstract class ResizerTestCase extends TestCase {
 	}
 
 	protected function createResizer(): Resizer {
-		Functions\when( 'apply_filters' )->alias( function ( $filter, $default ) {
+		Functions\when( 'apply_filters' )->alias( function ( $filter, $default, ...$args ) {
+			unset( $filter, $args );
 			return $default;
 		} );
 		return new Resizer();

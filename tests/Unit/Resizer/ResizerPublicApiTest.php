@@ -6,8 +6,6 @@ namespace Tests\Unit\Resizer;
 
 use Brain\Monkey\Functions;
 use Parisek\TimberKit\Resizer;
-use PHPUnit\Framework\Attributes\PreserveGlobalState;
-use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\Unit\ResizerTestCase;
 
 class ResizerPublicApiTest extends ResizerTestCase {
@@ -106,39 +104,45 @@ class ResizerPublicApiTest extends ResizerTestCase {
 		\Patchwork\restoreAll();
 	}
 
-	#[PreserveGlobalState( false )]
-	#[RunInSeparateProcess]
-	public function test_source_not_found_uses_remote_variants_with_domain_only_origin(): void {
-		define( 'TIMBERKIT_MEDIA_ORIGIN', 'https://origin.test' );
-
-		$resizer = $this->createResizer();
-
-		Functions\when( 'wp_check_filetype' )->alias( function ( $path ) {
-			if ( str_contains( $path, '.avif' ) ) {
-				return [ 'type' => 'image/avif', 'ext' => 'avif' ];
+	public function test_source_not_found_appends_filter_variants_before_default(): void {
+		Functions\when( 'apply_filters' )->alias( function ( $filter, $default, ...$args ) {
+			if ( 'timber_kit_resizer_missing_source_variants' !== $filter ) {
+				return $default;
 			}
-			return [ 'type' => 'image/jpeg', 'ext' => 'jpg' ];
+
+			$this->assertNull( $default );
+			$this->assertSame( 'photo', $args[1] );
+
+			return [
+				[
+					'src' => 'https://origin.test/wp-content/cache/image/800x600-crop/photo.avif',
+					'type' => 'image/avif',
+					'width' => 800,
+					'height' => 600,
+					'media' => '(min-width: 768px)',
+					'alt' => 'Photo',
+					'caption' => '',
+					'description' => '',
+				],
+			];
 		} );
+		$resizer = new Resizer();
+
+		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/jpeg', 'ext' => 'jpg' ] );
 		Functions\when( 'wp_upload_dir' )->justReturn( [
 			'basedir' => '/var/www/html/wp-content/uploads',
-			'baseurl' => 'https://local.test/wp-content/uploads',
+			'baseurl' => 'https://example.com/wp-content/uploads',
 		] );
-		Functions\when( 'content_url' )->justReturn( 'https://local.test/wp-content' );
 		Functions\when( 'sanitize_file_name' )->alias( function ( $name ) {
 			return $name;
 		} );
-		Functions\when( 'wp_remote_head' )->justReturn( [ 'response' => [ 'code' => 200 ] ] );
-		Functions\when( 'wp_remote_retrieve_response_code' )->alias( function ( $response ) {
-			return $response['response']['code'] ?? 0;
-		} );
-		Functions\when( 'is_wp_error' )->justReturn( false );
 
 		\Patchwork\redefine( 'file_exists', function ( string $path ) {
 			return false;
 		} );
 
 		$image = [
-			'src'    => 'https://origin.test/wp-content/uploads/photo.jpg',
+			'src'    => 'https://example.com/wp-content/uploads/photo.jpg',
 			'width'  => 1200,
 			'height' => 800,
 			'alt'    => 'Photo',
@@ -148,101 +152,7 @@ class ResizerPublicApiTest extends ResizerTestCase {
 
 		$this->assertCount( 2, $result );
 		$this->assertSame( 'https://origin.test/wp-content/cache/image/800x600-crop/photo.avif', $result[0]['src'] );
-		$this->assertSame( 'image/avif', $result[0]['type'] );
-		$this->assertSame( 'https://origin.test/wp-content/uploads/photo.jpg', $result[1]['src'] );
-
-		\Patchwork\restoreAll();
-	}
-
-	#[PreserveGlobalState( false )]
-	#[RunInSeparateProcess]
-	public function test_source_not_found_uses_remote_variants_with_full_uploads_origin(): void {
-		define( 'TIMBERKIT_MEDIA_ORIGIN', 'https://origin.test/wp-content/uploads' );
-
-		$resizer = $this->createResizer();
-
-		Functions\when( 'wp_check_filetype' )->alias( function ( $path ) {
-			if ( str_contains( $path, '.avif' ) ) {
-				return [ 'type' => 'image/avif', 'ext' => 'avif' ];
-			}
-			return [ 'type' => 'image/jpeg', 'ext' => 'jpg' ];
-		} );
-		Functions\when( 'wp_upload_dir' )->justReturn( [
-			'basedir' => '/var/www/html/wp-content/uploads',
-			'baseurl' => 'https://local.test/wp-content/uploads',
-		] );
-		Functions\when( 'content_url' )->justReturn( 'https://local.test/wp-content' );
-		Functions\when( 'sanitize_file_name' )->alias( function ( $name ) {
-			return $name;
-		} );
-		Functions\when( 'wp_remote_head' )->justReturn( [ 'response' => [ 'code' => 200 ] ] );
-		Functions\when( 'wp_remote_retrieve_response_code' )->alias( function ( $response ) {
-			return $response['response']['code'] ?? 0;
-		} );
-		Functions\when( 'is_wp_error' )->justReturn( false );
-
-		\Patchwork\redefine( 'file_exists', function ( string $path ) {
-			return false;
-		} );
-
-		$image = [
-			'src'    => 'https://origin.test/wp-content/uploads/photo.jpg',
-			'width'  => 1200,
-			'height' => 800,
-			'alt'    => 'Photo',
-		];
-
-		$result = $resizer->resizer( $image, [ [ '400', '300', '320', 'crop' ] ] );
-
-		$this->assertCount( 2, $result );
-		$this->assertSame( 'https://origin.test/wp-content/cache/image/400x300-crop/photo.avif', $result[0]['src'] );
-		$this->assertSame( 'https://origin.test/wp-content/uploads/photo.jpg', $result[1]['src'] );
-
-		\Patchwork\restoreAll();
-	}
-
-	#[PreserveGlobalState( false )]
-	#[RunInSeparateProcess]
-	public function test_source_not_found_skips_remote_variant_when_probe_returns_not_found(): void {
-		define( 'TIMBERKIT_MEDIA_ORIGIN', 'https://origin.test' );
-
-		$resizer = $this->createResizer();
-
-		Functions\when( 'wp_check_filetype' )->alias( function ( $path ) {
-			if ( str_contains( $path, '.avif' ) ) {
-				return [ 'type' => 'image/avif', 'ext' => 'avif' ];
-			}
-			return [ 'type' => 'image/jpeg', 'ext' => 'jpg' ];
-		} );
-		Functions\when( 'wp_upload_dir' )->justReturn( [
-			'basedir' => '/var/www/html/wp-content/uploads',
-			'baseurl' => 'https://local.test/wp-content/uploads',
-		] );
-		Functions\when( 'content_url' )->justReturn( 'https://local.test/wp-content' );
-		Functions\when( 'sanitize_file_name' )->alias( function ( $name ) {
-			return $name;
-		} );
-		Functions\when( 'wp_remote_head' )->justReturn( [ 'response' => [ 'code' => 404 ] ] );
-		Functions\when( 'wp_remote_retrieve_response_code' )->alias( function ( $response ) {
-			return $response['response']['code'] ?? 0;
-		} );
-		Functions\when( 'is_wp_error' )->justReturn( false );
-
-		\Patchwork\redefine( 'file_exists', function ( string $path ) {
-			return false;
-		} );
-
-		$image = [
-			'src'    => 'https://origin.test/wp-content/uploads/photo.jpg',
-			'width'  => 1200,
-			'height' => 800,
-			'alt'    => 'Photo',
-		];
-
-		$result = $resizer->resizer( $image, [ [ '800', '600', '768', 'crop' ] ] );
-
-		$this->assertCount( 1, $result );
-		$this->assertSame( 'https://origin.test/wp-content/uploads/photo.jpg', $result[0]['src'] );
+		$this->assertSame( 'https://example.com/wp-content/uploads/photo.jpg', $result[1]['src'] );
 
 		\Patchwork\restoreAll();
 	}

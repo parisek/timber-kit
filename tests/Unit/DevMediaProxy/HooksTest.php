@@ -46,9 +46,10 @@ class HooksTest extends TestCase {
 		DevMediaProxy::register( $this->origin_base_url );
 		DevMediaProxy::register( $this->origin_base_url );
 
-		$this->assertCount( 5, $filters );
+		$this->assertCount( 6, $filters );
 		$this->assertSame( 'wp_get_attachment_url', $filters[0][0] );
 		$this->assertSame( 'wp_prepare_attachment_for_js', $filters[4][0] );
+		$this->assertSame( 'timber_kit_resizer_missing_source_variants', $filters[5][0] );
 	}
 
 	public function test_filter_attachment_url_rewrites_missing_file(): void {
@@ -137,5 +138,148 @@ class HooksTest extends TestCase {
 		$this->assertSame( $this->origin_base_url . '/2024/01/full.jpg', $result['url'] );
 		$this->assertSame( $this->origin_base_url . '/2024/01/icon.jpg', $result['icon'] );
 		$this->assertSame( $this->origin_base_url . '/2024/01/thumb.jpg', $result['sizes']['thumbnail']['url'] );
+	}
+
+	public function test_filter_resizer_missing_source_variants_builds_remote_variant_from_domain_only_origin(): void {
+		Functions\when( 'add_filter' )->justReturn( true );
+		Functions\when( 'apply_filters' )->alias(
+			function ( string $tag, mixed $default ) {
+				return $default;
+			}
+		);
+		Functions\when( 'content_url' )->justReturn( 'https://local.test/wp-content' );
+		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/avif', 'ext' => 'avif' ] );
+		Functions\when( 'wp_remote_head' )->justReturn( [ 'response' => [ 'code' => 200 ] ] );
+		Functions\when( 'wp_remote_retrieve_response_code' )->alias( function ( array $response ) {
+			return $response['response']['code'] ?? 0;
+		} );
+		Functions\when( 'is_wp_error' )->justReturn( false );
+
+		DevMediaProxy::register( 'https://origin.test' );
+
+		$result = DevMediaProxy::filter_resizer_missing_source_variants(
+			null,
+			[
+				[
+					'width' => 800,
+					'height' => 600,
+					'media' => 768,
+					'image_style' => 'crop',
+				],
+			],
+			'photo',
+			[
+				'alt' => 'Photo',
+				'caption' => '',
+				'description' => '',
+			],
+			[
+				'uploads_base_url' => $this->uploads_base_url,
+				'target_format' => 'avif',
+				'image_cache_dir' => '/var/www/html/wp-content/cache/image',
+			]
+		);
+
+		$this->assertSame(
+			[
+				[
+					'src' => 'https://origin.test/wp-content/cache/image/800x600-crop/photo.avif',
+					'type' => 'image/avif',
+					'width' => 800,
+					'height' => 600,
+					'media' => '(min-width: 768px)',
+					'alt' => 'Photo',
+					'caption' => '',
+					'description' => '',
+				],
+			],
+			$result
+		);
+	}
+
+	public function test_filter_resizer_missing_source_variants_supports_full_uploads_origin(): void {
+		Functions\when( 'add_filter' )->justReturn( true );
+		Functions\when( 'apply_filters' )->alias(
+			function ( string $tag, mixed $default ) {
+				return $default;
+			}
+		);
+		Functions\when( 'content_url' )->justReturn( 'https://local.test/wp-content' );
+		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/avif', 'ext' => 'avif' ] );
+		Functions\when( 'wp_remote_head' )->justReturn( [ 'response' => [ 'code' => 200 ] ] );
+		Functions\when( 'wp_remote_retrieve_response_code' )->alias( function ( array $response ) {
+			return $response['response']['code'] ?? 0;
+		} );
+		Functions\when( 'is_wp_error' )->justReturn( false );
+
+		DevMediaProxy::register( 'https://origin.test/wp-content/uploads' );
+
+		$result = DevMediaProxy::filter_resizer_missing_source_variants(
+			null,
+			[
+				[
+					'width' => 400,
+					'height' => 300,
+					'media' => 320,
+					'image_style' => 'crop',
+				],
+			],
+			'photo',
+			[
+				'alt' => 'Photo',
+				'caption' => '',
+				'description' => '',
+			],
+			[
+				'uploads_base_url' => $this->uploads_base_url,
+				'target_format' => 'avif',
+				'image_cache_dir' => '/var/www/html/wp-content/cache/image',
+			]
+		);
+
+		$this->assertSame( 'https://origin.test/wp-content/cache/image/400x300-crop/photo.avif', $result[0]['src'] );
+	}
+
+	public function test_filter_resizer_missing_source_variants_skips_nonexistent_remote_variant(): void {
+		Functions\when( 'add_filter' )->justReturn( true );
+		Functions\when( 'apply_filters' )->alias(
+			function ( string $tag, mixed $default ) {
+				return $default;
+			}
+		);
+		Functions\when( 'content_url' )->justReturn( 'https://local.test/wp-content' );
+		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/avif', 'ext' => 'avif' ] );
+		Functions\when( 'wp_remote_head' )->justReturn( [ 'response' => [ 'code' => 404 ] ] );
+		Functions\when( 'wp_remote_retrieve_response_code' )->alias( function ( array $response ) {
+			return $response['response']['code'] ?? 0;
+		} );
+		Functions\when( 'is_wp_error' )->justReturn( false );
+
+		DevMediaProxy::register( 'https://origin.test' );
+
+		$result = DevMediaProxy::filter_resizer_missing_source_variants(
+			null,
+			[
+				[
+					'width' => 800,
+					'height' => 600,
+					'media' => 768,
+					'image_style' => 'crop',
+				],
+			],
+			'photo',
+			[
+				'alt' => 'Photo',
+				'caption' => '',
+				'description' => '',
+			],
+			[
+				'uploads_base_url' => $this->uploads_base_url,
+				'target_format' => 'avif',
+				'image_cache_dir' => '/var/www/html/wp-content/cache/image',
+			]
+		);
+
+		$this->assertSame( [], $result );
 	}
 }
