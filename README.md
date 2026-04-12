@@ -1,6 +1,6 @@
 # timber-kit
 
-WordPress/Timber starter kit — configurable base class, ACF helpers, image resizer.
+WordPress/Timber starter kit — configurable base class, ACF helpers, image resizer, dev media proxy.
 
 ## Installation
 
@@ -30,6 +30,12 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
 ### Resizer
 
 Image resizing via [Spatie/Image](https://github.com/spatie/image). AVIF output, responsive variants with breakpoints, crop positions, and cache management. Used as a Twig filter.
+
+### DevMediaProxy
+
+Development-only media proxy for projects that do not keep `wp-content/uploads` synchronized locally. When `TIMBERKIT_MEDIA_ORIGIN` is configured, missing local media URLs are rewritten to the upstream origin for common WordPress media surfaces and Media Library payloads.
+
+It also integrates with `Resizer` through the `timber_kit_resizer_missing_source_variants` filter, so missing local source images can fall back to already-generated remote variants before returning the original image URL.
 
 ## Usage
 
@@ -97,6 +103,29 @@ Override these properties in your child constructor before calling `parent::__co
 | `$clean_image_filenames` | bool | `true` | Sanitize uploaded filenames |
 | `$max_upload_width` | int | `2560` | Max upload image width (px) |
 | `$max_upload_height` | int | `2560` | Max upload image height (px) |
+
+### Dev Media Proxy
+
+Configure the proxy in environment config such as VPConfig:
+
+```php
+define( 'TIMBERKIT_MEDIA_ORIGIN', 'https://example.com' );
+```
+
+Behavior:
+
+- if a local uploads file exists, its local URL is kept
+- if a local uploads file is missing, the URL is rewritten to the configured origin
+- a domain-only origin such as `https://example.com` automatically reuses the local uploads path
+- a full origin such as `https://example.com/wp-content/uploads` is used verbatim
+- Resizer can use the same origin to probe already-generated remote variants when local source files are missing
+
+Available hooks:
+
+- `timber_kit_resizer_missing_source_variants` — extension point used by `DevMediaProxy` to provide remote Resizer variants
+- `timber_kit_resizer_probe_remote_variants` — enable/disable remote variant probing, default `true`
+- `timber_kit_resizer_remote_variant_probe_timeout` — HTTP timeout for variant probes, default `2.0`
+- `timber_kit_resizer_remote_variant_probe_limit` — max remote variant probes per request, default `50`
 
 ### Gutenberg
 

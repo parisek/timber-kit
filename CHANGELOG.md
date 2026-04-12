@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- `DevMediaProxy` for development environments with missing local uploads
+- automatic activation from `StarterBase` via `TIMBERKIT_MEDIA_ORIGIN`
+- domain-only media origins, e.g. `https://example.com`, with automatic reuse of the local uploads path
+- Resizer integration through `timber_kit_resizer_missing_source_variants` for remote variant fallback
+- Composer scripts for `composer test` and `composer phpstan`
+
+### Changed
+- Resizer missing-source handling now delegates to a filter so dev media behavior stays isolated in `DevMediaProxy`
+
+### Fixed
+- Media Library JS payload rewriting now covers nested `sizes[*].url` and `icon`
+- DevMediaProxy hardens missing-file resolution against traversal-style relative paths
+- configured media origins strip URL userinfo before rendering rewritten URLs
+- remote Resizer variant probing is bounded per request and configurable via filter
+
 ## [1.0.4] - 2026-04-07
 
 ### Added
