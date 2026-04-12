@@ -508,7 +508,7 @@ final class DevMediaProxy {
 			return true;
 		}
 
-		$probe_limit = max( 0, (int) apply_filters( 'timber_kit_resizer_remote_variant_probe_limit', 6 ) );
+		$probe_limit = max( 0, (int) apply_filters( 'timber_kit_resizer_remote_variant_probe_limit', 50 ) );
 		if ( self::$remote_variant_probe_count >= $probe_limit ) {
 			self::$remote_variant_exists_cache[ $url ] = false;
 			return false;
