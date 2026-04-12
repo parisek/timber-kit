@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Unit\StarterBase;
 
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\Unit\StarterBaseTestCase;
 
 class AcfGoogleMapApiTest extends StarterBaseTestCase {
@@ -15,6 +17,8 @@ class AcfGoogleMapApiTest extends StarterBaseTestCase {
 		$this->base = $this->createStarterBase();
 	}
 
+	#[PreserveGlobalState( false )]
+	#[RunInSeparateProcess]
 	public function test_sets_api_key_when_constant_defined(): void {
 		\Brain\Monkey\Functions\when( 'defined' )->alias( function ( $name ) {
 			return $name === 'GOOGLE_MAPS_API_KEY';
@@ -28,6 +32,8 @@ class AcfGoogleMapApiTest extends StarterBaseTestCase {
 		$this->assertSame( 'test-api-key-123', $result['key'] );
 	}
 
+	#[PreserveGlobalState( false )]
+	#[RunInSeparateProcess]
 	public function test_returns_unchanged_when_constant_not_defined(): void {
 		\Brain\Monkey\Functions\when( 'defined' )->justReturn( false );
 

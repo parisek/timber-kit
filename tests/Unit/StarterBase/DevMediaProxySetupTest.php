@@ -8,6 +8,7 @@ use Brain\Monkey;
 use Brain\Monkey\Functions;
 use Parisek\TimberKit\DevMediaProxy;
 use Parisek\TimberKit\StarterBase;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 
@@ -57,21 +58,10 @@ class DevMediaProxySetupTest extends TestCase {
 		$this->assertNotContains( 'wp_get_attachment_url', $filters );
 	}
 
+	#[PreserveGlobalState( false )]
 	#[RunInSeparateProcess]
 	public function test_constant_domain_origin_reuses_local_uploads_path(): void {
 		define( 'TIMBERKIT_MEDIA_ORIGIN', 'https://origin.test' );
-
-		Monkey\setUp();
-		DevMediaProxy::reset_for_tests();
-
-		Functions\when( 'add_filter' )->justReturn( true );
-		Functions\when( 'add_action' )->justReturn( true );
-		Functions\when( 'wp_get_upload_dir' )->justReturn(
-			array(
-				'baseurl' => 'https://local.test/wp-content/uploads',
-				'basedir' => '/tmp/wp-content/uploads',
-			)
-		);
 
 		$this->create_base()->run_setup_dev_media_proxy();
 
@@ -79,17 +69,12 @@ class DevMediaProxySetupTest extends TestCase {
 			'https://origin.test/wp-content/uploads/2024/01/missing.jpg',
 			DevMediaProxy::filter_attachment_url( 'https://local.test/wp-content/uploads/2024/01/missing.jpg', 1 )
 		);
-
-		DevMediaProxy::reset_for_tests();
-		Monkey\tearDown();
 	}
 
+	#[PreserveGlobalState( false )]
 	#[RunInSeparateProcess]
 	public function test_constant_origin_registers_proxy(): void {
 		define( 'TIMBERKIT_MEDIA_ORIGIN', 'https://origin.test/wp-content/uploads' );
-
-		Monkey\setUp();
-		DevMediaProxy::reset_for_tests();
 
 		$filters = array();
 		Functions\when( 'add_filter' )->alias(
@@ -109,26 +94,12 @@ class DevMediaProxySetupTest extends TestCase {
 		$this->create_base()->run_setup_dev_media_proxy();
 
 		$this->assertContains( 'wp_get_attachment_url', $filters );
-
-		DevMediaProxy::reset_for_tests();
-		Monkey\tearDown();
 	}
 
+	#[PreserveGlobalState( false )]
 	#[RunInSeparateProcess]
 	public function test_constant_full_origin_is_used_verbatim(): void {
 		define( 'TIMBERKIT_MEDIA_ORIGIN', 'https://constant.test/wp-content/uploads' );
-
-		Monkey\setUp();
-		DevMediaProxy::reset_for_tests();
-
-		Functions\when( 'add_filter' )->justReturn( true );
-		Functions\when( 'add_action' )->justReturn( true );
-		Functions\when( 'wp_get_upload_dir' )->justReturn(
-			array(
-				'baseurl' => 'https://local.test/wp-content/uploads',
-				'basedir' => '/tmp/wp-content/uploads',
-			)
-		);
 
 		$this->create_base()->run_setup_dev_media_proxy();
 
@@ -136,17 +107,12 @@ class DevMediaProxySetupTest extends TestCase {
 			'https://constant.test/wp-content/uploads/2024/01/missing.jpg',
 			DevMediaProxy::filter_attachment_url( 'https://local.test/wp-content/uploads/2024/01/missing.jpg', 1 )
 		);
-
-		DevMediaProxy::reset_for_tests();
-		Monkey\tearDown();
 	}
 
+	#[PreserveGlobalState( false )]
 	#[RunInSeparateProcess]
 	public function test_empty_constant_does_not_register_proxy(): void {
 		define( 'TIMBERKIT_MEDIA_ORIGIN', ' ' );
-
-		Monkey\setUp();
-		DevMediaProxy::reset_for_tests();
 
 		$filters = array();
 		Functions\when( 'add_filter' )->alias(
@@ -167,9 +133,6 @@ class DevMediaProxySetupTest extends TestCase {
 		$this->create_base()->run_setup_dev_media_proxy();
 
 		$this->assertNotContains( 'wp_get_attachment_url', $filters );
-
-		DevMediaProxy::reset_for_tests();
-		Monkey\tearDown();
 	}
 
 	private function create_base(): DevMediaProxySetupStarterBaseStub {
