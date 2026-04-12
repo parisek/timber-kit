@@ -255,6 +255,8 @@ class StarterBase extends Site {
 			add_filter( 'wp_handle_upload', array( $this, 'resize_uploaded_image' ), 10, 1 );
 		}
 
+		$this->setup_dev_media_proxy();
+
 		// CF7 autop disable
 		add_filter( 'wpcf7_autop_or_not', '__return_false' );
 
@@ -262,6 +264,24 @@ class StarterBase extends Site {
 		$this->theme_name = $theme->get( 'TextDomain' );
 
 		parent::__construct();
+	}
+
+	/**
+	 * Activate dev media proxy when an upstream origin is configured.
+	 *
+	 * @return void
+	 */
+	protected function setup_dev_media_proxy(): void {
+		if ( ! defined( 'TIMBERKIT_MEDIA_ORIGIN' ) ) {
+			return;
+		}
+
+		$origin = trim( (string) constant( 'TIMBERKIT_MEDIA_ORIGIN' ) );
+		if ( '' === $origin ) {
+			return;
+		}
+
+		DevMediaProxy::register( $origin );
 	}
 
 	/**
