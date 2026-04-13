@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-04-13
+
 ### Added
 - `DevMediaProxy` for development environments with missing local uploads
 - automatic activation from `StarterBase` via `TIMBERKIT_MEDIA_ORIGIN`
