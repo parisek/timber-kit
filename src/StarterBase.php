@@ -192,6 +192,7 @@ class StarterBase extends Site {
 		add_action( 'admin_head', array( $this, 'hide_core_update_notifications' ), 1 );
 		add_action( 'acf/input/admin_footer', array( $this, 'acf_input_admin_footer' ) );
 		add_filter( 'tiny_mce_before_init', array( $this, 'tiny_mce_before_init' ) );
+		add_filter( 'acf/update_value/type=wysiwyg', array( $this, 'sanitize_acf_editor_value' ), 10, 1 );
 		add_filter( 'wp_get_attachment_image_attributes', array( $this, 'wp_get_attachment_image_attributes' ), 10, 2 );
 		add_filter( 'jpeg_quality', array( $this, 'jpeg_quality' ) );
 		add_filter( 'wp_editor_set_quality', array( $this, 'wp_editor_set_quality' ) );
@@ -902,6 +903,29 @@ class StarterBase extends Site {
 			</style>
 			<script>
 			(function($) {
+				function sanitizeTinyMceContent(content) {
+					if (typeof content !== 'string' || content === '') {
+						return content;
+					}
+
+					content = content.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '');
+					content = content.replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '');
+
+					if (typeof document === 'undefined' || !document.createElement) {
+						return content;
+					}
+
+					var template = document.createElement('template');
+					template.innerHTML = content;
+					template.content.querySelectorAll('[style]').forEach(function(element) {
+						element.removeAttribute('style');
+					});
+
+					content = template.innerHTML;
+
+					return content;
+				}
+
 				// reduce placeholder textarea height to match tinymce settings (when using delay-setting)
 				$('.acf-editor-wrap.delay textarea').css('height', '60px');
 				// (filter called before the tinyMCE instance is created)
@@ -916,6 +940,13 @@ class StarterBase extends Site {
 				ed.settings.autoresize_min_height = 60;
 				// reduce iframe's 'height' style to match tinymce settings
 				$('.acf-editor-wrap iframe').css('height', '60px');
+				['BeforeSetContent', 'PastePreProcess', 'GetContent'].forEach(function(eventName) {
+					ed.on(eventName, function(e) {
+						if (e && typeof e.content === 'string') {
+							e.content = sanitizeTinyMceContent(e.content);
+						}
+					});
+				});
 				});
 				// Compatibility with Alpine.js and Gutenberg preview
 				// https://discourse.roots.io/t/alpine-js-and-blade-acf-composer/23756/12
@@ -941,7 +972,37 @@ class StarterBase extends Site {
 		} else {
 			$mceInit['content_style'] = $styles . ' ';
 		}
+
+		$mceInit['verify_html'] = true;
+		$mceInit['invalid_elements'] = 'script,iframe';
+		$mceInit['paste_webkit_styles'] = 'none';
+
 		return $mceInit;
+	}
+
+	/**
+	 * Sanitize ACF editor values before saving them to the database.
+	 *
+	 * Hooked to `acf/update_value/type=wysiwyg`.
+	 *
+	 * @param mixed $value Raw ACF field value.
+	 * @return mixed Sanitized value, or empty string when visually empty.
+	 */
+	public function sanitize_acf_editor_value( $value ) {
+		$value = Helpers::sanitizeEditorContent( $value );
+
+		if ( ! is_string( $value ) ) {
+			return ( null === $value || false === $value ) ? '' : $value;
+		}
+
+		$allowed_html = Helpers::getEditorAllowedHtml();
+		$value = wp_kses( $value, $allowed_html );
+
+		if ( Helpers::isEditorContentEmpty( $value, true ) ) {
+			return '';
+		}
+
+		return $value;
 	}
 
 	/**

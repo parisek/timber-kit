@@ -235,6 +235,157 @@ class FieldFormatterTest extends HelpersTestCase {
 		$this->assertSame( 'Some text content', $result );
 	}
 
+	public function test_textarea_does_not_apply_editor_artifact_sanitization(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return $content;
+		} );
+
+		$field = [
+			'type'  => 'textarea',
+			'value' => '<span data-mce-type="bookmark">&#xfeff;</span><br data-mce-bogus="1">',
+		];
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertSame( $field['value'], $result );
+	}
+
+	public function test_textarea_with_only_breaks_and_spaces_is_treated_as_empty(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return $content;
+		} );
+
+		$field = [
+			'type'  => 'textarea',
+			'value' => "<p>\n&nbsp;<br></p>",
+		];
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertSame( '', $result );
+	}
+
+	public function test_textarea_with_empty_paragraph_attributes_is_treated_as_empty(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return $content;
+		} );
+
+		$field = [
+			'type'  => 'textarea',
+			'value' => '<p class="foo">&nbsp;<br></p>',
+		];
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertSame( '', $result );
+	}
+
+	public function test_wysiwyg_with_tinymce_artifacts_is_treated_as_empty(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return $content;
+		} );
+
+		$field = [
+			'type'  => 'wysiwyg',
+			'value' => '<p><span data-mce-type="bookmark" style="overflow:hidden;line-height:0px">&#xfeff;</span><br data-mce-bogus="1"></p>',
+		];
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertSame( '', $result );
+	}
+
+	public function test_wysiwyg_with_multiline_tinymce_bookmark_is_treated_as_empty(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return $content;
+		} );
+
+		$field = [
+			'type'  => 'wysiwyg',
+			'value' => "<p><span data-mce-type=\"bookmark\">\n&#xfeff;\n</span><br data-mce-bogus=\"1\"></p>",
+		];
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertSame( '', $result );
+	}
+
+	public function test_wysiwyg_with_only_spaces_and_zero_width_chars_is_treated_as_empty(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return $content;
+		} );
+
+		$field = [
+			'type'  => 'wysiwyg',
+			'value' => '<p>&nbsp;' . html_entity_decode( '&#x200B;', ENT_QUOTES | ENT_HTML5, 'UTF-8' ) . '</p>',
+		];
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertSame( '', $result );
+	}
+
+	public function test_wysiwyg_with_visible_text_is_not_treated_as_empty(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return $content;
+		} );
+
+		$field = [
+			'type'  => 'wysiwyg',
+			'value' => '<p>&nbsp;Ahoj</p>',
+		];
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertSame( '<p>&nbsp;Ahoj</p>', $result );
+	}
+
+	public function test_wysiwyg_with_image_only_content_is_not_treated_as_empty(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return $content;
+		} );
+
+		$field = [
+			'type'  => 'wysiwyg',
+			'value' => '<figure><img src="https://example.com/a.jpg" alt=""></figure>',
+		];
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertSame( $field['value'], $result );
+	}
+
+	public function test_wysiwyg_keeps_literal_style_text_in_visible_content(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return $content;
+		} );
+
+		$field = [
+			'type'  => 'wysiwyg',
+			'value' => '<p>Use <code>style="color:red"</code> in this example</p>',
+		];
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertSame( $field['value'], $result );
+	}
+
+	public function test_wysiwyg_with_invalid_utf8_does_not_fail_empty_check(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return $content;
+		} );
+
+		$invalid_utf8 = "<p>\xC3\x28</p>";
+		$field = [
+			'type'  => 'wysiwyg',
+			'value' => $invalid_utf8,
+		];
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertSame( $invalid_utf8, $result );
+	}
+
 	// --- Post Object ---
 
 	public function test_post_object_cf7_render(): void {

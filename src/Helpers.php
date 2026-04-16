@@ -487,6 +487,144 @@ class Helpers {
 	}
 
 	/**
+	 * Sanitize HTML content coming from an editor.
+	 *
+	 * Removes TinyMCE artifacts such as bookmark spans and bogus line breaks.
+	 * Security-sensitive tag and attribute filtering is intentionally left to
+	 * `wp_kses()` with {@see getEditorAllowedHtml()}, rather than broad regex
+	 * stripping that could corrupt visible editor content.
+	 *
+	 * @param mixed $value Raw editor value.
+	 * @return mixed Sanitized editor value.
+	 */
+	public static function sanitizeEditorContent( $value ) {
+
+		if ( ! is_string( $value ) ) {
+			return $value;
+		}
+
+		$without_bookmarks = preg_replace( '/<span[^>]*data-mce-type=(["\'])bookmark\1[^>]*>[\s\S]*?<\/span>/iu', '', $value );
+		if ( null !== $without_bookmarks ) {
+			$value = $without_bookmarks;
+		}
+		$without_bogus_breaks = preg_replace( '/<br[^>]*data-mce-bogus=(["\'])1\1[^>]*>/iu', '', $value );
+		if ( null !== $without_bogus_breaks ) {
+			$value = $without_bogus_breaks;
+		}
+
+		return $value;
+	}
+
+	/**
+	 * Get the allowed HTML map for editor content sanitized via wp_kses().
+	 *
+	 * Keeps common editorial markup and selected attributes such as `class`,
+	 * while excluding inline styles and risky embedded content.
+	 *
+	 * @return array<string, array<string, bool>>
+	 */
+	public static function getEditorAllowedHtml() {
+		return [
+			'p' => [ 'class' => true ],
+			'br' => [],
+			'strong' => [ 'class' => true ],
+			'b' => [ 'class' => true ],
+			'em' => [ 'class' => true ],
+			'i' => [ 'class' => true ],
+			'u' => [ 'class' => true ],
+			's' => [ 'class' => true ],
+			'sub' => [ 'class' => true ],
+			'sup' => [ 'class' => true ],
+			'ul' => [ 'class' => true ],
+			'ol' => [ 'class' => true ],
+			'li' => [ 'class' => true ],
+			'h1' => [ 'class' => true ],
+			'h2' => [ 'class' => true ],
+			'h3' => [ 'class' => true ],
+			'h4' => [ 'class' => true ],
+			'h5' => [ 'class' => true ],
+			'h6' => [ 'class' => true ],
+			'blockquote' => [ 'class' => true, 'cite' => true ],
+			'hr' => [ 'class' => true ],
+			'span' => [ 'class' => true ],
+			'a' => [ 'class' => true, 'href' => true, 'rel' => true, 'title' => true ],
+			'img' => [ 'class' => true, 'src' => true, 'alt' => true, 'width' => true, 'height' => true, 'srcset' => true, 'sizes' => true, 'loading' => true ],
+			'figure' => [ 'class' => true ],
+			'figcaption' => [ 'class' => true ],
+			'code' => [ 'class' => true ],
+			'pre' => [ 'class' => true ],
+		];
+	}
+
+	/**
+	 * Check whether HTML content from an editor is visually empty.
+	 *
+	 * TinyMCE / ACF WYSIWYG may save invisible artifacts such as bookmark spans,
+	 * bogus line breaks, non-breaking spaces, or zero-width characters. This
+	 * helper removes those before performing an emptiness check.
+	 *
+	 * @param mixed $value Raw editor value.
+	 * @param bool  $is_sanitized True when TinyMCE artifacts were already removed by the caller.
+	 * @return bool True when the content is visually empty.
+	 */
+	public static function isEditorContentEmpty( $value, bool $is_sanitized = false ) {
+
+		if ( ! is_string( $value ) ) {
+			return empty( $value );
+		}
+
+		if ( ! $is_sanitized ) {
+			$value = self::sanitizeEditorContent( $value );
+		}
+
+		if ( preg_match( '/<(img|hr|video|audio|svg|canvas)\b/i', $value ) ) {
+			return false;
+		}
+
+		$plain = function_exists( 'wp_strip_all_tags' ) ? wp_strip_all_tags( $value ) : strip_tags( $value );
+		$plain = html_entity_decode( $plain, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$stripped_plain = preg_replace( '/[\x{00A0}\x{00AD}\x{034F}\x{061C}\x{180E}\x{200B}-\x{200F}\x{2028}-\x{202E}\x{2060}\x{2066}-\x{2069}\x{FEFF}\s]+/u', '', $plain );
+		if ( null !== $stripped_plain ) {
+			$plain = $stripped_plain;
+		}
+
+		return $plain === '';
+	}
+
+	/**
+	 * Check whether textarea-like content is visually empty without applying
+	 * editor-specific artifact sanitization.
+	 *
+	 * This only treats whitespace, non-breaking spaces, `<br>` tags, and empty
+	 * paragraph wrappers as empty. Arbitrary HTML/code examples remain intact.
+	 *
+	 * @param mixed $value Raw textarea value.
+	 * @return bool True when the content is visually empty.
+	 */
+	public static function isTextareaContentEmpty( $value ) {
+
+		if ( ! is_string( $value ) ) {
+			return empty( $value );
+		}
+
+		$normalized = html_entity_decode( $value, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$without_breaks = preg_replace( '/<br\s*\/?>/iu', '', $normalized );
+		if ( null !== $without_breaks ) {
+			$normalized = $without_breaks;
+		}
+		$without_empty_paragraphs = preg_replace( '/<p\b[^>]*>(?:[\x{00A0}\x{200B}-\x{200F}\x{FEFF}\s]|&nbsp;|&#160;|<br\s*\/?>)*<\/p>/iu', '', $normalized );
+		if ( null !== $without_empty_paragraphs ) {
+			$normalized = $without_empty_paragraphs;
+		}
+		$stripped_normalized = preg_replace( '/[\x{00A0}\x{200B}-\x{200F}\x{FEFF}\s]+/u', '', $normalized );
+		if ( null !== $stripped_normalized ) {
+			$normalized = $stripped_normalized;
+		}
+
+		return $normalized === '';
+	}
+
+	/**
 	 * Retrieve and format all ACF fields attached to a post, term, or options page.
 	 *
 	 * Resolves the post ID from a WP_Post / Timber post object, a term object,
@@ -536,6 +674,7 @@ class Helpers {
 		if ( ! empty( $fields ) ) {
 			foreach ( $fields as $key => $field ) {
 				$value = self::fieldFormatter( $field, $post_id, $is_preview );
+
 				if ( ! empty( $value ) ) {
 					$content[ $key ] = $value;
 				}
@@ -550,7 +689,8 @@ class Helpers {
 	 *
 	 * Dispatches to type-specific formatting logic:
 	 * - `link` → {@see formatLink()}
-	 * - `wysiwyg` / `textarea` → shortcodes expanded, bogus markup stripped
+	 * - `wysiwyg` → TinyMCE artifact cleanup, visually-empty detection, shortcodes expanded
+	 * - `textarea` → shortcodes expanded without editor-specific sanitization
 	 * - `image` → {@see formatImage()}
 	 * - `gallery` → each item formatted by type (image / file / video)
 	 * - `file` → {@see formatFile()}
@@ -584,14 +724,23 @@ class Helpers {
 
 			$field['value'] = self::formatLink( $field['value'], $post_id, $field );
 
-		} elseif ( in_array( $field['type'], [ 'wysiwyg', 'textarea' ] ) ) {
+		} elseif ( $field['type'] === 'wysiwyg' ) {
 
-			// we need to check wysiwyg fields for <br data-mce-bogus="1"> to properly check if empty
-			if ( is_string( $field['value'] ) && empty( trim( preg_replace( '/\s\s+/', ' ', strip_tags( $field['value'] ) ) ) ) ) {
+			$field['value'] = self::sanitizeEditorContent( $field['value'] );
+
+			if ( self::isEditorContentEmpty( $field['value'], true ) ) {
 				$field['value'] = '';
 			}
 
 			$field['value'] = do_shortcode( $field['value'] );
+
+		} elseif ( $field['type'] === 'textarea' ) {
+
+			if ( self::isTextareaContentEmpty( $field['value'] ) ) {
+				$field['value'] = '';
+			} else {
+				$field['value'] = do_shortcode( $field['value'] );
+			}
 
 		} elseif ( $field['type'] === 'image' ) {
 

@@ -139,6 +139,74 @@ class FormatFieldsTest extends HelpersTestCase {
 		$this->assertArrayNotHasKey( 'empty', $result );
 	}
 
+	public function test_wysiwyg_tinymce_artifacts_excluded_automatically(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return $content;
+		} );
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'perex' => [
+				'type'  => 'wysiwyg',
+				'value' => '<p><span data-mce-type="bookmark">&#xfeff;</span><br data-mce-bogus="1"></p>',
+			],
+			'title' => [ 'type' => 'text', 'value' => 'Present' ],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayHasKey( 'title', $result );
+		$this->assertArrayNotHasKey( 'perex', $result );
+	}
+
+	public function test_textarea_artifact_like_content_is_not_excluded_automatically(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return $content;
+		} );
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'code_sample' => [
+				'type'  => 'textarea',
+				'value' => '<span data-mce-type="bookmark">&#xfeff;</span><br data-mce-bogus="1">',
+			],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayHasKey( 'code_sample', $result );
+		$this->assertSame( '<span data-mce-type="bookmark">&#xfeff;</span><br data-mce-bogus="1">', $result['code_sample'] );
+	}
+
+	public function test_textarea_with_only_breaks_and_spaces_is_excluded(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return $content;
+		} );
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'notes' => [
+				'type'  => 'textarea',
+				'value' => "<p>\n&nbsp;<br></p>",
+			],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayNotHasKey( 'notes', $result );
+	}
+
+	public function test_wysiwyg_shortcode_markup_output_is_not_excluded(): void {
+		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
+			return str_replace( '[image-only]', '<img src="https://example.com/a.jpg" alt="">', $content );
+		} );
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'gallery' => [
+				'type'  => 'wysiwyg',
+				'value' => '[image-only]',
+			],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayHasKey( 'gallery', $result );
+		$this->assertSame( '<img src="https://example.com/a.jpg" alt="">', $result['gallery'] );
+	}
+
 	public function test_with_string_option_singular(): void {
 		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
 			if ( $id === 'option' ) {
