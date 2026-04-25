@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-04-25
+
+### Fixed
+- `get_site_icon_url` filter is now only registered when the configured favicon file exists on disk, so WordPress falls back to the default site icon instead of producing a broken URL when the theme favicon is missing
+
 ## [1.1.1] - 2026-04-16
 
 ### Added
