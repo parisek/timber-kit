@@ -201,7 +201,9 @@ class StarterBase extends Site {
 		add_action( 'init', array( $this, 'remove_global_styles_and_svg_filters' ) );
 		add_action( 'delete_attachment', array( $this, 'cleanup_cached_images' ) );
 		add_filter( 'wp_handle_upload_prefilter', array( $this, 'prevent_duplicate_filename_uploads' ), 10, 1 );
-		add_filter( 'get_site_icon_url', array( $this, 'get_site_icon_url' ), 10, 3 );
+		if ( is_file( get_template_directory() . '/static/' . $this->favicon_path ) ) {
+			add_filter( 'get_site_icon_url', array( $this, 'get_site_icon_url' ), 10, 3 );
+		}
 		// Disable wptexturize to prevent WordPress from converting quotes in Alpine.js x-data attributes
 		// Without this, Alpine.js attributes like x-data="{ open: false }" get converted to curly quotes
 		// which breaks JavaScript parsing
@@ -1634,7 +1636,9 @@ class StarterBase extends Site {
 	/**
 	 * Override site icon URL with the theme's custom favicon.
 	 *
-	 * Hooked to `get_site_icon_url`.
+	 * Hooked to `get_site_icon_url` only when the favicon file exists on disk
+	 * (gating happens in the constructor). When the file is missing the filter
+	 * is not registered at all, so WordPress falls back to its default site icon.
 	 *
 	 * @param string $url     Default site icon URL.
 	 * @param int    $size    Requested icon size in pixels.
