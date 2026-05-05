@@ -1,6 +1,6 @@
 # timber-kit
 
-WordPress/Timber starter kit — configurable base class, ACF helpers, image resizer, dev media proxy.
+WordPress/Timber starter kit — configurable base class, ACF helpers, image resizer, dev media proxy, WPForms config bridge.
 
 ## Installation
 
@@ -36,6 +36,12 @@ Image resizing via [Spatie/Image](https://github.com/spatie/image). AVIF output,
 Development-only media proxy for projects that do not keep `wp-content/uploads` synchronized locally. When `TIMBERKIT_MEDIA_ORIGIN` is configured, missing local media URLs are rewritten to the upstream origin for common WordPress media surfaces and Media Library payloads.
 
 It also integrates with `Resizer` through the `timber_kit_resizer_missing_source_variants` filter, so missing local source images can fall back to already-generated remote variants before returning the original image URL.
+
+### WPFormsConfigBridge
+
+Bridges `wp-config.php` constants to entries of the `wpforms_settings` option, so per-environment values such as Cloudflare Turnstile test keys can be stored in environment config rather than the WordPress database.
+
+A setting key `turnstile-site-key` is overridden by a constant `WPFORMS_TURNSTILE_SITE_KEY` (hyphens become underscores, the whole name uppercased). The bridge is activated automatically by `StarterBase` when WPForms is loaded.
 
 ## Usage
 
@@ -126,6 +132,23 @@ Available hooks:
 - `timber_kit_resizer_probe_remote_variants` — enable/disable remote variant probing, default `true`
 - `timber_kit_resizer_remote_variant_probe_timeout` — HTTP timeout for variant probes, default `2.0`
 - `timber_kit_resizer_remote_variant_probe_limit` — max remote variant probes per request, default `50`
+
+### WPForms Config Bridge
+
+Define overrides in `wp-config.php`:
+
+```php
+define( 'WPFORMS_CAPTCHA_PROVIDER',     'turnstile' );
+define( 'WPFORMS_TURNSTILE_SITE_KEY',   '1x00000000000000000000AA' );
+define( 'WPFORMS_TURNSTILE_SECRET_KEY', '1x0000000000000000000000000000000AA' );
+```
+
+Bridged keys:
+
+- `WPFORMS_<UPPER_SNAKE>` for any key already saved in the `wpforms_settings` option
+- common captcha keys are bridged even on fresh installs without saved settings: `captcha-provider`, `turnstile-site-key`, `turnstile-secret-key`, `recaptcha-type`, `recaptcha-site-key`, `recaptcha-secret-key`, `hcaptcha-site-key`, `hcaptcha-secret-key`
+
+The Cloudflare always-pass test sitekey/secret pair above (`1x000…AA` / `1x000…AA`) is recommended for staging/CI to avoid headless detection blocking the challenge widget.
 
 ### Gutenberg
 

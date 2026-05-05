@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- `WPFormsConfigBridge` to override entries of the `wpforms_settings` option from `wp-config.php` constants. Setting key `turnstile-site-key` is bridged from `WPFORMS_TURNSTILE_SITE_KEY` (hyphens become underscores, name uppercased), letting per-env values such as Cloudflare Turnstile test keys live in environment config instead of the database. Activated automatically by `StarterBase` when WPForms is loaded
+
 ## [1.1.2] - 2026-04-25
 
 ### Fixed

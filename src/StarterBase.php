@@ -259,6 +259,7 @@ class StarterBase extends Site {
 		}
 
 		$this->setup_dev_media_proxy();
+		$this->setup_wpforms_config_bridge();
 
 		// CF7 autop disable
 		add_filter( 'wpcf7_autop_or_not', '__return_false' );
@@ -285,6 +286,22 @@ class StarterBase extends Site {
 		}
 
 		DevMediaProxy::register( $origin );
+	}
+
+	/**
+	 * Activate the WPForms config bridge when WPForms is loaded.
+	 *
+	 * Only runs for projects that have WPForms active; otherwise the filter
+	 * would never fire but registering it is unnecessary overhead.
+	 *
+	 * @return void
+	 */
+	protected function setup_wpforms_config_bridge(): void {
+		if ( ! defined( 'WPFORMS_VERSION' ) && ! function_exists( 'wpforms' ) ) {
+			return;
+		}
+
+		WPFormsConfigBridge::register();
 	}
 
 	/**
