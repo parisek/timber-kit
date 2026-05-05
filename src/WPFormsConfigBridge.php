@@ -64,17 +64,17 @@ final class WPFormsConfigBridge {
 		add_filter( 'default_option_wpforms_settings', array( self::class, 'applyOverrides' ), 11 );
 
 		if ( is_admin() ) {
-			// WPForms strips all `admin_notices` actions via its
-			// `hide_unrelated_notices()` callback on `admin_print_styles`
-			// priority 0 to keep its own admin pages clean. Register the
-			// notice at priority 1 so it survives that removal and still
-			// renders in the standard slot.
+			// WPForms calls `wpforms_admin_hide_unrelated_notices()` on
+			// `admin_print_scripts` (priority 10) and wipes the entire
+			// `admin_notices` callback list on its own admin screens. Defer
+			// our registration to `in_admin_header`, which fires after that
+			// strip and immediately before `admin_notices` is dispatched, so
+			// the override hint survives and renders on WPForms pages.
 			add_action(
-				'admin_print_styles',
+				'in_admin_header',
 				static function (): void {
 					add_action( 'admin_notices', array( self::class, 'maybeRenderAdminNotice' ) );
-				},
-				1
+				}
 			);
 		}
 	}

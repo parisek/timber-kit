@@ -150,15 +150,12 @@ class ApplyOverridesTest extends TestCase {
 		$this->assertSame( 'fresh-install-site-key', $result['turnstile-site-key'] );
 	}
 
-	public function test_admin_notice_is_registered_late_to_survive_wpforms_strip(): void {
+	public function test_admin_notice_is_deferred_to_in_admin_header_to_survive_wpforms_strip(): void {
 		$actions = array();
 		Functions\when( 'add_filter' )->justReturn( true );
 		Functions\when( 'add_action' )->alias(
-			function ( string $tag, mixed $callback, int $priority = 10 ) use ( &$actions ) {
-				$actions[] = array(
-					'tag'      => $tag,
-					'priority' => $priority,
-				);
+			function ( string $tag ) use ( &$actions ) {
+				$actions[] = $tag;
 				return true;
 			}
 		);
@@ -167,12 +164,14 @@ class ApplyOverridesTest extends TestCase {
 		WPFormsConfigBridge::register();
 
 		$this->assertContains(
-			array(
-				'tag'      => 'admin_print_styles',
-				'priority' => 1,
-			),
+			'in_admin_header',
 			$actions,
-			'Admin notice must be re-registered on admin_print_styles priority 1 to survive WPForms removing all admin_notices actions on its own pages.'
+			'Admin notice must be re-registered from in_admin_header so it runs after WPForms wipes admin_notices on admin_print_scripts.'
+		);
+		$this->assertNotContains(
+			'admin_notices',
+			$actions,
+			'Direct admin_notices registration would be stripped by WPForms before it can render.'
 		);
 	}
 }
