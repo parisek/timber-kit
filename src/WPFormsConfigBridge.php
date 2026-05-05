@@ -55,6 +55,10 @@ final class WPFormsConfigBridge {
 		self::$registered = true;
 
 		add_filter( 'option_wpforms_settings', array( self::class, 'applyOverrides' ), 11 );
+
+		if ( is_admin() ) {
+			add_action( 'admin_notices', array( self::class, 'maybeRenderAdminNotice' ) );
+		}
 	}
 
 	/**
@@ -95,6 +99,78 @@ final class WPFormsConfigBridge {
 	 */
 	private static function constantName( string $key ): string {
 		return 'WPFORMS_' . strtoupper( str_replace( '-', '_', $key ) );
+	}
+
+	/**
+	 * Render an admin notice on WPForms screens listing active overrides.
+	 *
+	 * Scoped to admin screens whose ID contains `wpforms` so the notice only
+	 * appears where it is actionable (Settings → CAPTCHA, Integrations, etc.).
+	 *
+	 * @return void
+	 */
+	public static function maybeRenderAdminNotice(): void {
+		if ( ! function_exists( 'get_current_screen' ) ) {
+			return;
+		}
+
+		$screen = get_current_screen();
+		if ( null === $screen || ! str_contains( $screen->id, 'wpforms' ) ) {
+			return;
+		}
+
+		$overrides = self::collectActiveOverrides();
+		if ( array() === $overrides ) {
+			return;
+		}
+
+		$items = '';
+		foreach ( $overrides as $key => $const ) {
+			$items .= sprintf(
+				'<li><code>%s</code> ← <code>%s</code></li>',
+				esc_html( $key ),
+				esc_html( $const )
+			);
+		}
+
+		printf(
+			'<div class="notice notice-info"><p><strong>%s</strong></p><ul>%s</ul><p>%s</p></div>',
+			esc_html__( 'WPForms settings overridden via wp-config.php', 'timber-kit' ),
+			$items, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- pre-escaped above.
+			esc_html__( 'These values come from PHP constants at runtime. Changes saved on this screen are stored in the database but ignored until the constant is removed.', 'timber-kit' )
+		);
+	}
+
+	/**
+	 * Collect setting keys whose values are currently overridden by constants.
+	 *
+	 * Combines the saved option keys and the always-bridged captcha keys, then
+	 * filters down to the ones whose corresponding constant is defined.
+	 *
+	 * @return array<string, string> Map of setting key → constant name.
+	 */
+	public static function collectActiveOverrides(): array {
+		$saved = function_exists( 'get_option' ) ? get_option( 'wpforms_settings', array() ) : array();
+		$saved = is_array( $saved ) ? $saved : array();
+
+		$candidates = array_unique(
+			array_merge(
+				array_map( 'strval', array_keys( $saved ) ),
+				self::ALWAYS_BRIDGED_KEYS
+			)
+		);
+
+		$active = array();
+		foreach ( $candidates as $key ) {
+			$const = self::constantName( $key );
+			if ( defined( $const ) ) {
+				$active[ $key ] = $const;
+			}
+		}
+
+		ksort( $active );
+
+		return $active;
 	}
 
 	/**

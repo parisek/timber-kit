@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Tests\Unit\WPFormsConfigBridge;
 
+use Brain\Monkey;
+use Brain\Monkey\Functions;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunTestsInSeparateProcesses;
 use PHPUnit\Framework\TestCase;
@@ -15,7 +17,13 @@ class ApplyOverridesTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		Monkey\setUp();
 		WPFormsConfigBridge::reset_for_tests();
+	}
+
+	protected function tearDown(): void {
+		Monkey\tearDown();
+		parent::tearDown();
 	}
 
 	public function test_returns_array_when_option_is_missing(): void {
@@ -75,5 +83,46 @@ class ApplyOverridesTest extends TestCase {
 		$result = WPFormsConfigBridge::applyOverrides( $input );
 
 		$this->assertSame( $input, $result );
+	}
+
+	public function test_collect_active_overrides_returns_map_of_overridden_keys(): void {
+		define( 'WPFORMS_TURNSTILE_SITE_KEY', 'overridden' );
+		define( 'WPFORMS_DISABLE_CSS', '1' );
+		Functions\when( 'get_option' )->justReturn(
+			array(
+				'turnstile-site-key' => 'saved',
+				'disable-css'        => '2',
+			)
+		);
+
+		$result = WPFormsConfigBridge::collectActiveOverrides();
+
+		$this->assertSame(
+			array(
+				'disable-css'        => 'WPFORMS_DISABLE_CSS',
+				'turnstile-site-key' => 'WPFORMS_TURNSTILE_SITE_KEY',
+			),
+			$result
+		);
+	}
+
+	public function test_collect_active_overrides_includes_always_bridged_keys_on_fresh_install(): void {
+		define( 'WPFORMS_TURNSTILE_SECRET_KEY', 'fresh' );
+		Functions\when( 'get_option' )->justReturn( array() );
+
+		$result = WPFormsConfigBridge::collectActiveOverrides();
+
+		$this->assertSame(
+			array( 'turnstile-secret-key' => 'WPFORMS_TURNSTILE_SECRET_KEY' ),
+			$result
+		);
+	}
+
+	public function test_collect_active_overrides_returns_empty_when_no_constants_defined(): void {
+		Functions\when( 'get_option' )->justReturn(
+			array( 'turnstile-site-key' => 'saved' )
+		);
+
+		$this->assertSame( array(), WPFormsConfigBridge::collectActiveOverrides() );
 	}
 }
