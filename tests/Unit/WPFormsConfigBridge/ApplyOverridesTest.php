@@ -149,4 +149,30 @@ class ApplyOverridesTest extends TestCase {
 
 		$this->assertSame( 'fresh-install-site-key', $result['turnstile-site-key'] );
 	}
+
+	public function test_admin_notice_is_registered_late_to_survive_wpforms_strip(): void {
+		$actions = array();
+		Functions\when( 'add_filter' )->justReturn( true );
+		Functions\when( 'add_action' )->alias(
+			function ( string $tag, mixed $callback, int $priority = 10 ) use ( &$actions ) {
+				$actions[] = array(
+					'tag'      => $tag,
+					'priority' => $priority,
+				);
+				return true;
+			}
+		);
+		Functions\when( 'is_admin' )->justReturn( true );
+
+		WPFormsConfigBridge::register();
+
+		$this->assertContains(
+			array(
+				'tag'      => 'admin_print_styles',
+				'priority' => 1,
+			),
+			$actions,
+			'Admin notice must be re-registered on admin_print_styles priority 1 to survive WPForms removing all admin_notices actions on its own pages.'
+		);
+	}
 }
