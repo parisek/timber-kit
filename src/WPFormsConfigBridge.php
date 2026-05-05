@@ -44,7 +44,13 @@ final class WPFormsConfigBridge {
 	);
 
 	/**
-	 * Register the WPForms settings filter.
+	 * Register the WPForms settings filters.
+	 *
+	 * Hooks both `option_wpforms_settings` (DB row exists) and
+	 * `default_option_wpforms_settings` (DB row missing). Without the second
+	 * filter, fresh installs that have never saved WPForms settings would
+	 * bypass the bridge entirely because WordPress short-circuits
+	 * `get_option()` to the default-value path before firing `option_*`.
 	 *
 	 * @return void
 	 */
@@ -55,6 +61,7 @@ final class WPFormsConfigBridge {
 		self::$registered = true;
 
 		add_filter( 'option_wpforms_settings', array( self::class, 'applyOverrides' ), 11 );
+		add_filter( 'default_option_wpforms_settings', array( self::class, 'applyOverrides' ), 11 );
 
 		if ( is_admin() ) {
 			add_action( 'admin_notices', array( self::class, 'maybeRenderAdminNotice' ) );

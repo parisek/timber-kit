@@ -125,4 +125,28 @@ class ApplyOverridesTest extends TestCase {
 
 		$this->assertSame( array(), WPFormsConfigBridge::collectActiveOverrides() );
 	}
+
+	public function test_register_hooks_both_option_and_default_option_filters(): void {
+		$filters = array();
+		Functions\when( 'add_filter' )->alias(
+			function ( string $tag ) use ( &$filters ) {
+				$filters[] = $tag;
+				return true;
+			}
+		);
+		Functions\when( 'is_admin' )->justReturn( false );
+
+		WPFormsConfigBridge::register();
+
+		$this->assertContains( 'option_wpforms_settings', $filters );
+		$this->assertContains( 'default_option_wpforms_settings', $filters );
+	}
+
+	public function test_default_option_path_injects_constants_when_settings_row_missing(): void {
+		define( 'WPFORMS_TURNSTILE_SITE_KEY', 'fresh-install-site-key' );
+
+		$result = WPFormsConfigBridge::applyOverrides( false );
+
+		$this->assertSame( 'fresh-install-site-key', $result['turnstile-site-key'] );
+	}
 }
