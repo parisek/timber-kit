@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- `$disable_comments` now also closes off comment access at the API layer. New public methods `StarterBase::disable_comments_rest_endpoints()` and `StarterBase::disable_comments_xmlrpc_methods()` remove `/wp/v2/comments` REST routes (anonymous reads and authenticated writes both return 404) and strip comment + pingback methods from XML-RPC. The shared `remove_x_pingback_header()` is now also wired when `$disable_comments = true` so the `X-Pingback` header disappears even with XML-RPC enabled site-wide
+- `pre_option_default_comment_status` and `pre_option_default_ping_status` filters force `closed` defaults so post types registered by plugins after `StarterBase` do not silently re-enable comments
+- Standalone `feed_links_show_comments_feed` short-circuit inside the `$disable_comments` block, so the comments-only RSS link is suppressed even when `$disable_feeds = false`
+- Unit tests for `disable_comments_rest_endpoints()` and `disable_comments_xmlrpc_methods()`
+
+### Changed
+- `disable_comments` action priority raised from `100` to `PHP_INT_MAX` so `remove_post_type_support()` also covers custom post types registered late on the `init` hook by plugins
+- `disable_comments()` foreach over `get_post_types()` removes `comments` and `trackbacks` support from every registered post type and `unregister_widget('WP_Widget_Recent_Comments')`, instead of only handling `post` and `page`
+- Dropped redundant `$accepted_args = 2` from `comments_open`, `pings_open`, and `comments_array` filters — `__return_false` and `__return_empty_array` ignore their arguments anyway
+
+### Fixed
+- Unit test for `disable_comments_admin_redirect()` no longer kills the PHPUnit process: the mocked `wp_safe_redirect` now throws to short-circuit before the production `exit;` runs (language constructs cannot be caught by `try/catch`)
+
 ## [1.2.0] - 2026-05-05
 
 ### Added

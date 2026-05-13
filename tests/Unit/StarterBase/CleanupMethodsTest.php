@@ -66,16 +66,155 @@ class CleanupMethodsTest extends StarterBaseTestCase {
 
 	// disable_comments
 
-	public function test_disable_comments_removes_support(): void {
+	public function test_disable_comments_removes_support_from_all_post_types(): void {
+		Functions\when( 'get_post_types' )->justReturn( [ 'post', 'page', 'custom_type' ] );
+		Functions\when( 'post_type_supports' )->alias( function ( $type, $feature ) {
+			// Simulate that post and custom_type support comments, page supports trackbacks
+			if ( $feature === 'comments' ) {
+				return in_array( $type, [ 'post', 'custom_type' ], true );
+			}
+			if ( $feature === 'trackbacks' ) {
+				return in_array( $type, [ 'post', 'page' ], true );
+			}
+			return false;
+		} );
+
 		$removed = [];
 		Functions\when( 'remove_post_type_support' )->alias( function ( $type, $feature ) use ( &$removed ) {
-			$removed[] = $type;
+			$removed[] = [ $type, $feature ];
+		} );
+		Functions\when( 'unregister_widget' )->justReturn( true );
+
+		$this->base->disable_comments();
+
+		$this->assertContains( [ 'post', 'comments' ], $removed );
+		$this->assertContains( [ 'custom_type', 'comments' ], $removed );
+		$this->assertContains( [ 'post', 'trackbacks' ], $removed );
+		$this->assertContains( [ 'page', 'trackbacks' ], $removed );
+	}
+
+	public function test_disable_comments_unregisters_recent_comments_widget(): void {
+		Functions\when( 'get_post_types' )->justReturn( [] );
+		Functions\when( 'post_type_supports' )->justReturn( false );
+
+		$unregistered = [];
+		Functions\when( 'unregister_widget' )->alias( function ( $widget ) use ( &$unregistered ) {
+			$unregistered[] = $widget;
 		} );
 
 		$this->base->disable_comments();
 
-		$this->assertContains( 'post', $removed );
-		$this->assertContains( 'page', $removed );
+		$this->assertContains( 'WP_Widget_Recent_Comments', $unregistered );
+	}
+
+	// disable_comments_admin_menu
+
+	public function test_disable_comments_admin_menu_removes_pages(): void {
+		$removed_menus = [];
+		$removed_submenus = [];
+		Functions\when( 'remove_menu_page' )->alias( function ( $page ) use ( &$removed_menus ) {
+			$removed_menus[] = $page;
+		} );
+		Functions\when( 'remove_submenu_page' )->alias( function ( $parent, $page ) use ( &$removed_submenus ) {
+			$removed_submenus[] = [ $parent, $page ];
+		} );
+
+		$this->base->disable_comments_admin_menu();
+
+		$this->assertContains( 'edit-comments.php', $removed_menus );
+		$this->assertContains( [ 'options-general.php', 'options-discussion.php' ], $removed_submenus );
+	}
+
+	// disable_comments_admin_redirect
+
+	public function test_disable_comments_admin_redirect(): void {
+		// `exit;` is a language construct and cannot be caught. Make the mocked
+		// `wp_safe_redirect` throw so the production code short-circuits before
+		// reaching `exit;`, letting the test continue.
+		$redirected_to = null;
+		Functions\when( 'admin_url' )->justReturn( 'https://example.com/wp-admin/' );
+		Functions\when( 'wp_safe_redirect' )->alias( function ( $url ) use ( &$redirected_to ) {
+			$redirected_to = $url;
+			throw new \RuntimeException( 'short-circuit before exit;' );
+		} );
+
+		try {
+			$this->base->disable_comments_admin_redirect();
+			$this->fail( 'wp_safe_redirect mock should have thrown to prevent exit;' );
+		} catch ( \RuntimeException $e ) {
+			// Expected — prevents `exit;` from terminating the test runner.
+		}
+
+		$this->assertSame( 'https://example.com/wp-admin/', $redirected_to );
+	}
+
+	// disable_comments_dequeue_scripts
+
+	public function test_disable_comments_dequeue_scripts(): void {
+		$dequeued = [];
+		Functions\when( 'wp_dequeue_script' )->alias( function ( $handle ) use ( &$dequeued ) {
+			$dequeued[] = $handle;
+		} );
+
+		$this->base->disable_comments_dequeue_scripts();
+
+		$this->assertContains( 'comment-reply', $dequeued );
+	}
+
+	// disable_comments_rest_endpoints
+
+	public function test_disable_comments_rest_endpoints_removes_comment_routes(): void {
+		$endpoints = [
+			'/wp/v2/comments'                  => 'handler-a',
+			'/wp/v2/comments/(?P<id>[\d]+)'    => 'handler-b',
+			'/wp/v2/posts'                     => 'handler-c',
+			'/wp/v2/users'                     => 'handler-d',
+		];
+
+		$filtered = $this->base->disable_comments_rest_endpoints( $endpoints );
+
+		$this->assertArrayNotHasKey( '/wp/v2/comments', $filtered );
+		$this->assertArrayNotHasKey( '/wp/v2/comments/(?P<id>[\d]+)', $filtered );
+		$this->assertArrayHasKey( '/wp/v2/posts', $filtered );
+		$this->assertArrayHasKey( '/wp/v2/users', $filtered );
+	}
+
+	// disable_comments_xmlrpc_methods
+
+	public function test_disable_comments_xmlrpc_methods_removes_comment_and_pingback_methods(): void {
+		$methods = [
+			'wp.getCommentCount'              => 'handler',
+			'wp.getComment'                   => 'handler',
+			'wp.getComments'                  => 'handler',
+			'wp.newComment'                   => 'handler',
+			'wp.editComment'                  => 'handler',
+			'wp.deleteComment'                => 'handler',
+			'wp.getCommentStatusList'         => 'handler',
+			'pingback.ping'                   => 'handler',
+			'pingback.extensions.getPingbacks' => 'handler',
+			'wp.getUsersBlogs'                => 'handler',
+			'wp.getPost'                      => 'handler',
+		];
+
+		$filtered = $this->base->disable_comments_xmlrpc_methods( $methods );
+
+		$this->assertArrayNotHasKey( 'wp.getCommentCount', $filtered );
+		$this->assertArrayNotHasKey( 'wp.getComment', $filtered );
+		$this->assertArrayNotHasKey( 'wp.getComments', $filtered );
+		$this->assertArrayNotHasKey( 'wp.newComment', $filtered );
+		$this->assertArrayNotHasKey( 'wp.editComment', $filtered );
+		$this->assertArrayNotHasKey( 'wp.deleteComment', $filtered );
+		$this->assertArrayNotHasKey( 'wp.getCommentStatusList', $filtered );
+		$this->assertArrayNotHasKey( 'pingback.ping', $filtered );
+		$this->assertArrayNotHasKey( 'pingback.extensions.getPingbacks', $filtered );
+
+		// Non-comment methods must be preserved.
+		$this->assertArrayHasKey( 'wp.getUsersBlogs', $filtered );
+		$this->assertArrayHasKey( 'wp.getPost', $filtered );
+	}
+
+	public function test_disable_comments_xmlrpc_methods_is_safe_on_empty_input(): void {
+		$this->assertSame( [], $this->base->disable_comments_xmlrpc_methods( [] ) );
 	}
 
 	// remove_global_styles_and_svg_filters

@@ -94,7 +94,7 @@ Override these properties in your child constructor before calling `parent::__co
 | `$disable_xmlrpc` | bool | `true` | Disable XML-RPC |
 | `$disable_emojis` | bool | `true` | Remove emoji scripts/styles |
 | `$disable_feeds` | bool | `true` | Disable RSS feeds |
-| `$disable_comments` | bool | `true` | Disable comments |
+| `$disable_comments` | bool | `true` | Disable comments site-wide: removes comments/trackbacks support, closes `comments_open`/`pings_open`, strips comment admin pages and admin-bar/dashboard widgets, removes `/wp/v2/comments` REST routes, removes comment + pingback XML-RPC methods, drops the `X-Pingback` header, and forces `default_comment_status`/`default_ping_status` to `closed` for late-registered post types |
 | `$disable_search` | bool | `true` | Disable search |
 | `$cleanup_dashboard` | bool | `true` | Remove dashboard widgets |
 | `$cleanup_admin_bar` | bool | `true` | Clean up admin bar |
