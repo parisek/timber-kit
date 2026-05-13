@@ -1134,4 +1134,142 @@ class Helpers {
 
 		return $path;
 	}
+
+	/**
+	 * Estimate reading time in minutes for a post or arbitrary HTML/text.
+	 *
+	 * When `$wpm` is null the helper auto-detects a reading speed from the post's
+	 * WPML language (per-post first, then site-wide), falling back to the WP locale.
+	 * Slavic languages get a lower default because their words are longer and more
+	 * inflected, so equivalent prose contains fewer countable tokens.
+	 *
+	 * Pass an explicit `$wpm` to bypass detection entirely. Override the language
+	 * map via the `timber_kit_read_time_wpm_per_language` filter, or the final
+	 * minutes via `timber_kit_read_time_minutes`.
+	 *
+	 * @param int|string|null $source           Post ID, raw HTML/text, or null to use the global post.
+	 * @param int|null        $wpm              Words per minute. `null` enables language auto-detection.
+	 * @param int             $secondsPerImage  Reading-time budget per `<img>` tag in the content.
+	 * @return int Minutes, minimum 1.
+	 */
+	public static function readTime( int|string|null $source = null, ?int $wpm = null, int $secondsPerImage = 12 ): int {
+		$post_ref = null;
+		if ( $source === null ) {
+			$post_ref = function_exists( 'get_post' ) ? get_post() : null;
+			$content  = $post_ref instanceof \WP_Post ? (string) $post_ref->post_content : '';
+		} elseif ( is_int( $source ) ) {
+			$post_ref = function_exists( 'get_post' ) ? get_post( $source ) : null;
+			$content  = $post_ref instanceof \WP_Post ? (string) $post_ref->post_content : '';
+		} else {
+			$content = $source;
+		}
+
+		if ( $wpm === null ) {
+			$wpm = self::detectReadTimeWpm( $post_ref );
+		}
+		if ( $wpm < 1 ) {
+			$wpm = 200;
+		}
+		if ( $secondsPerImage < 0 ) {
+			$secondsPerImage = 0;
+		}
+
+		$images = (int) preg_match_all( '/<img\b/i', $content );
+		$text   = wp_strip_all_tags( $content );
+		preg_match_all( '/\p{L}+/u', $text, $matches );
+		$words = count( $matches[0] );
+
+		$minutes = (int) ceil( ( $words / $wpm ) + ( $images * $secondsPerImage / 60 ) );
+		$minutes = max( 1, $minutes );
+
+		$filtered = apply_filters( 'timber_kit_read_time_minutes', $minutes, $words, $images, $post_ref );
+
+		return max( 1, (int) $filtered );
+	}
+
+	/**
+	 * Pick a reading speed (WPM) for the given post based on its language.
+	 *
+	 * @param \WP_Post|null $post Post whose language drives the lookup, or null.
+	 * @return int Words per minute.
+	 */
+	private static function detectReadTimeWpm( ?\WP_Post $post ): int {
+		$map = [
+			'cs' => 170,
+			'sk' => 170,
+			'pl' => 170,
+			'de' => 190,
+			'en' => 220,
+			'fr' => 220,
+			'es' => 220,
+			'it' => 220,
+		];
+
+		$filtered = apply_filters( 'timber_kit_read_time_wpm_per_language', $map, $post );
+		if ( is_array( $filtered ) ) {
+			$map = $filtered;
+		}
+
+		$language = self::getLanguage( $post );
+
+		foreach ( [ $language, substr( $language, 0, 2 ) ] as $key ) {
+			if ( $key !== '' && isset( $map[ $key ] ) && is_int( $map[ $key ] ) && $map[ $key ] > 0 ) {
+				return $map[ $key ];
+			}
+		}
+
+		return 200;
+	}
+
+	/**
+	 * Resolve a normalized (lowercased, trimmed) language code for the current context.
+	 *
+	 * The return value may include a region or script subtag (e.g. `pt-br`,
+	 * `zh-hans`) when WPML provides one — see the WPML normalization note below
+	 * for details.
+	 *
+	 * Lookup order:
+	 *   1. Per-post WPML metadata when a post is supplied (`wpml_post_language_details`).
+	 *   2. Current WPML site language (`wpml_current_language`).
+	 *   3. First two characters of `get_locale()` as a final fallback (always 2 letters).
+	 *
+	 * Intended as the single source of truth for language detection across the kit,
+	 * so any helper that needs to vary behavior by language (read time, breadcrumbs,
+	 * SEO meta, hreflang, …) can call this without duplicating the WPML probe logic.
+	 *
+	 * WPML values are returned verbatim except for case + whitespace normalization,
+	 * so locale-region codes like `pt-br` or `zh-hans` survive for hreflang/SEO use
+	 * cases. Consumers that only care about the base language (e.g. read-time WPM
+	 * map lookups) should take the first two characters of the result.
+	 *
+	 * @param \WP_Post|int|null $post Post or post ID whose language to detect, or null for the current site language.
+	 * @return string Language code, lowercased (e.g. `cs`, `en`, `pt-br`).
+	 */
+	public static function getLanguage( \WP_Post|int|null $post = null ): string {
+		if ( is_int( $post ) ) {
+			$post = function_exists( 'get_post' ) ? get_post( $post ) : null;
+		}
+
+		if ( $post instanceof \WP_Post ) {
+			$details = apply_filters( 'wpml_post_language_details', null, $post->ID );
+			if ( is_array( $details ) && isset( $details['language_code'] ) && is_string( $details['language_code'] ) ) {
+				$code = strtolower( trim( $details['language_code'] ) );
+				if ( $code !== '' ) {
+					return $code;
+				}
+			}
+		}
+
+		$current = apply_filters( 'wpml_current_language', null );
+		if ( is_string( $current ) ) {
+			$code = strtolower( trim( $current ) );
+			if ( $code !== '' ) {
+				return $code;
+			}
+		}
+
+		$locale = function_exists( 'get_locale' ) ? get_locale() : 'en_US';
+
+		return strtolower( substr( $locale, 0, 2 ) );
+	}
 }

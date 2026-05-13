@@ -8,6 +8,21 @@ if ( ! defined( 'WP_CONTENT_DIR' ) ) {
 	define( 'WP_CONTENT_DIR', '/tmp/wp-content' );
 }
 
+// Lightweight `wp_strip_all_tags` stub so production code that calls it
+// directly (e.g. Helpers::readTime) works without per-test Brain Monkey
+// mocks that leak across test classes via Patchwork.
+if ( ! function_exists( 'wp_strip_all_tags' ) ) {
+	function wp_strip_all_tags( $string, $remove_breaks = false ) {
+		$string = (string) $string;
+		$string = preg_replace( '@<(script|style)[^>]*?>.*?</\1>@si', '', $string );
+		$string = strip_tags( $string );
+		if ( $remove_breaks ) {
+			$string = preg_replace( '/[\r\n\t ]+/', ' ', $string );
+		}
+		return trim( $string );
+	}
+}
+
 // Minimal WP_Error stub for unit tests
 if ( ! class_exists( 'WP_Error' ) ) {
 	class WP_Error {
@@ -27,6 +42,33 @@ if ( ! class_exists( 'WP_Error' ) ) {
 
 		public function get_error_message(): string {
 			return $this->message;
+		}
+	}
+}
+
+// Minimal WP_Query stub so production `instanceof WP_Query` checks pass in tests.
+if ( ! class_exists( 'WP_Query' ) ) {
+	class WP_Query {
+		public bool $is_404 = false;
+
+		public function set_404(): void {
+			$this->is_404 = true;
+		}
+	}
+}
+
+// Minimal WP_Post stub for tests that need an instance to satisfy `instanceof WP_Post`.
+// Constructor accepts array or object, mirroring WordPress core's permissive signature.
+if ( ! class_exists( 'WP_Post' ) ) {
+	class WP_Post {
+		public int $ID = 0;
+		public string $post_content = '';
+		public string $post_type = 'post';
+
+		public function __construct( array|object $props = [] ) {
+			foreach ( (array) $props as $key => $value ) {
+				$this->$key = $value;
+			}
 		}
 	}
 }
