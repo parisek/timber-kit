@@ -26,6 +26,8 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
 - `formatLanguageSwitcher()` — WPML language switcher
 - `resizeImage()` — responsive image variants
 - `pagination()` — pagination formatting
+- `readTime()` — estimated reading time in minutes (Unicode-aware word counting, image budget, WPML-aware per-language WPM)
+- `getLanguage()` — 2-letter language code for a post or the current request, with WPML per-post / site-wide / locale fallbacks
 
 ### Resizer
 
@@ -101,6 +103,10 @@ Override these properties in your child constructor before calling `parent::__co
 | `$editor_role_enhancements` | bool | `true` | Enhanced editor role caps |
 | `$disable_self_pingbacks` | bool | `true` | Disable self-pingbacks |
 | `$restrict_rest_users` | bool | `true` | Protect REST API users endpoint |
+| `$disable_application_passwords` | bool | `true` | Disable WordPress application passwords so the `application-passwords` REST endpoint cannot issue long-lived API credentials |
+| `$block_author_enumeration` | bool | `true` | Turn numeric `?author=N` requests into a 404 on `template_redirect` (before `redirect_canonical`), so the `/?author=1` → `/author/{username}/` username-disclosure attack is blocked. Path-based `/author/{slug}/` URLs, admin author filters, and alphanumeric slugs are left alone |
+| `$disable_file_editing` | bool | `true` | Define `DISALLOW_FILE_EDIT` so the Theme Editor and Plugin Editor screens are removed from `wp-admin` |
+| `$remove_wp_generator` | bool | `true` | Strip the WordPress version from the `the_generator` filter (covers both `<meta name="generator">` and RSS/Atom feed generators) |
 
 ### Media Processing
 

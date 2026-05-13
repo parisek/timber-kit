@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added
+- `Helpers::readTime()` returns an estimated reading time (minutes) for a post or arbitrary content. Accepts a `\WP_Post`-loadable post ID, an HTML string, or `null` (uses the current post). Counts words via `preg_match_all('/\p{L}+/u', …)` so non-ASCII alphabets (Czech diacritics, Cyrillic, Greek, etc.) are not undercounted by locale-dependent `str_word_count()`. Adds `$secondsPerImage` (default `12`) to the budget for `<img>` tags before stripping HTML, and rounds the final minutes up with `ceil()`, clamped to a minimum of `1`. Auto-detects the post language via `Helpers::getLanguage()` and picks a per-language WPM (Slavic 170, German 190, Romance/English 220, fallback 200) so Czech/Polish/Slovak posts get a realistic estimate. The language → WPM map is filterable via `timber_kit_read_time_wpm_per_language`, and the final minute count via `timber_kit_read_time_minutes`. An explicit `$wpm` argument bypasses auto-detection entirely
+- `Helpers::getLanguage( \WP_Post|int|null $post = null )` returns the 2-letter language code for a post (or the current request), preferring WPML's `wpml_post_language_details` per-post data, then `wpml_current_language` for site-wide context, then `get_locale()` as a final fallback. Reusable building block for `readTime()`, breadcrumbs, hreflang, SEO meta, and any other language-aware helper
+- `$disable_application_passwords` (default `true`) disables WordPress application passwords via `wp_is_application_passwords_available` so the `/wp-json/wp/v2/users/<id>/application-passwords` endpoint cannot be used to issue long-lived API credentials
+- `$block_author_enumeration` (default `true`) hooks `template_redirect` at priority 9 (before `redirect_canonical`) and turns numeric `?author=N` requests into a 404, blocking the classic username-disclosure attack where `/?author=1` redirects to `/author/{username}/`. Path-based `/author/{slug}/` requests, admin author-filter dropdowns (`is_admin()`), and mixed alphanumeric slugs are left untouched
+- `$disable_file_editing` (default `true`) defines `DISALLOW_FILE_EDIT` if not already defined, removing the Theme Editor and Plugin Editor screens from `wp-admin`
+- `$remove_wp_generator` (default `true`) returns an empty string from the `the_generator` filter, suppressing the WordPress version both in `<meta name="generator">` and in RSS/Atom feed generators (the existing `$cleanup_wp_head` already drops the `<meta>` tag via `remove_action('wp_head', 'wp_generator')`; this filter additionally covers feed surfaces)
+- Unit tests for `Helpers::readTime()` (11 cases including Czech locale auto-detect, Unicode word counting, image budget, filter overrides, negative image-budget clamping, post-ID source), `Helpers::getLanguage()` (5 cases covering WPML per-post precedence, site-wide fallback, invalid payload handling), and `StarterBase::block_author_enumeration()` (6 cases including admin skip, multi-digit IDs, mixed alphanumeric)
+- Minimal `WP_Query` and `WP_Post` stubs in `tests/bootstrap.php` so production `instanceof` checks pass without booting WordPress
+
 ## [1.3.0] - 2026-05-13
 
 ### Added

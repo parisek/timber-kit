@@ -126,6 +126,18 @@ class StarterBase extends Site {
 	/** @var bool Restrict REST API /wp/v2/users endpoint to authenticated users. */
 	protected bool $restrict_rest_users = true;
 
+	/** @var bool Disable WP Application Passwords (REST auth surface that is rarely used in practice). */
+	protected bool $disable_application_passwords = true;
+
+	/** @var bool Block ?author=N URL enumeration that leaks usernames via canonical redirect. */
+	protected bool $block_author_enumeration = true;
+
+	/** @var bool Define DISALLOW_FILE_EDIT so Theme/Plugin Editor is hidden from the admin. */
+	protected bool $disable_file_editing = true;
+
+	/** @var bool Filter the_generator to empty so the WP version disappears from wp_head and feeds. */
+	protected bool $remove_wp_generator = true;
+
 	/**
 	 * Media processing — replaces clean-image-filenames + imsanity plugins
 	 */
@@ -271,6 +283,20 @@ class StarterBase extends Site {
 		}
 		if ( $this->restrict_rest_users ) {
 			add_filter( 'rest_authentication_errors', array( $this, 'restrict_rest_users_endpoint' ) );
+		}
+		if ( $this->disable_application_passwords ) {
+			add_filter( 'wp_is_application_passwords_available', '__return_false' );
+		}
+		if ( $this->block_author_enumeration ) {
+			// Priority 9 runs before redirect_canonical (priority 10), so the username-revealing redirect never fires.
+			add_action( 'template_redirect', array( $this, 'block_author_enumeration' ), 9 );
+		}
+		if ( $this->disable_file_editing && ! defined( 'DISALLOW_FILE_EDIT' ) ) {
+			define( 'DISALLOW_FILE_EDIT', true );
+		}
+		if ( $this->remove_wp_generator ) {
+			// Filtering the_generator suppresses the version string in wp_head AND in every feed generator.
+			add_filter( 'the_generator', '__return_empty_string' );
 		}
 
 		// Media processing (replaces clean-image-filenames + imsanity plugins)
@@ -2102,6 +2128,37 @@ class StarterBase extends Site {
 		}
 
 		return $result;
+	}
+
+	/**
+	 * Force a 404 when the request uses `?author=N` numeric enumeration.
+	 *
+	 * WordPress canonically redirects `/?author=1` to `/author/{username}/`, which
+	 * exposes the login slug. Setting 404 on `template_redirect` priority 9 runs
+	 * before `redirect_canonical` (priority 10) and short-circuits the disclosure.
+	 * Path-based `/author/{slug}/` archives are intentionally untouched so themes
+	 * that legitimately surface author pages keep working.
+	 *
+	 * Hooked to `template_redirect`.
+	 *
+	 * @return void
+	 */
+	public function block_author_enumeration() {
+		if ( is_admin() ) {
+			return;
+		}
+
+		$raw_author = isset( $_GET['author'] ) ? wp_unslash( $_GET['author'] ) : null;
+		if ( ! is_string( $raw_author ) || preg_match( '/^\d+$/', $raw_author ) !== 1 ) {
+			return;
+		}
+
+		global $wp_query;
+		if ( $wp_query instanceof \WP_Query ) {
+			$wp_query->set_404();
+		}
+		status_header( 404 );
+		nocache_headers();
 	}
 
 	// =========================================================================

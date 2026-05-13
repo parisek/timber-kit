@@ -1134,4 +1134,125 @@ class Helpers {
 
 		return $path;
 	}
+
+	/**
+	 * Estimate reading time in minutes for a post or arbitrary HTML/text.
+	 *
+	 * When `$wpm` is null the helper auto-detects a reading speed from the post's
+	 * WPML language (per-post first, then site-wide), falling back to the WP locale.
+	 * Slavic languages get a lower default because their words are longer and more
+	 * inflected, so equivalent prose contains fewer countable tokens.
+	 *
+	 * Pass an explicit `$wpm` to bypass detection entirely. Override the language
+	 * map via the `timber_kit_read_time_wpm_per_language` filter, or the final
+	 * minutes via `timber_kit_read_time_minutes`.
+	 *
+	 * @param int|string|null $source           Post ID, raw HTML/text, or null to use the global post.
+	 * @param int|null        $wpm              Words per minute. `null` enables language auto-detection.
+	 * @param int             $secondsPerImage  Reading-time budget per `<img>` tag in the content.
+	 * @return int Minutes, minimum 1.
+	 */
+	public static function readTime( int|string|null $source = null, ?int $wpm = null, int $secondsPerImage = 12 ): int {
+		$post_ref = null;
+		if ( $source === null ) {
+			$post_ref = function_exists( 'get_post' ) ? get_post() : null;
+			$content  = $post_ref instanceof \WP_Post ? (string) $post_ref->post_content : '';
+		} elseif ( is_int( $source ) ) {
+			$post_ref = function_exists( 'get_post' ) ? get_post( $source ) : null;
+			$content  = $post_ref instanceof \WP_Post ? (string) $post_ref->post_content : '';
+		} else {
+			$content = $source;
+		}
+
+		if ( $wpm === null ) {
+			$wpm = self::detectReadTimeWpm( $post_ref );
+		}
+		if ( $wpm < 1 ) {
+			$wpm = 200;
+		}
+		if ( $secondsPerImage < 0 ) {
+			$secondsPerImage = 0;
+		}
+
+		$images = substr_count( $content, '<img' );
+		$text   = wp_strip_all_tags( $content );
+		preg_match_all( '/\p{L}+/u', $text, $matches );
+		$words = count( $matches[0] );
+
+		$minutes = (int) ceil( ( $words / $wpm ) + ( $images * $secondsPerImage / 60 ) );
+		$minutes = max( 1, $minutes );
+
+		$filtered = apply_filters( 'timber_kit_read_time_minutes', $minutes, $words, $images, $post_ref );
+
+		return max( 1, (int) $filtered );
+	}
+
+	/**
+	 * Pick a reading speed (WPM) for the given post based on its language.
+	 *
+	 * @param \WP_Post|null $post Post whose language drives the lookup, or null.
+	 * @return int Words per minute.
+	 */
+	private static function detectReadTimeWpm( ?\WP_Post $post ): int {
+		$map = [
+			'cs' => 170,
+			'sk' => 170,
+			'pl' => 170,
+			'de' => 190,
+			'en' => 220,
+			'fr' => 220,
+			'es' => 220,
+			'it' => 220,
+		];
+
+		$filtered = apply_filters( 'timber_kit_read_time_wpm_per_language', $map, $post );
+		if ( is_array( $filtered ) ) {
+			$map = $filtered;
+		}
+
+		$language = self::getLanguage( $post );
+
+		if ( isset( $map[ $language ] ) && is_int( $map[ $language ] ) && $map[ $language ] > 0 ) {
+			return $map[ $language ];
+		}
+
+		return 200;
+	}
+
+	/**
+	 * Resolve a two-letter language code for the current context.
+	 *
+	 * Lookup order:
+	 *   1. Per-post WPML metadata when a post is supplied (`wpml_post_language_details`).
+	 *   2. Current WPML site language (`wpml_current_language`).
+	 *   3. First two characters of `get_locale()` as a final fallback.
+	 *
+	 * Intended as the single source of truth for language detection across the kit,
+	 * so any helper that needs to vary behavior by language (read time, breadcrumbs,
+	 * SEO meta, hreflang, …) can call this without duplicating the WPML probe logic.
+	 *
+	 * @param \WP_Post|int|null $post Post or post ID whose language to detect, or null for the current site language.
+	 * @return string Two-letter language code, lowercased (e.g. `cs`, `en`).
+	 */
+	public static function getLanguage( \WP_Post|int|null $post = null ): string {
+		if ( is_int( $post ) ) {
+			$post = function_exists( 'get_post' ) ? get_post( $post ) : null;
+		}
+
+		if ( $post instanceof \WP_Post ) {
+			$details = apply_filters( 'wpml_post_language_details', null, $post->ID );
+			if ( is_array( $details ) && isset( $details['language_code'] ) && is_string( $details['language_code'] ) && $details['language_code'] !== '' ) {
+				return $details['language_code'];
+			}
+		}
+
+		$current = apply_filters( 'wpml_current_language', null );
+		if ( is_string( $current ) && $current !== '' ) {
+			return $current;
+		}
+
+		$locale = function_exists( 'get_locale' ) ? get_locale() : 'en_US';
+
+		return strtolower( substr( $locale, 0, 2 ) );
+	}
 }
