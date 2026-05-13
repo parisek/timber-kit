@@ -1222,12 +1222,16 @@ class Helpers {
 	}
 
 	/**
-	 * Resolve a two-letter language code for the current context.
+	 * Resolve a normalized (lowercased, trimmed) language code for the current context.
+	 *
+	 * The return value may include a region or script subtag (e.g. `pt-br`,
+	 * `zh-hans`) when WPML provides one — see the WPML normalization note below
+	 * for details.
 	 *
 	 * Lookup order:
 	 *   1. Per-post WPML metadata when a post is supplied (`wpml_post_language_details`).
 	 *   2. Current WPML site language (`wpml_current_language`).
-	 *   3. First two characters of `get_locale()` as a final fallback.
+	 *   3. First two characters of `get_locale()` as a final fallback (always 2 letters).
 	 *
 	 * Intended as the single source of truth for language detection across the kit,
 	 * so any helper that needs to vary behavior by language (read time, breadcrumbs,

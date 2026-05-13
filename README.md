@@ -27,7 +27,7 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
 - `resizeImage()` — responsive image variants
 - `pagination()` — pagination formatting
 - `readTime()` — estimated reading time in minutes (Unicode-aware word counting, image budget, WPML-aware per-language WPM)
-- `getLanguage()` — 2-letter language code for a post or the current request, with WPML per-post / site-wide / locale fallbacks
+- `getLanguage()` — normalized (lowercased, trimmed) language code for a post or the current request, with WPML per-post / site-wide / locale fallbacks. WPML region/script subtags are preserved (e.g. `pt-br`, `zh-hans`); only the locale fallback is strictly 2 letters
 
 ### Resizer
 
