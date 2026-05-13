@@ -63,6 +63,34 @@ class GetLanguageTest extends HelpersTestCase {
 		$this->assertSame( 'pl', Helpers::getLanguage( 7 ) );
 	}
 
+	public function test_lowercases_wpml_per_post_code(): void {
+		Functions\when( 'apply_filters' )->alias( function ( $filter, $value, $post_id = null ) {
+			if ( $filter === 'wpml_post_language_details' ) {
+				return [ 'language_code' => '  PT-BR ' ];
+			}
+			return $value;
+		} );
+		Functions\when( 'get_locale' )->justReturn( 'en_US' );
+
+		$post = new \WP_Post( [ 'ID' => 9 ] );
+
+		// WPML can return uppercase or locale-region codes; helper must trim + lowercase
+		// and preserve the dialect (no truncation to 2 letters).
+		$this->assertSame( 'pt-br', \Parisek\TimberKit\Helpers::getLanguage( $post ) );
+	}
+
+	public function test_lowercases_wpml_current_language(): void {
+		Functions\when( 'apply_filters' )->alias( function ( $filter, $value ) {
+			if ( $filter === 'wpml_current_language' ) {
+				return 'DE';
+			}
+			return $value;
+		} );
+		Functions\when( 'get_locale' )->justReturn( 'en_US' );
+
+		$this->assertSame( 'de', \Parisek\TimberKit\Helpers::getLanguage() );
+	}
+
 	public function test_invalid_wpml_payload_falls_through(): void {
 		Functions\when( 'apply_filters' )->alias( function ( $filter, $value ) {
 			if ( $filter === 'wpml_post_language_details' ) {

@@ -2149,7 +2149,11 @@ class StarterBase extends Site {
 		}
 
 		$raw_author = isset( $_GET['author'] ) ? wp_unslash( $_GET['author'] ) : null;
-		if ( ! is_string( $raw_author ) || preg_match( '/^\d+$/', $raw_author ) !== 1 ) {
+		if ( ! is_string( $raw_author ) ) {
+			return;
+		}
+		$author = trim( $raw_author );
+		if ( $author === '' || ! ctype_digit( $author ) ) {
 			return;
 		}
 

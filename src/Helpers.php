@@ -1174,7 +1174,7 @@ class Helpers {
 			$secondsPerImage = 0;
 		}
 
-		$images = substr_count( $content, '<img' );
+		$images = (int) preg_match_all( '/<img\b/i', $content );
 		$text   = wp_strip_all_tags( $content );
 		preg_match_all( '/\p{L}+/u', $text, $matches );
 		$words = count( $matches[0] );
@@ -1212,8 +1212,10 @@ class Helpers {
 
 		$language = self::getLanguage( $post );
 
-		if ( isset( $map[ $language ] ) && is_int( $map[ $language ] ) && $map[ $language ] > 0 ) {
-			return $map[ $language ];
+		foreach ( [ $language, substr( $language, 0, 2 ) ] as $key ) {
+			if ( $key !== '' && isset( $map[ $key ] ) && is_int( $map[ $key ] ) && $map[ $key ] > 0 ) {
+				return $map[ $key ];
+			}
 		}
 
 		return 200;
@@ -1231,8 +1233,13 @@ class Helpers {
 	 * so any helper that needs to vary behavior by language (read time, breadcrumbs,
 	 * SEO meta, hreflang, …) can call this without duplicating the WPML probe logic.
 	 *
+	 * WPML values are returned verbatim except for case + whitespace normalization,
+	 * so locale-region codes like `pt-br` or `zh-hans` survive for hreflang/SEO use
+	 * cases. Consumers that only care about the base language (e.g. read-time WPM
+	 * map lookups) should take the first two characters of the result.
+	 *
 	 * @param \WP_Post|int|null $post Post or post ID whose language to detect, or null for the current site language.
-	 * @return string Two-letter language code, lowercased (e.g. `cs`, `en`).
+	 * @return string Language code, lowercased (e.g. `cs`, `en`, `pt-br`).
 	 */
 	public static function getLanguage( \WP_Post|int|null $post = null ): string {
 		if ( is_int( $post ) ) {
@@ -1241,14 +1248,20 @@ class Helpers {
 
 		if ( $post instanceof \WP_Post ) {
 			$details = apply_filters( 'wpml_post_language_details', null, $post->ID );
-			if ( is_array( $details ) && isset( $details['language_code'] ) && is_string( $details['language_code'] ) && $details['language_code'] !== '' ) {
-				return $details['language_code'];
+			if ( is_array( $details ) && isset( $details['language_code'] ) && is_string( $details['language_code'] ) ) {
+				$code = strtolower( trim( $details['language_code'] ) );
+				if ( $code !== '' ) {
+					return $code;
+				}
 			}
 		}
 
 		$current = apply_filters( 'wpml_current_language', null );
-		if ( is_string( $current ) && $current !== '' ) {
-			return $current;
+		if ( is_string( $current ) ) {
+			$code = strtolower( trim( $current ) );
+			if ( $code !== '' ) {
+				return $code;
+			}
 		}
 
 		$locale = function_exists( 'get_locale' ) ? get_locale() : 'en_US';

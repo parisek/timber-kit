@@ -42,6 +42,34 @@ class ReadTimeTest extends HelpersTestCase {
 		$this->assertSame( 3, Helpers::readTime( $content, 220, 12 ) );
 	}
 
+	public function test_image_counting_is_case_insensitive(): void {
+		// 12 mixed-case images * 12 seconds = 144 seconds = 2.4 minutes → ceil = 3
+		$content = '<p>One word.</p>' . str_repeat( '<IMG src="x.jpg" />', 6 ) . str_repeat( '<Img src="y.jpg" />', 6 );
+
+		$this->assertSame( 3, Helpers::readTime( $content, 220, 12 ) );
+	}
+
+	public function test_locale_region_language_falls_back_to_two_letter_prefix(): void {
+		// Brazilian Portuguese: getLanguage() returns 'pt-br' verbatim; WPM lookup must
+		// fall back to the 'pt' / Romance prefix in the default map. Default map only
+		// has 'en/fr/es/it' = 220 for Romance; 'pt' isn't listed, so override via filter.
+		Functions\when( 'apply_filters' )->alias( function ( $filter, $value, $post_id = null ) {
+			if ( $filter === 'wpml_post_language_details' && $post_id === 11 ) {
+				return [ 'language_code' => 'pt-br' ];
+			}
+			if ( $filter === 'timber_kit_read_time_wpm_per_language' ) {
+				return [ 'pt' => 200 ];
+			}
+			return $value;
+		} );
+		Functions\when( 'get_post' )->alias( function ( $id ) {
+			return $id === 11 ? new \WP_Post( [ 'ID' => 11, 'post_content' => str_repeat( 'word ', 200 ) ] ) : null;
+		} );
+
+		// 200 words / 200 wpm (matched via 'pt' prefix of 'pt-br') = 1.0 → ceil 1
+		$this->assertSame( 1, Helpers::readTime( 11 ) );
+	}
+
 	public function test_explicit_wpm_bypasses_language_detection(): void {
 		$text = str_repeat( 'word ', 200 );
 

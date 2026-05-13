@@ -83,6 +83,20 @@ class BlockAuthorEnumerationTest extends StarterBaseTestCase {
 		$this->assertFalse( $wp_query->is_404, 'Admin author filter dropdown must keep working.' );
 	}
 
+	public function test_whitespace_padded_numeric_author_still_triggers_404(): void {
+		Functions\when( 'is_admin' )->justReturn( false );
+		// ?author=%201%20 lands here as ' 1 '. wp_unslash() preserves spaces, so a
+		// naive ^\d+$ regex misses this — but WP's own query parsing still treats it
+		// as numeric. Must trim before the digit check.
+		$_GET['author'] = ' 1 ';
+		$wp_query = new \WP_Query();
+		$GLOBALS['wp_query'] = $wp_query;
+
+		$this->base->block_author_enumeration();
+
+		$this->assertTrue( $wp_query->is_404 );
+	}
+
 	public function test_mixed_numeric_and_alpha_author_is_left_alone(): void {
 		Functions\when( 'is_admin' )->justReturn( false );
 		$_GET['author'] = '1abc';
