@@ -225,8 +225,10 @@ class StarterBase extends Site {
 			add_action( 'init', array( $this, 'disable_feeds' ) );
 		}
 		if ( $this->disable_comments ) {
-			// Late priority so it also covers post types registered by plugins after the default 10.
+			// Late priority sweeps any post types already registered on `init`.
 			add_action( 'init', array( $this, 'disable_comments' ), PHP_INT_MAX );
+			// Per-post-type hook catches anything registered after the sweep (later hooks, later priorities).
+			add_action( 'registered_post_type', array( $this, 'disable_comments_for_post_type' ) );
 			add_filter( 'comments_open', '__return_false', 20 );
 			add_filter( 'pings_open', '__return_false', 20 );
 			add_filter( 'comments_array', '__return_empty_array' );
@@ -236,6 +238,8 @@ class StarterBase extends Site {
 			add_action( 'wp_enqueue_scripts', array( $this, 'disable_comments_dequeue_scripts' ) );
 			// REST: remove /wp/v2/comments routes so anonymous reads and authenticated writes both 404.
 			add_filter( 'rest_endpoints', array( $this, 'disable_comments_rest_endpoints' ) );
+			// REST: defense in depth — if a plugin re-registers a comments route, still block insertion.
+			add_filter( 'rest_pre_insert_comment', array( $this, 'disable_comments_rest_insertion' ) );
 			// XML-RPC: strip comment + pingback methods (no-op when $disable_xmlrpc is true).
 			add_filter( 'xmlrpc_methods', array( $this, 'disable_comments_xmlrpc_methods' ) );
 			// HTTP: drop X-Pingback header even when XML-RPC remains enabled site-wide.
@@ -1865,6 +1869,41 @@ class StarterBase extends Site {
 			unset( $methods[ $method ] );
 		}
 		return $methods;
+	}
+
+	/**
+	 * Remove `comments` and `trackbacks` support from a single post type as it registers.
+	 *
+	 * Hooked to `registered_post_type` so post types registered after the `init` sweep
+	 * (or on later actions such as `widgets_init`) are also covered.
+	 *
+	 * @param string $post_type Post type slug.
+	 * @return void
+	 */
+	public function disable_comments_for_post_type( string $post_type ): void {
+		if ( post_type_supports( $post_type, 'comments' ) ) {
+			remove_post_type_support( $post_type, 'comments' );
+		}
+		if ( post_type_supports( $post_type, 'trackbacks' ) ) {
+			remove_post_type_support( $post_type, 'trackbacks' );
+		}
+	}
+
+	/**
+	 * Reject REST comment insertion with a `403`, even if the `/wp/v2/comments` route gets re-registered.
+	 *
+	 * Hooked to `rest_pre_insert_comment`. Returning a `WP_Error` short-circuits insertion in the
+	 * REST controller before the comment hits the database.
+	 *
+	 * @param mixed $prepared_comment Comment prepared for insertion (array, object, WP_Error, or null).
+	 * @return \WP_Error
+	 */
+	public function disable_comments_rest_insertion( $prepared_comment ): \WP_Error {
+		return new \WP_Error(
+			'rest_comment_closed',
+			__( 'Comments are closed.', $this->theme_name ),
+			array( 'status' => 403 )
+		);
 	}
 
 	/**

@@ -217,6 +217,47 @@ class CleanupMethodsTest extends StarterBaseTestCase {
 		$this->assertSame( [], $this->base->disable_comments_xmlrpc_methods( [] ) );
 	}
 
+	// disable_comments_for_post_type
+
+	public function test_disable_comments_for_post_type_removes_support_when_present(): void {
+		$removed = [];
+		Functions\when( 'post_type_supports' )->alias( function ( $type, $feature ) {
+			return in_array( $feature, [ 'comments', 'trackbacks' ], true );
+		} );
+		Functions\when( 'remove_post_type_support' )->alias( function ( $type, $feature ) use ( &$removed ) {
+			$removed[] = [ $type, $feature ];
+		} );
+
+		$this->base->disable_comments_for_post_type( 'custom_late_cpt' );
+
+		$this->assertContains( [ 'custom_late_cpt', 'comments' ], $removed );
+		$this->assertContains( [ 'custom_late_cpt', 'trackbacks' ], $removed );
+	}
+
+	public function test_disable_comments_for_post_type_skips_when_support_absent(): void {
+		$removed = [];
+		Functions\when( 'post_type_supports' )->justReturn( false );
+		Functions\when( 'remove_post_type_support' )->alias( function ( $type, $feature ) use ( &$removed ) {
+			$removed[] = [ $type, $feature ];
+		} );
+
+		$this->base->disable_comments_for_post_type( 'no_comments_cpt' );
+
+		$this->assertEmpty( $removed );
+	}
+
+	// disable_comments_rest_insertion
+
+	public function test_disable_comments_rest_insertion_returns_wp_error_with_403(): void {
+		Functions\when( '__' )->alias( fn( $s ) => $s );
+
+		$result = $this->base->disable_comments_rest_insertion( [ 'comment_content' => 'spam' ] );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'rest_comment_closed', $result->get_error_code() );
+		$this->assertSame( [ 'status' => 403 ], $result->error_data['rest_comment_closed'] );
+	}
+
 	// remove_global_styles_and_svg_filters
 
 	public function test_remove_global_styles(): void {

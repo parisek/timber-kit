@@ -8,9 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 - `$disable_comments` now also closes off comment access at the API layer. New public methods `StarterBase::disable_comments_rest_endpoints()` and `StarterBase::disable_comments_xmlrpc_methods()` remove `/wp/v2/comments` REST routes (anonymous reads and authenticated writes both return 404) and strip comment + pingback methods from XML-RPC. The shared `remove_x_pingback_header()` is now also wired when `$disable_comments = true` so the `X-Pingback` header disappears even with XML-RPC enabled site-wide
+- `StarterBase::disable_comments_for_post_type()` hooked to `registered_post_type` removes `comments`/`trackbacks` support from each post type as it registers, so post types added on later hooks or higher priorities than the `init` sweep are also covered
+- `StarterBase::disable_comments_rest_insertion()` hooked to `rest_pre_insert_comment` rejects comment insertion with a `403 rest_comment_closed` error as defense in depth — comments cannot be created via REST even if a plugin re-registers a comments route after the `rest_endpoints` filter
 - `pre_option_default_comment_status` and `pre_option_default_ping_status` filters force `closed` defaults so post types registered by plugins after `StarterBase` do not silently re-enable comments
 - Standalone `feed_links_show_comments_feed` short-circuit inside the `$disable_comments` block, so the comments-only RSS link is suppressed even when `$disable_feeds = false`
-- Unit tests for `disable_comments_rest_endpoints()` and `disable_comments_xmlrpc_methods()`
+- Unit tests for `disable_comments_rest_endpoints()`, `disable_comments_xmlrpc_methods()`, `disable_comments_for_post_type()`, and `disable_comments_rest_insertion()`
 
 ### Changed
 - `disable_comments` action priority raised from `100` to `PHP_INT_MAX` so `remove_post_type_support()` also covers custom post types registered late on the `init` hook by plugins
