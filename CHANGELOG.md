@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [1.3.0] - 2026-05-13
 
 ### Added
 - `$disable_comments` now also closes off comment access at the API layer. New public methods `StarterBase::disable_comments_rest_endpoints()` and `StarterBase::disable_comments_xmlrpc_methods()` remove `/wp/v2/comments` REST routes (anonymous reads and authenticated writes both return 404) and strip comment + pingback methods from XML-RPC. The shared `remove_x_pingback_header()` is now also wired when `$disable_comments = true` so the `X-Pingback` header disappears even with XML-RPC enabled site-wide
