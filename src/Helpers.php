@@ -798,16 +798,17 @@ class Helpers {
 	}
 
 	/**
-	 * Resolve ACF field objects across every registered options page.
+	 * Resolve ACF field objects for the options page(s) that match the
+	 * caller's post-id namespace.
 	 *
-	 * For each registered page we ask ACF for its matching field groups via
-	 * an explicit `options_page` screen, walk each group's top-level fields
-	 * and read their values through `get_field()` against the original
-	 * `$post_id`. Returns a `name => field` map identical to
-	 * `get_field_objects()`.
+	 * Iterates `acf_get_options_pages()`, filtering to pages whose registered
+	 * `post_id` namespace matches the caller's `$post_id`. For each matching
+	 * page we ask ACF for its field groups via an explicit `options_page`
+	 * screen, walk each group's top-level fields and read their values
+	 * through `get_field()` against the original `$post_id`. Returns a
+	 * `name => field` map identical to `get_field_objects()`.
 	 *
-	 * Only pages whose registered `post_id` namespace matches the caller's
-	 * `$post_id` are walked. `acf_add_options_page(['post_id' => 'company_settings'])`
+	 * Namespace matching: `acf_add_options_page(['post_id' => 'company_settings'])`
 	 * stores its fields under `company_settings`, not under the default
 	 * `option` namespace — so `formatFields('option')` must not surface them,
 	 * and `formatFields('company_settings')` must not pick up unrelated
