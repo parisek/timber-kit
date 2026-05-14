@@ -715,6 +715,14 @@ class Helpers {
 	 * @param mixed       $post_id  Resolved post id.
 	 */
 	private static function isNavMenuItemPostId( $post, $post_id ): bool {
+		// Term objects (`formatFields($category)`) expose `term_id` but no
+		// `post_type`. Bail before the `get_post_type()` lookup — otherwise a
+		// numeric `term_id` that happens to equal an unrelated `nav_menu_item`
+		// post id would route the term through the menu-item path and load
+		// the wrong field set.
+		if ( is_object( $post ) && isset( $post->term_id ) && ! isset( $post->post_type ) ) {
+			return false;
+		}
 		if ( is_object( $post ) && isset( $post->post_type ) && $post->post_type === 'nav_menu_item' ) {
 			return true;
 		}
@@ -836,6 +844,9 @@ class Helpers {
 				continue;
 			}
 			$groups = acf_get_field_groups( [ 'options_page' => $menu_slug ] );
+			if ( ! is_array( $groups ) ) {
+				continue;
+			}
 			foreach ( $groups as $group ) {
 				$group_fields = acf_get_fields( $group );
 				if ( ! is_array( $group_fields ) ) {
