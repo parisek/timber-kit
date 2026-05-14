@@ -482,6 +482,39 @@ class FormatFieldsTest extends HelpersTestCase {
 		$this->assertSame( '#abc', $result['category_color'] );
 	}
 
+	public function test_wp_term_instance_with_coincidental_post_type_does_not_dispatch_to_nav_menu_item_path(): void {
+		// Stronger regression guard than the plain-stdClass case above.
+		// A real `WP_Term` instance that happens to carry a `post_type`
+		// property (third-party term-meta shim, hydration glitch, etc.)
+		// must still bail out before the menu-item path — the duck-typed
+		// `isset($post->post_type)` check on its own would let it through
+		// and pull the wrong field set.
+		$term = new \WP_Term( [
+			'term_id'   => 225,
+			'taxonomy'  => 'category',
+			'post_type' => 'nav_menu_item',
+		] );
+
+		Functions\when( 'get_post_type' )->alias( function () {
+			throw new \RuntimeException( 'get_post_type() must not be called for WP_Term instances' );
+		} );
+		Functions\when( 'wp_get_post_terms' )->alias( function () {
+			throw new \RuntimeException( 'nav_menu_item path must not run for WP_Term instances' );
+		} );
+		Functions\when( 'acf_get_field_groups' )->alias( function () {
+			throw new \RuntimeException( 'menu-item resolver must not run for WP_Term instances' );
+		} );
+		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
+			return $id === 225
+				? [ 'category_color' => [ 'type' => 'color_picker', 'value' => '#abc' ] ]
+				: false;
+		} );
+
+		$result = Helpers::formatFields( $term );
+
+		$this->assertSame( '#abc', $result['category_color'] );
+	}
+
 	public function test_nav_menu_item_orphaned_no_parent_menu_uses_zero_menu_id(): void {
 		// Pin behavior: an orphaned menu item (no parent nav_menu term) still
 		// resolves through the menu-item path with `nav_menu => 0`. Guards

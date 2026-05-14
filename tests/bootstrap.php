@@ -72,3 +72,21 @@ if ( ! class_exists( 'WP_Post' ) ) {
 		}
 	}
 }
+
+// Minimal WP_Term stub for tests that need an instance to satisfy `instanceof WP_Term`.
+// `#[\AllowDynamicProperties]` mirrors WordPress core, which annotates `WP_Term`
+// the same way so plugins can stash arbitrary metadata on term objects.
+if ( ! class_exists( 'WP_Term' ) ) {
+	#[\AllowDynamicProperties]
+	class WP_Term {
+		public int $term_id = 0;
+		public string $taxonomy = '';
+		public string $name = '';
+
+		public function __construct( array|object $props = [] ) {
+			foreach ( (array) $props as $key => $value ) {
+				$this->$key = $value;
+			}
+		}
+	}
+}

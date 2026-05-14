@@ -715,16 +715,27 @@ class Helpers {
 	 * @param mixed       $post_id  Resolved post id.
 	 */
 	private static function isNavMenuItemPostId( $post, $post_id ): bool {
-		// Term objects (`formatFields($category)`) expose `term_id` but no
-		// `post_type`. Bail before the `get_post_type()` lookup — otherwise a
-		// numeric `term_id` that happens to equal an unrelated `nav_menu_item`
-		// post id would route the term through the menu-item path and load
-		// the wrong field set.
-		if ( is_object( $post ) && isset( $post->term_id ) && ! isset( $post->post_type ) ) {
-			return false;
-		}
-		if ( is_object( $post ) && isset( $post->post_type ) && $post->post_type === 'nav_menu_item' ) {
-			return true;
+		// Term objects (`formatFields($category)`) must never enter the
+		// menu-item path — otherwise a numeric `term_id` that happens to equal
+		// an unrelated `nav_menu_item` post id would route the term through
+		// the wrong resolver. Two complementary guards:
+		//   1. Explicit `WP_Term` instance check covers WordPress-shaped
+		//      term objects regardless of which extra properties they carry
+		//      (a term with a coincidental `post_type` meta wouldn't slip
+		//      through a duck-typed check).
+		//   2. Property-presence fallback (`term_id` without `post_type`)
+		//      covers term-like plain objects from `(object)` casts and
+		//      third-party shims that don't extend `WP_Term`.
+		if ( is_object( $post ) ) {
+			if ( $post instanceof \WP_Term ) {
+				return false;
+			}
+			if ( isset( $post->term_id ) && ! isset( $post->post_type ) ) {
+				return false;
+			}
+			if ( isset( $post->post_type ) && $post->post_type === 'nav_menu_item' ) {
+				return true;
+			}
 		}
 		if ( is_numeric( $post_id ) && function_exists( 'get_post_type' ) ) {
 			return get_post_type( (int) $post_id ) === 'nav_menu_item';
@@ -741,12 +752,22 @@ class Helpers {
 	 * `value` — so the caller's downstream `fieldFormatter()` loop works
 	 * uniformly across post types.
 	 *
+	 * No fallback to `get_field_objects()`: once `isNavMenuItemPostId()` has
+	 * identified the input as a menu item, the default resolver would hit
+	 * the same upstream gap we're working around and is therefore skipped.
+	 * `false`/`[]` from this helper means "no ACF groups registered for this
+	 * menu item" — `formatFields()` then yields an empty field map without a
+	 * second resolution pass.
+	 *
 	 * @param int $post_id Menu-item post id.
-	 * @return array<string, array<string, mixed>>|false  False when ACF isn't
-	 *         loaded or no field group matches the item.
+	 * @return array<string, array<string, mixed>>|false  False when ACF (or
+	 *         `get_field`) isn't loaded or no field group matches the item.
 	 */
 	private static function getFieldObjectsForNavMenuItem( int $post_id ) {
-		if ( ! function_exists( 'acf_get_field_groups' ) || ! function_exists( 'acf_get_fields' ) ) {
+		if ( ! function_exists( 'acf_get_field_groups' )
+			|| ! function_exists( 'acf_get_fields' )
+			|| ! function_exists( 'get_field' )
+		) {
 			return false;
 		}
 
@@ -820,14 +841,32 @@ class Helpers {
 	 * across pages. Fields with the same `name` across pages collide; the
 	 * last page processed wins. Avoid duplicate field names across pages.
 	 *
+	 * Known limitation in this PR: pages registered with a custom `post_id`
+	 * (e.g. `acf_add_options_page(['post_id' => 'company_settings'])`) are
+	 * also included in the union regardless of the caller's `$post_id`, so
+	 * their field *definitions* surface even when the caller asked for the
+	 * default `'option'` namespace. The matching `get_field(name, 'option')`
+	 * call below will return `null` for those out-of-namespace fields and
+	 * `fieldFormatter()`'s empty-value filter then drops them silently —
+	 * the names appear in `acf_get_field_groups()` results but their values
+	 * never reach the caller. The namespace filter ships in the follow-up
+	 * #10; until then projects mixing namespaces should call `formatFields()`
+	 * once per namespace and merge themselves.
+	 *
+	 * No fallback to `get_field_objects()` for the same reason as
+	 * `getFieldObjectsForNavMenuItem()`: the default resolver hits the
+	 * same upstream gap and is skipped on purpose.
+	 *
 	 * @param string $post_id The string id originally passed to {@see formatFields()}.
-	 * @return array<string, array<string, mixed>>|false  False when ACF isn't
-	 *         loaded or no field group matches any options page.
+	 * @return array<string, array<string, mixed>>|false  False when ACF (or
+	 *         `get_field`) isn't loaded or no field group matches any
+	 *         options page.
 	 */
 	private static function getFieldObjectsForOptions( string $post_id ) {
 		if ( ! function_exists( 'acf_get_options_pages' )
 			|| ! function_exists( 'acf_get_field_groups' )
 			|| ! function_exists( 'acf_get_fields' )
+			|| ! function_exists( 'get_field' )
 		) {
 			return false;
 		}
