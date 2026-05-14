@@ -745,12 +745,8 @@ class Helpers {
 
 	/**
 	 * Resolve ACF field objects for a `nav_menu_item` post by building the
-	 * location screen ACF needs (`nav_menu_item` + `nav_menu`) ourselves.
-	 *
-	 * Mirrors the shape returned by `get_field_objects()` — keyed by field
-	 * name, each entry the field's definition array with the read value under
-	 * `value` — so the caller's downstream `fieldFormatter()` loop works
-	 * uniformly across post types.
+	 * location screen ACF needs (`nav_menu_item` + `nav_menu`) ourselves and
+	 * delegating the walk to {@see getFieldObjectsByScreen()}.
 	 *
 	 * No fallback to `get_field_objects()`: once `isNavMenuItemPostId()` has
 	 * identified the input as a menu item, the default resolver would hit
@@ -764,13 +760,6 @@ class Helpers {
 	 *         `get_field`) isn't loaded or no field group matches the item.
 	 */
 	private static function getFieldObjectsForNavMenuItem( int $post_id ) {
-		if ( ! function_exists( 'acf_get_field_groups' )
-			|| ! function_exists( 'acf_get_fields' )
-			|| ! function_exists( 'get_field' )
-		) {
-			return false;
-		}
-
 		$menu_id = 0;
 		if ( function_exists( 'wp_get_post_terms' ) ) {
 			$menus = wp_get_post_terms( $post_id, 'nav_menu' );
@@ -779,32 +768,13 @@ class Helpers {
 			}
 		}
 
-		$screen = [
-			'nav_menu_item' => $post_id,
-			'nav_menu' => $menu_id,
-		];
-
-		$groups = acf_get_field_groups( $screen );
-		if ( empty( $groups ) ) {
-			return false;
-		}
-
-		$fields = [];
-		foreach ( $groups as $group ) {
-			$group_fields = acf_get_fields( $group );
-			if ( ! is_array( $group_fields ) ) {
-				continue;
-			}
-			foreach ( $group_fields as $field ) {
-				if ( empty( $field['name'] ) ) {
-					continue;
-				}
-				$field['value'] = get_field( $field['name'], $post_id );
-				$fields[ $field['name'] ] = $field;
-			}
-		}
-
-		return $fields ?: false;
+		return self::getFieldObjectsByScreen(
+			[
+				'nav_menu_item' => $post_id,
+				'nav_menu' => $menu_id,
+			],
+			$post_id
+		);
 	}
 
 	/**
@@ -863,11 +833,7 @@ class Helpers {
 	 *         options page.
 	 */
 	private static function getFieldObjectsForOptions( string $post_id ) {
-		if ( ! function_exists( 'acf_get_options_pages' )
-			|| ! function_exists( 'acf_get_field_groups' )
-			|| ! function_exists( 'acf_get_fields' )
-			|| ! function_exists( 'get_field' )
-		) {
+		if ( ! function_exists( 'acf_get_options_pages' ) ) {
 			return false;
 		}
 
@@ -882,22 +848,63 @@ class Helpers {
 			if ( ! $menu_slug ) {
 				continue;
 			}
-			$groups = acf_get_field_groups( [ 'options_page' => $menu_slug ] );
-			if ( ! is_array( $groups ) ) {
+			$page_fields = self::getFieldObjectsByScreen(
+				[ 'options_page' => $menu_slug ],
+				$post_id
+			);
+			if ( is_array( $page_fields ) ) {
+				$fields = array_merge( $fields, $page_fields );
+			}
+		}
+
+		return $fields ?: false;
+	}
+
+	/**
+	 * Resolve ACF field objects for an explicit location-rule screen.
+	 *
+	 * Walks `acf_get_field_groups($screen)` → `acf_get_fields($group)` and
+	 * reads each top-level field's value via `get_field($name, $value_post_id)`.
+	 * Returns a `name => field` map identical to the shape `get_field_objects()`
+	 * produces, so callers' downstream `fieldFormatter()` loop works
+	 * unchanged.
+	 *
+	 * Shared by {@see getFieldObjectsForNavMenuItem()} and
+	 * {@see getFieldObjectsForOptions()}: both contexts build their own screen
+	 * (`nav_menu_item` + `nav_menu` vs. `options_page`) and delegate the walk
+	 * here. The split keeps context detection / screen construction in the
+	 * caller and the ACF group→field→value mechanics in one place.
+	 *
+	 * @param array      $screen        Screen array passed to `acf_get_field_groups()`.
+	 * @param int|string $value_post_id Post id used for `get_field()` value reads.
+	 * @return array<string, array<string, mixed>>|false  False when ACF isn't
+	 *         loaded or no matching field group surfaces fields.
+	 */
+	private static function getFieldObjectsByScreen( array $screen, $value_post_id ) {
+		if ( ! function_exists( 'acf_get_field_groups' )
+			|| ! function_exists( 'acf_get_fields' )
+			|| ! function_exists( 'get_field' )
+		) {
+			return false;
+		}
+
+		$groups = acf_get_field_groups( $screen );
+		if ( ! is_array( $groups ) || empty( $groups ) ) {
+			return false;
+		}
+
+		$fields = [];
+		foreach ( $groups as $group ) {
+			$group_fields = acf_get_fields( $group );
+			if ( ! is_array( $group_fields ) ) {
 				continue;
 			}
-			foreach ( $groups as $group ) {
-				$group_fields = acf_get_fields( $group );
-				if ( ! is_array( $group_fields ) ) {
+			foreach ( $group_fields as $field ) {
+				if ( empty( $field['name'] ) ) {
 					continue;
 				}
-				foreach ( $group_fields as $field ) {
-					if ( empty( $field['name'] ) ) {
-						continue;
-					}
-					$field['value'] = get_field( $field['name'], $post_id );
-					$fields[ $field['name'] ] = $field;
-				}
+				$field['value'] = get_field( $field['name'], $value_post_id );
+				$fields[ $field['name'] ] = $field;
 			}
 		}
 
