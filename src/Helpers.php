@@ -806,22 +806,18 @@ class Helpers {
 	 * `$post_id`. Returns a `name => field` map identical to
 	 * `get_field_objects()`.
 	 *
-	 * When the project registers multiple options pages they share the same
-	 * `option` post-id namespace — the returned map is therefore a union
-	 * across pages. Fields with the same `name` across pages collide; the
-	 * last page processed wins. Avoid duplicate field names across pages.
+	 * Only pages whose registered `post_id` namespace matches the caller's
+	 * `$post_id` are walked. `acf_add_options_page(['post_id' => 'company_settings'])`
+	 * stores its fields under `company_settings`, not under the default
+	 * `option` namespace — so `formatFields('option')` must not surface them,
+	 * and `formatFields('company_settings')` must not pick up unrelated
+	 * default-namespace pages. Both sides are normalized through
+	 * `acf_decode_post_id()`, which collapses the `option` / `options` alias
+	 * to a single canonical id.
 	 *
-	 * Known limitation in this PR: pages registered with a custom `post_id`
-	 * (e.g. `acf_add_options_page(['post_id' => 'company_settings'])`) are
-	 * also included in the union regardless of the caller's `$post_id`, so
-	 * their field *definitions* surface even when the caller asked for the
-	 * default `'option'` namespace. The matching `get_field(name, 'option')`
-	 * call below will return `null` for those out-of-namespace fields and
-	 * `fieldFormatter()`'s empty-value filter then drops them silently —
-	 * the names appear in `acf_get_field_groups()` results but their values
-	 * never reach the caller. The namespace filter ships in the follow-up
-	 * #10; until then projects mixing namespaces should call `formatFields()`
-	 * once per namespace and merge themselves.
+	 * Multiple pages sharing the same namespace are still unioned. Fields
+	 * with the same `name` across same-namespace pages collide on
+	 * last-writer-wins.
 	 *
 	 * No fallback to `get_field_objects()` for the same reason as
 	 * `getFieldObjectsForNavMenuItem()`: the default resolver hits the
@@ -829,11 +825,11 @@ class Helpers {
 	 *
 	 * @param string $post_id The string id originally passed to {@see formatFields()}.
 	 * @return array<string, array<string, mixed>>|false  False when ACF (or
-	 *         `get_field`) isn't loaded or no field group matches any
-	 *         options page.
+	 *         `get_field`) isn't loaded or no field group matches a
+	 *         same-namespace options page.
 	 */
 	private static function getFieldObjectsForOptions( string $post_id ) {
-		if ( ! function_exists( 'acf_get_options_pages' ) ) {
+		if ( ! function_exists( 'acf_get_options_pages' ) || ! function_exists( 'acf_decode_post_id' ) ) {
 			return false;
 		}
 
@@ -842,10 +838,19 @@ class Helpers {
 			return false;
 		}
 
+		$caller_namespace = self::decodeOptionsNamespace( $post_id );
+		if ( $caller_namespace === null ) {
+			return false;
+		}
+
 		$fields = [];
 		foreach ( $pages as $page ) {
 			$menu_slug = $page['menu_slug'] ?? null;
 			if ( ! $menu_slug ) {
+				continue;
+			}
+			$page_namespace = self::decodeOptionsNamespace( $page['post_id'] ?? 'options' );
+			if ( $page_namespace !== $caller_namespace ) {
 				continue;
 			}
 			$page_fields = self::getFieldObjectsByScreen(
@@ -858,6 +863,27 @@ class Helpers {
 		}
 
 		return $fields ?: false;
+	}
+
+	/**
+	 * Canonical options-namespace id for a post-id string, or `null` if the
+	 * string doesn't decode to an options namespace.
+	 *
+	 * Used to compare a caller's `$post_id` against each registered options
+	 * page's `post_id` after collapsing the `option` / `options` alias —
+	 * `acf_decode_post_id()` returns the same `id` for both forms.
+	 *
+	 * @param mixed $post_id Caller's `$post_id` argument or a page's
+	 *                      `$page['post_id']` field.
+	 * @return string|null
+	 */
+	private static function decodeOptionsNamespace( $post_id ): ?string {
+		$decoded = acf_decode_post_id( (string) $post_id );
+		if ( ! is_array( $decoded ) || ( $decoded['type'] ?? '' ) !== 'option' ) {
+			return null;
+		}
+		$id = $decoded['id'] ?? null;
+		return is_string( $id ) && $id !== '' ? $id : null;
 	}
 
 	/**
