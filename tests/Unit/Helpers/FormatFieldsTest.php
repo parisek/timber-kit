@@ -317,4 +317,144 @@ class FormatFieldsTest extends HelpersTestCase {
 
 		$this->assertSame( 'Block heading', $result['heading'] );
 	}
+
+	public function test_nav_menu_item_resolves_fields_via_explicit_screen(): void {
+		// ACF's location matcher can't infer the nav_menu_item/nav_menu screen
+		// from a bare post id, so formatFields builds it explicitly. This test
+		// asserts that the explicit path produces field values which the
+		// default `get_field_objects()` call would miss.
+
+		Functions\when( 'get_field_objects' )->justReturn( false );
+		Functions\when( 'get_post_type' )->alias( function ( $id ) {
+			return $id === 225 ? 'nav_menu_item' : 'post';
+		} );
+		Functions\when( 'wp_get_post_terms' )->alias( function ( $post_id, $taxonomy ) {
+			if ( $taxonomy === 'nav_menu' && $post_id === 225 ) {
+				return [ (object) [ 'term_id' => 2 ] ];
+			}
+			return [];
+		} );
+		Functions\when( 'acf_get_field_groups' )->alias( function ( $screen ) {
+			if ( isset( $screen['nav_menu_item'] ) && (int) $screen['nav_menu_item'] === 225 ) {
+				return [ [ 'key' => 'group_nav_menu_item_featured', 'title' => 'Featured Card' ] ];
+			}
+			return [];
+		} );
+		Functions\when( 'acf_get_fields' )->alias( function ( $group ) {
+			if ( ( $group['key'] ?? '' ) === 'group_nav_menu_item_featured' ) {
+				return [
+					[ 'key' => 'field_featured_title', 'name' => 'featured_title', 'type' => 'text' ],
+					[ 'key' => 'field_featured_url',   'name' => 'featured_url',   'type' => 'text' ],
+				];
+			}
+			return [];
+		} );
+		Functions\when( 'get_field' )->alias( function ( $name, $id ) {
+			if ( $id === 225 && $name === 'featured_title' ) return 'PMax report';
+			if ( $id === 225 && $name === 'featured_url' )   return '#pmax';
+			return null;
+		} );
+
+		$result = Helpers::formatFields( 225 );
+
+		$this->assertSame( 'PMax report', $result['featured_title'] );
+		$this->assertSame( '#pmax', $result['featured_url'] );
+	}
+
+	public function test_nav_menu_item_returns_empty_when_no_matching_group(): void {
+		Functions\when( 'get_field_objects' )->justReturn( false );
+		Functions\when( 'get_post_type' )->alias( fn ( $id ) => 'nav_menu_item' );
+		Functions\when( 'wp_get_post_terms' )->justReturn( [ (object) [ 'term_id' => 2 ] ] );
+		Functions\when( 'acf_get_field_groups' )->justReturn( [] );
+		Functions\when( 'acf_get_fields' )->justReturn( [] );
+		Functions\when( 'get_field' )->justReturn( null );
+
+		$result = Helpers::formatFields( 999 );
+
+		$this->assertSame( [], $result );
+	}
+
+	public function test_options_post_id_resolves_via_acf_get_options_pages(): void {
+		// Same shape as nav_menu_item gap — `get_field_objects('option')`
+		// silently drops some matching options groups. The explicit
+		// options_page path picks them all up.
+
+		Functions\when( 'get_field_objects' )->justReturn( false );
+		Functions\when( 'acf_decode_post_id' )->alias( function ( $id ) {
+			return $id === 'option' ? [ 'type' => 'option', 'id' => 'option' ] : [ 'type' => 'post', 'id' => $id ];
+		} );
+		Functions\when( 'acf_get_options_pages' )->justReturn( [
+			'settings' => [ 'menu_slug' => 'settings' ],
+		] );
+		Functions\when( 'acf_get_field_groups' )->alias( function ( $screen ) {
+			return ( $screen['options_page'] ?? '' ) === 'settings'
+				? [
+					[ 'key' => 'group_options_footer', 'name' => 'footer_group' ],
+					[ 'key' => 'group_options_header', 'name' => 'header_group' ],
+				]
+				: [];
+		} );
+		Functions\when( 'acf_get_fields' )->alias( function ( $group ) {
+			return [ [ 'key' => "field_{$group['key']}", 'name' => str_replace( 'group_options_', '', $group['key'] ), 'type' => 'text' ] ];
+		} );
+		Functions\when( 'get_field' )->alias( fn ( $name, $id ) => "$name@$id" );
+
+		$result = Helpers::formatFields( 'option' );
+
+		$this->assertSame( 'footer@option', $result['footer'] );
+		$this->assertSame( 'header@option', $result['header'] );
+	}
+
+	public function test_options_post_id_returns_empty_when_no_pages_registered(): void {
+		Functions\when( 'get_field_objects' )->justReturn( false );
+		Functions\when( 'acf_decode_post_id' )->justReturn( [ 'type' => 'option', 'id' => 'option' ] );
+		Functions\when( 'acf_get_options_pages' )->justReturn( [] );
+		Functions\when( 'acf_get_field_groups' )->justReturn( [] );
+		Functions\when( 'acf_get_fields' )->justReturn( [] );
+		Functions\when( 'get_field' )->justReturn( null );
+
+		$result = Helpers::formatFields( 'option' );
+
+		$this->assertSame( [], $result );
+	}
+
+	public function test_block_prefix_string_does_not_hit_options_path(): void {
+		// `'block_*'` strings must not be misclassified as options page ids.
+		Functions\when( 'acf_decode_post_id' )->justReturn( [ 'type' => 'block', 'id' => 'block_abc' ] );
+		Functions\when( 'acf_get_options_pages' )->alias( function () {
+			throw new \RuntimeException( 'block_* must skip options resolution entirely' );
+		} );
+		Functions\when( 'get_field_objects' )->alias( fn ( $id ) => $id === 'block_abc'
+			? [ 'foo' => [ 'type' => 'text', 'value' => 'bar' ] ]
+			: false );
+
+		$result = Helpers::formatFields( 'block_abc' );
+
+		$this->assertSame( 'bar', $result['foo'] );
+	}
+
+	public function test_nav_menu_item_detects_via_post_type_property(): void {
+		// When a Timber\MenuItem-shaped object is passed (with a post_type
+		// property), we should not need get_post_type() at all.
+		$item = (object) [ 'ID' => 42, 'post_type' => 'nav_menu_item' ];
+
+		Functions\when( 'get_field_objects' )->justReturn( false );
+		Functions\when( 'get_post_type' )->alias( function () {
+			throw new \RuntimeException( 'get_post_type() should not be reached when the object carries post_type' );
+		} );
+		Functions\when( 'wp_get_post_terms' )->justReturn( [ (object) [ 'term_id' => 7 ] ] );
+		Functions\when( 'acf_get_field_groups' )->alias( function ( $screen ) {
+			return ( ( $screen['nav_menu_item'] ?? 0 ) === 42 )
+				? [ [ 'key' => 'g' ] ]
+				: [];
+		} );
+		Functions\when( 'acf_get_fields' )->justReturn( [
+			[ 'key' => 'f', 'name' => 'badge', 'type' => 'text' ],
+		] );
+		Functions\when( 'get_field' )->alias( fn ( $name, $id ) => "$name-of-$id" );
+
+		$result = Helpers::formatFields( $item );
+
+		$this->assertSame( 'badge-of-42', $result['badge'] );
+	}
 }

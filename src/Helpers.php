@@ -659,7 +659,28 @@ class Helpers {
 			$post_id = get_queried_object_id();
 		}
 
-		$fields = get_field_objects( $post_id );
+		// ACF's default screen detection for special post-id forms is
+		// incomplete — `get_field_objects()` silently drops field groups that
+		// the location matcher can't reach from the resolved screen. Two known
+		// gaps:
+		//
+		// 1. `nav_menu_item` posts decode to `{type: post, id}`, dropping the
+		//    `nav_menu_item` + `nav_menu` keys location rules need.
+		// 2. Options-page string ids (`'option'`, `'options'`, custom keys)
+		//    decode to `{type: option, id: 'option'}`, dropping the
+		//    `options_page` key location rules need. ACF surfaces *some*
+		//    matching groups via local-store walks but reliably drops others
+		//    when multiple groups target the same options page.
+		//
+		// Build the right screen ourselves for each context so per-item /
+		// per-options-page ACF groups surface through formatFields uniformly.
+		if ( self::isNavMenuItemPostId( $post, $post_id ) ) {
+			$fields = self::getFieldObjectsForNavMenuItem( (int) $post_id );
+		} elseif ( self::isOptionsPostId( $post_id ) ) {
+			$fields = self::getFieldObjectsForOptions( $post_id );
+		} else {
+			$fields = get_field_objects( $post_id );
+		}
 
 		// if we are inside gutenberg block we need to get real $post_id for formatters to work properly
 		if ( str_starts_with( (string) $post_id, 'block_' ) ) {
@@ -682,6 +703,155 @@ class Helpers {
 		}
 
 		return $content;
+	}
+
+	/**
+	 * Whether the resolved post id refers to a `nav_menu_item` post.
+	 *
+	 * Detection prefers the in-memory object (avoids an extra DB hit) and
+	 * falls back to `get_post_type()` when only a numeric id is available.
+	 *
+	 * @param mixed       $post     Original input passed to {@see formatFields()}.
+	 * @param mixed       $post_id  Resolved post id.
+	 */
+	private static function isNavMenuItemPostId( $post, $post_id ): bool {
+		if ( is_object( $post ) && isset( $post->post_type ) && $post->post_type === 'nav_menu_item' ) {
+			return true;
+		}
+		if ( is_numeric( $post_id ) && function_exists( 'get_post_type' ) ) {
+			return get_post_type( (int) $post_id ) === 'nav_menu_item';
+		}
+		return false;
+	}
+
+	/**
+	 * Resolve ACF field objects for a `nav_menu_item` post by building the
+	 * location screen ACF needs (`nav_menu_item` + `nav_menu`) ourselves.
+	 *
+	 * Mirrors the shape returned by `get_field_objects()` — keyed by field
+	 * name, each entry the field's definition array with the read value under
+	 * `value` — so the caller's downstream `fieldFormatter()` loop works
+	 * uniformly across post types.
+	 *
+	 * @param int $post_id Menu-item post id.
+	 * @return array<string, array<string, mixed>>|false  False when ACF isn't
+	 *         loaded or no field group matches the item.
+	 */
+	private static function getFieldObjectsForNavMenuItem( int $post_id ) {
+		if ( ! function_exists( 'acf_get_field_groups' ) || ! function_exists( 'acf_get_fields' ) ) {
+			return false;
+		}
+
+		$menu_id = 0;
+		if ( function_exists( 'wp_get_post_terms' ) ) {
+			$menus = wp_get_post_terms( $post_id, 'nav_menu' );
+			if ( is_array( $menus ) && ! empty( $menus ) && isset( $menus[0]->term_id ) ) {
+				$menu_id = (int) $menus[0]->term_id;
+			}
+		}
+
+		$screen = [
+			'nav_menu_item' => $post_id,
+			'nav_menu' => $menu_id,
+		];
+
+		$groups = acf_get_field_groups( $screen );
+		if ( empty( $groups ) ) {
+			return false;
+		}
+
+		$fields = [];
+		foreach ( $groups as $group ) {
+			$group_fields = acf_get_fields( $group );
+			if ( ! is_array( $group_fields ) ) {
+				continue;
+			}
+			foreach ( $group_fields as $field ) {
+				if ( empty( $field['name'] ) ) {
+					continue;
+				}
+				$field['value'] = get_field( $field['name'], $post_id );
+				$fields[ $field['name'] ] = $field;
+			}
+		}
+
+		return $fields ?: false;
+	}
+
+	/**
+	 * Whether the resolved post id refers to an ACF options page.
+	 *
+	 * Reuses ACF's own `acf_decode_post_id()` to classify the string so any
+	 * variant ACF recognises (`'option'`, `'options'`, custom post-id keys
+	 * declared in `acf_add_options_page([...'post_id' => ...])`) is handled.
+	 *
+	 * @param mixed $post_id Resolved post id.
+	 */
+	private static function isOptionsPostId( $post_id ): bool {
+		if ( ! is_string( $post_id ) || str_starts_with( $post_id, 'block_' ) ) {
+			return false;
+		}
+		if ( ! function_exists( 'acf_decode_post_id' ) ) {
+			return false;
+		}
+		$decoded = acf_decode_post_id( $post_id );
+		return is_array( $decoded ) && ( $decoded['type'] ?? '' ) === 'option';
+	}
+
+	/**
+	 * Resolve ACF field objects across every registered options page.
+	 *
+	 * For each registered page we ask ACF for its matching field groups via
+	 * an explicit `options_page` screen, walk each group's top-level fields
+	 * and read their values through `get_field()` against the original
+	 * `$post_id`. Returns a `name => field` map identical to
+	 * `get_field_objects()`.
+	 *
+	 * When the project registers multiple options pages they share the same
+	 * `option` post-id namespace — the returned map is therefore a union
+	 * across pages. Fields with the same `name` across pages collide; the
+	 * last page processed wins. Avoid duplicate field names across pages.
+	 *
+	 * @param string $post_id The string id originally passed to {@see formatFields()}.
+	 * @return array<string, array<string, mixed>>|false  False when ACF isn't
+	 *         loaded or no field group matches any options page.
+	 */
+	private static function getFieldObjectsForOptions( string $post_id ) {
+		if ( ! function_exists( 'acf_get_options_pages' )
+			|| ! function_exists( 'acf_get_field_groups' )
+			|| ! function_exists( 'acf_get_fields' )
+		) {
+			return false;
+		}
+
+		$pages = acf_get_options_pages();
+		if ( ! is_array( $pages ) || empty( $pages ) ) {
+			return false;
+		}
+
+		$fields = [];
+		foreach ( $pages as $page ) {
+			$menu_slug = $page['menu_slug'] ?? null;
+			if ( ! $menu_slug ) {
+				continue;
+			}
+			$groups = acf_get_field_groups( [ 'options_page' => $menu_slug ] );
+			foreach ( $groups as $group ) {
+				$group_fields = acf_get_fields( $group );
+				if ( ! is_array( $group_fields ) ) {
+					continue;
+				}
+				foreach ( $group_fields as $field ) {
+					if ( empty( $field['name'] ) ) {
+						continue;
+					}
+					$field['value'] = get_field( $field['name'], $post_id );
+					$fields[ $field['name'] ] = $field;
+				}
+			}
+		}
+
+		return $fields ?: false;
 	}
 
 	/**
