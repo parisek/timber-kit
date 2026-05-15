@@ -6,6 +6,7 @@ build/
 .idea/
 .vscode/
 .claude/
+.superpowers/
 *.swp
 *~
 .DS_Store
