@@ -141,4 +141,34 @@ class RenderTest extends BlockRendererTestCase {
 		// Brain Monkey enforces the never() expectation in tearDown; acknowledge it here.
 		$this->addToAssertionCount( 1 );
 	}
+
+	public function test_use_cache_filter_can_disable_per_block(): void {
+		Functions\when( 'wp_using_ext_object_cache' )->justReturn( true );
+		Functions\when( 'wp_cache_supports' )->justReturn( true );
+
+		// Override apply_filters to return false for the use_cache filter.
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ): mixed {
+				if ( $tag === 'timber_kit/block_renderer/use_cache' ) {
+					return false;
+				}
+				return $value;
+			}
+		);
+
+		Functions\expect( 'wp_cache_get' )->never();
+
+		ob_start();
+		BlockRenderer::render(
+			Fixtures::attributes(),
+			'',
+			false,
+			0,
+			null
+		);
+		ob_end_clean();
+
+		// Brain Monkey enforces the never() expectation in tearDown; acknowledge it here.
+		$this->addToAssertionCount( 1 );
+	}
 }
