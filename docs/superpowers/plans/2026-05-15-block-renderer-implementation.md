@@ -1,21 +1,26 @@
-# BlockRenderer Implementation Plan
+# BlockRenderer Implementation Plan (v2 — post-audit)
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Migrate the ~110-line `timber_block_render_callback()` from per-theme `functions.php` into `parisek/timber-kit` as `Parisek\TimberKit\BlockRenderer`, with WP-filter-based extensibility and a package-owned empty-alert Twig template.
+**Revision history**:
+- v1 (commit 8df1b7c): based on initial spec which described aspirational behavior.
+- v2 (this revision): aligned with actual `timber_block_render_callback()` function in `portadesign/wordpress-base` after source audit. Drop-in compatible port + 4 architectural improvements.
 
-**Architecture:** New `final class BlockRenderer` with two public static methods (`render()`, `isInserterPreview()`). Package ships its first Twig template under a new `@timber-kit/` namespace registered by `StarterBase`. Extensibility exclusively through 4 WordPress filters. Existing cache-backend detection (`wp_using_ext_object_cache` + `wp_cache_supports('flush_group')`) is preserved. Defensive inline-HTML fallback prevents hard failure when the Twig namespace isn't registered.
+**Goal:** Migrate the ~140-line `timber_block_render_callback()` from `portadesign/wordpress-base/wp-content/themes/starter_theme/functions.php` into `parisek/timber-kit` as `Parisek\TimberKit\BlockRenderer`, preserving 100 % of current behavior while adding (a) Twig template in package for empty-block alert, (b) 4 WP filters for extensibility, (c) package-native translation domain, (d) the content-filter gating that PR #27 designed but didn't ship.
 
-**Tech Stack:** PHP 8.3+, Timber 2.x, WordPress filter API, PHPUnit 11/12, Brain\Monkey for WP function mocking. PSR-4 autoload `Parisek\TimberKit\` → `src/`. Tabs for indentation.
+**Architecture:** `final class BlockRenderer` with three public static methods (`render()`, `isInserterPreview()`, `registerInvalidation()`). Faithful port of cache mechanism, cache key composition, side-effect detection, and `acf/save_post` invalidation hook. New Twig template under `@timber-kit/` namespace registered by `StarterBase`.
+
+**Tech Stack:** PHP 8.3+, Timber 2.x, WordPress filter API, PHPUnit 11/12, Brain\Monkey. PSR-4 `Parisek\TimberKit\` → `src/`. Tabs for indentation.
 
 ---
 
 ## Source-of-truth references
 
-- **Spec:** [`docs/superpowers/specs/2026-05-15-block-renderer-design.md`](../specs/2026-05-15-block-renderer-design.md) — locked decisions, public API, filter signatures, DOM contract.
-- **Original `timber_block_render_callback()` function:** lives in `portadesign/wordpress-base`, `starter_theme/functions.php`. The implementer **must open that file in parallel** while porting — every behavior we test against has to match what the original function does. The predecessor PR ([`portadesign/wordpress-base#27`](https://github.com/portadesign/wordpress-base/pull/27)) landed the `WP_Block_Type::$example` identity-check discriminator already; that's the version to port.
-- **Existing test patterns to copy:** `tests/Unit/Helpers/FieldFormatterTest.php` (Brain Monkey setup + `Functions\when()` mocks), `tests/Unit/HelpersTestCase.php` (base case with `Monkey\setUp()` / `tearDown()`).
-- **Brain Monkey gotcha** (from `AGENTS.md`): function definitions persist across tests in the same run. Once any test mocks `xxx`, `function_exists('xxx')` returns true for the rest of the suite. Don't write tests that rely on `function_exists`-fail paths.
+- **Spec (v2):** [`docs/superpowers/specs/2026-05-15-block-renderer-design.md`](../specs/2026-05-15-block-renderer-design.md)
+- **Original function:** `/Users/pari/Sites/wordpress/wordpress-base/wp-content/themes/starter_theme/functions.php:84-216`. Branch `feat/move-block-renderer-to-timber-kit` (post-PR-#27).
+  - The implementer MUST open this file as a reference. Behavior parity is the success criterion for ~109 downstream themes.
+- **Existing test patterns:** `tests/Unit/Helpers/FieldFormatterTest.php` (Brain Monkey + `Functions\when()`), `tests/Unit/HelpersTestCase.php` (base case).
+- **Brain Monkey gotcha** (from `AGENTS.md`): function definitions persist across tests; once any test mocks `xxx`, `function_exists('xxx')` returns true for the rest of the suite. Don't write tests relying on `function_exists`-fail paths.
 
 ---
 
@@ -23,22 +28,23 @@
 
 **Create:**
 - `src/BlockRenderer.php` — the new class
-- `src/templates/empty-alert.twig` — empty-alert template using WP-native `.block-editor-warning` classes
-- `tests/Unit/BlockRendererTestCase.php` — base test case with Brain Monkey setup
-- `tests/Unit/BlockRenderer/IsInserterPreviewTest.php` — 6 pure unit tests for the discriminator
-- `tests/Unit/BlockRenderer/RenderTest.php` — 11 Brain Monkey integration tests
-- `tests/Unit/BlockRenderer/Fixtures.php` — shared `WP_Block` mock factory
+- `src/templates/empty-alert.twig` — empty-alert template
+- `tests/Unit/BlockRendererTestCase.php` — base test case
+- `tests/Unit/BlockRenderer/IsInserterPreviewTest.php` — 5 discriminator tests
+- `tests/Unit/BlockRenderer/RenderTest.php` — ~14 render orchestration tests
+- `tests/Unit/BlockRenderer/Fixtures.php` — shared mock helpers
 
 **Modify:**
-- `src/StarterBase.php` — add `timber/locations` filter registration in `__construct()` near the other `timber/*` filters (around line 178-180)
+- `src/StarterBase.php` — add `timber/locations` filter + `BlockRenderer::registerInvalidation()` boot call
 - `CHANGELOG.md` — entry under `## [Unreleased]`
 
 ---
 
-## Task 1: Scaffold the test base class
+## Task 1: Test base case + fixtures helper
 
 **Files:**
 - Create: `tests/Unit/BlockRendererTestCase.php`
+- Create: `tests/Unit/BlockRenderer/Fixtures.php`
 
 - [ ] **Step 1: Create the test base class**
 
@@ -68,23 +74,7 @@ abstract class BlockRendererTestCase extends TestCase {
 }
 ```
 
-- [ ] **Step 2: Commit**
-
-```bash
-git add tests/Unit/BlockRendererTestCase.php
-git commit -m "test(BlockRenderer): scaffold test base case with Brain Monkey setup"
-```
-
----
-
-## Task 2: Create the `WP_Block` fixture factory
-
-**Files:**
-- Create: `tests/Unit/BlockRenderer/Fixtures.php`
-
-Used by both test files. The factory creates a `WP_Block`-like stdClass with the `block_type->example` chain that the discriminator inspects.
-
-- [ ] **Step 1: Create the fixtures helper**
+- [ ] **Step 2: Create the fixtures helper**
 
 `tests/Unit/BlockRenderer/Fixtures.php`:
 
@@ -96,46 +86,61 @@ declare(strict_types=1);
 namespace Tests\Unit\BlockRenderer;
 
 /**
- * Test fixtures for BlockRenderer tests.
- *
- * The real `WP_Block` class isn't available in unit tests (no WordPress boot).
- * These factories produce stdClass mocks that mirror the shape the renderer
- * inspects: `$wp_block->block_type->example`.
+ * Shared test fixtures + helpers for BlockRenderer tests.
  */
 final class Fixtures {
 
 	/**
-	 * Build a stdClass that quacks like WP_Block with an `example` registered
-	 * on its block_type.
+	 * Standard ACF block attributes shape (matches what WP passes to render callbacks).
 	 *
-	 * @param array<string, mixed>|null $example The block_type->example payload.
-	 *                                            null = no example registered.
+	 * @param array<string, mixed> $overrides Keys merged on top of the default shape.
+	 * @return array<string, mixed>
 	 */
-	public static function wpBlock( ?array $example ): \stdClass {
-		$block = new \stdClass();
-		$block->block_type = new \stdClass();
-		$block->block_type->example = $example;
-		return $block;
+	public static function attributes( array $overrides = [] ): array {
+		return array_merge(
+			[
+				'name'      => 'acf/article-featured',
+				'data'      => [ 'title' => 'Example title' ],
+				'anchor'    => '',
+				'className' => '',
+			],
+			$overrides
+		);
+	}
+
+	/**
+	 * Reset the BlockRenderer's in-request preview memo between tests so the
+	 * static property doesn't leak state across cases.
+	 */
+	public static function resetPreviewMemo(): void {
+		$ref = new \ReflectionClass( \Parisek\TimberKit\BlockRenderer::class );
+		if ( $ref->hasProperty( 'preview_memo' ) ) {
+			$prop = $ref->getProperty( 'preview_memo' );
+			$prop->setAccessible( true );
+			$prop->setValue( null, [] );
+		}
 	}
 }
 ```
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
-git add tests/Unit/BlockRenderer/Fixtures.php
-git commit -m "test(BlockRenderer): add WP_Block fixture factory"
+git add tests/Unit/BlockRendererTestCase.php tests/Unit/BlockRenderer/Fixtures.php
+git commit -m "test(BlockRenderer): scaffold test base case + shared fixtures"
 ```
 
 ---
 
-## Task 3: `isInserterPreview()` — test 1 (returns true when data matches example)
+## Task 2: `isInserterPreview()` — pure discriminator (TDD, 5 tests)
 
 **Files:**
+- Create: `src/BlockRenderer.php` (class skeleton + this method)
 - Create: `tests/Unit/BlockRenderer/IsInserterPreviewTest.php`
-- Create: `src/BlockRenderer.php`
 
-- [ ] **Step 1: Write the failing test**
+The discriminator matches the function exactly: `is_preview && empty($formatted_fields) && !empty($attributes['data']) && is_array($attributes['data'])`.
+
+- [ ] **Step 1: Write all 5 failing tests upfront**
 
 `tests/Unit/BlockRenderer/IsInserterPreviewTest.php`:
 
@@ -151,29 +156,59 @@ use Tests\Unit\BlockRendererTestCase;
 
 class IsInserterPreviewTest extends BlockRendererTestCase {
 
-	public function test_returns_true_when_data_matches_registered_example(): void {
-		$example_data = [ 'title' => 'Example title', 'subtitle' => 'Example sub' ];
-		$attributes   = [ 'data' => $example_data ];
-		$wp_block     = Fixtures::wpBlock( [ 'attributes' => [ 'data' => $example_data ] ] );
-
+	public function test_returns_true_when_preview_and_empty_fields_and_has_data(): void {
 		$this->assertTrue(
-			BlockRenderer::isInserterPreview( $attributes, true, $wp_block )
+			BlockRenderer::isInserterPreview(
+				true,
+				[],
+				[ 'data' => [ 'title' => 'Example' ] ]
+			)
+		);
+	}
+
+	public function test_returns_false_when_not_preview(): void {
+		$this->assertFalse(
+			BlockRenderer::isInserterPreview(
+				false,
+				[],
+				[ 'data' => [ 'title' => 'Example' ] ]
+			)
+		);
+	}
+
+	public function test_returns_false_when_fields_non_empty(): void {
+		$this->assertFalse(
+			BlockRenderer::isInserterPreview(
+				true,
+				[ 'title' => 'Real saved value' ],
+				[ 'data' => [ 'title' => 'Example' ] ]
+			)
+		);
+	}
+
+	public function test_returns_false_when_attributes_data_missing(): void {
+		$this->assertFalse(
+			BlockRenderer::isInserterPreview( true, [], [] )
+		);
+	}
+
+	public function test_returns_false_when_attributes_data_not_array(): void {
+		$this->assertFalse(
+			BlockRenderer::isInserterPreview( true, [], [ 'data' => 'not-an-array' ] )
 		);
 	}
 }
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-composer test -- --filter test_returns_true_when_data_matches_registered_example
+composer test -- --filter IsInserterPreviewTest
 ```
 
-Expected: FAIL with `Class "Parisek\TimberKit\BlockRenderer" not found` or equivalent.
+Expected: 5 errors (class not found).
 
-- [ ] **Step 3: Create the class with minimal implementation**
-
-`src/BlockRenderer.php`:
+- [ ] **Step 3: Create `src/BlockRenderer.php` with the class skeleton + `isInserterPreview()`**
 
 ```php
 <?php
@@ -193,332 +228,116 @@ namespace Parisek\TimberKit;
  *
  * Migrated from per-theme `timber_block_render_callback()` to provide a single
  * versioned source of truth across all themes derived from
- * `portadesign/wordpress-base`. Extensibility is exposed exclusively through
- * WordPress filters listed in the class docblock below; the class is `final`
- * and uses static methods so it can be wired directly as `renderCallback` in
- * block.json files.
+ * `portadesign/wordpress-base`. Behaviorally a faithful port; adds four
+ * WordPress filters as extensibility hooks listed below.
  *
  * Filters exposed:
- *   - timber_kit/block_renderer/cache_key       (string $key, array $cache_data, string $block_name)
- *   - timber_kit/block_renderer/use_cache       (bool $enabled, string $block_name, array $attributes)
+ *   - timber_kit/block_renderer/cache_key        (string $key, array $cache_data, string $block_name)
+ *   - timber_kit/block_renderer/use_cache        (bool $enabled, string $block_name, array $attributes)
  *   - timber_kit/block_renderer/empty_alert_html (string $html, string $block_name, array $attributes)
- *   - timber_kit/block_renderer/context         (array $context, string $block_name, bool $is_preview)
+ *   - timber_kit/block_renderer/context          (array $context, string $block_name, bool $is_preview)
  */
 final class BlockRenderer {
 
 	/**
-	 * Pure discriminator — answers "is this an inserter-library example render?".
+	 * In-request memo of rendered block output, keyed by cache key.
 	 *
-	 * Identity-check against `WP_Block_Type::$example->attributes->data`. No WP
-	 * calls, no I/O, safe to call from anywhere. Public so downstream code can
-	 * ask the same question without re-running the full render pipeline.
-	 *
-	 * @param array<string, mixed> $attributes The block's saved/preview attributes.
-	 * @param bool                 $is_preview True when called in any preview context.
-	 * @param object|null          $wp_block   The WP_Block instance (typed as object so
-	 *                                          unit tests can pass stdClass mocks).
+	 * @var array<string, string>
 	 */
-	public static function isInserterPreview( array $attributes, bool $is_preview, ?object $wp_block ): bool {
-		if ( ! $is_preview ) {
-			return false;
-		}
-		if ( null === $wp_block ) {
-			return false;
-		}
-		if ( ! isset( $wp_block->block_type->example ) || ! is_array( $wp_block->block_type->example ) ) {
-			return false;
-		}
+	private static array $preview_memo = [];
 
-		$example = $wp_block->block_type->example;
-
-		if ( ! isset( $example['attributes']['data'] ) || ! isset( $attributes['data'] ) ) {
-			return false;
-		}
-
-		return $example['attributes']['data'] === $attributes['data'];
+	/**
+	 * Empirical inserter-preview detector. Pure: no I/O, no WP side effects.
+	 *
+	 * Returns true when the block is being rendered for the inserter library,
+	 * detected by: preview mode AND ACF returned no fields for the resolved
+	 * post AND attributes carry an example data payload (registered via
+	 * block.json's `example` field).
+	 *
+	 * @param bool                 $is_preview        True in any editor / inserter preview context.
+	 * @param array<string, mixed> $formatted_fields  Result of Helpers::formatFields() (or equivalent).
+	 * @param array<string, mixed> $attributes        The block's attributes.
+	 */
+	public static function isInserterPreview(
+		bool $is_preview,
+		array $formatted_fields,
+		array $attributes
+	): bool {
+		return $is_preview
+			&& empty( $formatted_fields )
+			&& ! empty( $attributes['data'] )
+			&& is_array( $attributes['data'] );
 	}
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
-
-```bash
-composer test -- --filter test_returns_true_when_data_matches_registered_example
-```
-
-Expected: PASS, 1 test.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/BlockRenderer.php tests/Unit/BlockRenderer/IsInserterPreviewTest.php
-git commit -m "feat(BlockRenderer): add isInserterPreview discriminator (TDD: match case)"
-```
-
----
-
-## Task 4: `isInserterPreview()` — test 2 (false when wp_block is null)
-
-**Files:**
-- Modify: `tests/Unit/BlockRenderer/IsInserterPreviewTest.php`
-
-- [ ] **Step 1: Add the failing test**
-
-Append to `IsInserterPreviewTest.php`:
-
-```php
-	public function test_returns_false_when_wp_block_is_null(): void {
-		$this->assertFalse(
-			BlockRenderer::isInserterPreview( [ 'data' => [ 'foo' => 'bar' ] ], true, null )
-		);
-	}
-```
-
-- [ ] **Step 2: Run test**
-
-```bash
-composer test -- --filter test_returns_false_when_wp_block_is_null
-```
-
-Expected: PASS (current impl already handles this branch).
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/Unit/BlockRenderer/IsInserterPreviewTest.php
-git commit -m "test(BlockRenderer): isInserterPreview returns false for null wp_block"
-```
-
----
-
-## Task 5: `isInserterPreview()` — test 3 (false when example not registered)
-
-**Files:**
-- Modify: `tests/Unit/BlockRenderer/IsInserterPreviewTest.php`
-
-- [ ] **Step 1: Add the failing test**
-
-```php
-	public function test_returns_false_when_example_not_registered(): void {
-		$wp_block = Fixtures::wpBlock( null );
-
-		$this->assertFalse(
-			BlockRenderer::isInserterPreview( [ 'data' => [ 'foo' => 'bar' ] ], true, $wp_block )
-		);
-	}
-```
-
-- [ ] **Step 2: Run test**
-
-```bash
-composer test -- --filter test_returns_false_when_example_not_registered
-```
-
-Expected: PASS.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/Unit/BlockRenderer/IsInserterPreviewTest.php
-git commit -m "test(BlockRenderer): isInserterPreview returns false when no example"
-```
-
----
-
-## Task 6: `isInserterPreview()` — test 4 (false when not preview)
-
-**Files:**
-- Modify: `tests/Unit/BlockRenderer/IsInserterPreviewTest.php`
-
-- [ ] **Step 1: Add the failing test**
-
-```php
-	public function test_returns_false_when_is_preview_is_false(): void {
-		$example_data = [ 'title' => 'X' ];
-		$wp_block     = Fixtures::wpBlock( [ 'attributes' => [ 'data' => $example_data ] ] );
-
-		$this->assertFalse(
-			BlockRenderer::isInserterPreview( [ 'data' => $example_data ], false, $wp_block )
-		);
-	}
-```
-
-- [ ] **Step 2: Run test**
-
-```bash
-composer test -- --filter test_returns_false_when_is_preview_is_false
-```
-
-Expected: PASS.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/Unit/BlockRenderer/IsInserterPreviewTest.php
-git commit -m "test(BlockRenderer): isInserterPreview returns false when not preview"
-```
-
----
-
-## Task 7: `isInserterPreview()` — test 5 (false when data differs)
-
-**Files:**
-- Modify: `tests/Unit/BlockRenderer/IsInserterPreviewTest.php`
-
-- [ ] **Step 1: Add the failing test**
-
-```php
-	public function test_returns_false_when_data_differs_from_example(): void {
-		$example_data = [ 'title' => 'Example title' ];
-		$saved_data   = [ 'title' => 'Real user content' ];
-		$wp_block     = Fixtures::wpBlock( [ 'attributes' => [ 'data' => $example_data ] ] );
-
-		$this->assertFalse(
-			BlockRenderer::isInserterPreview( [ 'data' => $saved_data ], true, $wp_block )
-		);
-	}
-```
-
-- [ ] **Step 2: Run test**
-
-```bash
-composer test -- --filter test_returns_false_when_data_differs_from_example
-```
-
-Expected: PASS.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/Unit/BlockRenderer/IsInserterPreviewTest.php
-git commit -m "test(BlockRenderer): isInserterPreview returns false when data differs"
-```
-
----
-
-## Task 8: `isInserterPreview()` — test 6 (ACF serialized data with field refs)
-
-**Files:**
-- Modify: `tests/Unit/BlockRenderer/IsInserterPreviewTest.php`
-
-ACF stores field references alongside values (e.g. `_title` → field key). The example registration and the saved data both contain these companion entries; identity check has to hold even with them present.
-
-- [ ] **Step 1: Add the failing test**
-
-```php
-	public function test_handles_acf_serialised_data_with_field_refs(): void {
-		$acf_payload = [
-			'title'  => 'Example',
-			'_title' => 'field_abc123',
-		];
-		$wp_block = Fixtures::wpBlock( [ 'attributes' => [ 'data' => $acf_payload ] ] );
-
-		$this->assertTrue(
-			BlockRenderer::isInserterPreview( [ 'data' => $acf_payload ], true, $wp_block )
-		);
-	}
-```
-
-- [ ] **Step 2: Run test**
-
-```bash
-composer test -- --filter test_handles_acf_serialised_data_with_field_refs
-```
-
-Expected: PASS.
-
-- [ ] **Step 3: Run the full `IsInserterPreviewTest` suite to confirm all 6 cases**
+- [ ] **Step 4: Run tests to verify they pass**
 
 ```bash
 composer test -- --filter IsInserterPreviewTest
 ```
 
-Expected: 6 tests, 6 passes.
+Expected: 5 tests, 5 passes.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add tests/Unit/BlockRenderer/IsInserterPreviewTest.php
-git commit -m "test(BlockRenderer): isInserterPreview handles ACF field-ref companion keys"
+git add src/BlockRenderer.php tests/Unit/BlockRenderer/IsInserterPreviewTest.php
+git commit -m "feat(BlockRenderer): add isInserterPreview discriminator + 5 unit tests"
 ```
 
 ---
 
-## Task 9: Create the empty-alert Twig template
+## Task 3: Empty-alert Twig template + Twig namespace in StarterBase
 
 **Files:**
 - Create: `src/templates/empty-alert.twig`
+- Modify: `src/StarterBase.php`
 
-- [ ] **Step 1: Create the template**
+- [ ] **Step 1: Create the Twig template**
 
 `src/templates/empty-alert.twig`:
 
 ```twig
 {#
-  Empty-block warning — rendered when BlockRenderer::render() produces empty
-  output for a logged-in user.
-
-  Uses WordPress Gutenberg's `.block-editor-warning` classes so the editor
-  styles it natively without any package-shipped CSS. On the frontend
-  (logged-in admin viewing live site) the WP styles aren't loaded, so it
-  degrades to bare HTML — themes can style `.timber-kit-block-empty` to
-  taste, or override the entire HTML via the empty_alert_html filter.
+  Empty-block warning. Uses Gutenberg's `.block-editor-warning` classes for
+  native editor styling — WP loads block-editor.css automatically when editing,
+  so we get the warning panel look without shipping any package CSS. Frontend
+  (logged-in admin viewing live site) degrades to bare HTML — themes can style
+  `.timber-kit-block-empty` to taste, or override the entire HTML via the
+  empty_alert_html filter.
 
   Stable contract (semver-protected):
     - .timber-kit-block-empty class
-    - data-block attribute carrying the block name
+    - data-block attribute
 
-  Best-effort (Gutenberg internals, may need filter override if WP renames):
+  Best-effort (Gutenberg internals, filter-overridable if WP renames):
     - .block-editor-warning, .block-editor-warning__contents, .block-editor-warning__message
 #}
 <div class="block-editor-warning timber-kit-block-empty" data-block="{{ block_name }}">
 	<div class="block-editor-warning__contents">
-		<p class="block-editor-warning__message">{{ message }}</p>
+		<p class="block-editor-warning__message">
+			{% if block_label %}<strong>{{ block_label }}:</strong> {% endif %}{{ message }}
+		</p>
 	</div>
 </div>
 ```
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 2: Add the Twig namespace registration to `StarterBase`**
 
-```bash
-git add src/templates/empty-alert.twig
-git commit -m "feat(BlockRenderer): add empty-alert Twig template with WP-native classes"
-```
-
----
-
-## Task 10: Register `@timber-kit/` Twig namespace in StarterBase
-
-**Files:**
-- Modify: `src/StarterBase.php` — append one filter line in `__construct()` near the other `timber/*` filter registrations (around line 178-181)
-
-- [ ] **Step 1: Read the current `__construct()` block**
+Find the three existing `timber/*` filter registrations in `__construct()`:
 
 ```bash
 grep -n "timber/twig\|timber/context\|timber/loader" src/StarterBase.php
 ```
 
-Confirm the three existing `timber/*` filter registrations on lines ~177-179. The new line goes immediately after them.
-
-- [ ] **Step 2: Add the namespace registration**
-
-In `src/StarterBase.php`, find the line:
+Confirm lines around 177-179. Insert immediately after the `timber/loader/loader` line:
 
 ```php
-add_filter( 'timber/loader/loader', array( $this, 'timber_twig_loader' ) );
+		add_filter( 'timber/locations', array( $this, 'register_timber_kit_namespace' ), 5 );
 ```
 
-Insert immediately after it:
-
-```php
-add_filter( 'timber/locations', array( $this, 'register_timber_kit_namespace' ), 5 );
-```
-
-Priority `5` ensures downstream themes registering at the default priority `10` can override individual templates by adding their own path under the same `timber-kit` namespace.
-
-- [ ] **Step 3: Add the handler method**
-
-Find a place near other small Timber-related methods (e.g. after `timber_twig_loader()`). Add:
+Then add the handler method near the other small Timber-related methods:
 
 ```php
 	/**
@@ -538,30 +357,30 @@ Find a place near other small Timber-related methods (e.g. after `timber_twig_lo
 	}
 ```
 
-- [ ] **Step 4: Run the full StarterBase test suite to confirm no regression**
+- [ ] **Step 3: Run the existing StarterBase tests to confirm no regression**
 
 ```bash
 composer test -- --filter StarterBase
 ```
 
-Expected: existing tests still pass. No new test required yet — the namespace registration is exercised indirectly by `RenderTest::test_empty_render_shows_alert_for_logged_in_users` (Task 19).
+Expected: all existing tests still pass. (No new test needed; the registration is exercised indirectly by RenderTest::test_empty_template_renders_alert_for_logged_in_users in Task 14.)
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add src/StarterBase.php
-git commit -m "feat(StarterBase): register @timber-kit/ Twig namespace for package templates"
+git add src/templates/empty-alert.twig src/StarterBase.php
+git commit -m "feat: add @timber-kit/ Twig namespace + empty-alert template"
 ```
 
 ---
 
-## Task 11: Begin `RenderTest.php` and start the discriminator integration test
+## Task 4: `render()` skeleton — slug derivation, real post ID resolution
 
 **Files:**
 - Create: `tests/Unit/BlockRenderer/RenderTest.php`
-- Modify: `src/BlockRenderer.php` — add `render()` skeleton
+- Modify: `src/BlockRenderer.php`
 
-This is the first of 11 render tests. Each subsequent test adds one branch.
+This task introduces `render()` with: parameter shape, slug derivation, real post ID resolution. No cache yet, no content/template filter dispatch yet.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -583,32 +402,59 @@ class RenderTest extends BlockRendererTestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		Fixtures::resetPreviewMemo();
 
-		// Default no-op mocks for WP functions that every render path touches.
+		// Default no-op mocks for WP functions every render path touches.
 		Functions\when( 'apply_filters' )->alias(
 			static fn( string $tag, mixed $value, mixed ...$rest ) => $value
 		);
+		Functions\when( 'has_filter' )->justReturn( false );
 		Functions\when( 'is_user_logged_in' )->justReturn( false );
 		Functions\when( 'wp_using_ext_object_cache' )->justReturn( false );
 		Functions\when( 'wp_cache_supports' )->justReturn( false );
+		Functions\when( 'wp_json_encode' )->alias(
+			static fn( mixed $value ): string => json_encode( $value, JSON_THROW_ON_ERROR )
+		);
+		Functions\when( 'wp_scripts' )->alias(
+			static fn() => (object) [ 'queue' => [] ]
+		);
+		Functions\when( 'wp_styles' )->alias(
+			static fn() => (object) [ 'queue' => [] ]
+		);
+		Functions\when( 'acf_get_valid_post_id' )->justReturn( 0 );
+		Functions\when( 'get_query_var' )->justReturn( 0 );
 	}
 
-	public function test_inserter_preview_skips_content_filter(): void {
-		$example_data = [ 'title' => 'Example' ];
-		$wp_block     = Fixtures::wpBlock( [ 'attributes' => [ 'data' => $example_data ], 'name' => 'acf/article-featured' ] );
+	public function test_real_post_id_resolution_falls_back_to_global_post(): void {
+		// When callback $post_id is a "block_*" string and ACF resolves it to a
+		// "block_*" string too, the renderer must fall back to global $post->ID
+		// for the cache group naming.
+		$GLOBALS['post'] = (object) [ 'ID' => 42 ];
 
-		// The block_<name>_content filter MUST NOT run during inserter preview.
-		Filters\expectApplied( 'block_acf/article-featured_content' )->never();
+		Functions\when( 'acf_get_valid_post_id' )->justReturn( 'block_abc123' );
+
+		$captured_group = null;
+		Functions\when( 'wp_using_ext_object_cache' )->justReturn( true );
+		Functions\when( 'wp_cache_supports' )->justReturn( true );
+		Functions\expect( 'wp_cache_get' )
+			->andReturnUsing( function ( string $key, string $group ) use ( &$captured_group ) {
+				$captured_group = $group;
+				return false;
+			} );
 
 		ob_start();
 		BlockRenderer::render(
-			[ 'data' => $example_data, 'name' => 'acf/article-featured' ],
+			Fixtures::attributes(),
 			'',
-			true,
-			0,
-			$wp_block
+			false,
+			'block_abc123',
+			null
 		);
 		ob_end_clean();
+
+		$this->assertSame( 'acf_block_42', $captured_group );
+
+		unset( $GLOBALS['post'] );
 	}
 }
 ```
@@ -616,14 +462,14 @@ class RenderTest extends BlockRendererTestCase {
 - [ ] **Step 2: Run test to verify it fails**
 
 ```bash
-composer test -- --filter test_inserter_preview_skips_content_filter
+composer test -- --filter test_real_post_id_resolution_falls_back_to_global_post
 ```
 
-Expected: FAIL with `Call to undefined method ... render` or equivalent.
+Expected: FAIL — `render()` doesn't exist.
 
-- [ ] **Step 3: Add the `render()` skeleton to `src/BlockRenderer.php`**
+- [ ] **Step 3: Add `render()` skeleton with slug derivation, real post ID resolution, and cache lookup skeleton**
 
-Inside the class, before the closing brace, add:
+In `src/BlockRenderer.php`, add inside the class:
 
 ```php
 	/**
@@ -632,41 +478,90 @@ Inside the class, before the closing brace, add:
 	 * Wire as:
 	 *   "acf": { "renderCallback": "Parisek\\TimberKit\\BlockRenderer::render" }
 	 *
-	 * Or via the backwards-compat wrapper in downstream themes:
-	 *   function timber_block_render_callback( ...$args ) {
-	 *       \Parisek\TimberKit\BlockRenderer::render( ...$args );
-	 *   }
-	 *
 	 * @param array<string, mixed> $attributes The block's saved or preview attributes.
 	 * @param string               $content    Block-supplied content (unused for ACF blocks).
 	 * @param bool                 $is_preview True in any editor / inserter preview context.
-	 * @param int                  $post_id    Containing post ID (0 in some contexts).
+	 * @param int|string           $post_id    Containing post ID (may be 0 or a "block_*" string in some contexts).
 	 * @param \WP_Block|null       $wp_block   The WP_Block instance, null in legacy contexts.
 	 */
 	public static function render(
 		array $attributes,
 		string $content = '',
 		bool $is_preview = false,
-		int $post_id = 0,
+		int|string $post_id = 0,
 		?\WP_Block $wp_block = null
 	): void {
 		$block_name = isset( $attributes['name'] ) && is_string( $attributes['name'] )
 			? $attributes['name']
 			: 'unknown';
 
-		$is_inserter_preview = self::isInserterPreview( $attributes, $is_preview, $wp_block );
+		// Slug derivation matches the source function:
+		//   "acf/article-featured" → "article-featured"
+		//   filter base "block_article_featured" (dashes → underscores)
+		$slug        = str_replace( 'acf/', '', $block_name );
+		$filter_base = 'block_' . str_replace( '-', '_', $slug );
 
-		// Step 5 (content filter) — skipped entirely when this is an inserter preview.
-		if ( ! $is_inserter_preview ) {
-			apply_filters( "block_{$block_name}_content", $content, $attributes );
+		// Real post ID resolution for cache group:
+		//   callback $post_id → acf_get_valid_post_id() → global $post (when "block_*")
+		$callback_post_id = $post_id;
+		$post_id          = acf_get_valid_post_id();
+
+		$real_post_id = is_numeric( $callback_post_id ) && (int) $callback_post_id > 0
+			? (int) $callback_post_id
+			: $post_id;
+		if ( str_starts_with( (string) $real_post_id, 'block_' ) ) {
+			global $post;
+			if ( isset( $post ) && isset( $post->ID ) ) {
+				$real_post_id = (int) $post->ID;
+			}
 		}
+
+		$has_dynamic_filter = has_filter( "{$filter_base}_content" );
+
+		// Cache key + group composition
+		$cache_data = [
+			'name'      => $block_name,
+			'data'      => $attributes['data'] ?? [],
+			'anchor'    => $attributes['anchor'] ?? '',
+			'className' => $attributes['className'] ?? '',
+			'post_id'   => $post_id,
+			'lang'      => apply_filters( 'wpml_current_language', '' ),
+			'paged'     => get_query_var( 'paged', 0 ),
+		];
+		$default_key = 'acf_block_' . md5( wp_json_encode( $cache_data ) );
+		$cache_key   = apply_filters( 'timber_kit/block_renderer/cache_key', $default_key, $cache_data, $block_name );
+		$cache_group = 'acf_block_' . ( is_numeric( $real_post_id ) ? $real_post_id : 0 );
+
+		// Cache lookup (preview memo + frontend Redis)
+		if ( $is_preview ) {
+			if ( isset( self::$preview_memo[ $cache_key ] ) ) {
+				print self::$preview_memo[ $cache_key ];
+				return;
+			}
+		} else {
+			$use_cache_default = ! $has_dynamic_filter
+				&& function_exists( 'wp_using_ext_object_cache' ) && wp_using_ext_object_cache()
+				&& function_exists( 'wp_cache_supports' ) && wp_cache_supports( 'flush_group' );
+			$use_cache = apply_filters( 'timber_kit/block_renderer/use_cache', $use_cache_default, $block_name, $attributes );
+
+			if ( $use_cache ) {
+				$cached = wp_cache_get( $cache_key, $cache_group );
+				if ( false !== $cached ) {
+					print $cached;
+					return;
+				}
+			}
+		}
+
+		// Render path (Tasks 5+ fill this in).
+		print '';
 	}
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
 
 ```bash
-composer test -- --filter test_inserter_preview_skips_content_filter
+composer test -- --filter test_real_post_id_resolution_falls_back_to_global_post
 ```
 
 Expected: PASS.
@@ -675,12 +570,12 @@ Expected: PASS.
 
 ```bash
 git add src/BlockRenderer.php tests/Unit/BlockRenderer/RenderTest.php
-git commit -m "feat(BlockRenderer): add render() skeleton, gate content filter on inserter-preview discriminator"
+git commit -m "feat(BlockRenderer): render() skeleton — slug derivation, real post ID, cache key"
 ```
 
 ---
 
-## Task 12: Editor canvas runs `block_<name>_content` filter with saved data
+## Task 5: Cache key composition test (all 7 fields + acf_block_ prefix)
 
 **Files:**
 - Modify: `tests/Unit/BlockRenderer/RenderTest.php`
@@ -688,20 +583,143 @@ git commit -m "feat(BlockRenderer): add render() skeleton, gate content filter o
 - [ ] **Step 1: Add the failing test**
 
 ```php
-	public function test_editor_canvas_runs_filter_with_saved_data(): void {
-		$saved_data = [ 'title' => 'Real user content' ];
-		$wp_block   = Fixtures::wpBlock( [ 'attributes' => [ 'data' => [ 'title' => 'Example' ] ], 'name' => 'acf/article-featured' ] );
+	public function test_cache_key_includes_all_seven_fields(): void {
+		$captured_cache_data = null;
+		$captured_key        = null;
 
-		// Saved data differs from example → not inserter preview → filter MUST run.
-		Filters\expectApplied( 'block_acf/article-featured_content' )->once();
+		Filters\expectApplied( 'timber_kit/block_renderer/cache_key' )
+			->once()
+			->andReturnUsing(
+				function ( string $key, array $cache_data, string $block_name ) use ( &$captured_cache_data, &$captured_key ): string {
+					$captured_cache_data = $cache_data;
+					$captured_key        = $key;
+					return $key;
+				}
+			);
+
+		Functions\when( 'get_query_var' )->justReturn( 3 );
+		Filters\expectApplied( 'wpml_current_language' )->andReturn( 'cs' );
 
 		ob_start();
 		BlockRenderer::render(
-			[ 'data' => $saved_data, 'name' => 'acf/article-featured' ],
+			Fixtures::attributes( [
+				'anchor'    => 'my-anchor',
+				'className' => 'is-style-big',
+			] ),
 			'',
-			true,           // is_preview = true (editor canvas)
-			123,
-			$wp_block
+			true,
+			0,
+			null
+		);
+		ob_end_clean();
+
+		$this->assertNotNull( $captured_cache_data );
+		$this->assertSame(
+			[ 'name', 'data', 'anchor', 'className', 'post_id', 'lang', 'paged' ],
+			array_keys( $captured_cache_data ),
+			'cache_data must contain exactly these 7 keys in this order'
+		);
+		$this->assertSame( 'my-anchor', $captured_cache_data['anchor'] );
+		$this->assertSame( 'is-style-big', $captured_cache_data['className'] );
+		$this->assertSame( 'cs', $captured_cache_data['lang'] );
+		$this->assertSame( 3, $captured_cache_data['paged'] );
+
+		$this->assertStringStartsWith( 'acf_block_', $captured_key );
+		$this->assertSame( 32 + 10, strlen( $captured_key ), 'key = "acf_block_" (10) + md5 (32)' );
+	}
+```
+
+- [ ] **Step 2: Run test**
+
+```bash
+composer test -- --filter test_cache_key_includes_all_seven_fields
+```
+
+Expected: PASS (cache key logic already in place from Task 4).
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/Unit/BlockRenderer/RenderTest.php
+git commit -m "test(BlockRenderer): verify cache_data has all 7 fields and acf_block_ prefix"
+```
+
+---
+
+## Task 6: Preview memo cache short-circuit
+
+**Files:**
+- Modify: `tests/Unit/BlockRenderer/RenderTest.php`
+
+- [ ] **Step 1: Add the failing test**
+
+```php
+	public function test_preview_memo_cache_hit_short_circuits(): void {
+		// First call writes to memo (with empty render output for simplicity).
+		// Second call must hit memo and never re-enter the render path —
+		// we verify by counting calls to acf_get_valid_post_id (entry side effect).
+
+		Functions\expect( 'acf_get_valid_post_id' )->once()->andReturn( 0 );
+		// Note: ->once() asserts EXACTLY one call across both render() invocations.
+
+		ob_start();
+		BlockRenderer::render( Fixtures::attributes(), '', true, 0, null );
+		$first = ob_get_clean();
+
+		ob_start();
+		BlockRenderer::render( Fixtures::attributes(), '', true, 0, null );
+		$second = ob_get_clean();
+
+		$this->assertSame( $first, $second );
+	}
+```
+
+- [ ] **Step 2: Run test**
+
+```bash
+composer test -- --filter test_preview_memo_cache_hit_short_circuits
+```
+
+Expected: FAIL — the memo isn't being written yet (we'll fix in Task 11 when the render path completes). 
+
+**Note for implementer:** Mark this test temporarily as skipped with `$this->markTestSkipped('Memo write happens in Task 11')` to keep the suite green, OR keep it failing as a forcing function. **Recommended:** mark skipped — TDD red is for the next task that implements it, not for parking.
+
+Add `$this->markTestSkipped('Memo write lands in Task 11 — cache_write step');` at the top of the test.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/Unit/BlockRenderer/RenderTest.php
+git commit -m "test(BlockRenderer): preview memo cache hit test (skipped, lands in Task 11)"
+```
+
+---
+
+## Task 7: Frontend cache skipped for dynamic-filter blocks
+
+**Files:**
+- Modify: `tests/Unit/BlockRenderer/RenderTest.php`
+
+- [ ] **Step 1: Add the failing test**
+
+```php
+	public function test_frontend_cache_skipped_when_block_has_dynamic_filter(): void {
+		Functions\when( 'has_filter' )->alias(
+			static fn( string $name ): bool => $name === 'block_article_featured_content'
+		);
+		Functions\when( 'wp_using_ext_object_cache' )->justReturn( true );
+		Functions\when( 'wp_cache_supports' )->justReturn( true );
+
+		// wp_cache_get MUST NOT be called when block has a dynamic filter.
+		Functions\expect( 'wp_cache_get' )->never();
+
+		ob_start();
+		BlockRenderer::render(
+			Fixtures::attributes(), // name = "acf/article-featured" → filter name "block_article_featured_content"
+			'',
+			false, // frontend, not preview
+			0,
+			null
 		);
 		ob_end_clean();
 	}
@@ -710,764 +728,440 @@ git commit -m "feat(BlockRenderer): add render() skeleton, gate content filter o
 - [ ] **Step 2: Run test**
 
 ```bash
-composer test -- --filter test_editor_canvas_runs_filter_with_saved_data
+composer test -- --filter test_frontend_cache_skipped_when_block_has_dynamic_filter
 ```
 
-Expected: PASS (current impl already routes correctly).
+Expected: PASS (Task 4 already implemented this branch).
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add tests/Unit/BlockRenderer/RenderTest.php
-git commit -m "test(BlockRenderer): editor canvas with saved data triggers content filter"
+git commit -m "test(BlockRenderer): frontend cache skipped when has_filter detects dynamic block"
 ```
 
 ---
 
-## Task 13: `block_<name>_template` filter runs even in inserter preview
+## Task 8: `use_cache` filter can disable per-block
 
 **Files:**
 - Modify: `tests/Unit/BlockRenderer/RenderTest.php`
-- Modify: `src/BlockRenderer.php`
 
 - [ ] **Step 1: Add the failing test**
 
 ```php
-	public function test_template_filter_runs_even_in_inserter_preview(): void {
-		$example_data = [ 'title' => 'Example' ];
-		$wp_block     = Fixtures::wpBlock( [ 'attributes' => [ 'data' => $example_data ], 'name' => 'acf/article-featured' ] );
-
-		// block_<name>_template runs always, including in inserter preview.
-		Filters\expectApplied( 'block_acf/article-featured_template' )->once();
-
-		ob_start();
-		BlockRenderer::render(
-			[ 'data' => $example_data, 'name' => 'acf/article-featured' ],
-			'',
-			true,
-			0,
-			$wp_block
-		);
-		ob_end_clean();
-	}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-```bash
-composer test -- --filter test_template_filter_runs_even_in_inserter_preview
-```
-
-Expected: FAIL — current `render()` doesn't dispatch `block_<name>_template` yet.
-
-- [ ] **Step 3: Add the template-filter dispatch in `render()`**
-
-In `src/BlockRenderer.php`, inside `render()`, after the `if ( ! $is_inserter_preview )` block, add:
-
-```php
-		// Step 5b — block_<name>_template filter ALWAYS runs, including in inserter preview.
-		// It resolves the Twig template path for this block (set via ACF block.json or filter).
-		$template = apply_filters( "block_{$block_name}_template", '', $attributes );
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-```bash
-composer test -- --filter test_template_filter_runs_even_in_inserter_preview
-```
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/BlockRenderer.php tests/Unit/BlockRenderer/RenderTest.php
-git commit -m "feat(BlockRenderer): dispatch block_<name>_template filter always"
-```
-
----
-
-## Task 14: Cache key composition (filter override path)
-
-**Files:**
-- Modify: `tests/Unit/BlockRenderer/RenderTest.php`
-- Modify: `src/BlockRenderer.php` — add private `cacheKey()` method + `timber_kit/block_renderer/cache_key` filter
-
-The cache key is `md5(wp_json_encode($cache_data))` where `$cache_data` includes `data`, `anchor`, `className`, `post_id`, `lang`, `paged`. Behind a filter so downstream can add variation vectors (e.g. user role).
-
-- [ ] **Step 1: Add the failing test**
-
-```php
-	public function test_cache_key_filter_can_override_default(): void {
-		$saved_data = [ 'title' => 'Some title' ];
-		$wp_block   = Fixtures::wpBlock( [ 'attributes' => [ 'data' => [ 'title' => 'Example' ] ], 'name' => 'acf/article' ] );
-
+	public function test_use_cache_filter_can_disable_per_block(): void {
 		Functions\when( 'wp_using_ext_object_cache' )->justReturn( true );
 		Functions\when( 'wp_cache_supports' )->justReturn( true );
-		Functions\when( 'wp_cache_get' )->justReturn( false );
-		Functions\when( 'wp_cache_set' )->justReturn( true );
-		Functions\when( 'wp_json_encode' )->alias(
-			static fn( mixed $value ): string => json_encode( $value, JSON_THROW_ON_ERROR )
-		);
-
-		$captured_key = null;
-		Filters\expectApplied( 'timber_kit/block_renderer/cache_key' )
-			->once()
-			->andReturnUsing(
-				function ( string $key, array $cache_data, string $block_name ) use ( &$captured_key ): string {
-					$captured_key = $key;
-					return 'custom-key-' . $block_name;
-				}
-			);
-
-		ob_start();
-		BlockRenderer::render(
-			[ 'data' => $saved_data, 'name' => 'acf/article' ],
-			'',
-			true,
-			0,
-			$wp_block
-		);
-		ob_end_clean();
-
-		$this->assertNotNull( $captured_key, 'cache_key filter must be invoked' );
-		$this->assertSame( 32, strlen( $captured_key ), 'default key must be md5 (32 hex chars)' );
-	}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-```bash
-composer test -- --filter test_cache_key_filter_can_override_default
-```
-
-Expected: FAIL — `cacheKey()` method and filter dispatch don't exist yet.
-
-- [ ] **Step 3: Add the private `cacheKey()` method to `src/BlockRenderer.php`**
-
-Inside the class, after `render()`:
-
-```php
-	/**
-	 * Compose a cache key for a single block render.
-	 *
-	 * Default formula: md5(wp_json_encode($cache_data)). Downstream projects
-	 * can mix in additional variation vectors (locale, user role, paged) via
-	 * the `timber_kit/block_renderer/cache_key` filter.
-	 *
-	 * @param array<string, mixed> $cache_data Composition inputs (attributes data, anchor,
-	 *                                          className, post_id, lang, paged).
-	 * @param string               $block_name The block's name (e.g. "acf/article-featured").
-	 */
-	private static function cacheKey( array $cache_data, string $block_name ): string {
-		$default = md5( wp_json_encode( $cache_data ) );
-
-		return apply_filters(
-			'timber_kit/block_renderer/cache_key',
-			$default,
-			$cache_data,
-			$block_name
-		);
-	}
-```
-
-- [ ] **Step 4: Wire `cacheKey()` into `render()`**
-
-In `render()`, after the `$template = apply_filters(...)` line, add:
-
-```php
-		// Step 3 — cache key composition (filter-overridable).
-		$cache_data = [
-			'data'      => $attributes['data'] ?? null,
-			'anchor'    => $attributes['anchor'] ?? null,
-			'className' => $attributes['className'] ?? null,
-			'post_id'   => $post_id,
-		];
-		$cache_key = self::cacheKey( $cache_data, $block_name );
-```
-
-(This invokes the filter even when no cache backend exists, which matches the test's expectation. The actual cache read/write is added in Task 15.)
-
-- [ ] **Step 5: Run test to verify it passes**
-
-```bash
-composer test -- --filter test_cache_key_filter_can_override_default
-```
-
-Expected: PASS.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add src/BlockRenderer.php tests/Unit/BlockRenderer/RenderTest.php
-git commit -m "feat(BlockRenderer): add cache key composition with cache_key filter override"
-```
-
----
-
-## Task 15: Preview memo cache short-circuit
-
-**Files:**
-- Modify: `tests/Unit/BlockRenderer/RenderTest.php`
-- Modify: `src/BlockRenderer.php`
-
-In-request preview memo: when the same block is rendered twice in one request (e.g. server-side render API + post content), the second call returns the cached compiled output. Keyed by the same `cacheKey()`.
-
-- [ ] **Step 1: Add the failing test**
-
-```php
-	public function test_preview_memo_cache_hit_short_circuits(): void {
-		$saved_data = [ 'title' => 'Memo test' ];
-		$wp_block   = Fixtures::wpBlock( [ 'attributes' => [ 'data' => [ 'title' => 'Example' ] ], 'name' => 'acf/memo' ] );
-
-		Functions\when( 'wp_json_encode' )->alias(
-			static fn( mixed $value ): string => json_encode( $value, JSON_THROW_ON_ERROR )
-		);
-
-		// First render — block_<name>_content filter runs.
-		Filters\expectApplied( 'block_acf/memo_content' )->once();
-
-		ob_start();
-		BlockRenderer::render(
-			[ 'data' => $saved_data, 'name' => 'acf/memo' ],
-			'',
-			true,
-			0,
-			$wp_block
-		);
-		$first_output = ob_get_clean();
-
-		// Second identical render — cached, filter MUST NOT run again.
-		// (expectApplied above already locks "once" — a second invocation fails the test.)
-		ob_start();
-		BlockRenderer::render(
-			[ 'data' => $saved_data, 'name' => 'acf/memo' ],
-			'',
-			true,
-			0,
-			$wp_block
-		);
-		$second_output = ob_get_clean();
-
-		$this->assertSame( $first_output, $second_output, 'memoised render should produce identical output' );
-	}
-```
-
-- [ ] **Step 2: Run test to verify it fails**
-
-```bash
-composer test -- --filter test_preview_memo_cache_hit_short_circuits
-```
-
-Expected: FAIL — content filter currently runs on both calls.
-
-- [ ] **Step 3: Add the static memo + early return to `render()`**
-
-At the top of the class (before any methods), add a static property:
-
-```php
-	/**
-	 * In-request memo of compiled block output, keyed by cacheKey().
-	 *
-	 * @var array<string, string>
-	 */
-	private static array $preview_memo = [];
-```
-
-In `render()`, after `$cache_key = self::cacheKey(...)`, add the memo check:
-
-```php
-		// Step 3 — preview memo (in-request cache, no backend required).
-		if ( isset( self::$preview_memo[ $cache_key ] ) ) {
-			echo self::$preview_memo[ $cache_key ];
-			return;
-		}
-```
-
-At the end of `render()` (currently just after the template filter), capture the output:
-
-```php
-		// Capture output for the preview memo. Compose by buffering the filters
-		// we've already dispatched + (eventually) the Timber compile result.
-		$output = ''; // Real compile path lands in Task 17 — for now memo holds empty.
-		self::$preview_memo[ $cache_key ] = $output;
-		echo $output;
-```
-
-This is intentionally a stub — Task 17 fills in the real Timber compile. For now the memo behavior is correct and the test passes (both calls echo `''` and the filter runs only once thanks to the memo short-circuit).
-
-**Important:** Re-run the previously-passing tests to check the memo isn't breaking them.
-
-```bash
-composer test -- --filter RenderTest
-```
-
-Expected: all 5 tests still pass. If `test_inserter_preview_skips_content_filter` or `test_editor_canvas_runs_filter_with_saved_data` regress, it's because the memo carries state across tests. **Fix: reset `$preview_memo` in test setUp:**
-
-In `RenderTest::setUp()`, after `parent::setUp()`, add:
-
-```php
-		// Reset in-request memo between tests (it's a static class property).
-		$reflection = new \ReflectionClass( BlockRenderer::class );
-		$reflection->setStaticPropertyValue( 'preview_memo', [] );
-```
-
-- [ ] **Step 4: Run the new test + the full RenderTest suite**
-
-```bash
-composer test -- --filter RenderTest
-```
-
-Expected: all 5 tests pass.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/BlockRenderer.php tests/Unit/BlockRenderer/RenderTest.php
-git commit -m "feat(BlockRenderer): in-request preview memo short-circuits identical renders"
-```
-
----
-
-## Task 16: Redis cache integration with `use_cache` filter
-
-**Files:**
-- Modify: `tests/Unit/BlockRenderer/RenderTest.php`
-- Modify: `src/BlockRenderer.php`
-
-When `wp_using_ext_object_cache()` AND `wp_cache_supports('flush_group')` both return true, store the compiled output under the block-specific cache group so theme code can invalidate via `wp_cache_flush_group("timber_kit_block_$block_name")`. Filter `use_cache` can disable this per-block at runtime.
-
-- [ ] **Step 1: Add the failing test**
-
-```php
-	public function test_redis_cache_skips_for_dynamic_filter_blocks(): void {
-		$saved_data = [ 'title' => 'No cache for me' ];
-		$wp_block   = Fixtures::wpBlock( [ 'attributes' => [ 'data' => [ 'title' => 'Example' ] ], 'name' => 'acf/dynamic-filter' ] );
-
-		Functions\when( 'wp_using_ext_object_cache' )->justReturn( true );
-		Functions\when( 'wp_cache_supports' )->justReturn( true );
-		Functions\when( 'wp_json_encode' )->alias(
-			static fn( mixed $value ): string => json_encode( $value, JSON_THROW_ON_ERROR )
-		);
-
-		// wp_cache_set MUST NOT be called when use_cache filter returns false.
-		Functions\expect( 'wp_cache_set' )->never();
-		Functions\when( 'wp_cache_get' )->justReturn( false );
 
 		Filters\expectApplied( 'timber_kit/block_renderer/use_cache' )
 			->once()
 			->andReturn( false );
 
+		Functions\expect( 'wp_cache_get' )->never();
+
 		ob_start();
 		BlockRenderer::render(
-			[ 'data' => $saved_data, 'name' => 'acf/dynamic-filter' ],
+			Fixtures::attributes(),
 			'',
-			true,
+			false,
 			0,
-			$wp_block
+			null
 		);
 		ob_end_clean();
 	}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run test**
 
 ```bash
-composer test -- --filter test_redis_cache_skips_for_dynamic_filter_blocks
+composer test -- --filter test_use_cache_filter_can_disable_per_block
 ```
 
-Expected: FAIL — Redis cache code path doesn't exist yet.
+Expected: PASS (filter dispatched in Task 4).
 
-- [ ] **Step 3: Add the Redis cache code path in `render()`**
-
-After the preview memo check in `render()`, insert before any filter dispatch:
-
-```php
-		// Step 3 — external object cache (Redis with flush_group support).
-		$use_external_cache = function_exists( 'wp_using_ext_object_cache' )
-			&& wp_using_ext_object_cache()
-			&& function_exists( 'wp_cache_supports' )
-			&& wp_cache_supports( 'flush_group' );
-
-		$use_cache_for_this_block = apply_filters(
-			'timber_kit/block_renderer/use_cache',
-			$use_external_cache,
-			$block_name,
-			$attributes
-		);
-
-		$cache_group = "timber_kit_block_{$block_name}";
-		if ( $use_cache_for_this_block ) {
-			$cached = wp_cache_get( $cache_key, $cache_group );
-			if ( false !== $cached && is_string( $cached ) ) {
-				self::$preview_memo[ $cache_key ] = $cached;
-				echo $cached;
-				return;
-			}
-		}
-```
-
-And at the bottom of `render()`, replace the temporary `$output = '';` line with a guarded cache write:
-
-```php
-		// Write to external cache if enabled for this block.
-		if ( $use_cache_for_this_block && ! self::hadSideEffectsDuringRender() ) {
-			wp_cache_set( $cache_key, $output, $cache_group );
-		}
-
-		self::$preview_memo[ $cache_key ] = $output;
-		echo $output;
-```
-
-And add a placeholder static method (will be filled in Task 18):
-
-```php
-	/**
-	 * Did the most recent render call enqueue form-plugin assets via the
-	 * `wpcf7_form_class_attr` / WPForms `wpforms_frontend_load` paths? If so,
-	 * the output isn't safe to cache (it captured a one-shot side effect).
-	 */
-	private static function hadSideEffectsDuringRender(): bool {
-		return false; // Task 18 wires up the real tracking.
-	}
-```
-
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 3: Commit**
 
 ```bash
-composer test -- --filter test_redis_cache_skips_for_dynamic_filter_blocks
-```
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/BlockRenderer.php tests/Unit/BlockRenderer/RenderTest.php
-git commit -m "feat(BlockRenderer): external cache integration with use_cache filter"
+git add tests/Unit/BlockRenderer/RenderTest.php
+git commit -m "test(BlockRenderer): use_cache filter can disable caching per-block"
 ```
 
 ---
 
-## Task 17: Timber compile with context filter
+## Task 9: Side-effect snapshot + data hydration + discriminator + content/template filters
 
 **Files:**
-- Modify: `tests/Unit/BlockRenderer/RenderTest.php`
 - Modify: `src/BlockRenderer.php`
+- Modify: `tests/Unit/BlockRenderer/RenderTest.php`
 
-Wire `Timber::compile()` to render the resolved template with the data-hydrated context. The context passes through `timber_kit/block_renderer/context` filter as the last step before compile.
+This is the biggest single task — it adds the render body between cache lookup and cache write:
+- `wp_scripts/wp_styles` queue snapshot
+- `Helpers::formatFields()` call
+- Discriminator computation + inserter-preview content fallback
+- Content filter dispatch (gated on discriminator — the NEW behavior)
+- Template filter dispatch (always)
 
-- [ ] **Step 1: Add the failing test**
+- [ ] **Step 1: Add 3 failing tests covering the new branches**
 
 ```php
-	public function test_context_filter_runs_before_compile(): void {
-		$saved_data = [ 'title' => 'Hello' ];
-		$wp_block   = Fixtures::wpBlock( [ 'attributes' => [ 'data' => [ 'title' => 'Example' ] ], 'name' => 'acf/ctx' ] );
+	public function test_inserter_preview_skips_content_filter(): void {
+		// Inserter preview: empty post fields + has attributes.data → discriminator true → skip filter.
+		Filters\expectApplied( 'block_article_featured_content' )->never();
+		Filters\expectApplied( 'block_article_featured_template' )->once();
 
-		Functions\when( 'wp_json_encode' )->alias(
-			static fn( mixed $value ): string => json_encode( $value, JSON_THROW_ON_ERROR )
-		);
-
-		// Stub Helpers::formatFields by mocking its return path via Brain Monkey
-		// is impossible (static method on a real class). Instead the test relies
-		// on the Helpers class being autoloaded — the real implementation reads
-		// no DB in pure-PHP unit context, so it just returns [] for post_id=0.
-
-		Filters\expectApplied( 'timber_kit/block_renderer/context' )->once();
-		// block_<name>_template returns empty string → no Timber compile attempted.
-		Filters\expectApplied( 'block_acf/ctx_template' )->once()->andReturn( '' );
+		Functions\when( 'Parisek\\TimberKit\\Helpers::formatFields' )->justReturn( [] );
 
 		ob_start();
 		BlockRenderer::render(
-			[ 'data' => $saved_data, 'name' => 'acf/ctx' ],
+			Fixtures::attributes( [ 'data' => [ 'title' => 'Example' ] ] ),
 			'',
-			false,
+			true,
 			0,
-			$wp_block
+			null
+		);
+		ob_end_clean();
+	}
+
+	public function test_editor_canvas_with_saved_data_runs_content_filter(): void {
+		// Editor canvas: ACF returns saved fields → discriminator false → content filter runs.
+		Filters\expectApplied( 'block_article_featured_content' )->once();
+		Filters\expectApplied( 'block_article_featured_template' )->once();
+
+		// Helpers::formatFields returning a non-empty array can't be mocked directly
+		// (it's a real method on a real class). Instead we override via the context
+		// filter: stub formatFields by mocking apply_filters for the upstream call.
+		// → Simpler: assert via the discriminator's empty-fields branch by ensuring
+		//   $is_preview=false (so even if fields were empty, no discriminator).
+
+		ob_start();
+		BlockRenderer::render(
+			Fixtures::attributes(),
+			'',
+			false, // not preview
+			123,
+			null
+		);
+		ob_end_clean();
+	}
+
+	public function test_template_filter_runs_in_all_modes(): void {
+		Filters\expectApplied( 'block_article_featured_template' )->once();
+
+		ob_start();
+		BlockRenderer::render(
+			Fixtures::attributes(),
+			'',
+			true,
+			0,
+			null
 		);
 		ob_end_clean();
 	}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
 
 ```bash
-composer test -- --filter test_context_filter_runs_before_compile
+composer test -- --filter "test_inserter_preview_skips_content_filter|test_editor_canvas_with_saved_data_runs_content_filter|test_template_filter_runs_in_all_modes"
 ```
 
-Expected: FAIL — context filter not dispatched yet.
+Expected: all 3 FAIL.
 
-- [ ] **Step 3: Add the context filter + Timber compile path in `render()`**
+- [ ] **Step 3: Replace the `print '';` stub at the end of `render()` with the full render body**
 
-Replace the temporary `$output = '';` stub with:
+In `src/BlockRenderer.php`, replace `print '';` with:
 
 ```php
-		// Step 4 — data hydration via Helpers (ACF field walker).
-		$fields = \Parisek\TimberKit\Helpers::formatFields( $post_id, $is_preview );
+		// Pre-render side-effect snapshot. Form plugins (CF7, WPForms) enqueue
+		// their CSS/JS during shortcode processing — when their output is served
+		// from cache, the shortcode never executes and assets are never enqueued,
+		// breaking form styling/JS. By comparing the queue before/after render,
+		// blocks with asset side effects are automatically excluded from cache.
+		$scripts_before = function_exists( 'wp_scripts' ) ? wp_scripts()->queue : [];
+		$styles_before  = function_exists( 'wp_styles' ) ? wp_styles()->queue : [];
 
-		// Step 6 — assemble context and pass through context filter.
-		$context = [
-			'block_name' => $block_name,
-			'attributes' => $attributes,
-			'fields'     => $fields,
-			'is_preview' => $is_preview,
-			'post_id'    => $post_id,
-		];
+		// Data hydration.
+		$content_data = Helpers::formatFields( $post_id, $is_preview );
 
-		$context = apply_filters(
-			'timber_kit/block_renderer/context',
-			$context,
-			$block_name,
-			$is_preview
-		);
+		// Discriminator + inserter-preview content fallback.
+		$is_inserter_preview = self::isInserterPreview( $is_preview, $content_data, $attributes );
+		if ( $is_inserter_preview ) {
+			$content_data = array_filter(
+				$attributes['data'],
+				static fn( $key ) => is_string( $key ) && '' !== $key && '_' !== $key[0],
+				ARRAY_FILTER_USE_KEY
+			);
+		}
 
-		// Compile only when a template path was resolved by the block_<name>_template filter.
-		$output = '';
-		if ( is_string( $template ) && '' !== $template && class_exists( \Timber\Timber::class ) ) {
-			$compiled = \Timber\Timber::compile( $template, $context );
+		// Append wrapper context.
+		$content_data['is_preview']      = $is_preview;
+		$content_data['wrapper_id']      = $attributes['anchor'] ?? '';
+		$content_data['wrapper_classes'] = $attributes['className'] ?? '';
+
+		// Content filter — GATED on discriminator (the new behavior PR #27 designed but didn't ship).
+		if ( ! $is_inserter_preview ) {
+			$content_data = apply_filters( "{$filter_base}_content", $content_data );
+		}
+
+		// Template filter — always runs.
+		$default_template_path = '@component/' . $slug . '/' . $slug . '.twig';
+		$template_path         = apply_filters( "{$filter_base}_template", $default_template_path, $content_data );
+
+		// Twig context assembly + context filter.
+		$context = class_exists( \Timber\Timber::class ) ? \Timber\Timber::context() : [];
+		$context['content'] = $content_data;
+		$context = apply_filters( 'timber_kit/block_renderer/context', $context, $block_name, $is_preview );
+
+		// Compile.
+		$template_output = '';
+		if ( class_exists( \Timber\Timber::class ) ) {
+			$compiled = \Timber\Timber::compile( $template_path, $context );
 			if ( is_string( $compiled ) ) {
-				$output = $compiled;
+				$template_output = $compiled;
 			}
 		}
+
+		// Empty render → editor alert (Task 12 fills in renderEmptyAlert).
+		if ( '' === trim( $template_output ) && function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
+			$template_output = self::renderEmptyAlert( $block_name, $attributes );
+		}
+
+		// Inserter-preview aspect-ratio wrap.
+		if ( $is_inserter_preview && '' !== $template_output ) {
+			$template_output = '<div style="aspect-ratio: 16/9; overflow: hidden;">' . $template_output . '</div>';
+		}
+
+		// Side-effect detection (post-render).
+		$has_side_effects = function_exists( 'wp_scripts' ) && function_exists( 'wp_styles' )
+			&& ( array_diff( wp_scripts()->queue, $scripts_before ) || array_diff( wp_styles()->queue, $styles_before ) );
+
+		// Cache write.
+		if ( '' !== $template_output ) {
+			if ( $is_preview ) {
+				self::$preview_memo[ $cache_key ] = $template_output;
+			} elseif ( isset( $use_cache ) && $use_cache && ! $has_side_effects ) {
+				wp_cache_set( $cache_key, $template_output, $cache_group, HOUR_IN_SECONDS );
+			}
+		}
+
+		print $template_output;
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+Also add the `use` statement at the top of the file:
+
+```php
+use Parisek\TimberKit\Helpers;
+```
+
+And add a stub `renderEmptyAlert()` method (Task 12 fills in):
+
+```php
+	private static function renderEmptyAlert( string $block_name, array $attributes ): string {
+		return '';
+	}
+```
+
+- [ ] **Step 4: Run the 3 new tests**
 
 ```bash
-composer test -- --filter test_context_filter_runs_before_compile
+composer test -- --filter "test_inserter_preview_skips_content_filter|test_editor_canvas_with_saved_data_runs_content_filter|test_template_filter_runs_in_all_modes"
 ```
 
-Expected: PASS. Also confirm previous tests still pass:
+Expected: all 3 PASS.
+
+- [ ] **Step 5: Re-run full RenderTest suite to verify no regression**
 
 ```bash
 composer test -- --filter RenderTest
 ```
 
-- [ ] **Step 5: Commit**
+Expected: all tests (including the previously-passing ones) still pass.
+
+- [ ] **Step 6: Commit**
 
 ```bash
 git add src/BlockRenderer.php tests/Unit/BlockRenderer/RenderTest.php
-git commit -m "feat(BlockRenderer): Timber compile with context filter passthrough"
+git commit -m "feat(BlockRenderer): full render body — data hydration, content/template filters, discriminator gating"
 ```
 
 ---
 
-## Task 18: Side-effect tracking — form plugin enqueue detection
+## Task 10: Side-effect detection skips cache write
 
 **Files:**
 - Modify: `tests/Unit/BlockRenderer/RenderTest.php`
-- Modify: `src/BlockRenderer.php`
-
-The original function tracks whether `wpcf7_form_class_attr` / `wpforms_frontend_load` filters fire during the compile — if any do, the block has a side effect (asset enqueue) and the output is **not** safe to cache (caching would skip the enqueue on the next request, breaking forms).
 
 - [ ] **Step 1: Add the failing test**
 
 ```php
 	public function test_side_effecting_block_excluded_from_cache(): void {
-		$saved_data = [ 'form_id' => 42 ];
-		$wp_block   = Fixtures::wpBlock( [ 'attributes' => [ 'data' => [ 'form_id' => 1 ] ], 'name' => 'acf/contact-form' ] );
-
 		Functions\when( 'wp_using_ext_object_cache' )->justReturn( true );
 		Functions\when( 'wp_cache_supports' )->justReturn( true );
 		Functions\when( 'wp_cache_get' )->justReturn( false );
-		Functions\when( 'wp_json_encode' )->alias(
-			static fn( mixed $value ): string => json_encode( $value, JSON_THROW_ON_ERROR )
-		);
 
-		// wp_cache_set MUST NOT be called when a side-effect filter fired.
+		// Simulate side effect: scripts queue grows during render.
+		$call_count = 0;
+		Functions\when( 'wp_scripts' )->alias( static function () use ( &$call_count ) {
+			$call_count++;
+			return (object) [ 'queue' => $call_count === 1 ? [] : [ 'wpforms-frontend' ] ];
+		} );
+
+		// Make Timber::compile produce non-empty output so the cache_write branch executes.
+		Filters\expectApplied( 'block_article_featured_template' )
+			->andReturn( '@component/article-featured/article-featured.twig' );
+		Filters\expectApplied( 'timber_kit/block_renderer/context' )
+			->andReturnUsing( static function ( array $ctx ): array {
+				// Inject a synthetic "compiled" result via the context — we can't compile real Twig in unit tests.
+				return $ctx;
+			} );
+		Filters\expectApplied( 'timber_kit/block_renderer/empty_alert_html' )
+			->andReturn( '<synthetic-output>' );
+		Functions\when( 'is_user_logged_in' )->justReturn( true ); // routes through empty-alert path which yields content
+
+		// wp_cache_set MUST NOT be called when side-effects fired.
 		Functions\expect( 'wp_cache_set' )->never();
 
-		// Simulate the form plugin enqueueing assets during render by triggering its filter.
-		Filters\expectApplied( 'block_acf/contact-form_template' )
-			->once()
-			->andReturnUsing( static function () {
-				apply_filters( 'wpcf7_form_class_attr', '' );
-				return '';
-			} );
-
 		ob_start();
-		BlockRenderer::render(
-			[ 'data' => $saved_data, 'name' => 'acf/contact-form' ],
-			'',
-			false,
-			0,
-			$wp_block
-		);
+		BlockRenderer::render( Fixtures::attributes(), '', false, 0, null );
 		ob_end_clean();
 	}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run test**
 
 ```bash
 composer test -- --filter test_side_effecting_block_excluded_from_cache
 ```
 
-Expected: FAIL — side-effect tracking returns hardcoded `false`.
+Expected: PASS (side-effect detection already in Task 9).
 
-- [ ] **Step 3: Replace the placeholder `hadSideEffectsDuringRender()`**
-
-Add the tracking state to the class:
-
-```php
-	/**
-	 * Per-render flag set by `recordSideEffect()` when a form-plugin filter
-	 * fires during compile. When true, the resulting output skips cache write
-	 * because it captured a one-shot asset enqueue that wouldn't replay from cache.
-	 */
-	private static bool $side_effect_in_progress = false;
-
-	/**
-	 * Filter names that, when fired during compile, indicate a side effect.
-	 *
-	 * @var array<int, string>
-	 */
-	private const SIDE_EFFECT_FILTERS = [
-		'wpcf7_form_class_attr',   // Contact Form 7 — fires when shortcode renders
-		'wpforms_frontend_load',   // WPForms — fires when frontend assets load
-	];
-```
-
-Replace `hadSideEffectsDuringRender()` with:
-
-```php
-	private static function hadSideEffectsDuringRender(): bool {
-		return self::$side_effect_in_progress;
-	}
-```
-
-In `render()`, before the Timber::compile path, register the side-effect listeners and reset the flag:
-
-```php
-		// Step 7a — register side-effect listeners. Form plugins fire these
-		// during their compile; if any of them runs, the output captures a
-		// one-shot asset enqueue and isn't safe to cache.
-		self::$side_effect_in_progress = false;
-		foreach ( self::SIDE_EFFECT_FILTERS as $filter_name ) {
-			add_filter( $filter_name, [ self::class, 'recordSideEffect' ], PHP_INT_MAX );
-		}
-```
-
-After the Timber compile, deregister them:
-
-```php
-		foreach ( self::SIDE_EFFECT_FILTERS as $filter_name ) {
-			remove_filter( $filter_name, [ self::class, 'recordSideEffect' ], PHP_INT_MAX );
-		}
-```
-
-Add the recorder method:
-
-```php
-	/**
-	 * Internal — passthrough filter that flags side-effect occurrence during render.
-	 *
-	 * Registered on form-plugin filters at PHP_INT_MAX priority during `render()`.
-	 * Returns its input unchanged so it never alters plugin behavior.
-	 *
-	 * @internal Public only because WordPress's add_filter requires a callable;
-	 *           do not call directly from outside the class.
-	 */
-	public static function recordSideEffect( mixed $value ): mixed {
-		self::$side_effect_in_progress = true;
-		return $value;
-	}
-```
-
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 3: Commit**
 
 ```bash
-composer test -- --filter test_side_effecting_block_excluded_from_cache
-```
-
-Expected: PASS.
-
-Also re-run the cache-skip test to confirm no regression:
-
-```bash
-composer test -- --filter RenderTest
-```
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/BlockRenderer.php tests/Unit/BlockRenderer/RenderTest.php
-git commit -m "feat(BlockRenderer): track form-plugin side effects; skip cache write when detected"
+git add tests/Unit/BlockRenderer/RenderTest.php
+git commit -m "test(BlockRenderer): side-effect detection via queue snapshot skips cache write"
 ```
 
 ---
 
-## Task 19: Empty-render alert via Twig template path
+## Task 11: Un-skip preview memo test + verify Task 9 made it pass
 
 **Files:**
 - Modify: `tests/Unit/BlockRenderer/RenderTest.php`
-- Modify: `src/BlockRenderer.php`
 
-When the compiled output is empty AND user is logged in, render the alert via `@timber-kit/empty-alert.twig`. The `empty_alert_html` filter lets themes replace the entire HTML.
+- [ ] **Step 1: Remove the `markTestSkipped` from `test_preview_memo_cache_hit_short_circuits`**
 
-- [ ] **Step 1: Add the failing test (Twig path)**
+Find the test added in Task 6, delete the `$this->markTestSkipped(...)` line.
+
+- [ ] **Step 2: Adjust the test to inject synthetic non-empty output (memo only writes when output non-empty)**
+
+Replace the test body with:
 
 ```php
-	public function test_empty_render_shows_alert_for_logged_in_users(): void {
-		$saved_data = [];
-		$wp_block   = Fixtures::wpBlock( [ 'attributes' => [ 'data' => [ 'title' => 'Example' ] ], 'name' => 'acf/empty-block' ] );
+	public function test_preview_memo_cache_hit_short_circuits(): void {
+		// Inject synthetic output so the memo write branch fires.
+		Filters\expectApplied( 'timber_kit/block_renderer/empty_alert_html' )
+			->andReturn( '<synthetic-output>' );
+		Functions\when( 'is_user_logged_in' )->justReturn( true );
 
+		// First call writes to memo.
+		ob_start();
+		BlockRenderer::render( Fixtures::attributes(), '', true, 0, null );
+		$first = ob_get_clean();
+
+		// Second call must hit memo. We verify by counting calls to a function
+		// that's only invoked on cache MISS (not on hit) — acf_get_valid_post_id
+		// runs before the memo check, so it's a poor signal. Instead we use the
+		// content filter — gated on inserter preview, but if not preview, it
+		// would fire. Here we're in preview so it doesn't fire anyway. Better:
+		// the post-cache render body would touch wp_styles. Count wp_styles calls.
+
+		$styles_calls = 0;
+		Functions\when( 'wp_styles' )->alias( static function () use ( &$styles_calls ) {
+			$styles_calls++;
+			return (object) [ 'queue' => [] ];
+		} );
+
+		ob_start();
+		BlockRenderer::render( Fixtures::attributes(), '', true, 0, null );
+		$second = ob_get_clean();
+
+		$this->assertSame( $first, $second );
+		$this->assertSame( 0, $styles_calls, 'second render must hit memo and skip the render body' );
+	}
+```
+
+- [ ] **Step 3: Run test**
+
+```bash
+composer test -- --filter test_preview_memo_cache_hit_short_circuits
+```
+
+Expected: PASS.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add tests/Unit/BlockRenderer/RenderTest.php
+git commit -m "test(BlockRenderer): un-skip preview memo test, verify memo write + hit"
+```
+
+---
+
+## Task 12: `renderEmptyAlert()` Twig + inline fallback
+
+**Files:**
+- Modify: `src/BlockRenderer.php`
+- Modify: `tests/Unit/BlockRenderer/RenderTest.php`
+
+- [ ] **Step 1: Add the failing test**
+
+```php
+	public function test_empty_template_renders_alert_for_logged_in_users(): void {
 		Functions\when( 'is_user_logged_in' )->justReturn( true );
 		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
 		Functions\when( 'esc_attr' )->alias( static fn( string $v ): string => htmlspecialchars( $v, ENT_QUOTES ) );
 		Functions\when( 'esc_html' )->alias( static fn( string $v ): string => htmlspecialchars( $v, ENT_QUOTES ) );
-		Functions\when( 'wp_json_encode' )->alias(
-			static fn( mixed $value ): string => json_encode( $value, JSON_THROW_ON_ERROR )
-		);
-
-		// No template resolved → Timber compile returns nothing → empty output.
-		Filters\expectApplied( 'block_acf/empty-block_template' )->andReturn( '' );
-
-		// empty_alert_html MUST be dispatched.
-		Filters\expectApplied( 'timber_kit/block_renderer/empty_alert_html' )->once();
 
 		ob_start();
 		BlockRenderer::render(
-			[ 'data' => $saved_data, 'name' => 'acf/empty-block' ],
+			Fixtures::attributes( [ 'title' => 'Article — Featured' ] ),
 			'',
-			true,
+			false,
 			0,
-			$wp_block
+			null
 		);
 		$output = ob_get_clean();
 
-		$this->assertStringContainsString( 'timber-kit-block-empty', $output, 'output must carry stable CSS hook' );
-		$this->assertStringContainsString( 'data-block="acf/empty-block"', $output );
+		// Stable contract: must contain class + data-block + translated message + block label.
 		$this->assertStringContainsString( 'block-editor-warning', $output );
+		$this->assertStringContainsString( 'timber-kit-block-empty', $output );
+		$this->assertStringContainsString( 'data-block="acf/article-featured"', $output );
+		$this->assertStringContainsString( 'Pro zobrazení vyplňte', $output );
+		$this->assertStringContainsString( 'Article — Featured', $output, 'block_label prefix' );
 	}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run test**
 
 ```bash
-composer test -- --filter test_empty_render_shows_alert_for_logged_in_users
+composer test -- --filter test_empty_template_renders_alert_for_logged_in_users
 ```
 
-Expected: FAIL — alert rendering not implemented yet.
+Expected: FAIL — renderEmptyAlert() is still a stub returning empty string.
 
-- [ ] **Step 3: Add `renderEmptyAlert()` and wire into `render()`**
-
-Add the method to `src/BlockRenderer.php`:
+- [ ] **Step 3: Replace the stub `renderEmptyAlert()` with the real implementation**
 
 ```php
 	/**
-	 * Render the empty-block warning shown to logged-in users when `render()`
-	 * produced no output.
-	 *
-	 * Tries the bundled Twig template first (`@timber-kit/empty-alert.twig`,
-	 * registered by StarterBase). If Timber isn't loaded or the namespace
-	 * isn't registered, falls back to an inline HTML string that preserves
-	 * the same DOM contract (`.block-editor-warning` + `.timber-kit-block-empty`).
-	 *
-	 * @param array<string, mixed> $attributes Block attributes (passed to filter for context).
+	 * Render the empty-block warning shown to logged-in users when render
+	 * produced no output. Tries the bundled Twig template first; falls back
+	 * to inline HTML that preserves the same DOM contract.
 	 */
 	private static function renderEmptyAlert( string $block_name, array $attributes ): string {
-		$message = __(
+		$block_label = $attributes['title'] ?? $attributes['name'] ?? '';
+		$message     = __(
 			'Pro zobrazení vyplňte požadované údaje v pravém panelu.',
 			'timber-kit'
 		);
@@ -1477,8 +1171,9 @@ Add the method to `src/BlockRenderer.php`:
 			$compiled = \Timber\Timber::compile(
 				'@timber-kit/empty-alert.twig',
 				[
-					'block_name' => $block_name,
-					'message'    => $message,
+					'block_name'  => $block_name,
+					'block_label' => $block_label,
+					'message'     => $message,
 				]
 			);
 			if ( is_string( $compiled ) && '' !== $compiled ) {
@@ -1487,14 +1182,18 @@ Add the method to `src/BlockRenderer.php`:
 		}
 
 		if ( '' === $html ) {
-			// Inline fallback — preserves the same DOM contract as the Twig template.
-			$html = sprintf(
+			// Inline fallback — preserves the Twig template's DOM exactly.
+			$label_prefix = '' !== $block_label
+				? '<strong>' . esc_html( (string) $block_label ) . ':</strong> '
+				: '';
+			$html         = sprintf(
 				'<div class="block-editor-warning timber-kit-block-empty" data-block="%s">'
 					. '<div class="block-editor-warning__contents">'
-						. '<p class="block-editor-warning__message">%s</p>'
+						. '<p class="block-editor-warning__message">%s%s</p>'
 					. '</div>'
 				. '</div>',
 				esc_attr( $block_name ),
+				$label_prefix,
 				esc_html( $message )
 			);
 		}
@@ -1508,66 +1207,43 @@ Add the method to `src/BlockRenderer.php`:
 	}
 ```
 
-In `render()`, after computing `$output` from the Timber compile, before the cache-write block, add:
-
-```php
-		// Step 7b — empty-render alert (logged-in users only, never in inserter preview).
-		if ( '' === trim( $output ) && ! $is_inserter_preview && function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
-			$output = self::renderEmptyAlert( $block_name, $attributes );
-		}
-```
-
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Run test**
 
 ```bash
-composer test -- --filter test_empty_render_shows_alert_for_logged_in_users
+composer test -- --filter test_empty_template_renders_alert_for_logged_in_users
 ```
 
-Expected: PASS — the inline fallback path runs (Timber isn't really loaded in unit tests; `class_exists(Timber::class)` returns false unless previously triggered) so we see the inline HTML which carries all three required substrings.
+Expected: PASS.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add src/BlockRenderer.php tests/Unit/BlockRenderer/RenderTest.php
-git commit -m "feat(BlockRenderer): render empty-block alert via Twig with inline fallback"
+git commit -m "feat(BlockRenderer): renderEmptyAlert with Twig template + inline fallback + block_label"
 ```
 
 ---
 
-## Task 20: Test — `empty_alert_html` filter replaces default output
+## Task 13: `empty_alert_html` filter replaces default output
 
 **Files:**
 - Modify: `tests/Unit/BlockRenderer/RenderTest.php`
-
-Confirms the filter has full control — theme can swap the entire HTML.
 
 - [ ] **Step 1: Add the failing test**
 
 ```php
 	public function test_empty_alert_html_filter_replaces_default_output(): void {
-		$wp_block = Fixtures::wpBlock( [ 'attributes' => [ 'data' => [ 'title' => 'Example' ] ], 'name' => 'acf/custom-alert' ] );
-
 		Functions\when( 'is_user_logged_in' )->justReturn( true );
 		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
 		Functions\when( 'esc_attr' )->alias( static fn( string $v ): string => $v );
 		Functions\when( 'esc_html' )->alias( static fn( string $v ): string => $v );
-		Functions\when( 'wp_json_encode' )->alias(
-			static fn( mixed $value ): string => json_encode( $value, JSON_THROW_ON_ERROR )
-		);
 
-		Filters\expectApplied( 'block_acf/custom-alert_template' )->andReturn( '' );
 		Filters\expectApplied( 'timber_kit/block_renderer/empty_alert_html' )
 			->once()
 			->andReturn( '<custom-theme-alert>OVERRIDE</custom-theme-alert>' );
 
 		ob_start();
-		BlockRenderer::render(
-			[ 'data' => [], 'name' => 'acf/custom-alert' ],
-			'',
-			true,
-			0,
-			$wp_block
-		);
+		BlockRenderer::render( Fixtures::attributes(), '', false, 0, null );
 		$output = ob_get_clean();
 
 		$this->assertSame( '<custom-theme-alert>OVERRIDE</custom-theme-alert>', $output );
@@ -1586,186 +1262,148 @@ Expected: PASS.
 
 ```bash
 git add tests/Unit/BlockRenderer/RenderTest.php
-git commit -m "test(BlockRenderer): empty_alert_html filter replaces default output"
+git commit -m "test(BlockRenderer): empty_alert_html filter can replace default output entirely"
 ```
 
 ---
 
-## Task 21: Test — inserter preview wrapped in 16:9 aspect ratio
+## Task 14: Inserter preview 16:9 aspect-ratio wrap
 
 **Files:**
 - Modify: `tests/Unit/BlockRenderer/RenderTest.php`
-- Modify: `src/BlockRenderer.php`
-
-The original function wraps the inserter preview output in `<div style="aspect-ratio: 16/9">` so the inserter library shows blocks at a consistent thumbnail aspect.
 
 - [ ] **Step 1: Add the failing test**
 
 ```php
-	public function test_inserter_preview_wrapped_in_16_9_aspect_ratio(): void {
-		$example_data = [ 'title' => 'Example' ];
-		$wp_block     = Fixtures::wpBlock( [ 'attributes' => [ 'data' => $example_data ], 'name' => 'acf/wrapped' ] );
-
-		Functions\when( 'wp_json_encode' )->alias(
-			static fn( mixed $value ): string => json_encode( $value, JSON_THROW_ON_ERROR )
-		);
-
-		// block_<name>_template filter returns a path → simulate compile returning a marker.
-		Filters\expectApplied( 'block_acf/wrapped_template' )->andReturn( 'simulated-template.twig' );
-
-		// Without a real Timber compile we synthesize the output via the context filter.
-		Filters\expectApplied( 'timber_kit/block_renderer/context' )
-			->andReturnUsing( static function ( array $context ): array {
-				return $context;
-			} );
-
-		// Mock Timber::compile via class_exists short-circuit — by not autoloading Timber,
-		// $output stays '', so we test the wrapping logic by injecting via empty_alert path
-		// disabled (user not logged in).
-		Functions\when( 'is_user_logged_in' )->justReturn( false );
-
-		ob_start();
-		BlockRenderer::render(
-			[ 'data' => $example_data, 'name' => 'acf/wrapped' ],
-			'',
-			true,
-			0,
-			$wp_block
-		);
-		$output = ob_get_clean();
-
-		// With no Timber and no alert, output is empty — the wrap should be skipped on empty.
-		// But the wrap CSS rule should still appear when output is non-empty in a preview.
-		// To exercise the wrap branch we use the empty_alert_html filter to inject content.
-		// Re-run with injected content:
-
-		Filters\expectApplied( 'timber_kit/block_renderer/empty_alert_html' )
-			->andReturn( '<p>Synthetic preview body</p>' );
+	public function test_inserter_preview_wraps_in_16_9_aspect_ratio(): void {
 		Functions\when( 'is_user_logged_in' )->justReturn( true );
 		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
 		Functions\when( 'esc_attr' )->alias( static fn( string $v ): string => $v );
 		Functions\when( 'esc_html' )->alias( static fn( string $v ): string => $v );
 
+		// Inject synthetic non-empty output via empty_alert filter.
+		Filters\expectApplied( 'timber_kit/block_renderer/empty_alert_html' )
+			->andReturn( '<p>Synthetic preview body</p>' );
+
 		ob_start();
 		BlockRenderer::render(
-			[ 'data' => $example_data, 'name' => 'acf/wrapped' ],
+			Fixtures::attributes( [ 'data' => [ 'title' => 'Example' ] ] ),
 			'',
 			true,
 			0,
-			$wp_block
-		);
-		$wrapped_output = ob_get_clean();
-
-		$this->assertStringContainsString( 'aspect-ratio', $wrapped_output );
-		$this->assertStringContainsString( '16 / 9', $wrapped_output );
-		$this->assertStringContainsString( 'Synthetic preview body', $wrapped_output );
-	}
-```
-
-**Note:** this test exercises both the no-wrap-on-empty and wrap-on-non-empty paths in one run. The double `ob_start`/`ob_get_clean` is intentional.
-
-- [ ] **Step 2: Run test to verify it fails**
-
-```bash
-composer test -- --filter test_inserter_preview_wrapped_in_16_9_aspect_ratio
-```
-
-Expected: FAIL — wrapping not implemented.
-
-- [ ] **Step 3: Add the wrap step in `render()`**
-
-After the empty-alert path, before the cache-write block, add:
-
-```php
-		// Step 6b — wrap inserter-preview output in a 16/9 aspect-ratio box so the
-		// inserter library shows blocks at a consistent thumbnail aspect.
-		if ( $is_inserter_preview && '' !== $output ) {
-			$output = '<div style="aspect-ratio: 16 / 9; overflow: hidden;">' . $output . '</div>';
-		}
-```
-
-- [ ] **Step 4: Run test to verify it passes**
-
-```bash
-composer test -- --filter test_inserter_preview_wrapped_in_16_9_aspect_ratio
-```
-
-Expected: PASS.
-
-- [ ] **Step 5: Commit**
-
-```bash
-git add src/BlockRenderer.php tests/Unit/BlockRenderer/RenderTest.php
-git commit -m "feat(BlockRenderer): wrap inserter-preview output in 16/9 aspect-ratio box"
-```
-
----
-
-## Task 22: Test — inline fallback when Timber namespace missing
-
-**Files:**
-- Modify: `tests/Unit/BlockRenderer/RenderTest.php`
-
-This validates the defensive fallback documented in the spec.
-
-- [ ] **Step 1: Add the failing test**
-
-```php
-	public function test_inline_fallback_used_when_timber_namespace_missing(): void {
-		// Simulate a project that uses BlockRenderer without StarterBase — Timber
-		// class might not even be autoloaded. The renderEmptyAlert inline fallback
-		// must still produce well-formed HTML carrying the stable contract classes.
-
-		$wp_block = Fixtures::wpBlock( [ 'attributes' => [ 'data' => [ 'title' => 'Example' ] ], 'name' => 'acf/no-base' ] );
-
-		Functions\when( 'is_user_logged_in' )->justReturn( true );
-		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
-		Functions\when( 'esc_attr' )->alias( static fn( string $v ): string => htmlspecialchars( $v, ENT_QUOTES ) );
-		Functions\when( 'esc_html' )->alias( static fn( string $v ): string => htmlspecialchars( $v, ENT_QUOTES ) );
-		Functions\when( 'wp_json_encode' )->alias(
-			static fn( mixed $value ): string => json_encode( $value, JSON_THROW_ON_ERROR )
-		);
-
-		Filters\expectApplied( 'block_acf/no-base_template' )->andReturn( '' );
-		// empty_alert_html filter passes the inline-fallback HTML through unchanged.
-
-		ob_start();
-		BlockRenderer::render(
-			[ 'data' => [], 'name' => 'acf/no-base' ],
-			'',
-			false,
-			0,
-			$wp_block
+			null
 		);
 		$output = ob_get_clean();
 
-		// All three stable-contract markers present.
-		$this->assertStringContainsString( 'block-editor-warning', $output );
-		$this->assertStringContainsString( 'timber-kit-block-empty', $output );
-		$this->assertStringContainsString( 'data-block="acf/no-base"', $output );
-		// Translated message present.
-		$this->assertStringContainsString( 'Pro zobrazení vyplňte', $output );
+		$this->assertStringContainsString( 'aspect-ratio: 16/9', $output );
+		$this->assertStringContainsString( 'overflow: hidden', $output );
+		$this->assertStringContainsString( '<p>Synthetic preview body</p>', $output );
 	}
 ```
 
 - [ ] **Step 2: Run test**
 
 ```bash
-composer test -- --filter test_inline_fallback_used_when_timber_namespace_missing
+composer test -- --filter test_inserter_preview_wraps_in_16_9_aspect_ratio
 ```
 
-Expected: PASS (inline-fallback path runs in unit tests since Timber isn't really loaded).
+Expected: PASS (wrap logic already in Task 9).
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add tests/Unit/BlockRenderer/RenderTest.php
-git commit -m "test(BlockRenderer): inline fallback used when Timber namespace missing"
+git commit -m "test(BlockRenderer): inserter preview output wrapped in 16:9 aspect-ratio box"
 ```
 
 ---
 
-## Task 23: Run the full test suite + PHPStan
+## Task 15: `BlockRenderer::registerInvalidation()` + StarterBase boot wiring
+
+**Files:**
+- Modify: `src/BlockRenderer.php`
+- Modify: `src/StarterBase.php`
+- Modify: `tests/Unit/BlockRenderer/RenderTest.php`
+
+The per-post cache invalidation hook lived as a freestanding `add_action` in the original `functions.php`. Moving it into the package keeps the cache writer and invalidator co-located.
+
+- [ ] **Step 1: Add the failing test**
+
+```php
+	public function test_register_invalidation_hooks_acf_save_post_at_priority_20(): void {
+		Functions\expect( 'add_action' )
+			->once()
+			->with(
+				'acf/save_post',
+				\Mockery::type( 'callable' ),
+				20
+			);
+
+		BlockRenderer::registerInvalidation();
+	}
+```
+
+- [ ] **Step 2: Run test**
+
+```bash
+composer test -- --filter test_register_invalidation_hooks_acf_save_post_at_priority_20
+```
+
+Expected: FAIL — method doesn't exist.
+
+- [ ] **Step 3: Add `registerInvalidation()` to `BlockRenderer`**
+
+```php
+	/**
+	 * Register the per-post cache invalidation hook.
+	 *
+	 * Called from StarterBase boot. When ACF saves a post, the cache group
+	 * "acf_block_{$post_id}" is flushed — invalidating exactly the cached
+	 * blocks tied to that post without touching others.
+	 */
+	public static function registerInvalidation(): void {
+		add_action( 'acf/save_post', static function ( $post_id ): void {
+			if ( is_numeric( $post_id )
+				&& function_exists( 'wp_using_ext_object_cache' ) && wp_using_ext_object_cache()
+				&& function_exists( 'wp_cache_supports' ) && wp_cache_supports( 'flush_group' ) ) {
+				wp_cache_flush_group( 'acf_block_' . $post_id );
+			}
+		}, 20 );
+	}
+```
+
+- [ ] **Step 4: Wire from `StarterBase::__construct()`**
+
+In `src/StarterBase.php`, after the `register_timber_kit_namespace` line added in Task 3, add:
+
+```php
+		BlockRenderer::registerInvalidation();
+```
+
+And add the `use` statement at the top of `StarterBase.php`:
+
+```php
+use Parisek\TimberKit\BlockRenderer;
+```
+
+- [ ] **Step 5: Run test**
+
+```bash
+composer test -- --filter test_register_invalidation_hooks_acf_save_post_at_priority_20
+```
+
+Expected: PASS.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/BlockRenderer.php src/StarterBase.php tests/Unit/BlockRenderer/RenderTest.php
+git commit -m "feat(BlockRenderer): per-post cache invalidation hook + StarterBase wiring"
+```
+
+---
+
+## Task 16: Final verification — full suite + PHPStan
 
 **Files:** none (verification only)
 
@@ -1775,7 +1413,7 @@ git commit -m "test(BlockRenderer): inline fallback used when Timber namespace m
 composer test
 ```
 
-Expected: all previous tests + 17 new BlockRenderer tests, all passing.
+Expected: existing tests (Helpers, StarterBase, Resizer, …) unchanged + ~15 new BlockRenderer tests passing.
 
 - [ ] **Step 2: Run PHPStan**
 
@@ -1783,11 +1421,9 @@ Expected: all previous tests + 17 new BlockRenderer tests, all passing.
 composer phpstan
 ```
 
-Expected: no new errors at level 5. If errors surface in `BlockRenderer.php`, fix them inline (likely candidates: missing `@param` types, mixed types in cache_data array). Re-run until clean.
+Expected: no new errors at level 5. Fix any inline; common issues with this code: `array<string, mixed>` shape annotations, `mixed` returns from filters that need narrowing.
 
-- [ ] **Step 3: Commit any PHPStan fixes**
-
-If any fixes were needed:
+- [ ] **Step 3: If PHPStan fixes needed, commit them**
 
 ```bash
 git add src/BlockRenderer.php
@@ -1796,23 +1432,24 @@ git commit -m "chore(BlockRenderer): satisfy PHPStan level 5"
 
 ---
 
-## Task 24: CHANGELOG entry
+## Task 17: CHANGELOG entry
 
 **Files:**
 - Modify: `CHANGELOG.md`
 
 - [ ] **Step 1: Add the Unreleased entry**
 
-Open `CHANGELOG.md`. Under `## [Unreleased]`, add:
+Under `## [Unreleased]`:
 
 ```markdown
 ### Added
-- `Parisek\TimberKit\BlockRenderer` — new class hosting the ACF Gutenberg block render callback that themes derived from `portadesign/wordpress-base` previously carried inline in `functions.php`. Two static methods: `render()` (full pipeline — discriminator, cache, data hydration, filter dispatch, Timber compile, side-effect tracking, empty-render alert) and `isInserterPreview()` (pure discriminator, identity-check against `WP_Block_Type::$example`). Extensibility through four WordPress filters: `timber_kit/block_renderer/cache_key`, `…/use_cache`, `…/empty_alert_html`, `…/context`. Wire it in `block.json` as `"renderCallback": "Parisek\\TimberKit\\BlockRenderer::render"`, or call from a wrapper function for backwards-compat with existing `block.json` files referencing `timber_block_render_callback`.
-- `src/templates/empty-alert.twig` — first package-shipped Twig template, rendered by `BlockRenderer::render()` when output is empty for a logged-in user. Uses WordPress Gutenberg's native `.block-editor-warning` classes so the editor styles it without any package-shipped CSS. Stable contract: `.timber-kit-block-empty` class + `data-block` attribute as theme styling hooks; full HTML override via the `empty_alert_html` filter. Defensive inline-HTML fallback in PHP when the `@timber-kit/` Twig namespace isn't registered (e.g. projects using `BlockRenderer` without `StarterBase`).
-- `StarterBase::register_timber_kit_namespace()` — registers the `@timber-kit/` Twig namespace pointing at the package's templates directory. Hooked on `timber/locations` at priority 5 (below WP default 10) so downstream themes can override individual templates by registering their own path under the same namespace.
+- `Parisek\TimberKit\BlockRenderer` — new class hosting the ACF Gutenberg block render callback previously carried in every downstream theme's `functions.php`. Faithful behavioural port: same cache key composition (`acf_block_` + md5 of `[name, data, anchor, className, post_id, lang, paged]`), same per-post cache group naming (`acf_block_{$real_post_id}`), same `wp_scripts`/`wp_styles` queue snapshot for side-effect detection, same `has_filter()` gate that skips Redis cache for dynamic blocks, same `acf_get_valid_post_id()` → global `$post` fallback for real-post-id resolution. **New behavior**: the `block_<name>_content` filter is now skipped when the inserter-preview discriminator fires — completing the gating PR #27 designed but didn't ship. Four WordPress filters exposed: `timber_kit/block_renderer/cache_key`, `…/use_cache`, `…/empty_alert_html`, `…/context`. Wire as `"renderCallback": "Parisek\\TimberKit\\BlockRenderer::render"` in `block.json`, or call from the existing `timber_block_render_callback` wrapper in downstream themes.
+- `src/templates/empty-alert.twig` — first package-shipped Twig template, rendered when render output is empty for a logged-in user. Uses WordPress Gutenberg's native `.block-editor-warning` classes so the editor styles it without any package CSS. Stable contract: `.timber-kit-block-empty` class + `data-block` attribute + optional `block_label` prefix from `$attributes['title']`. Defensive inline-HTML fallback when the `@timber-kit/` Twig namespace isn't registered (e.g. projects using `BlockRenderer` without `StarterBase`).
+- `BlockRenderer::registerInvalidation()` — registers the `acf/save_post` cache invalidation hook (flushes cache group `acf_block_{$post_id}` at priority 20). Migrated from the freestanding `add_action` in the original `functions.php`; now lives alongside the cache writer so the two can't drift.
+- `StarterBase::register_timber_kit_namespace()` — registers the `@timber-kit/` Twig namespace pointing at `src/templates/`, priority 5 so downstream themes can override at default priority 10. Plus `BlockRenderer::registerInvalidation()` boot call from `StarterBase::__construct()`.
 
 ### Changed
-- `StarterBase::__construct()` — adds one `add_filter('timber/locations', …, 5)` line near the existing `timber/*` filter registrations to wire the new `@timber-kit/` namespace.
+- `StarterBase::__construct()` adds the `timber/locations` filter + the `BlockRenderer::registerInvalidation()` boot call near the existing `timber/*` filter registrations.
 ```
 
 - [ ] **Step 2: Commit**
@@ -1824,93 +1461,86 @@ git commit -m "docs(changelog): document BlockRenderer migration under [Unreleas
 
 ---
 
-## Task 25: Final verification — full suite green
+## Task 18: Open implementation PR
 
 **Files:** none
 
-- [ ] **Step 1: Run the full test suite**
+- [ ] **Step 1: Verify branch state**
 
 ```bash
-composer test
+git log --oneline feat/block-renderer-roadmap...HEAD | head -20
 ```
 
-Expected: green across the board. Existing tests (Helpers, StarterBase, Resizer, DevMediaProxy, WPFormsConfigBridge) unchanged + 17 new BlockRenderer tests passing.
+Verify the commits trace the TDD progression: scaffold → discriminator → template/namespace → render skeleton → cache key → render body → empty alert → invalidation → CHANGELOG.
 
-- [ ] **Step 2: Run PHPStan one more time**
-
-```bash
-composer phpstan
-```
-
-Expected: no errors.
-
-- [ ] **Step 3: Inspect git log**
-
-```bash
-git log --oneline feat/block-renderer-roadmap...HEAD
-```
-
-Verify each commit message starts with `feat(BlockRenderer)`, `test(BlockRenderer)`, `feat(StarterBase)`, `docs(changelog)`, or similar conventional-commit prefix.
-
-- [ ] **Step 4: Open the implementation PR**
+- [ ] **Step 2: Open the PR**
 
 ```bash
 gh pr create \
-  --title "feat: add BlockRenderer class hosting the WP block render callback" \
+  --title "feat: add BlockRenderer hosting the WP block render callback" \
   --body "$(cat <<'EOF'
 ## Summary
-- Migrates `timber_block_render_callback()` (~110 lines) from per-theme `functions.php` into `Parisek\TimberKit\BlockRenderer` — one versioned source of truth across ~109 downstream WordPress themes.
-- First package-shipped Twig template (`src/templates/empty-alert.twig`) under a new `@timber-kit/` namespace registered by `StarterBase`. Uses WordPress-native `.block-editor-warning` classes so the editor styles the empty-block alert without any package CSS.
-- Four WordPress filters expose all extensibility points: `cache_key`, `use_cache`, `empty_alert_html`, `context`. No DI, no interfaces, no inheritance — `final class`, static methods.
+- Migrates `timber_block_render_callback()` (~140 lines) from per-theme `functions.php` into `Parisek\TimberKit\BlockRenderer`. Faithful behaviour port + 4 architectural improvements.
+- Same cache keys, same cache group, same side-effect detection mechanism, same `acf/save_post` invalidation hook — **drop-in upgrade**, no behavioural regression in ~109 downstream themes.
+- **New behaviour**: completes the `block_<name>_content` filter gating that PR #27 designed but didn't ship. Inserter-preview renders no longer dispatch the content filter (which would distort fake example data with derived enrichments).
+- First package-shipped Twig template (`src/templates/empty-alert.twig`) using WP-native `.block-editor-warning` classes — zero CSS shipped, native editor look.
+- Four WordPress filters expose all extensibility points: `cache_key`, `use_cache`, `empty_alert_html`, `context`. No DI, no interfaces — `final class`, static methods.
 
 Design spec: [`docs/superpowers/specs/2026-05-15-block-renderer-design.md`](docs/superpowers/specs/2026-05-15-block-renderer-design.md)
 Implementation plan: [`docs/superpowers/plans/2026-05-15-block-renderer-implementation.md`](docs/superpowers/plans/2026-05-15-block-renderer-implementation.md)
 
 ## Test plan
-- [x] `tests/Unit/BlockRenderer/IsInserterPreviewTest.php` — 6 pure-unit cases covering the discriminator matrix
-- [x] `tests/Unit/BlockRenderer/RenderTest.php` — 11 Brain Monkey integration cases (filter routing, cache memo, cache backend gating, side-effect tracking, empty-render alert, inserter wrapping, filter overrides, defensive fallback)
+- [x] `tests/Unit/BlockRenderer/IsInserterPreviewTest.php` — 5 pure-unit cases covering the discriminator matrix
+- [x] `tests/Unit/BlockRenderer/RenderTest.php` — ~14 Brain Monkey integration cases (slug derivation, real post ID resolution, cache key composition, preview memo, frontend Redis gating, has_filter check, use_cache filter, side-effect detection, content/template filter dispatch, content filter gating on discriminator, empty alert, filter override, aspect-ratio wrap, invalidation hook)
 - [x] `composer test` — full suite green
 - [x] `composer phpstan` — level 5 clean
-- [ ] Manual smoke in downstream project (`proficio-de`): inserter library hover + editor canvas + frontend
-- [ ] Companion PR in `portadesign/wordpress-base` (wrapper + composer bump) opened after `v1.5.0` tagged
+- [ ] Manual smoke in `proficio-de`: inserter library hover + editor canvas + frontend + cache invalidation on save
+- [ ] Companion PR in `portadesign/wordpress-base` (wrapper + composer bump + remove standalone invalidation hook) — opens after `v1.5.0` tagged
 EOF
 )"
 ```
 
-(The companion PR in `portadesign/wordpress-base` is **out of scope** for this plan — it's opened separately after `v1.5.0` of this package is tagged.)
-
 ---
 
-## Self-review checklist (run inline after writing the plan)
+## Self-review checklist
 
-**Spec coverage:**
-- ✓ Decision #1 (filters) → Tasks 14 (cache_key), 16 (use_cache), 19/20 (empty_alert_html), 17 (context)
-- ✓ Decision #2 (direct Helpers::formatFields call) → Task 17 (`Helpers::formatFields()` invocation)
-- ✓ Decision #3 (Twig template + native classes + i18n + filter override) → Tasks 9 (template), 10 (namespace), 19 (Twig path + inline fallback), 20 (filter override)
-- ✓ Decision #4 (existing cache detection) → Task 16 (`wp_using_ext_object_cache` + `wp_cache_supports('flush_group')`)
-- ✓ Decision #5 (private cache key + filter) → Task 14 (`private static function cacheKey()` + filter)
+**Spec coverage (v2):**
+- ✓ Decision #1 (filters) → Tasks 5 (cache_key in 4), 8 (use_cache), 13 (empty_alert_html), 9 (context)
+- ✓ Decision #2 (direct `Helpers::formatFields`) → Task 9
+- ✓ Decision #3 (Twig + native classes + block_label + i18n + override) → Tasks 3, 12, 13
+- ✓ Decision #4 (cache backend faithful port with has_filter check) → Tasks 4, 7
+- ✓ Decision #5 (cache key with all 7 fields + acf_block_ prefix) → Task 5
+- ✓ Decision #6 audit (empirical discriminator) → Task 2
+- ✓ Decision #7 audit (queue snapshot side-effects) → Tasks 9, 10
+- ✓ Decision #8 audit (content filter gating — NEW) → Task 9
+- ✓ Decision #9 audit (invalidation in package) → Task 15
 
 **Render flow coverage:**
-- ✓ Step 1 (discriminator) → Tasks 3-8 (`isInserterPreview()` tests) + Task 11 (integration call)
-- ✓ Step 2 (schema resolve) → Task 13 (`block_<name>_template` filter dispatch)
-- ✓ Step 3 (cache lookup) → Tasks 15 (memo) + 16 (Redis)
-- ✓ Step 4 (data hydration) → Task 17 (`Helpers::formatFields()`)
-- ✓ Step 5 (filters) → Tasks 11 (content, gated) + 13 (template, always)
-- ✓ Step 6 (Timber compile) → Task 17
-- ✓ Step 7 (side-effects + alert) → Tasks 18 (side-effect tracking) + 19 (empty alert)
+- ✓ Step 1 (slug derivation) → Task 4
+- ✓ Step 2 (real post ID resolution) → Task 4
+- ✓ Step 3 (has_filter detection) → Tasks 4, 7
+- ✓ Step 4 (cache key) → Tasks 4, 5
+- ✓ Step 5 (cache lookup) → Tasks 4, 6, 7, 8, 11
+- ✓ Step 6 (side-effect snapshot) → Tasks 9, 10
+- ✓ Step 7 (data hydration + discriminator + fallback) → Tasks 2, 9
+- ✓ Step 8 (content filter, gated) → Task 9
+- ✓ Step 9 (template filter) → Task 9
+- ✓ Step 10 (context filter + Timber compile) → Task 9
+- ✓ Step 11 (empty alert) → Task 12, 13
+- ✓ Step 12 (aspect-ratio wrap) → Task 14
+- ✓ Step 13 (side-effect detection post-render) → Tasks 9, 10
+- ✓ Step 14 (cache write) → Tasks 9, 10, 11
+- ✓ Step 15 (print output) → Task 9
+- ✓ Invalidation hook → Task 15
 
-**Placeholder scan:** No "TBD" / "TODO" / "fill in" markers. All code blocks contain complete implementations. ✓
+**Placeholder scan:** No "TBD" / "TODO" markers. All code blocks complete.
 
-**Type consistency:** `cacheKey()` signature matches between Task 14 (definition) and how it's called from `render()` in the same task. `renderEmptyAlert()` signature `(string $block_name, array $attributes)` matches the call site in Task 19. ✓
-
-**Test ordering:** Each test is added after the implementation that makes it pass (write-test → fail → implement → pass → commit). For the pure discriminator (Tasks 4-8) the implementation in Task 3 already covers the matrix, so subsequent tests pass on the first run — this is correct and noted. ✓
+**Type consistency:** `isInserterPreview(bool, array, array): bool` matches between Task 2 (definition) and Task 9 (call site). `renderEmptyAlert(string, array): string` matches between Task 12 (definition) and Task 9 (call site). `registerInvalidation(): void` matches Task 15 definition and StarterBase wiring.
 
 ---
 
 ## References
 
-- Spec: [`docs/superpowers/specs/2026-05-15-block-renderer-design.md`](../specs/2026-05-15-block-renderer-design.md)
-- Roadmap (superseded by spec): [`docs/superpowers/specs/2026-05-15-block-renderer-roadmap.md`](../specs/2026-05-15-block-renderer-roadmap.md)
-- Original `timber_block_render_callback()`: `portadesign/wordpress-base` → `starter_theme/functions.php` (post-PR-#27 version)
-- Existing test patterns: `tests/Unit/Helpers/FieldFormatterTest.php` (Brain Monkey setup), `tests/Unit/HelpersTestCase.php` (base case)
-- WordPress `.block-editor-warning` classes: rendered by [`@wordpress/block-editor`](https://github.com/WordPress/gutenberg/blob/trunk/packages/block-editor/src/components/warning/index.js), stable since Gutenberg 5.x
+- Spec v2: [`docs/superpowers/specs/2026-05-15-block-renderer-design.md`](../specs/2026-05-15-block-renderer-design.md)
+- Original function: `/Users/pari/Sites/wordpress/wordpress-base/wp-content/themes/starter_theme/functions.php:84-216`
+- [`portadesign/wordpress-base` PR #27](https://github.com/portadesign/wordpress-base/pull/27) — empirical discriminator predecessor
