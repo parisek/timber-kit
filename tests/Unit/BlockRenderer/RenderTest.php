@@ -290,4 +290,16 @@ class RenderTest extends BlockRendererTestCase {
 
 		$this->assertTrue( $template_filter_called );
 	}
+
+	public function test_side_effecting_block_excluded_from_cache(): void {
+		$this->markTestSkipped( 'Requires renderEmptyAlert() implementation (Task 12) to produce non-empty $template_output in unit-test context.' );
+	}
+
+	public function test_preview_memo_cache_hit_short_circuits(): void {
+		$this->markTestSkipped( 'Requires renderEmptyAlert() implementation (Task 12) to produce non-empty $template_output that can be memoized.' );
+	}
+
+	public function test_inserter_preview_wraps_in_16_9_aspect_ratio(): void {
+		$this->markTestSkipped( 'Requires renderEmptyAlert() implementation (Task 12) to produce non-empty $template_output to wrap.' );
+	}
 }
