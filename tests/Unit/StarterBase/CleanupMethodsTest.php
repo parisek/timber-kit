@@ -161,22 +161,86 @@ class CleanupMethodsTest extends StarterBaseTestCase {
 		$this->assertContains( 'comment-reply', $dequeued );
 	}
 
-	// disable_comments_rest_endpoints
+	// disable_comments_rest_pre_dispatch
 
-	public function test_disable_comments_rest_endpoints_removes_comment_routes(): void {
-		$endpoints = [
-			'/wp/v2/comments'                  => 'handler-a',
-			'/wp/v2/comments/(?P<id>[\d]+)'    => 'handler-b',
-			'/wp/v2/posts'                     => 'handler-c',
-			'/wp/v2/users'                     => 'handler-d',
-		];
+	private function makeRestRequest( string $route, $type = null ): object {
+		return new class( $route, $type ) {
+			public function __construct( private string $route, private $type ) {}
+			public function get_route(): string { return $this->route; }
+			public function get_param( string $key ) {
+				return $key === 'type' ? $this->type : null;
+			}
+		};
+	}
 
-		$filtered = $this->base->disable_comments_rest_endpoints( $endpoints );
+	public function test_disable_comments_rest_pre_dispatch_blocks_standard_comments_request(): void {
+		Functions\when( '__' )->alias( fn( $s ) => $s );
+		$req = $this->makeRestRequest( '/wp/v2/comments', null );
 
-		$this->assertArrayNotHasKey( '/wp/v2/comments', $filtered );
-		$this->assertArrayNotHasKey( '/wp/v2/comments/(?P<id>[\d]+)', $filtered );
-		$this->assertArrayHasKey( '/wp/v2/posts', $filtered );
-		$this->assertArrayHasKey( '/wp/v2/users', $filtered );
+		$result = $this->base->disable_comments_rest_pre_dispatch( null, null, $req );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'rest_no_route', $result->get_error_code() );
+		$this->assertSame( [ 'status' => 404 ], $result->error_data['rest_no_route'] );
+	}
+
+	public function test_disable_comments_rest_pre_dispatch_blocks_explicit_comment_type(): void {
+		Functions\when( '__' )->alias( fn( $s ) => $s );
+		$req = $this->makeRestRequest( '/wp/v2/comments', 'comment' );
+
+		$result = $this->base->disable_comments_rest_pre_dispatch( null, null, $req );
+
+		$this->assertInstanceOf( \WP_Error::class, $result );
+	}
+
+	public function test_disable_comments_rest_pre_dispatch_blocks_pingback_and_trackback(): void {
+		Functions\when( '__' )->alias( fn( $s ) => $s );
+		foreach ( [ 'pingback', 'trackback' ] as $blocked ) {
+			$req = $this->makeRestRequest( '/wp/v2/comments', $blocked );
+			$result = $this->base->disable_comments_rest_pre_dispatch( null, null, $req );
+			$this->assertInstanceOf( \WP_Error::class, $result, "type=$blocked must be blocked" );
+		}
+	}
+
+	public function test_disable_comments_rest_pre_dispatch_passes_through_note_type_for_wp_69_editor(): void {
+		// WordPress 6.9+ editor sidebar fetches `?type=note` to populate
+		// the post-notes panel. Stripping the route silently broke that
+		// UI; the dispatch filter must let those requests through.
+		$req = $this->makeRestRequest( '/wp/v2/comments', 'note' );
+
+		$result = $this->base->disable_comments_rest_pre_dispatch( null, null, $req );
+
+		$this->assertNull( $result, 'type=note must pass through unchanged' );
+	}
+
+	public function test_disable_comments_rest_pre_dispatch_passes_through_plugin_specific_types(): void {
+		// WooCommerce, editorial workflow plugins, etc. use other
+		// non-standard `comment_type` values. None of them are the
+		// public-spam vector this flag exists to block.
+		foreach ( [ 'review', 'order_note', 'editorial-comment' ] as $custom ) {
+			$req = $this->makeRestRequest( '/wp/v2/comments', $custom );
+			$result = $this->base->disable_comments_rest_pre_dispatch( null, null, $req );
+			$this->assertNull( $result, "type=$custom must pass through unchanged" );
+		}
+	}
+
+	public function test_disable_comments_rest_pre_dispatch_ignores_non_comment_routes(): void {
+		$req = $this->makeRestRequest( '/wp/v2/posts', null );
+
+		$result = $this->base->disable_comments_rest_pre_dispatch( null, null, $req );
+
+		$this->assertNull( $result, '/wp/v2/posts must not be touched by the comments filter' );
+	}
+
+	public function test_disable_comments_rest_pre_dispatch_respects_prior_short_circuit(): void {
+		// If another `rest_pre_dispatch` filter already returned a result
+		// (response or WP_Error), we must not overwrite it.
+		$priorResponse = new \WP_Error( 'other_filter', 'taken' );
+		$req = $this->makeRestRequest( '/wp/v2/comments', null );
+
+		$result = $this->base->disable_comments_rest_pre_dispatch( $priorResponse, null, $req );
+
+		$this->assertSame( $priorResponse, $result );
 	}
 
 	// disable_comments_xmlrpc_methods
@@ -248,7 +312,7 @@ class CleanupMethodsTest extends StarterBaseTestCase {
 
 	// disable_comments_rest_insertion
 
-	public function test_disable_comments_rest_insertion_returns_wp_error_with_403(): void {
+	public function test_disable_comments_rest_insertion_blocks_when_no_comment_type_set(): void {
 		Functions\when( '__' )->alias( fn( $s ) => $s );
 
 		$result = $this->base->disable_comments_rest_insertion( [ 'comment_content' => 'spam' ] );
@@ -256,6 +320,52 @@ class CleanupMethodsTest extends StarterBaseTestCase {
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertSame( 'rest_comment_closed', $result->get_error_code() );
 		$this->assertSame( [ 'status' => 403 ], $result->error_data['rest_comment_closed'] );
+	}
+
+	public function test_disable_comments_rest_insertion_blocks_explicit_standard_types(): void {
+		Functions\when( '__' )->alias( fn( $s ) => $s );
+
+		foreach ( [ 'comment', 'pingback', 'trackback' ] as $blocked ) {
+			$result = $this->base->disable_comments_rest_insertion( [
+				'comment_type'    => $blocked,
+				'comment_content' => 'spam',
+			] );
+			$this->assertInstanceOf( \WP_Error::class, $result, "comment_type=$blocked must be blocked" );
+		}
+	}
+
+	public function test_disable_comments_rest_insertion_passes_through_note_type(): void {
+		// WP 6.9+ editor notes are POSTed with comment_type=note. They
+		// must reach the controller so the editor's notes feature works
+		// even when public comments are disabled.
+		$prepared = [
+			'comment_type'    => 'note',
+			'comment_content' => 'Internal editor note',
+			'comment_post_ID' => 42,
+		];
+
+		$result = $this->base->disable_comments_rest_insertion( $prepared );
+
+		$this->assertSame( $prepared, $result );
+	}
+
+	public function test_disable_comments_rest_insertion_passes_through_plugin_specific_types(): void {
+		foreach ( [ 'review', 'order_note', 'editorial-comment' ] as $custom ) {
+			$prepared = [ 'comment_type' => $custom, 'comment_content' => 'x' ];
+			$result   = $this->base->disable_comments_rest_insertion( $prepared );
+			$this->assertSame( $prepared, $result, "comment_type=$custom must pass through" );
+		}
+	}
+
+	public function test_disable_comments_rest_insertion_handles_object_payload(): void {
+		// Defensive: real WordPress passes an array, but plugins
+		// occasionally hydrate the prepared comment as an object before
+		// the filter chain runs.
+		$prepared = (object) [ 'comment_type' => 'note', 'comment_content' => 'x' ];
+
+		$result = $this->base->disable_comments_rest_insertion( $prepared );
+
+		$this->assertSame( $prepared, $result );
 	}
 
 	// remove_global_styles_and_svg_filters
