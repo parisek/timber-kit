@@ -231,12 +231,59 @@ final class BlockRenderer {
 
 	/**
 	 * Render the empty-block warning shown to logged-in users when render
-	 * produced no output. Returns empty string until the Twig-based
-	 * implementation is added.
+	 * produced no output. Tries the bundled Twig template first; falls back
+	 * to inline HTML that preserves the same DOM contract.
 	 *
-	 * @internal Stub — returns empty string unconditionally.
+	 * Block label prefix comes from `$attributes['title']` (falls back to
+	 * `$attributes['name']`) so the editor sees e.g. "Article — Featured:
+	 * Pro zobrazení vyplňte...".
 	 */
 	private static function renderEmptyAlert( string $block_name, array $attributes ): string {
-		return '';
+		$block_label = $attributes['title'] ?? $attributes['name'] ?? '';
+		$message     = __(
+			'Pro zobrazení vyplňte požadované údaje v pravém panelu.',
+			'timber-kit'
+		);
+
+		$html = '';
+		if ( class_exists( \Timber\Timber::class ) ) {
+			$compiled = \Timber\Timber::compile(
+				'@timber-kit/empty-alert.twig',
+				[
+					'block_name'  => $block_name,
+					'block_label' => $block_label,
+					'message'     => $message,
+				]
+			);
+			if ( is_string( $compiled ) && '' !== $compiled ) {
+				$html = $compiled;
+			}
+		}
+
+		if ( '' === $html ) {
+			// Inline fallback — preserves the Twig template's DOM exactly so
+			// theme CSS targeting `.timber-kit-block-empty` works regardless
+			// of whether the namespace was registered.
+			$label_prefix = '' !== $block_label
+				? '<strong>' . esc_html( (string) $block_label ) . ':</strong> '
+				: '';
+			$html         = sprintf(
+				'<div class="block-editor-warning timber-kit-block-empty" data-block="%s">'
+					. '<div class="block-editor-warning__contents">'
+						. '<p class="block-editor-warning__message">%s%s</p>'
+					. '</div>'
+				. '</div>',
+				esc_attr( $block_name ),
+				$label_prefix,
+				esc_html( $message )
+			);
+		}
+
+		return apply_filters(
+			'timber_kit/block_renderer/empty_alert_html',
+			$html,
+			$block_name,
+			$attributes
+		);
 	}
 }

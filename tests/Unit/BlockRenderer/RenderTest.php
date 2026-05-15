@@ -291,15 +291,38 @@ class RenderTest extends BlockRendererTestCase {
 		$this->assertTrue( $template_filter_called );
 	}
 
+	public function test_empty_template_renders_alert_for_logged_in_users(): void {
+		Functions\when( 'is_user_logged_in' )->justReturn( true );
+		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
+		Functions\when( 'esc_attr' )->alias( static fn( string $v ): string => htmlspecialchars( $v, ENT_QUOTES ) );
+		Functions\when( 'esc_html' )->alias( static fn( string $v ): string => htmlspecialchars( $v, ENT_QUOTES ) );
+
+		ob_start();
+		BlockRenderer::render(
+			Fixtures::attributes( [ 'title' => 'Article — Featured' ] ),
+			'',
+			false,
+			0,
+			null
+		);
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'block-editor-warning', $output );
+		$this->assertStringContainsString( 'timber-kit-block-empty', $output );
+		$this->assertStringContainsString( 'data-block="acf/article-featured"', $output );
+		$this->assertStringContainsString( 'Pro zobrazení vyplňte', $output );
+		$this->assertStringContainsString( 'Article — Featured', $output );
+	}
+
 	public function test_side_effecting_block_excluded_from_cache(): void {
-		$this->markTestSkipped( 'Requires renderEmptyAlert() implementation (Task 12) to produce non-empty $template_output in unit-test context.' );
+		$this->markTestSkipped( 'Awaiting filter-override wiring in separate commit.' );
 	}
 
 	public function test_preview_memo_cache_hit_short_circuits(): void {
-		$this->markTestSkipped( 'Requires renderEmptyAlert() implementation (Task 12) to produce non-empty $template_output that can be memoized.' );
+		$this->markTestSkipped( 'Awaiting filter-override wiring in separate commit.' );
 	}
 
 	public function test_inserter_preview_wraps_in_16_9_aspect_ratio(): void {
-		$this->markTestSkipped( 'Requires renderEmptyAlert() implementation (Task 12) to produce non-empty $template_output to wrap.' );
+		$this->markTestSkipped( 'Awaiting filter-override wiring in separate commit.' );
 	}
 }
