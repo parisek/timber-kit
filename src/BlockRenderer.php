@@ -199,9 +199,14 @@ final class BlockRenderer {
 			}
 		}
 
-		// Empty render → editor alert.
+		// Empty render → editor alert. The alert HTML is logged-in-only enrichment,
+		// so we track whether it fired and skip cache writes for that case — otherwise
+		// an editor's view would poison the shared frontend cache and anonymous
+		// visitors would see the warning meant for editors.
+		$rendered_empty_alert = false;
 		if ( '' === trim( $template_output ) && function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
-			$template_output = self::renderEmptyAlert( $block_name, $attributes );
+			$template_output      = self::renderEmptyAlert( $block_name, $attributes );
+			$rendered_empty_alert = true;
 		}
 
 		// Inserter-preview aspect-ratio wrap. Inserter library thumbnails benefit
@@ -221,7 +226,7 @@ final class BlockRenderer {
 		if ( '' !== $template_output ) {
 			if ( $is_preview ) {
 				self::$preview_memo[ $cache_key ] = $template_output;
-			} elseif ( $use_cache && ! $has_side_effects ) {
+			} elseif ( $use_cache && ! $has_side_effects && ! $rendered_empty_alert ) {
 				wp_cache_set( $cache_key, $template_output, $cache_group, HOUR_IN_SECONDS );
 			}
 		}

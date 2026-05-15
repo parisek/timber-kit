@@ -426,6 +426,36 @@ class RenderTest extends BlockRendererTestCase {
 		$this->addToAssertionCount( 1 );
 	}
 
+	public function test_empty_alert_not_cached_for_anonymous_visitors(): void {
+		// Critical: logged-in editor renders an empty block → empty alert HTML
+		// would have been written to the shared frontend cache. Anonymous visitors
+		// would then hit that cache and see the editor's warning. Must skip
+		// cache write when the empty-alert path fires.
+
+		Functions\when( 'wp_using_ext_object_cache' )->justReturn( true );
+		Functions\when( 'wp_cache_supports' )->justReturn( true );
+		Functions\when( 'wp_cache_get' )->justReturn( false );
+		Functions\when( 'is_user_logged_in' )->justReturn( true );
+		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
+		Functions\when( 'esc_attr' )->alias( static fn( string $v ): string => $v );
+		Functions\when( 'esc_html' )->alias( static fn( string $v ): string => $v );
+
+		// wp_cache_set MUST NOT be called when the empty-alert path renders.
+		Functions\expect( 'wp_cache_set' )->never();
+
+		ob_start();
+		BlockRenderer::render(
+			Fixtures::attributes(),
+			'',
+			false, // frontend render (not preview) — this is the dangerous path
+			0,
+			null
+		);
+		ob_end_clean();
+
+		$this->addToAssertionCount( 1 );
+	}
+
 	public function test_inserter_preview_wraps_in_16_9_aspect_ratio(): void {
 		Functions\when( 'is_user_logged_in' )->justReturn( true );
 		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
