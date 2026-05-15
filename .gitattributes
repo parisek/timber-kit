@@ -9,4 +9,5 @@
 /phpstan.neon        export-ignore
 /patchwork.json      export-ignore
 CHANGELOG.md         export-ignore
+AGENTS.md            export-ignore
 CLAUDE.md            export-ignore

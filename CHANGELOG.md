@@ -8,7 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 - Release automation: `.github/workflows/release-stamp.yml` (manual `workflow_dispatch` entrypoint that validates input, runs PHPUnit + PHPStan as guards, stamps `[Unreleased]` → `[X.Y.Z] - DATE`, commits, tags, pushes) and `.github/workflows/release.yml` (auto-fires on `vX.Y.Z` tag push, derives release notes from the matching CHANGELOG section + merged-PR list between tags, marks the release Latest only when it's the highest semver). README "Releasing" section documents the flow plus per-PR Keep-a-Changelog conventions and the existing `.gitattributes`-based distribution scope.
-- `CLAUDE.md` — operational notes for Claude Code sessions on this repo: project shape, commands, per-PR conventions (CHANGELOG entries + squash-merge `(#N)` suffix the auto-release workflow depends on), the release process (don't bypass), and Brain\Monkey testing gotchas. Excluded from dist via `.gitattributes` `export-ignore`.
+- `AGENTS.md` — tool-agnostic operational notes for any AI coding agent (Claude Code, Codex, Cursor, …) working on this repo: project shape, commands, per-PR conventions (CHANGELOG entries + squash-merge `(#N)` suffix the auto-release workflow depends on), the release process (don't bypass), and Brain\Monkey testing gotchas. Excluded from dist via `.gitattributes` `export-ignore`.
+- `CLAUDE.md` — one-line stub pointing to `AGENTS.md` so Claude Code's default discovery still works without duplicating the operational notes. Same `.gitattributes` exclusion.
 
 ## [1.4.0] - 2026-05-15
 
