@@ -81,26 +81,109 @@ final class BlockRenderer {
 		int|string $post_id = 0,
 		?\WP_Block $wp_block = null
 	): void {
+		[ $block_name, $slug, $filter_base ] = self::resolveBlockIdentity( $attributes );
+
+		$callback_post_id = $post_id;
+		$post_id          = acf_get_valid_post_id();
+		$real_post_id     = self::resolveRealPostId( $callback_post_id, $post_id );
+
+		$has_dynamic_filter = has_filter( "{$filter_base}_content" );
+		$cache_key          = self::buildCacheKey( $block_name, $attributes, $post_id );
+		$cache_group        = 'acf_block_' . ( is_numeric( $real_post_id ) ? $real_post_id : 0 );
+
+		$use_cache_default = ! $has_dynamic_filter
+			&& function_exists( 'wp_using_ext_object_cache' ) && wp_using_ext_object_cache()
+			&& function_exists( 'wp_cache_supports' ) && wp_cache_supports( 'flush_group' );
+		$use_cache = ! $is_preview && apply_filters(
+			'timber_kit/block_renderer/use_cache',
+			$use_cache_default,
+			$block_name,
+			$attributes
+		);
+
+		$cached = self::readFromCache( $cache_key, $cache_group, $is_preview, $use_cache );
+		if ( null !== $cached ) {
+			print $cached;
+			return;
+		}
+
+		$scripts_before = function_exists( 'wp_scripts' ) ? wp_scripts()->queue : [];
+		$styles_before  = function_exists( 'wp_styles' ) ? wp_styles()->queue : [];
+
+		[ $content_data, $is_inserter_preview ] = self::buildContent( $post_id, $is_preview, $attributes );
+
+		if ( ! $is_inserter_preview ) {
+			$content_data = apply_filters( "{$filter_base}_content", $content_data );
+		}
+		$template_path = apply_filters( "{$filter_base}_template", "@component/{$slug}/{$slug}.twig", $content_data );
+
+		$template_output = self::compile( $template_path, $content_data, $block_name, $is_preview );
+
+		$rendered_empty_alert = false;
+		if ( '' === trim( $template_output ) && function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
+			$template_output      = self::renderEmptyAlert( $block_name, $attributes );
+			$rendered_empty_alert = true;
+		}
+
+		if ( $is_inserter_preview && '' !== $template_output ) {
+			$template_output = '<div style="aspect-ratio: 16/9; overflow: hidden;">' . $template_output . '</div>';
+		}
+
+		$has_side_effects = function_exists( 'wp_scripts' ) && function_exists( 'wp_styles' )
+			&& ( array_diff( wp_scripts()->queue, $scripts_before ) || array_diff( wp_styles()->queue, $styles_before ) );
+
+		self::writeToCache(
+			$template_output,
+			$cache_key,
+			$cache_group,
+			$is_preview,
+			$use_cache,
+			$has_side_effects,
+			$rendered_empty_alert
+		);
+
+		print $template_output;
+	}
+
+	/**
+	 * Derive the block's name, slug, and filter base from its attributes.
+	 *
+	 * - block_name: `$attributes['name']` (falls back to 'unknown' for malformed input)
+	 * - slug: block_name with 'acf/' prefix stripped
+	 * - filter_base: 'block_' + slug with dashes converted to underscores (matches the
+	 *   filter-naming convention used by both `block_<name>_content` and `block_<name>_template`)
+	 *
+	 * @param array<string, mixed> $attributes
+	 * @return array{0: string, 1: string, 2: string}
+	 */
+	private static function resolveBlockIdentity( array $attributes ): array {
 		$block_name = isset( $attributes['name'] ) && is_string( $attributes['name'] )
 			? $attributes['name']
 			: 'unknown';
-
-		$use_cache = false; // Enabled below for non-preview renders meeting cache criteria.
-
-		// Slug derivation matches the source function:
-		//   "acf/article-featured" → "article-featured"
-		//   filter base "block_article_featured" (dashes → underscores)
 		$slug        = str_replace( 'acf/', '', $block_name );
 		$filter_base = 'block_' . str_replace( '-', '_', $slug );
 
-		// Real post ID resolution for cache group:
-		//   callback $post_id → acf_get_valid_post_id() → global $post (when "block_*")
-		$callback_post_id = $post_id;
-		$post_id          = acf_get_valid_post_id();
+		return [ $block_name, $slug, $filter_base ];
+	}
 
+	/**
+	 * Resolve the real post ID used to scope the per-post cache group.
+	 *
+	 * Priority chain:
+	 *   1. callback `$post_id` (the raw value WP passed to render()) when it's numeric > 0
+	 *   2. `acf_get_valid_post_id()` result
+	 *   3. global `$post->ID` fallback (only when the above is a 'block_*' opaque id —
+	 *      typical when rendering inside an inner-block context)
+	 *
+	 * @param mixed              $callback_post_id   Raw post id WP passed to render().
+	 * @param int|string         $acf_resolved_post_id  Result of acf_get_valid_post_id().
+	 * @return int|string
+	 */
+	private static function resolveRealPostId( mixed $callback_post_id, int|string $acf_resolved_post_id ): int|string {
 		$real_post_id = is_numeric( $callback_post_id ) && (int) $callback_post_id > 0
 			? (int) $callback_post_id
-			: $post_id;
+			: $acf_resolved_post_id;
+
 		if ( str_starts_with( (string) $real_post_id, 'block_' ) ) {
 			global $post;
 			if ( isset( $post ) && isset( $post->ID ) ) {
@@ -108,9 +191,22 @@ final class BlockRenderer {
 			}
 		}
 
-		$has_dynamic_filter = has_filter( "{$filter_base}_content" );
+		return $real_post_id;
+	}
 
-		// Cache key + group composition
+	/**
+	 * Compose the cache key for a single block render.
+	 *
+	 * Cache data shape matches the original `timber_block_render_callback()`:
+	 * [name, data, anchor, className, post_id, lang (WPML), paged] — captures
+	 * everything that can vary the rendered output. The 'acf_block_' prefix
+	 * keeps keys readable in cache dashboards. Final key passes through the
+	 * `timber_kit/block_renderer/cache_key` filter for projects that need
+	 * extra variation vectors (e.g. user role, A/B segment).
+	 *
+	 * @param array<string, mixed> $attributes
+	 */
+	private static function buildCacheKey( string $block_name, array $attributes, int|string $post_id ): string {
 		$cache_data = [
 			'name'      => $block_name,
 			'data'      => $attributes['data'] ?? [],
@@ -121,44 +217,49 @@ final class BlockRenderer {
 			'paged'     => get_query_var( 'paged', 0 ),
 		];
 		$default_key = 'acf_block_' . md5( wp_json_encode( $cache_data ) );
-		$cache_key   = apply_filters( 'timber_kit/block_renderer/cache_key', $default_key, $cache_data, $block_name );
-		$cache_group = 'acf_block_' . ( is_numeric( $real_post_id ) ? $real_post_id : 0 );
 
-		// Cache lookup (preview memo + frontend Redis)
+		return apply_filters( 'timber_kit/block_renderer/cache_key', $default_key, $cache_data, $block_name );
+	}
+
+	/**
+	 * Look up the cached block output. Returns null on miss.
+	 *
+	 * Two cache layers:
+	 *   - Preview mode (editor / inserter context): in-request static memo
+	 *     keyed by `$cache_key`. Safe because preview renders are per-request.
+	 *   - Frontend mode: external object cache (Redis with flush_group support)
+	 *     read via wp_cache_get. Gated by `$use_cache` which already factors in
+	 *     has_filter() detection, the use_cache filter, and ext-cache availability.
+	 */
+	private static function readFromCache( string $cache_key, string $cache_group, bool $is_preview, bool $use_cache ): ?string {
 		if ( $is_preview ) {
-			if ( isset( self::$preview_memo[ $cache_key ] ) ) {
-				print self::$preview_memo[ $cache_key ];
-				return;
-			}
-		} else {
-			$use_cache_default = ! $has_dynamic_filter
-				&& function_exists( 'wp_using_ext_object_cache' ) && wp_using_ext_object_cache()
-				&& function_exists( 'wp_cache_supports' ) && wp_cache_supports( 'flush_group' );
-			$use_cache = apply_filters( 'timber_kit/block_renderer/use_cache', $use_cache_default, $block_name, $attributes );
+			return self::$preview_memo[ $cache_key ] ?? null;
+		}
 
-			if ( $use_cache ) {
-				$cached = wp_cache_get( $cache_key, $cache_group );
-				if ( false !== $cached ) {
-					print $cached;
-					return;
-				}
+		if ( $use_cache ) {
+			$cached = wp_cache_get( $cache_key, $cache_group );
+			if ( false !== $cached && is_string( $cached ) ) {
+				return $cached;
 			}
 		}
 
-		// Pre-render side-effect snapshot. Form plugins (CF7, WPForms) enqueue
-		// their CSS/JS during shortcode processing — when their output is served
-		// from cache, the shortcode never executes and assets are never enqueued,
-		// breaking form styling/JS. By comparing the queue before/after render,
-		// blocks with asset side effects are automatically excluded from cache.
-		$scripts_before = function_exists( 'wp_scripts' ) ? wp_scripts()->queue : [];
-		$styles_before  = function_exists( 'wp_styles' ) ? wp_styles()->queue : [];
+		return null;
+	}
 
-		// Data hydration (Helpers::formatFields walks ACF fields for the resolved post).
+	/**
+	 * Hydrate the block's content data from ACF + apply the inserter-preview
+	 * fallback + assemble wrapper context.
+	 *
+	 * Returns a tuple [content_data, is_inserter_preview]. The boolean is
+	 * carried because downstream steps (content-filter gating, aspect-ratio
+	 * wrap, etc.) need to know whether this is an inserter-library render.
+	 *
+	 * @param array<string, mixed> $attributes
+	 * @return array{0: array<string, mixed>, 1: bool}
+	 */
+	private static function buildContent( int|string $post_id, bool $is_preview, array $attributes ): array {
 		$content_data = Helpers::formatFields( $post_id, $is_preview );
 
-		// Discriminator + inserter-preview content fallback. When ACF returned
-		// nothing AND attributes carry example data, treat the example data as
-		// content (matches block.json's `example.attributes.data` shape).
 		$is_inserter_preview = self::isInserterPreview( $is_preview, $content_data, $attributes );
 		if ( $is_inserter_preview ) {
 			$content_data = array_filter(
@@ -168,70 +269,66 @@ final class BlockRenderer {
 			);
 		}
 
-		// Wrapper context (always added before content filter / context filter run).
 		$content_data['is_preview']      = $is_preview;
 		$content_data['wrapper_id']      = $attributes['anchor'] ?? '';
 		$content_data['wrapper_classes'] = $attributes['className'] ?? '';
 
-		// Content filter — gated on the discriminator. Inserter-library previews
-		// use fake example data; running block_<name>_content callbacks against
-		// it would enrich that data with derived values and distort inserter
-		// thumbnails.
-		if ( ! $is_inserter_preview ) {
-			$content_data = apply_filters( "{$filter_base}_content", $content_data );
-		}
+		return [ $content_data, $is_inserter_preview ];
+	}
 
-		// Template filter — always runs (block_<name>_template lets themes swap the Twig path).
-		$default_template_path = '@component/' . $slug . '/' . $slug . '.twig';
-		$template_path         = apply_filters( "{$filter_base}_template", $default_template_path, $content_data );
-
-		// Twig context assembly + context filter.
+	/**
+	 * Assemble the Twig context, pass it through the context filter, and compile
+	 * the resolved template. Returns the compiled string (or empty when Timber
+	 * isn't loaded or compile fails — caller decides what to do with empty output).
+	 *
+	 * @param array<string, mixed> $content_data
+	 */
+	private static function compile( string $template_path, array $content_data, string $block_name, bool $is_preview ): string {
 		$context             = class_exists( \Timber\Timber::class ) ? \Timber\Timber::context() : [];
 		$context['content']  = $content_data;
 		$context             = apply_filters( 'timber_kit/block_renderer/context', $context, $block_name, $is_preview );
 
-		// Compile.
-		$template_output = '';
-		if ( class_exists( \Timber\Timber::class ) ) {
-			$compiled = \Timber\Timber::compile( $template_path, $context );
-			if ( is_string( $compiled ) ) {
-				$template_output = $compiled;
-			}
+		if ( ! class_exists( \Timber\Timber::class ) ) {
+			return '';
 		}
 
-		// Empty render → editor alert. The alert HTML is logged-in-only enrichment,
-		// so we track whether it fired and skip cache writes for that case — otherwise
-		// an editor's view would poison the shared frontend cache and anonymous
-		// visitors would see the warning meant for editors.
-		$rendered_empty_alert = false;
-		if ( '' === trim( $template_output ) && function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
-			$template_output      = self::renderEmptyAlert( $block_name, $attributes );
-			$rendered_empty_alert = true;
+		$compiled = \Timber\Timber::compile( $template_path, $context );
+		return is_string( $compiled ) ? $compiled : '';
+	}
+
+	/**
+	 * Write the compiled block output to the appropriate cache layer.
+	 *
+	 * Preview mode: in-request memo (safe — per-request, never seen across users).
+	 * Frontend mode: external object cache with all guards:
+	 *   - has_side_effects: form-plugin enqueues happened during compile, caching
+	 *     would skip the enqueues on next request and break the form
+	 *   - rendered_empty_alert: the alert is logged-in-only enrichment; caching
+	 *     it would poison the shared cache for anonymous visitors
+	 *   - use_cache: combines has_filter() detection, wp_using_ext_object_cache,
+	 *     wp_cache_supports('flush_group'), and the use_cache filter override
+	 */
+	private static function writeToCache(
+		string $template_output,
+		string $cache_key,
+		string $cache_group,
+		bool $is_preview,
+		bool $use_cache,
+		bool $has_side_effects,
+		bool $rendered_empty_alert
+	): void {
+		if ( '' === $template_output ) {
+			return;
 		}
 
-		// Inserter-preview aspect-ratio wrap. Inserter library thumbnails benefit
-		// from a fixed aspect so they're consistent regardless of the block's
-		// natural height. Wrap with overflow:hidden so taller content crops.
-		if ( $is_inserter_preview && '' !== $template_output ) {
-			$template_output = '<div style="aspect-ratio: 16/9; overflow: hidden;">' . $template_output . '</div>';
+		if ( $is_preview ) {
+			self::$preview_memo[ $cache_key ] = $template_output;
+			return;
 		}
 
-		// Side-effect detection (post-render). Form-plugin shortcodes enqueue
-		// assets when they execute — if those queues grew during render, this
-		// block's output isn't safe to cache.
-		$has_side_effects = function_exists( 'wp_scripts' ) && function_exists( 'wp_styles' )
-			&& ( array_diff( wp_scripts()->queue, $scripts_before ) || array_diff( wp_styles()->queue, $styles_before ) );
-
-		// Cache write.
-		if ( '' !== $template_output ) {
-			if ( $is_preview ) {
-				self::$preview_memo[ $cache_key ] = $template_output;
-			} elseif ( $use_cache && ! $has_side_effects && ! $rendered_empty_alert ) {
-				wp_cache_set( $cache_key, $template_output, $cache_group, HOUR_IN_SECONDS );
-			}
+		if ( $use_cache && ! $has_side_effects && ! $rendered_empty_alert ) {
+			wp_cache_set( $cache_key, $template_output, $cache_group, HOUR_IN_SECONDS );
 		}
-
-		print $template_output;
 	}
 
 	/**
