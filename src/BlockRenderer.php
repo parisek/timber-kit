@@ -27,7 +27,13 @@ namespace Parisek\TimberKit;
 final class BlockRenderer {
 
 	/**
-	 * In-request memo of rendered block output, keyed by cache key.
+	 * In-request memo of compiled block output for PREVIEW renders only,
+	 * keyed by cache key. Frontend renders use `wp_cache_set()` (external
+	 * object cache) instead — see `render()`. The two cache layers exist
+	 * because the in-request memo would never survive between requests on
+	 * the frontend anyway, and the external cache adds latency that's not
+	 * worth paying for editor/inserter previews that already short-circuit
+	 * within a single request.
 	 *
 	 * @var array<string, string>
 	 */

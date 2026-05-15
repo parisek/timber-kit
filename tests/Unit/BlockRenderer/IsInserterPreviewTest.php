@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Tests\Unit\BlockRenderer;
 
 use Parisek\TimberKit\BlockRenderer;
-use Tests\Unit\BlockRendererTestCase;
+use PHPUnit\Framework\TestCase;
 
-class IsInserterPreviewTest extends BlockRendererTestCase {
+class IsInserterPreviewTest extends TestCase {
 
 	public function test_returns_true_when_preview_and_empty_fields_and_has_data(): void {
 		$this->assertTrue(
