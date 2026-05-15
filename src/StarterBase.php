@@ -178,7 +178,7 @@ class StarterBase extends Site {
 		add_filter( 'timber/context', array( $this, 'timber_context' ) );
 		add_filter( 'timber/twig', array( $this, 'timber_twig' ) );
 		add_filter( 'timber/loader/loader', array( $this, 'timber_twig_loader' ) );
-		add_filter( 'timber/locations', array( $this, 'register_timber_kit_namespace' ), 5 );
+		add_filter( 'timber/locations', array( $this, 'register_timber_kit_namespace' ), 20 );
 		BlockRenderer::registerInvalidation();
 		add_action( 'timber/twig/environment/options', array( $this, 'timber_cache_location' ), 10, 1 );
 		add_action( 'timber/image/new_url', array( $this, 'timber_image_new_url' ) );
@@ -628,20 +628,30 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Register the `@timber-kit/` Twig namespace pointing at this package's
-	 * shipped templates directory.
+	 * Register the `@timber-kit/` Twig namespace as a fallback pointing at
+	 * this package's shipped templates directory.
 	 *
 	 * Hooked to `timber/locations`.
 	 *
-	 * Priority 5 (vs WP default 10) so downstream themes registering at the
-	 * default priority can override individual templates by adding their own
-	 * path under the same namespace later in the chain.
+	 * Priority 20 (after WP default 10) so any path a downstream theme has
+	 * already registered under the same namespace takes precedence — Twig's
+	 * filesystem loader searches paths in array order, and we always append
+	 * (preserve existing entries) so the package's path acts as the last
+	 * fallback. This pattern lets themes override individual templates by
+	 * registering their own path regardless of whether they prepend, append,
+	 * or replace the entry.
 	 *
 	 * @param array<string, array<int, string>> $paths Existing namespace map.
 	 * @return array<string, array<int, string>>
 	 */
 	public function register_timber_kit_namespace( array $paths ): array {
-		$paths['timber-kit'] = [ __DIR__ . '/templates' ];
+		$existing = isset( $paths['timber-kit'] ) && is_array( $paths['timber-kit'] )
+			? $paths['timber-kit']
+			: [];
+
+		$existing[]          = __DIR__ . '/templates';
+		$paths['timber-kit'] = $existing;
+
 		return $paths;
 	}
 
