@@ -85,6 +85,8 @@ final class BlockRenderer {
 			? $attributes['name']
 			: 'unknown';
 
+		$use_cache = false; // Enabled below for non-preview renders meeting cache criteria.
+
 		// Slug derivation matches the source function:
 		//   "acf/article-featured" → "article-featured"
 		//   filter base "block_article_featured" (dashes → underscores)
@@ -171,11 +173,10 @@ final class BlockRenderer {
 		$content_data['wrapper_id']      = $attributes['anchor'] ?? '';
 		$content_data['wrapper_classes'] = $attributes['className'] ?? '';
 
-		// Content filter — GATED on the discriminator. PR #27's original intent
-		// was to skip this filter for inserter-library previews so block_<name>_content
-		// callbacks don't enrich fake example data with derived values that would
-		// distort thumbnails. PR #27 designed the gate but didn't ship it; this is
-		// where we complete that aspiration.
+		// Content filter — gated on the discriminator. Inserter-library previews
+		// use fake example data; running block_<name>_content callbacks against
+		// it would enrich that data with derived values and distort inserter
+		// thumbnails.
 		if ( ! $is_inserter_preview ) {
 			$content_data = apply_filters( "{$filter_base}_content", $content_data );
 		}
@@ -198,9 +199,7 @@ final class BlockRenderer {
 			}
 		}
 
-		// Empty render → editor alert. (renderEmptyAlert() is a stub in this task;
-		// the real implementation with Twig template + inline fallback + block_label
-		// lands in Task 12.)
+		// Empty render → editor alert.
 		if ( '' === trim( $template_output ) && function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
 			$template_output = self::renderEmptyAlert( $block_name, $attributes );
 		}
@@ -222,7 +221,7 @@ final class BlockRenderer {
 		if ( '' !== $template_output ) {
 			if ( $is_preview ) {
 				self::$preview_memo[ $cache_key ] = $template_output;
-			} elseif ( isset( $use_cache ) && $use_cache && ! $has_side_effects ) {
+			} elseif ( $use_cache && ! $has_side_effects ) {
 				wp_cache_set( $cache_key, $template_output, $cache_group, HOUR_IN_SECONDS );
 			}
 		}
@@ -232,10 +231,10 @@ final class BlockRenderer {
 
 	/**
 	 * Render the empty-block warning shown to logged-in users when render
-	 * produced no output. Filled in by Task 12 — for now a stub returning
-	 * empty string so `render()` compiles and references work.
+	 * produced no output. Returns empty string until the Twig-based
+	 * implementation is added.
 	 *
-	 * @internal Stub — real implementation in Task 12.
+	 * @internal Stub — returns empty string unconditionally.
 	 */
 	private static function renderEmptyAlert( string $block_name, array $attributes ): string {
 		return '';

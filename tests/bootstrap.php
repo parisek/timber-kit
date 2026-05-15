@@ -12,6 +12,10 @@ if ( ! defined( 'WP_DEBUG' ) ) {
 	define( 'WP_DEBUG', false );
 }
 
+if ( ! defined( 'HOUR_IN_SECONDS' ) ) {
+	define( 'HOUR_IN_SECONDS', 3600 );
+}
+
 // Lightweight `wp_strip_all_tags` stub so production code that calls it
 // directly (e.g. Helpers::readTime) works without per-test Brain Monkey
 // mocks that leak across test classes via Patchwork.

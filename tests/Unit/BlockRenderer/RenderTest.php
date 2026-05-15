@@ -241,8 +241,8 @@ class RenderTest extends BlockRendererTestCase {
 		$this->assertTrue( $template_filter_called, 'block_<name>_template must always fire' );
 	}
 
-	public function test_editor_canvas_with_saved_data_runs_content_filter(): void {
-		// Frontend / editor canvas (is_preview = false): no discriminator → content filter runs.
+	public function test_frontend_render_runs_content_filter(): void {
+		// Frontend render (is_preview = false): discriminator short-circuits → content filter runs.
 		$content_filter_called  = false;
 		$template_filter_called = false;
 
