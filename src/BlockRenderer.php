@@ -368,16 +368,22 @@ final class BlockRenderer {
 
 		$html = '';
 		if ( class_exists( \Timber\Timber::class ) ) {
-			$compiled = \Timber\Timber::compile(
-				'@timber-kit/empty-alert.twig',
-				[
-					'block_name'  => $block_name,
-					'block_label' => $block_label,
-					'message'     => $message,
-				]
-			);
-			if ( is_string( $compiled ) && '' !== $compiled ) {
-				$html = $compiled;
+			try {
+				$compiled = \Timber\Timber::compile(
+					'@timber-kit/empty-alert.twig',
+					[
+						'block_name'  => $block_name,
+						'block_label' => $block_label,
+						'message'     => $message,
+					]
+				);
+				if ( is_string( $compiled ) && '' !== $compiled ) {
+					$html = $compiled;
+				}
+			} catch ( \Throwable $e ) {
+				// Twig loader error (missing namespace), syntax error, or runtime error.
+				// Fall through to the inline-HTML fallback below — the alert is a
+				// nice-to-have for editors, never worth fatalling the request over.
 			}
 		}
 
