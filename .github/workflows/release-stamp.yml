@@ -101,3 +101,15 @@ jobs:
           git tag "v${VERSION}"
           git push origin HEAD:main
           git push origin "v${VERSION}"
+
+      - name: Trigger release workflow
+        # Tag pushes made by GITHUB_TOKEN don't fire downstream `on: push: tags`
+        # workflows by GitHub design. Cross-workflow `workflow_dispatch` over
+        # the API does work with GITHUB_TOKEN, so explicitly invoke release.yml
+        # for the tag we just pushed.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          gh workflow run release.yml --field tag="v${VERSION}"
+          echo "Dispatched release.yml for v${VERSION}"
