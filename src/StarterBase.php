@@ -198,6 +198,13 @@ class StarterBase extends Site {
 	 * Resolve the theme's text domain from the active WordPress theme.
 	 * Extracted from __construct so the constructor is purely declarative.
 	 *
+	 * Return type is narrowed to `string` because `php-stubs/wordpress-stubs`
+	 * proves `WP_Theme::get('TextDomain')` always returns a string — `TextDomain`
+	 * is part of `WP_Theme::HEADERS`, so the underlying `$this->headers` lookup
+	 * never short-circuits to `false`. The `$theme_name` property keeps its
+	 * `string|false` shape for general safety, but this resolver is specific
+	 * to `TextDomain` and benefits from the stricter type.
+	 *
 	 * @return string
 	 */
 	private function resolveThemeName(): string {
@@ -340,7 +347,7 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Register security hardening and cleanup hooks — all 12 feature-gated blocks
+	 * Register security hardening and cleanup hooks — all 14 feature-gated blocks
 	 * (wp_head cleanup, XML-RPC, emojis, feeds, search, dashboard, admin bar,
 	 * editor role, pingbacks, REST users, application passwords, author enumeration,
 	 * file editing, WP generator).
