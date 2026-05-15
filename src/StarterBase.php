@@ -629,6 +629,8 @@ class StarterBase extends Site {
 	 * Register the `@timber-kit/` Twig namespace pointing at this package's
 	 * shipped templates directory.
 	 *
+	 * Hooked to `timber/locations`.
+	 *
 	 * Priority 5 (vs WP default 10) so downstream themes registering at the
 	 * default priority can override individual templates by adding their own
 	 * path under the same namespace later in the chain.
