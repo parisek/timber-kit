@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Unit\BlockRenderer;
 
-use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
 use Parisek\TimberKit\BlockRenderer;
 use Tests\Unit\BlockRendererTestCase;
