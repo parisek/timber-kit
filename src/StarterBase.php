@@ -1884,7 +1884,14 @@ class StarterBase extends Site {
 			return $result;
 		}
 		$route = $request->get_route();
-		if ( ! is_string( $route ) || ! str_starts_with( $route, '/wp/v2/comments' ) ) {
+		// Only the collection route is the public spam surface. Single-item
+		// routes (`/wp/v2/comments/<id>`, `/wp/v2/comments/<id>/<sub>`) are
+		// id-scoped operations — read/update/delete of an already-existing
+		// comment by id, often without a `type` query param at all (e.g.
+		// WP 6.9 editor deleting a note by id). Filtering by `starts_with`
+		// would 404 those unconditionally and break non-standard types we
+		// already pass through on the collection route.
+		if ( ! is_string( $route ) || $route !== '/wp/v2/comments' ) {
 			return $result;
 		}
 		$type = $request->get_param( 'type' );
@@ -1958,6 +1965,13 @@ class StarterBase extends Site {
 	 * @return mixed `WP_Error` for blocked standard comments; the original `$prepared_comment` otherwise.
 	 */
 	public function disable_comments_rest_insertion( $prepared_comment ) {
+		// Preserve prior short-circuit results — if another filter already
+		// returned a `WP_Error` (anti-spam, custom validation, …) or `null`,
+		// don't overwrite it with our generic `rest_comment_closed` and mask
+		// the real failure reason.
+		if ( null === $prepared_comment || $prepared_comment instanceof \WP_Error ) {
+			return $prepared_comment;
+		}
 		$comment_type = '';
 		if ( is_array( $prepared_comment ) && isset( $prepared_comment['comment_type'] ) ) {
 			$comment_type = (string) $prepared_comment['comment_type'];

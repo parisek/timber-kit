@@ -232,6 +232,23 @@ class CleanupMethodsTest extends StarterBaseTestCase {
 		$this->assertNull( $result, '/wp/v2/posts must not be touched by the comments filter' );
 	}
 
+	public function test_disable_comments_rest_pre_dispatch_passes_through_single_item_routes(): void {
+		// Regression guard for the Copilot review pass — `/wp/v2/comments/<id>`
+		// (read/update/delete by id) usually carries no `type` query param,
+		// so a `starts_with` filter would 404 those id-scoped operations
+		// unconditionally and break WP 6.9 editor's note delete/update flow.
+		// Only the bare collection route is the public spam surface.
+		foreach ( [
+			'/wp/v2/comments/42',
+			'/wp/v2/comments/42/edit-link',
+			'/wp/v2/comments/some-slug',
+		] as $route ) {
+			$req = $this->makeRestRequest( $route, null );
+			$result = $this->base->disable_comments_rest_pre_dispatch( null, null, $req );
+			$this->assertNull( $result, "$route must pass through (single-item route, not the collection)" );
+		}
+	}
+
 	public function test_disable_comments_rest_pre_dispatch_respects_prior_short_circuit(): void {
 		// If another `rest_pre_dispatch` filter already returned a result
 		// (response or WP_Error), we must not overwrite it.
@@ -366,6 +383,27 @@ class CleanupMethodsTest extends StarterBaseTestCase {
 		$result = $this->base->disable_comments_rest_insertion( $prepared );
 
 		$this->assertSame( $prepared, $result );
+	}
+
+	public function test_disable_comments_rest_insertion_preserves_prior_wp_error(): void {
+		// Regression guard for the Copilot review pass — if an earlier
+		// `rest_pre_insert_comment` filter (anti-spam, custom validation,
+		// etc.) already returned a WP_Error, we must not overwrite it
+		// with our generic `rest_comment_closed` and mask the real
+		// failure reason.
+		$priorError = new \WP_Error( 'akismet_spam', 'Looks like spam.' );
+
+		$result = $this->base->disable_comments_rest_insertion( $priorError );
+
+		$this->assertSame( $priorError, $result );
+	}
+
+	public function test_disable_comments_rest_insertion_preserves_prior_null(): void {
+		// Same defensive pattern: `null` is also a valid short-circuit
+		// signal another filter can use to abort insertion silently.
+		$result = $this->base->disable_comments_rest_insertion( null );
+
+		$this->assertNull( $result );
 	}
 
 	// remove_global_styles_and_svg_filters
