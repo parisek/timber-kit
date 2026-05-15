@@ -67,4 +67,54 @@ class RenderTest extends BlockRendererTestCase {
 
 		unset( $GLOBALS['post'] );
 	}
+
+	public function test_cache_key_includes_all_seven_fields(): void {
+		$captured_cache_data = null;
+		$captured_key        = null;
+
+		Functions\when( 'get_query_var' )->justReturn( 3 );
+
+		// Override apply_filters to capture the cache_key call while passing through others.
+		// The setUp alias is overridden here so we can capture the specific filter arguments.
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ) use ( &$captured_cache_data, &$captured_key ): mixed {
+				if ( $tag === 'timber_kit/block_renderer/cache_key' ) {
+					$captured_key        = $value;
+					$captured_cache_data = $rest[0] ?? null;
+					return $value;
+				}
+				if ( $tag === 'wpml_current_language' ) {
+					return 'cs';
+				}
+				return $value;
+			}
+		);
+
+		ob_start();
+		BlockRenderer::render(
+			Fixtures::attributes( [
+				'anchor'    => 'my-anchor',
+				'className' => 'is-style-big',
+			] ),
+			'',
+			true,
+			0,
+			null
+		);
+		ob_end_clean();
+
+		$this->assertNotNull( $captured_cache_data );
+		$this->assertSame(
+			[ 'name', 'data', 'anchor', 'className', 'post_id', 'lang', 'paged' ],
+			array_keys( $captured_cache_data ),
+			'cache_data must contain exactly these 7 keys in this order'
+		);
+		$this->assertSame( 'my-anchor', $captured_cache_data['anchor'] );
+		$this->assertSame( 'is-style-big', $captured_cache_data['className'] );
+		$this->assertSame( 'cs', $captured_cache_data['lang'] );
+		$this->assertSame( 3, $captured_cache_data['paged'] );
+
+		$this->assertStringStartsWith( 'acf_block_', $captured_key );
+		$this->assertSame( 32 + 10, strlen( $captured_key ), 'key = "acf_block_" (10) + md5 (32)' );
+	}
 }
