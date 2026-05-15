@@ -177,6 +177,7 @@ class StarterBase extends Site {
 		add_filter( 'timber/context', array( $this, 'timber_context' ) );
 		add_filter( 'timber/twig', array( $this, 'timber_twig' ) );
 		add_filter( 'timber/loader/loader', array( $this, 'timber_twig_loader' ) );
+		add_filter( 'timber/locations', array( $this, 'register_timber_kit_namespace' ), 5 );
 		add_action( 'timber/twig/environment/options', array( $this, 'timber_cache_location' ), 10, 1 );
 		add_action( 'timber/image/new_url', array( $this, 'timber_image_new_url' ) );
 		add_action( 'timber/image/new_path', array( $this, 'timber_image_new_path' ) );
@@ -622,6 +623,22 @@ class StarterBase extends Site {
 		$loader->addPath( get_template_directory() . '/static/images', 'images' );
 		$loader->addPath( get_template_directory() . '/templates', 'wordpress' );
 		return $loader;
+	}
+
+	/**
+	 * Register the `@timber-kit/` Twig namespace pointing at this package's
+	 * shipped templates directory.
+	 *
+	 * Priority 5 (vs WP default 10) so downstream themes registering at the
+	 * default priority can override individual templates by adding their own
+	 * path under the same namespace later in the chain.
+	 *
+	 * @param array<string, array<int, string>> $paths Existing namespace map.
+	 * @return array<string, array<int, string>>
+	 */
+	public function register_timber_kit_namespace( array $paths ): array {
+		$paths['timber-kit'] = [ __DIR__ . '/templates' ];
+		return $paths;
 	}
 
 	/**
