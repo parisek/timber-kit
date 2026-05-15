@@ -18,11 +18,17 @@ namespace Parisek\TimberKit;
  * `portadesign/wordpress-base`. Behaviorally a faithful port; adds four
  * WordPress filters as extensibility hooks listed below.
  *
- * Filters exposed:
+ * Filters exposed (package-owned, stable across versions):
  *   - timber_kit/block_renderer/cache_key        (string $key, array $cache_data, string $block_name)
  *   - timber_kit/block_renderer/use_cache        (bool $enabled, string $block_name, array $attributes)
  *   - timber_kit/block_renderer/empty_alert_html (string $html, string $block_name, array $attributes)
  *   - timber_kit/block_renderer/context          (array $context, string $block_name, bool $is_preview)
+ *
+ * Per-block filters dispatched during render (preserved from the original
+ * timber_block_render_callback for backwards compatibility — slug is the
+ * block name with 'acf/' stripped and dashes converted to underscores):
+ *   - block_<slug>_content   (array $content_data) — skipped when isInserterPreview() returns true
+ *   - block_<slug>_template  (string $template_path, array $content_data)
  */
 final class BlockRenderer {
 

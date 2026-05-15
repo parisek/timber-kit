@@ -82,7 +82,7 @@ The class is `final` with three public static methods: `render()`, `isInserterPr
 
 #### Filters
 
-Four WordPress filters cover customization without subclassing:
+**Package-level filters** (stable across versions, prefixed `timber_kit/`):
 
 | Filter | Args | Purpose |
 |--------|------|---------|
@@ -90,6 +90,13 @@ Four WordPress filters cover customization without subclassing:
 | `timber_kit/block_renderer/use_cache` | `(bool $enabled, string $block_name, array $attributes)` | Override the cache-enabled decision per block. Default: `true` when the block has no registered `block_<name>_content` filter and the site uses an external object cache with `flush_group` support. |
 | `timber_kit/block_renderer/empty_alert_html` | `(string $html, string $block_name, array $attributes)` | Replace the empty-block warning HTML entirely. Themes can return their own Twig render here (see migration example below). |
 | `timber_kit/block_renderer/context` | `(array $context, string $block_name, bool $is_preview)` | Last-chance Twig context modification before `Timber::compile()` runs. |
+
+**Per-block legacy filters** (preserved from the original `timber_block_render_callback` for backwards compatibility — `<slug>` is the block name with `acf/` stripped and dashes converted to underscores, e.g. `acf/article-featured` → `article_featured`):
+
+| Filter | Args | Purpose |
+|--------|------|---------|
+| `block_<slug>_content` | `(array $content_data)` | Per-block content transform (legacy hook preserved for backwards compatibility). Skipped during inserter-library previews so example data isn't enriched with derived values that would distort thumbnails. |
+| `block_<slug>_template` | `(string $template_path, array $content_data)` | Per-block template path override (legacy hook). Runs in all modes including inserter previews. Default path: `@component/<slug>/<slug>.twig`. |
 
 #### Twig template
 
