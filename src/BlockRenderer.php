@@ -230,6 +230,25 @@ final class BlockRenderer {
 	}
 
 	/**
+	 * Register the per-post cache invalidation hook.
+	 *
+	 * Called from StarterBase boot. When ACF saves a post, the cache group
+	 * `acf_block_{$post_id}` is flushed — invalidating exactly the cached
+	 * blocks tied to that post without touching others. Priority 20 matches
+	 * the original `functions.php` registration so themes' downstream hooks
+	 * that depended on this firing at 20 still see the same ordering.
+	 */
+	public static function registerInvalidation(): void {
+		add_action( 'acf/save_post', static function ( $post_id ): void {
+			if ( is_numeric( $post_id )
+				&& function_exists( 'wp_using_ext_object_cache' ) && wp_using_ext_object_cache()
+				&& function_exists( 'wp_cache_supports' ) && wp_cache_supports( 'flush_group' ) ) {
+				wp_cache_flush_group( 'acf_block_' . $post_id );
+			}
+		}, 20 );
+	}
+
+	/**
 	 * Render the empty-block warning shown to logged-in users when render
 	 * produced no output. Tries the bundled Twig template first; falls back
 	 * to inline HTML that preserves the same DOM contract.

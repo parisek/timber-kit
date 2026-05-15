@@ -22,6 +22,7 @@ use Symfony\Component\VarDumper\Cloner\VarCloner;
 use Parisek\Twig\CommonExtension;
 use Parisek\Twig\AttributeExtension;
 use Parisek\Twig\TypographyExtension;
+use Parisek\TimberKit\BlockRenderer;
 
 /**
  * Base class for WordPress themes using Timber/Twig templating.
@@ -178,6 +179,7 @@ class StarterBase extends Site {
 		add_filter( 'timber/twig', array( $this, 'timber_twig' ) );
 		add_filter( 'timber/loader/loader', array( $this, 'timber_twig_loader' ) );
 		add_filter( 'timber/locations', array( $this, 'register_timber_kit_namespace' ), 5 );
+		BlockRenderer::registerInvalidation();
 		add_action( 'timber/twig/environment/options', array( $this, 'timber_cache_location' ), 10, 1 );
 		add_action( 'timber/image/new_url', array( $this, 'timber_image_new_url' ) );
 		add_action( 'timber/image/new_path', array( $this, 'timber_image_new_path' ) );

@@ -411,6 +411,21 @@ class RenderTest extends BlockRendererTestCase {
 		$this->assertSame( 0, $styles_calls, 'second render must hit memo and skip the render body' );
 	}
 
+	public function test_register_invalidation_hooks_acf_save_post_at_priority_20(): void {
+		Functions\expect( 'add_action' )
+			->once()
+			->with(
+				'acf/save_post',
+				\Mockery::type( 'callable' ),
+				20
+			);
+
+		BlockRenderer::registerInvalidation();
+
+		// Counter-assertion: never() expectation needs explicit assertion count for risky-test guard.
+		$this->addToAssertionCount( 1 );
+	}
+
 	public function test_inserter_preview_wraps_in_16_9_aspect_ratio(): void {
 		Functions\when( 'is_user_logged_in' )->justReturn( true );
 		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
