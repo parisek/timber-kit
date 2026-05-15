@@ -34,6 +34,43 @@ class RenderTest extends BlockRendererTestCase {
 		);
 		Functions\when( 'acf_get_valid_post_id' )->justReturn( 0 );
 		Functions\when( 'get_query_var' )->justReturn( 0 );
+
+		// ACF / Helpers::formatFields() function mocks. formatFields() is called
+		// with a numeric $post_id, so isOptionsPostId() short-circuits on
+		// is_string() → false; isNavMenuItemPostId() skips get_post_type() when
+		// the function doesn't exist; get_field_objects() is the default path.
+		Functions\when( 'get_field_objects' )->justReturn( false );
+
+		// WordPress conditional tag stubs needed by Timber::context().
+		Functions\when( 'is_singular' )->justReturn( false );
+		Functions\when( 'is_home' )->justReturn( false );
+		Functions\when( 'is_category' )->justReturn( false );
+		Functions\when( 'is_tag' )->justReturn( false );
+		Functions\when( 'is_tax' )->justReturn( false );
+		Functions\when( 'is_search' )->justReturn( false );
+		Functions\when( 'is_author' )->justReturn( false );
+		Functions\when( 'is_archive' )->justReturn( false );
+
+		// WordPress function stubs needed by Timber::compile() → Loader → LocationManager.
+		Functions\when( 'get_stylesheet_directory' )->justReturn( '/tmp' );
+		Functions\when( 'get_template_directory' )->justReturn( '/tmp' );
+		Functions\when( 'trailingslashit' )->alias( static fn( $s ) => rtrim( $s, '/' ) . '/' );
+		Functions\when( 'apply_filters_deprecated' )->alias(
+			static fn( string $tag, array $args, string $version, string $replacement = '' ): mixed => $args[0]
+		);
+		Functions\when( 'do_action' )->justReturn( null );
+		Functions\when( 'do_action_deprecated' )->justReturn( null );
+
+		// Pre-populate Timber's context cache to bypass Site instantiation
+		// (which requires is_multisite() and many more WP functions). The
+		// cache being non-empty causes context_global() to skip new Site().
+		\Timber\Timber::$context_cache = [ 'site' => null, 'user' => false ];
+	}
+
+	protected function tearDown(): void {
+		// Reset Timber's context cache so it doesn't leak between tests.
+		\Timber\Timber::$context_cache = [];
+		parent::tearDown();
 	}
 
 	public function test_real_post_id_resolution_falls_back_to_global_post(): void {
@@ -170,5 +207,87 @@ class RenderTest extends BlockRendererTestCase {
 
 		// Brain Monkey enforces the never() expectation in tearDown; acknowledge it here.
 		$this->addToAssertionCount( 1 );
+	}
+
+	public function test_inserter_preview_skips_content_filter(): void {
+		// Inserter preview: empty post fields + has attributes.data → discriminator true → skip content filter.
+		// Template filter still runs.
+		$content_filter_called  = false;
+		$template_filter_called = false;
+
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ) use ( &$content_filter_called, &$template_filter_called ): mixed {
+				if ( $tag === 'block_article_featured_content' ) {
+					$content_filter_called = true;
+				}
+				if ( $tag === 'block_article_featured_template' ) {
+					$template_filter_called = true;
+				}
+				return $value;
+			}
+		);
+
+		ob_start();
+		BlockRenderer::render(
+			Fixtures::attributes( [ 'data' => [ 'title' => 'Example' ] ] ),
+			'',
+			true,  // is_preview = true
+			0,
+			null
+		);
+		ob_end_clean();
+
+		$this->assertFalse( $content_filter_called, 'block_<name>_content must NOT fire during inserter preview' );
+		$this->assertTrue( $template_filter_called, 'block_<name>_template must always fire' );
+	}
+
+	public function test_editor_canvas_with_saved_data_runs_content_filter(): void {
+		// Frontend / editor canvas (is_preview = false): no discriminator → content filter runs.
+		$content_filter_called  = false;
+		$template_filter_called = false;
+
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ) use ( &$content_filter_called, &$template_filter_called ): mixed {
+				if ( $tag === 'block_article_featured_content' ) {
+					$content_filter_called = true;
+				}
+				if ( $tag === 'block_article_featured_template' ) {
+					$template_filter_called = true;
+				}
+				return $value;
+			}
+		);
+
+		ob_start();
+		BlockRenderer::render(
+			Fixtures::attributes(),
+			'',
+			false, // not preview
+			123,
+			null
+		);
+		ob_end_clean();
+
+		$this->assertTrue( $content_filter_called, 'content filter must fire on frontend/editor-canvas renders' );
+		$this->assertTrue( $template_filter_called );
+	}
+
+	public function test_template_filter_runs_in_all_modes(): void {
+		$template_filter_called = false;
+
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ) use ( &$template_filter_called ): mixed {
+				if ( $tag === 'block_article_featured_template' ) {
+					$template_filter_called = true;
+				}
+				return $value;
+			}
+		);
+
+		ob_start();
+		BlockRenderer::render( Fixtures::attributes(), '', true, 0, null );
+		ob_end_clean();
+
+		$this->assertTrue( $template_filter_called );
 	}
 }

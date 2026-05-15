@@ -143,7 +143,101 @@ final class BlockRenderer {
 			}
 		}
 
-		// Render path (Tasks 5+ fill this in).
-		print '';
+		// Pre-render side-effect snapshot. Form plugins (CF7, WPForms) enqueue
+		// their CSS/JS during shortcode processing — when their output is served
+		// from cache, the shortcode never executes and assets are never enqueued,
+		// breaking form styling/JS. By comparing the queue before/after render,
+		// blocks with asset side effects are automatically excluded from cache.
+		$scripts_before = function_exists( 'wp_scripts' ) ? wp_scripts()->queue : [];
+		$styles_before  = function_exists( 'wp_styles' ) ? wp_styles()->queue : [];
+
+		// Data hydration (Helpers::formatFields walks ACF fields for the resolved post).
+		$content_data = Helpers::formatFields( $post_id, $is_preview );
+
+		// Discriminator + inserter-preview content fallback. When ACF returned
+		// nothing AND attributes carry example data, treat the example data as
+		// content (matches block.json's `example.attributes.data` shape).
+		$is_inserter_preview = self::isInserterPreview( $is_preview, $content_data, $attributes );
+		if ( $is_inserter_preview ) {
+			$content_data = array_filter(
+				$attributes['data'],
+				static fn( $key ) => is_string( $key ) && '' !== $key && '_' !== $key[0],
+				ARRAY_FILTER_USE_KEY
+			);
+		}
+
+		// Wrapper context (always added before content filter / context filter run).
+		$content_data['is_preview']      = $is_preview;
+		$content_data['wrapper_id']      = $attributes['anchor'] ?? '';
+		$content_data['wrapper_classes'] = $attributes['className'] ?? '';
+
+		// Content filter — GATED on the discriminator. PR #27's original intent
+		// was to skip this filter for inserter-library previews so block_<name>_content
+		// callbacks don't enrich fake example data with derived values that would
+		// distort thumbnails. PR #27 designed the gate but didn't ship it; this is
+		// where we complete that aspiration.
+		if ( ! $is_inserter_preview ) {
+			$content_data = apply_filters( "{$filter_base}_content", $content_data );
+		}
+
+		// Template filter — always runs (block_<name>_template lets themes swap the Twig path).
+		$default_template_path = '@component/' . $slug . '/' . $slug . '.twig';
+		$template_path         = apply_filters( "{$filter_base}_template", $default_template_path, $content_data );
+
+		// Twig context assembly + context filter.
+		$context             = class_exists( \Timber\Timber::class ) ? \Timber\Timber::context() : [];
+		$context['content']  = $content_data;
+		$context             = apply_filters( 'timber_kit/block_renderer/context', $context, $block_name, $is_preview );
+
+		// Compile.
+		$template_output = '';
+		if ( class_exists( \Timber\Timber::class ) ) {
+			$compiled = \Timber\Timber::compile( $template_path, $context );
+			if ( is_string( $compiled ) ) {
+				$template_output = $compiled;
+			}
+		}
+
+		// Empty render → editor alert. (renderEmptyAlert() is a stub in this task;
+		// the real implementation with Twig template + inline fallback + block_label
+		// lands in Task 12.)
+		if ( '' === trim( $template_output ) && function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
+			$template_output = self::renderEmptyAlert( $block_name, $attributes );
+		}
+
+		// Inserter-preview aspect-ratio wrap. Inserter library thumbnails benefit
+		// from a fixed aspect so they're consistent regardless of the block's
+		// natural height. Wrap with overflow:hidden so taller content crops.
+		if ( $is_inserter_preview && '' !== $template_output ) {
+			$template_output = '<div style="aspect-ratio: 16/9; overflow: hidden;">' . $template_output . '</div>';
+		}
+
+		// Side-effect detection (post-render). Form-plugin shortcodes enqueue
+		// assets when they execute — if those queues grew during render, this
+		// block's output isn't safe to cache.
+		$has_side_effects = function_exists( 'wp_scripts' ) && function_exists( 'wp_styles' )
+			&& ( array_diff( wp_scripts()->queue, $scripts_before ) || array_diff( wp_styles()->queue, $styles_before ) );
+
+		// Cache write.
+		if ( '' !== $template_output ) {
+			if ( $is_preview ) {
+				self::$preview_memo[ $cache_key ] = $template_output;
+			} elseif ( isset( $use_cache ) && $use_cache && ! $has_side_effects ) {
+				wp_cache_set( $cache_key, $template_output, $cache_group, HOUR_IN_SECONDS );
+			}
+		}
+
+		print $template_output;
+	}
+
+	/**
+	 * Render the empty-block warning shown to logged-in users when render
+	 * produced no output. Filled in by Task 12 — for now a stub returning
+	 * empty string so `render()` compiles and references work.
+	 *
+	 * @internal Stub — real implementation in Task 12.
+	 */
+	private static function renderEmptyAlert( string $block_name, array $attributes ): string {
+		return '';
 	}
 }
