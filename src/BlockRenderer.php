@@ -61,4 +61,89 @@ final class BlockRenderer {
 			&& ! empty( $attributes['data'] )
 			&& is_array( $attributes['data'] );
 	}
+
+	/**
+	 * Render callback for ACF Gutenberg blocks defined via block.json.
+	 *
+	 * Wire as:
+	 *   "acf": { "renderCallback": "Parisek\\TimberKit\\BlockRenderer::render" }
+	 *
+	 * @param array<string, mixed> $attributes The block's saved or preview attributes.
+	 * @param string               $content    Block-supplied content (unused for ACF blocks).
+	 * @param bool                 $is_preview True in any editor / inserter preview context.
+	 * @param int|string           $post_id    Containing post ID (may be 0 or a "block_*" string in some contexts).
+	 * @param \WP_Block|null       $wp_block   The WP_Block instance, null in legacy contexts.
+	 */
+	public static function render(
+		array $attributes,
+		string $content = '',
+		bool $is_preview = false,
+		int|string $post_id = 0,
+		?\WP_Block $wp_block = null
+	): void {
+		$block_name = isset( $attributes['name'] ) && is_string( $attributes['name'] )
+			? $attributes['name']
+			: 'unknown';
+
+		// Slug derivation matches the source function:
+		//   "acf/article-featured" → "article-featured"
+		//   filter base "block_article_featured" (dashes → underscores)
+		$slug        = str_replace( 'acf/', '', $block_name );
+		$filter_base = 'block_' . str_replace( '-', '_', $slug );
+
+		// Real post ID resolution for cache group:
+		//   callback $post_id → acf_get_valid_post_id() → global $post (when "block_*")
+		$callback_post_id = $post_id;
+		$post_id          = acf_get_valid_post_id();
+
+		$real_post_id = is_numeric( $callback_post_id ) && (int) $callback_post_id > 0
+			? (int) $callback_post_id
+			: $post_id;
+		if ( str_starts_with( (string) $real_post_id, 'block_' ) ) {
+			global $post;
+			if ( isset( $post ) && isset( $post->ID ) ) {
+				$real_post_id = (int) $post->ID;
+			}
+		}
+
+		$has_dynamic_filter = has_filter( "{$filter_base}_content" );
+
+		// Cache key + group composition
+		$cache_data = [
+			'name'      => $block_name,
+			'data'      => $attributes['data'] ?? [],
+			'anchor'    => $attributes['anchor'] ?? '',
+			'className' => $attributes['className'] ?? '',
+			'post_id'   => $post_id,
+			'lang'      => apply_filters( 'wpml_current_language', '' ),
+			'paged'     => get_query_var( 'paged', 0 ),
+		];
+		$default_key = 'acf_block_' . md5( wp_json_encode( $cache_data ) );
+		$cache_key   = apply_filters( 'timber_kit/block_renderer/cache_key', $default_key, $cache_data, $block_name );
+		$cache_group = 'acf_block_' . ( is_numeric( $real_post_id ) ? $real_post_id : 0 );
+
+		// Cache lookup (preview memo + frontend Redis)
+		if ( $is_preview ) {
+			if ( isset( self::$preview_memo[ $cache_key ] ) ) {
+				print self::$preview_memo[ $cache_key ];
+				return;
+			}
+		} else {
+			$use_cache_default = ! $has_dynamic_filter
+				&& function_exists( 'wp_using_ext_object_cache' ) && wp_using_ext_object_cache()
+				&& function_exists( 'wp_cache_supports' ) && wp_cache_supports( 'flush_group' );
+			$use_cache = apply_filters( 'timber_kit/block_renderer/use_cache', $use_cache_default, $block_name, $attributes );
+
+			if ( $use_cache ) {
+				$cached = wp_cache_get( $cache_key, $cache_group );
+				if ( false !== $cached ) {
+					print $cached;
+					return;
+				}
+			}
+		}
+
+		// Render path (Tasks 5+ fill this in).
+		print '';
+	}
 }
