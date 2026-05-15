@@ -248,9 +248,14 @@ class StarterBase extends Site {
 			add_action( 'load-edit-comments.php', array( $this, 'disable_comments_admin_redirect' ) );
 			add_action( 'load-options-discussion.php', array( $this, 'disable_comments_admin_redirect' ) );
 			add_action( 'wp_enqueue_scripts', array( $this, 'disable_comments_dequeue_scripts' ) );
-			// REST: remove /wp/v2/comments routes so anonymous reads and authenticated writes both 404.
-			add_filter( 'rest_endpoints', array( $this, 'disable_comments_rest_endpoints' ) );
-			// REST: defense in depth — if a plugin re-registers a comments route, still block insertion.
+			// REST: 404 standard public comment requests on /wp/v2/comments without
+			// stripping the route — non-standard comment_type values (note/review/
+			// editorial-comment/order_note/…) used by WP 6.9+ editor notes and
+			// several plugins must still pass through.
+			add_filter( 'rest_pre_dispatch', array( $this, 'disable_comments_rest_pre_dispatch' ), 10, 3 );
+			// REST: defense in depth — block insertion of standard public comments
+			// even if a plugin re-registers a route. Non-standard types pass through
+			// for the same reason as the dispatch filter above.
 			add_filter( 'rest_pre_insert_comment', array( $this, 'disable_comments_rest_insertion' ) );
 			// XML-RPC: strip comment + pingback methods (no-op when $disable_xmlrpc is true).
 			add_filter( 'xmlrpc_methods', array( $this, 'disable_comments_xmlrpc_methods' ) );
@@ -1853,20 +1858,51 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Remove `/wp/v2/comments` routes from the REST API so the endpoint returns 404.
+	 * Short-circuit `/wp/v2/comments` requests for standard public comment types.
 	 *
-	 * Hooked to `rest_endpoints`.
+	 * Hooked to `rest_pre_dispatch`. Returning a `WP_Error` with `status=404`
+	 * mimics the previous "route stripped" behavior for the calls this flag
+	 * exists to block (anonymous comment reads, authenticated standard
+	 * comment writes), without breaking non-standard `comment_type` values:
 	 *
-	 * @param array<string, mixed> $endpoints Registered REST endpoints keyed by route.
-	 * @return array<string, mixed> Endpoints with comment routes removed.
+	 * - **WordPress 6.9+ editor notes** (`type=note`, stored with
+	 *   `_wp_note_status` meta) — block-editor sidebar feature; stripping
+	 *   the route silently broke the notes panel.
+	 * - **Plugin-specific types** — WooCommerce `order_note`/`review`,
+	 *   editorial workflow `editorial-comment`, etc.
+	 *
+	 * The `disable_comments` flag is about removing the public spam
+	 * surface, not locking down every internal use of the comments table.
+	 *
+	 * @param mixed            $result  Existing dispatch result (null when no other filter has short-circuited).
+	 * @param \WP_REST_Server  $server  REST server instance.
+	 * @param \WP_REST_Request $request Current REST request.
+	 * @return mixed
 	 */
-	public function disable_comments_rest_endpoints( array $endpoints ): array {
-		foreach ( array_keys( $endpoints ) as $route ) {
-			if ( str_starts_with( (string) $route, '/wp/v2/comments' ) ) {
-				unset( $endpoints[ $route ] );
-			}
+	public function disable_comments_rest_pre_dispatch( $result, $server, $request ) {
+		if ( null !== $result ) {
+			return $result;
 		}
-		return $endpoints;
+		$route = $request->get_route();
+		// Only the collection route is the public spam surface. Single-item
+		// routes (`/wp/v2/comments/<id>`, `/wp/v2/comments/<id>/<sub>`) are
+		// id-scoped operations — read/update/delete of an already-existing
+		// comment by id, often without a `type` query param at all (e.g.
+		// WP 6.9 editor deleting a note by id). Filtering by `starts_with`
+		// would 404 those unconditionally and break non-standard types we
+		// already pass through on the collection route.
+		if ( ! is_string( $route ) || $route !== '/wp/v2/comments' ) {
+			return $result;
+		}
+		$type = $request->get_param( 'type' );
+		if ( is_string( $type ) && $type !== '' && ! in_array( $type, array( 'comment', 'pingback', 'trackback' ), true ) ) {
+			return $result;
+		}
+		return new \WP_Error(
+			'rest_no_route',
+			__( 'No route was found matching the URL and request method.', $this->theme_name ),
+			array( 'status' => 404 )
+		);
 	}
 
 	/**
@@ -1916,15 +1952,35 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Reject REST comment insertion with a `403`, even if the `/wp/v2/comments` route gets re-registered.
+	 * Reject REST insertion of standard public comments (`comment`/`pingback`/`trackback`)
+	 * with a `403`, even if the `/wp/v2/comments` route gets re-registered.
 	 *
-	 * Hooked to `rest_pre_insert_comment`. Returning a `WP_Error` short-circuits insertion in the
-	 * REST controller before the comment hits the database.
+	 * Hooked to `rest_pre_insert_comment`. Non-standard `comment_type` values
+	 * (WP 6.9+ editor `note`, WooCommerce `order_note`/`review`, editorial
+	 * workflow `editorial-comment`, etc.) are passed through untouched —
+	 * this flag exists to remove the public spam surface, not lock down
+	 * internal uses of the comments table.
 	 *
 	 * @param mixed $prepared_comment Comment prepared for insertion (array, object, WP_Error, or null).
-	 * @return \WP_Error
+	 * @return mixed `WP_Error` for blocked standard comments; the original `$prepared_comment` otherwise.
 	 */
-	public function disable_comments_rest_insertion( $prepared_comment ): \WP_Error {
+	public function disable_comments_rest_insertion( $prepared_comment ) {
+		// Preserve prior short-circuit results — if another filter already
+		// returned a `WP_Error` (anti-spam, custom validation, …) or `null`,
+		// don't overwrite it with our generic `rest_comment_closed` and mask
+		// the real failure reason.
+		if ( null === $prepared_comment || $prepared_comment instanceof \WP_Error ) {
+			return $prepared_comment;
+		}
+		$comment_type = '';
+		if ( is_array( $prepared_comment ) && isset( $prepared_comment['comment_type'] ) ) {
+			$comment_type = (string) $prepared_comment['comment_type'];
+		} elseif ( is_object( $prepared_comment ) && isset( $prepared_comment->comment_type ) ) {
+			$comment_type = (string) $prepared_comment->comment_type;
+		}
+		if ( $comment_type !== '' && ! in_array( $comment_type, array( 'comment', 'pingback', 'trackback' ), true ) ) {
+			return $prepared_comment;
+		}
 		return new \WP_Error(
 			'rest_comment_closed',
 			__( 'Comments are closed.', $this->theme_name ),

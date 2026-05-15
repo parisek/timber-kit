@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+- `$disable_comments` no longer breaks the WordPress 6.9+ block-editor "post notes" feature (the sidebar that fetches `/wp/v2/comments?type=note&_locale=user` to populate internal editorial notes). The previous absolute removal of all `/wp/v2/comments` REST routes via `rest_endpoints` 404'd those reads/writes, leaving the editor notes panel silently broken on disabled-comment installs.
+  - `disable_comments_rest_endpoints()` removed; replaced by `disable_comments_rest_pre_dispatch()` hooked to `rest_pre_dispatch`. The new filter inspects the request's `type` param and only short-circuits with a 404 for the standard public-comment surface this flag exists to block (`type=comment` / `type=pingback` / `type=trackback` / no `type` param). Non-standard `comment_type` values pass through untouched.
+  - `disable_comments_rest_insertion()` updated symmetrically — POST inserts with `comment_type` outside the standard trio (`note`, `review`, `editorial-comment`, `order_note`, …) are passed through instead of returning a `403 rest_comment_closed` error. Standard public comment inserts continue to be blocked exactly as before.
+  - Side benefit: WooCommerce order notes / reviews and editorial-workflow plugin comments (Edit Flow, PublishPress, …) also stop 404'ing on installs with `$disable_comments = true`, since they all use non-standard `comment_type` values too.
+
 ### Added
 - Release automation: `.github/workflows/release-stamp.yml` (manual `workflow_dispatch` entrypoint that validates input, runs PHPUnit + PHPStan as guards, stamps `[Unreleased]` → `[X.Y.Z] - DATE`, commits, tags, pushes) and `.github/workflows/release.yml` (auto-fires on `vX.Y.Z` tag push, derives release notes from the matching CHANGELOG section + merged-PR list between tags, marks the release Latest only when it's the highest semver). README "Releasing" section documents the flow plus per-PR Keep-a-Changelog conventions and the existing `.gitattributes`-based distribution scope.
 - `AGENTS.md` — tool-agnostic operational notes for any AI coding agent (Claude Code, Codex, Cursor, …) working on this repo: project shape, commands, per-PR conventions (CHANGELOG entries + squash-merge `(#N)` suffix the auto-release workflow depends on), the release process (don't bypass), and Brain\Monkey testing gotchas. Excluded from dist via `.gitattributes` `export-ignore`.
