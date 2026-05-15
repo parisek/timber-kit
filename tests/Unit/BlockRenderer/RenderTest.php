@@ -117,4 +117,28 @@ class RenderTest extends BlockRendererTestCase {
 		$this->assertStringStartsWith( 'acf_block_', $captured_key );
 		$this->assertSame( 32 + 10, strlen( $captured_key ), 'key = "acf_block_" (10) + md5 (32)' );
 	}
+
+	public function test_frontend_cache_skipped_when_block_has_dynamic_filter(): void {
+		Functions\when( 'has_filter' )->alias(
+			static fn( string $name ): bool => $name === 'block_article_featured_content'
+		);
+		Functions\when( 'wp_using_ext_object_cache' )->justReturn( true );
+		Functions\when( 'wp_cache_supports' )->justReturn( true );
+
+		// wp_cache_get MUST NOT be called when block has a dynamic filter.
+		Functions\expect( 'wp_cache_get' )->never();
+
+		ob_start();
+		BlockRenderer::render(
+			Fixtures::attributes(), // name = "acf/article-featured" → filter name "block_article_featured_content"
+			'',
+			false, // frontend, not preview
+			0,
+			null
+		);
+		ob_end_clean();
+
+		// Brain Monkey enforces the never() expectation in tearDown; acknowledge it here.
+		$this->addToAssertionCount( 1 );
+	}
 }
