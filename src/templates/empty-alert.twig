@@ -13,10 +13,10 @@
 	Best-effort (Gutenberg internals, filter-overridable if WP renames):
 	  - .block-editor-warning, .block-editor-warning__contents, .block-editor-warning__message
 #}
-<div class="block-editor-warning timber-kit-block-empty" data-block="{{ block_name }}">
+<div class="block-editor-warning timber-kit-block-empty" data-block="{{ block_name|e('html_attr') }}">
 	<div class="block-editor-warning__contents">
 		<p class="block-editor-warning__message">
-			{% if block_label %}<strong>{{ block_label }}:</strong> {% endif %}{{ message }}
+			{% if block_label %}<strong>{{ block_label|e('html') }}:</strong> {% endif %}{{ message|e('html') }}
 		</p>
 	</div>
 </div>
