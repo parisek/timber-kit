@@ -338,14 +338,109 @@ class RenderTest extends BlockRendererTestCase {
 	}
 
 	public function test_side_effecting_block_excluded_from_cache(): void {
-		$this->markTestSkipped( 'Awaiting filter-override wiring in separate commit.' );
+		// Cache write path enabled (no dynamic filter, external cache available, cache miss).
+		Functions\when( 'wp_using_ext_object_cache' )->justReturn( true );
+		Functions\when( 'wp_cache_supports' )->justReturn( true );
+		Functions\when( 'wp_cache_get' )->justReturn( false );
+
+		// Simulate side effect: scripts queue grows during render.
+		$call_count = 0;
+		Functions\when( 'wp_scripts' )->alias( static function () use ( &$call_count ): object {
+			$call_count++;
+			return (object) [ 'queue' => $call_count === 1 ? [] : [ 'wpforms-frontend' ] ];
+		} );
+
+		// Inject non-empty output via the empty_alert_html filter so cache-write branch is reachable.
+		Functions\when( 'is_user_logged_in' )->justReturn( true );
+		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
+		Functions\when( 'esc_attr' )->alias( static fn( string $v ): string => $v );
+		Functions\when( 'esc_html' )->alias( static fn( string $v ): string => $v );
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ): mixed {
+				if ( $tag === 'timber_kit/block_renderer/empty_alert_html' ) {
+					return '<synthetic-output>';
+				}
+				return $value;
+			}
+		);
+
+		// wp_cache_set MUST NOT be called when side-effects fired.
+		Functions\expect( 'wp_cache_set' )->never();
+
+		ob_start();
+		BlockRenderer::render( Fixtures::attributes(), '', false, 0, null );
+		ob_end_clean();
+
+		// Brain Monkey enforces the never() expectation in tearDown; acknowledge it here.
+		$this->addToAssertionCount( 1 );
 	}
 
 	public function test_preview_memo_cache_hit_short_circuits(): void {
-		$this->markTestSkipped( 'Awaiting filter-override wiring in separate commit.' );
+		// Inject non-empty output so the memo-write branch fires.
+		Functions\when( 'is_user_logged_in' )->justReturn( true );
+		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
+		Functions\when( 'esc_attr' )->alias( static fn( string $v ): string => $v );
+		Functions\when( 'esc_html' )->alias( static fn( string $v ): string => $v );
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ): mixed {
+				if ( $tag === 'timber_kit/block_renderer/empty_alert_html' ) {
+					return '<synthetic-output>';
+				}
+				return $value;
+			}
+		);
+
+		// First render — populates the preview memo.
+		ob_start();
+		BlockRenderer::render( Fixtures::attributes(), '', true, 0, null );
+		$first = ob_get_clean();
+
+		// Count wp_styles calls — only fires inside the render body, not when the memo hits.
+		$styles_calls = 0;
+		Functions\when( 'wp_styles' )->alias( static function () use ( &$styles_calls ): object {
+			$styles_calls++;
+			return (object) [ 'queue' => [] ];
+		} );
+
+		// Second render — should hit memo, never enter the render body (wp_styles not called).
+		ob_start();
+		BlockRenderer::render( Fixtures::attributes(), '', true, 0, null );
+		$second = ob_get_clean();
+
+		$this->assertSame( $first, $second );
+		$this->assertSame( 0, $styles_calls, 'second render must hit memo and skip the render body' );
 	}
 
 	public function test_inserter_preview_wraps_in_16_9_aspect_ratio(): void {
-		$this->markTestSkipped( 'Awaiting filter-override wiring in separate commit.' );
+		Functions\when( 'is_user_logged_in' )->justReturn( true );
+		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
+		Functions\when( 'esc_attr' )->alias( static fn( string $v ): string => $v );
+		Functions\when( 'esc_html' )->alias( static fn( string $v ): string => $v );
+
+		// Inject non-empty output via empty_alert_html (renderEmptyAlert path).
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ): mixed {
+				if ( $tag === 'timber_kit/block_renderer/empty_alert_html' ) {
+					return '<p>Synthetic preview body</p>';
+				}
+				return $value;
+			}
+		);
+
+		ob_start();
+		BlockRenderer::render(
+			// $is_preview=true + attributes.data + Helpers::formatFields() returns [] (default mock)
+			// → discriminator returns true → aspect-ratio wrap should apply
+			Fixtures::attributes( [ 'data' => [ 'title' => 'Example' ] ] ),
+			'',
+			true,
+			0,
+			null
+		);
+		$output = ob_get_clean();
+
+		$this->assertStringContainsString( 'aspect-ratio: 16/9', $output );
+		$this->assertStringContainsString( 'overflow: hidden', $output );
+		$this->assertStringContainsString( '<p>Synthetic preview body</p>', $output );
 	}
 }
