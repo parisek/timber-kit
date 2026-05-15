@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-05-15
+
 ### Added
 - `Parisek\TimberKit\BlockRenderer` — new class hosting the ACF Gutenberg block render callback previously carried in every downstream theme's `functions.php`. Faithful behavioural port: same cache key composition (`acf_block_` + md5 of `wp_json_encode([name, data, anchor, className, post_id, lang, paged])`), same per-post cache group naming (`acf_block_{$real_post_id}`), same `wp_scripts`/`wp_styles` queue snapshot for side-effect detection, same `has_filter()` gate that skips Redis cache for dynamic blocks, same `acf_get_valid_post_id()` → global `$post` fallback for real-post-id resolution, same `HOUR_IN_SECONDS` TTL on frontend cache writes. **One new behavior**: the `block_<name>_content` filter is now skipped when the inserter-preview discriminator fires — fake example-data renders no longer trigger filter callbacks that would distort inserter-library thumbnails with derived enrichments. Five WordPress filters exposed for downstream customization: `timber_kit/block_renderer/cache_key`, `timber_kit/block_renderer/use_cache`, `timber_kit/block_renderer/content_data`, `timber_kit/block_renderer/context`, `timber_kit/block_renderer/empty_alert_html`. Wire as `"renderCallback": "Parisek\\TimberKit\\BlockRenderer::render"` in `block.json`, or call from the existing `timber_block_render_callback` wrapper in downstream themes.
 - `timber_kit/block_renderer/content_data` filter — fifth package filter, called before `Helpers::formatFields()` so downstream projects can inject custom content data without ACF. Tests and storybook-style block previews benefit. Returning `null` (default) preserves the ACF code path.
