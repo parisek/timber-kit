@@ -22,6 +22,7 @@ use Symfony\Component\VarDumper\Cloner\VarCloner;
 use Parisek\Twig\CommonExtension;
 use Parisek\Twig\AttributeExtension;
 use Parisek\Twig\TypographyExtension;
+use Parisek\TimberKit\BlockRenderer;
 
 /**
  * Base class for WordPress themes using Timber/Twig templating.
@@ -177,6 +178,8 @@ class StarterBase extends Site {
 		add_filter( 'timber/context', array( $this, 'timber_context' ) );
 		add_filter( 'timber/twig', array( $this, 'timber_twig' ) );
 		add_filter( 'timber/loader/loader', array( $this, 'timber_twig_loader' ) );
+		add_filter( 'timber/locations', array( $this, 'register_timber_kit_namespace' ), 20 );
+		add_action( 'acf/save_post', array( BlockRenderer::class, 'flushPostBlockCache' ), 20 );
 		add_action( 'timber/twig/environment/options', array( $this, 'timber_cache_location' ), 10, 1 );
 		add_action( 'timber/image/new_url', array( $this, 'timber_image_new_url' ) );
 		add_action( 'timber/image/new_path', array( $this, 'timber_image_new_path' ) );
@@ -622,6 +625,34 @@ class StarterBase extends Site {
 		$loader->addPath( get_template_directory() . '/static/images', 'images' );
 		$loader->addPath( get_template_directory() . '/templates', 'wordpress' );
 		return $loader;
+	}
+
+	/**
+	 * Register the `@timber-kit/` Twig namespace as a fallback pointing at
+	 * this package's shipped templates directory.
+	 *
+	 * Hooked to `timber/locations`.
+	 *
+	 * Priority 20 (after WP default 10) so any path a downstream theme has
+	 * already registered under the same namespace takes precedence — Twig's
+	 * filesystem loader searches paths in array order, and we always append
+	 * (preserve existing entries) so the package's path acts as the last
+	 * fallback. This pattern lets themes override individual templates by
+	 * registering their own path regardless of whether they prepend, append,
+	 * or replace the entry.
+	 *
+	 * @param array<string, array<int, string>> $paths Existing namespace map.
+	 * @return array<string, array<int, string>>
+	 */
+	public function register_timber_kit_namespace( array $paths ): array {
+		$existing = isset( $paths['timber-kit'] ) && is_array( $paths['timber-kit'] )
+			? $paths['timber-kit']
+			: [];
+
+		$existing[]          = __DIR__ . '/templates';
+		$paths['timber-kit'] = $existing;
+
+		return $paths;
 	}
 
 	/**

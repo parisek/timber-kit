@@ -1,0 +1,22 @@
+{#
+	Empty-block warning. Uses Gutenberg's `.block-editor-warning` classes for
+	native editor styling — WP loads block-editor.css automatically when editing,
+	so we get the warning panel look without shipping any package CSS. Frontend
+	(logged-in admin viewing live site) degrades to bare HTML — themes can style
+	`.timber-kit-block-empty` to taste, or override the entire HTML via the
+	empty_alert_html filter.
+
+	Stable contract (semver-protected):
+	  - .timber-kit-block-empty class
+	  - data-block attribute
+
+	Best-effort (Gutenberg internals, filter-overridable if WP renames):
+	  - .block-editor-warning, .block-editor-warning__contents, .block-editor-warning__message
+#}
+<div class="block-editor-warning timber-kit-block-empty" data-block="{{ block_name|e('html_attr') }}">
+	<div class="block-editor-warning__contents">
+		<p class="block-editor-warning__message">
+			{% if block_label %}<strong>{{ block_label|e('html') }}:</strong> {% endif %}{{ message|e('html') }}
+		</p>
+	</div>
+</div>

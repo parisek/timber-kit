@@ -1,6 +1,6 @@
 # timber-kit
 
-WordPress/Timber starter kit — configurable base class, ACF helpers, image resizer, dev media proxy, WPForms config bridge.
+WordPress/Timber starter kit — configurable base class, ACF helpers, image resizer, dev media proxy, WPForms config bridge, ACF block renderer.
 
 ## Installation
 
@@ -44,6 +44,68 @@ It also integrates with `Resizer` through the `timber_kit_resizer_missing_source
 Bridges `wp-config.php` constants to entries of the `wpforms_settings` option, so per-environment values such as Cloudflare Turnstile test keys can be stored in environment config rather than the WordPress database.
 
 A setting key `turnstile-site-key` is overridden by a constant `WPFORMS_TURNSTILE_SITE_KEY` (hyphens become underscores, the whole name uppercased). The bridge is activated automatically by `StarterBase` when WPForms is loaded.
+
+### BlockRenderer
+
+Render callback for ACF Gutenberg blocks defined via `block.json`. Migrated from per-theme `functions.php` so projects derived from `portadesign/wordpress-base` carry one versioned source of truth instead of duplicating ~140 lines per theme.
+
+Wire as `block.json` `renderCallback`:
+
+```json
+{
+    "acf": {
+        "renderCallback": "Parisek\\TimberKit\\BlockRenderer::render"
+    }
+}
+```
+
+Or call from a wrapper in your theme's `functions.php` for backwards-compatible block.json files:
+
+```php
+function timber_block_render_callback( ...$args ): void {
+    \Parisek\TimberKit\BlockRenderer::render( ...$args );
+}
+```
+
+What it does:
+
+- Resolves ACF block.json schema to a Twig template path
+- Hydrates content via `Helpers::formatFields()`
+- Two-tier cache: in-request memo for editor previews + external object cache (Redis with `flush_group`) for the frontend, gated by `has_filter()` (dynamic blocks skip frontend cache)
+- Detects asset-enqueueing side effects (CF7, WPForms, …) and skips cache writes for those blocks so forms keep working
+- Skips frontend cache writes for the editor-only empty-block warning so anonymous visitors don't see warnings meant for editors
+- Renders a `.block-editor-warning` template for empty blocks when a logged-in user views them — uses Gutenberg's native classes so the editor styles it without shipping CSS
+- Wraps inserter-library previews in a 16:9 aspect-ratio box for consistent thumbnails
+- Skips the `block_<name>_content` filter during inserter-library previews so example data isn't enriched with derived values that would distort thumbnails
+
+The class is `final` with three public static methods: `render()`, `isInserterPreview()`, `flushPostBlockCache()`.
+
+#### Filters
+
+**Package-level filters** (stable across versions, prefixed `timber_kit/`):
+
+| Filter | Args | Purpose |
+|--------|------|---------|
+| `timber_kit/block_renderer/cache_key` | `(string $key, array $cache_data, string $block_name)` | Override the cache key composition (e.g. add user role / segment to the variation vectors). Default: `'acf_block_' . md5(wp_json_encode($cache_data))` with `$cache_data` = `[name, data, anchor, className, post_id, lang, paged]`. |
+| `timber_kit/block_renderer/use_cache` | `(bool $enabled, string $block_name, array $attributes)` | Override the cache-enabled decision per block. Default: `true` when the block has no registered `block_<name>_content` filter and the site uses an external object cache with `flush_group` support. |
+| `timber_kit/block_renderer/content_data` | `(?array $content_data, int|string $post_id, bool $is_preview, array $attributes)` | Override the content data ACF would have hydrated. Return a non-null array to short-circuit `Helpers::formatFields()` — useful for tests, storybook-style block fixtures, or projects that don't use ACF. Returning `null` (default) preserves the ACF code path. |
+| `timber_kit/block_renderer/context` | `(array $context, string $block_name, bool $is_preview)` | Last-chance Twig context modification before `Timber::compile()` runs. |
+| `timber_kit/block_renderer/empty_alert_html` | `(string $html, string $block_name, array $attributes)` | Replace the empty-block warning HTML entirely. Themes can return their own Twig render here (see migration example below). |
+
+**Per-block legacy filters** (preserved from the original `timber_block_render_callback` for backwards compatibility — `<slug>` is the block name with `acf/` stripped and dashes converted to underscores, e.g. `acf/article-featured` → `article_featured`):
+
+| Filter | Args | Purpose |
+|--------|------|---------|
+| `block_<slug>_content` | `(array $content_data)` | Per-block content transform (legacy hook preserved for backwards compatibility). Skipped during inserter-library previews so example data isn't enriched with derived values that would distort thumbnails. |
+| `block_<slug>_template` | `(string $template_path, array $content_data)` | Per-block template path override (legacy hook). Runs in all modes including inserter previews. Default path: `@component/<slug>/<slug>.twig`. |
+
+#### Twig template
+
+`empty-alert.twig` is shipped under the `@timber-kit/` Twig namespace, registered automatically by `StarterBase` at priority 20 (so theme paths under the same namespace take precedence). It uses Gutenberg's `.block-editor-warning` classes for native editor styling and exposes a stable `.timber-kit-block-empty` class + `data-block` attribute for theme overrides.
+
+#### Cache invalidation
+
+`BlockRenderer::flushPostBlockCache($post_id)` is the handler `StarterBase` wires to `acf/save_post` at priority 20. When ACF saves a post, the cache group `acf_block_{$post_id}` is flushed — invalidating exactly the cached blocks tied to that post without touching others. The handler guards against non-numeric ids (ACF options-page strings, opaque `block_*` ids) and against environments without `wp_cache_supports('flush_group')`.
 
 ## Usage
 
@@ -166,6 +228,55 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 | `$gutenberg_responsive_embeds` | bool | `true` | Responsive video embeds |
 | `$gutenberg_editor_styles` | bool | `true` | Load editor stylesheet |
 | `$gutenberg_disable_core_patterns` | bool | `true` | Remove core block patterns |
+
+## Block renderer migration guide
+
+If you're upgrading from a theme that carried `timber_block_render_callback()` inline in `functions.php`:
+
+1. Bump the Composer constraint to `^1.5`:
+
+    ```json
+    {
+        "require": {
+            "parisek/timber-kit": "^1.5"
+        }
+    }
+    ```
+
+2. Replace the inline `timber_block_render_callback()` body with a wrapper:
+
+    ```php
+    function timber_block_render_callback( ...$args ): void {
+        \Parisek\TimberKit\BlockRenderer::render( ...$args );
+    }
+    ```
+
+    `block.json` files referencing the old function name keep working.
+
+3. Remove the freestanding `add_action( 'acf/save_post', … 'acf_block_…' flush )` hook from `functions.php` — the package now owns it: `StarterBase::__construct()` wires `BlockRenderer::flushPostBlockCache()` to `acf/save_post` at priority 20.
+
+4. (Optional) If you want to keep your existing Tailwind alert template for the empty-block warning, register an override:
+
+    ```php
+    add_filter(
+        'timber_kit/block_renderer/empty_alert_html',
+        static function (string $default, string $block_name, array $attributes): string {
+            $block_label = $attributes['title'] ?? $attributes['name'];
+            return Timber::compile('@component/alert/alert.twig', [
+                'content' => [
+                    'message'   => '<strong>' . esc_html($block_label) . ':</strong> ' .
+                                   esc_html(__('Pro zobrazení vyplňte požadované údaje v pravém panelu.', 'starter_theme')),
+                    'type'      => 'warning',
+                    'container' => 'container',
+                ],
+            ]);
+        },
+        10,
+        3
+    );
+    ```
+
+    Without this filter the package renders its own Twig template (`@timber-kit/empty-alert.twig`) using Gutenberg's native `.block-editor-warning` classes — no theme styling required.
 
 ## Testing
 
