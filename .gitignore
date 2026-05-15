@@ -5,6 +5,7 @@ build/
 .php-cs-fixer.cache
 .idea/
 .vscode/
+.claude/
 *.swp
 *~
 .DS_Store
