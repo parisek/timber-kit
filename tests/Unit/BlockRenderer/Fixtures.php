@@ -39,7 +39,6 @@ final class Fixtures {
 		$ref = new \ReflectionClass( \Parisek\TimberKit\BlockRenderer::class );
 		if ( $ref->hasProperty( 'preview_memo' ) ) {
 			$prop = $ref->getProperty( 'preview_memo' );
-			$prop->setAccessible( true );
 			$prop->setValue( null, [] );
 		}
 	}
