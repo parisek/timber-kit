@@ -1,0 +1,104 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve tag and previous tag
+        id: meta
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VERSION="${TAG#v}"
+          PREV=$(git tag --sort=-v:refname | grep -v "^${TAG}$" | head -1 || true)
+          {
+            echo "tag=${TAG}"
+            echo "version=${VERSION}"
+            echo "prev_tag=${PREV}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Build release notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          PREV: ${{ steps.meta.outputs.prev_tag }}
+        run: |
+          # Extract the CHANGELOG section for this version (between
+          # "## [VERSION]" and the next "## [" heading).
+          CHANGELOG=$(awk -v v="$VERSION" '
+            /^## \[/ {
+              if ($0 ~ "^## \\[" v "\\]") { found=1; next }
+              else if (found) { exit }
+            }
+            found { print }
+          ' CHANGELOG.md | sed -e :a -e '/^\n*$/{$d;N;ba' -e '}')
+
+          # PRs merged between previous tag and this tag — parse `(#N)`
+          # suffixes from squash-merge commit subjects.
+          PR_LIST=""
+          if [ -n "$PREV" ]; then
+            PR_NUMBERS=$(git log "${PREV}..${TAG}" --pretty=format:'%s' \
+              | grep -oE '\(#[0-9]+\)' | grep -oE '[0-9]+' | sort -un)
+            for n in $PR_NUMBERS; do
+              TITLE=$(gh pr view "$n" --repo "$REPO" --json title --jq .title 2>/dev/null || true)
+              [ -n "$TITLE" ] && PR_LIST="${PR_LIST}- #${n} — ${TITLE}"$'\n'
+            done
+          fi
+
+          {
+            if [ -n "$CHANGELOG" ]; then
+              echo "## What's Changed"
+              echo
+              echo "$CHANGELOG"
+              echo
+            fi
+            if [ -n "$PR_LIST" ]; then
+              echo "## Pull Requests"
+              echo
+              printf '%s' "$PR_LIST"
+              echo
+            fi
+            if [ -n "$PREV" ]; then
+              echo "**Full Changelog**: https://github.com/${REPO}/compare/${PREV}...${TAG}"
+            fi
+          } > release-notes.md
+
+          echo "--- release notes preview ---"
+          cat release-notes.md
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          # `--latest=false` first; we'll re-mark below only when this tag
+          # is the highest semver, so a back-dated tag push doesn't steal
+          # the Latest badge from a newer release.
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file release-notes.md \
+            --latest=false
+
+      - name: Mark as latest if highest semver
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.meta.outputs.tag }}
+        run: |
+          HIGHEST=$(git tag --sort=-v:refname \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
+          if [ "$HIGHEST" = "$TAG" ]; then
+            gh release edit "$TAG" --latest
+          fi
