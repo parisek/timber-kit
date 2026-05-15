@@ -175,6 +175,21 @@ ddev exec "vendor/bin/phpunit"
 ddev exec "vendor/bin/phpstan analyse"
 ```
 
+## Releasing
+
+Releases are automated through two GitHub Actions workflows:
+
+- `.github/workflows/release-stamp.yml` — manual trigger (Actions tab → **Stamp Release** → **Run workflow** → enter the new semver, e.g. `1.5.0`). The workflow validates the version, requires non-empty `[Unreleased]` content in `CHANGELOG.md`, runs the full PHPUnit + PHPStan suite as a guard, then stamps `[Unreleased]` to `[X.Y.Z] - DATE` (UTC) — leaving a fresh empty `[Unreleased]` block for the next cycle — commits, tags `vX.Y.Z`, and pushes both.
+- `.github/workflows/release.yml` — fires automatically on the `vX.Y.Z` tag push. Extracts the matching CHANGELOG section, derives the merged-PR list from squash-merge commit subjects between this tag and the previous tag, and creates the GitHub Release with structured notes (`What's Changed` / `Pull Requests` / `Full Changelog` comparison link). Marks the release as **Latest** only when the new tag is the highest semver, so back-dated patch tags don't steal the badge.
+
+### Per-PR conventions
+
+Add entries under `## [Unreleased]` in `CHANGELOG.md` with [Keep a Changelog](https://keepachangelog.com/) categories (`### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, `### Security`). Squash-merge PRs into `main` so the merge commit subject ends with `(#N)` — the auto-release workflow uses that to assemble the Pull Requests section.
+
+### Distribution scope
+
+`.gitattributes` marks `CHANGELOG.md`, `tests/`, `.github/`, `.ddev/`, `phpunit.xml`, `phpstan.neon`, and other dev-only files as `export-ignore`, so `composer require parisek/timber-kit` only pulls `src/`, `composer.json`, `LICENSE`, and `README.md` into the consumer's `vendor/` tree. No Composer-side `archive.exclude` config is needed — `.gitattributes` covers both `composer archive` and GitHub source-zip downloads.
+
 ## License
 
 [GPL-3.0-or-later](LICENSE)

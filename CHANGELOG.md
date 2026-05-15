@@ -6,6 +6,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- Release automation: `.github/workflows/release-stamp.yml` (manual `workflow_dispatch` entrypoint that validates input, runs PHPUnit + PHPStan as guards, stamps `[Unreleased]` → `[X.Y.Z] - DATE`, commits, tags, pushes) and `.github/workflows/release.yml` (auto-fires on `vX.Y.Z` tag push, derives release notes from the matching CHANGELOG section + merged-PR list between tags, marks the release Latest only when it's the highest semver). README "Releasing" section documents the flow plus per-PR Keep-a-Changelog conventions and the existing `.gitattributes`-based distribution scope.
+
 ## [1.4.0] - 2026-05-15
 
 ### Fixed
