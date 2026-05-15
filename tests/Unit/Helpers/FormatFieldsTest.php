@@ -381,7 +381,9 @@ class FormatFieldsTest extends HelpersTestCase {
 
 		Functions\when( 'get_field_objects' )->justReturn( false );
 		Functions\when( 'acf_decode_post_id' )->alias( function ( $id ) {
-			return $id === 'option' ? [ 'type' => 'option', 'id' => 'option' ] : [ 'type' => 'post', 'id' => $id ];
+			return in_array( $id, [ 'option', 'options' ], true )
+				? [ 'type' => 'option', 'id' => 'option' ]
+				: [ 'type' => 'post', 'id' => $id ];
 		} );
 		Functions\when( 'acf_get_options_pages' )->justReturn( [
 			'settings' => [ 'menu_slug' => 'settings' ],
@@ -692,7 +694,8 @@ class FormatFieldsTest extends HelpersTestCase {
 
 	public function test_options_pages_duplicate_field_name_last_writer_wins(): void {
 		// Pin the documented last-writer-wins collision behavior for fields
-		// that share a `name` across multiple options pages.
+		// that share a `name` across multiple options pages in the same
+		// namespace.
 		$call_count = 0;
 		Functions\when( 'get_field_objects' )->justReturn( false );
 		Functions\when( 'acf_decode_post_id' )->justReturn( [ 'type' => 'option', 'id' => 'option' ] );
@@ -715,5 +718,112 @@ class FormatFieldsTest extends HelpersTestCase {
 		$result = Helpers::formatFields( 'option' );
 
 		$this->assertSame( 'logo-from-page-b', $result['logo'] );
+	}
+
+	public function test_options_namespace_filter_isolates_custom_pages_from_default_caller(): void {
+		// formatFields('option') must NOT surface fields from a page
+		// registered under a custom post_id namespace
+		// (`acf_add_options_page(['post_id' => 'company_settings'])`). Those
+		// fields live under 'company_settings', not under 'option'.
+		Functions\when( 'get_field_objects' )->justReturn( false );
+		Functions\when( 'acf_decode_post_id' )->alias( function ( $id ) {
+			if ( in_array( $id, [ 'option', 'options' ], true ) ) {
+				return [ 'type' => 'option', 'id' => 'option' ];
+			}
+			if ( $id === 'company_settings' ) {
+				return [ 'type' => 'option', 'id' => 'company_settings' ];
+			}
+			return [ 'type' => 'post', 'id' => $id ];
+		} );
+		Functions\when( 'acf_get_options_pages' )->justReturn( [
+			'theme'   => [ 'menu_slug' => 'theme-options' ],
+			'company' => [ 'menu_slug' => 'company-settings', 'post_id' => 'company_settings' ],
+		] );
+		Functions\when( 'acf_get_field_groups' )->alias( function ( $screen ) {
+			$slug = $screen['options_page'] ?? '';
+			if ( $slug === 'theme-options' ) {
+				return [ [ 'key' => 'g_theme' ] ];
+			}
+			if ( $slug === 'company-settings' ) {
+				throw new \RuntimeException( 'custom-namespace page must be skipped for default caller' );
+			}
+			return [];
+		} );
+		Functions\when( 'acf_get_fields' )->justReturn( [
+			[ 'key' => 'f', 'name' => 'site_logo', 'type' => 'text' ],
+		] );
+		Functions\when( 'get_field' )->alias( fn ( $name, $id ) => "$name@$id" );
+
+		$result = Helpers::formatFields( 'option' );
+
+		$this->assertSame( [ 'site_logo' => 'site_logo@option' ], $result );
+		$this->assertArrayNotHasKey( 'tax_id', $result );
+	}
+
+	public function test_options_namespace_filter_isolates_default_pages_from_custom_caller(): void {
+		// formatFields('company_settings') must NOT pick up fields from
+		// pages registered under the default 'option' namespace.
+		Functions\when( 'get_field_objects' )->justReturn( false );
+		Functions\when( 'acf_decode_post_id' )->alias( function ( $id ) {
+			if ( in_array( $id, [ 'option', 'options' ], true ) ) {
+				return [ 'type' => 'option', 'id' => 'option' ];
+			}
+			if ( $id === 'company_settings' ) {
+				return [ 'type' => 'option', 'id' => 'company_settings' ];
+			}
+			return [ 'type' => 'post', 'id' => $id ];
+		} );
+		Functions\when( 'acf_get_options_pages' )->justReturn( [
+			'theme'   => [ 'menu_slug' => 'theme-options' ],
+			'company' => [ 'menu_slug' => 'company-settings', 'post_id' => 'company_settings' ],
+		] );
+		Functions\when( 'acf_get_field_groups' )->alias( function ( $screen ) {
+			$slug = $screen['options_page'] ?? '';
+			if ( $slug === 'company-settings' ) {
+				return [ [ 'key' => 'g_company' ] ];
+			}
+			if ( $slug === 'theme-options' ) {
+				throw new \RuntimeException( 'default-namespace page must be skipped for custom caller' );
+			}
+			return [];
+		} );
+		Functions\when( 'acf_get_fields' )->justReturn( [
+			[ 'key' => 'f', 'name' => 'tax_id', 'type' => 'text' ],
+		] );
+		Functions\when( 'get_field' )->alias( fn ( $name, $id ) => $id === 'company_settings' ? 'CZ12345678' : null );
+
+		$result = Helpers::formatFields( 'company_settings' );
+
+		$this->assertSame( [ 'tax_id' => 'CZ12345678' ], $result );
+		$this->assertArrayNotHasKey( 'site_logo', $result );
+	}
+
+	public function test_options_namespace_filter_aliases_option_and_options(): void {
+		// A page registered with the plural form `post_id => 'options'` must
+		// still match a `formatFields('option')` caller, because
+		// `acf_decode_post_id()` collapses both forms onto the same canonical
+		// id ('option').
+		Functions\when( 'get_field_objects' )->justReturn( false );
+		Functions\when( 'acf_decode_post_id' )->alias( function ( $id ) {
+			return in_array( $id, [ 'option', 'options' ], true )
+				? [ 'type' => 'option', 'id' => 'option' ]
+				: [ 'type' => 'post', 'id' => $id ];
+		} );
+		Functions\when( 'acf_get_options_pages' )->justReturn( [
+			'plural' => [ 'menu_slug' => 'general', 'post_id' => 'options' ],
+		] );
+		Functions\when( 'acf_get_field_groups' )->alias( function ( $screen ) {
+			return ( $screen['options_page'] ?? '' ) === 'general'
+				? [ [ 'key' => 'g' ] ]
+				: [];
+		} );
+		Functions\when( 'acf_get_fields' )->justReturn( [
+			[ 'key' => 'f', 'name' => 'site_title', 'type' => 'text' ],
+		] );
+		Functions\when( 'get_field' )->alias( fn ( $name, $id ) => "$name@$id" );
+
+		$result = Helpers::formatFields( 'option' );
+
+		$this->assertSame( 'site_title@option', $result['site_title'] );
 	}
 }
