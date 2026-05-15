@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-05-15
+
 ### Fixed
 - `$disable_comments` no longer breaks the WordPress 6.9+ block-editor "post notes" feature (the sidebar that fetches `/wp/v2/comments?type=note&_locale=user` to populate internal editorial notes). The previous absolute removal of all `/wp/v2/comments` REST routes via `rest_endpoints` 404'd those reads/writes, leaving the editor notes panel silently broken on disabled-comment installs.
   - `disable_comments_rest_endpoints()` removed; replaced by `disable_comments_rest_pre_dispatch()` hooked to `rest_pre_dispatch`. The new filter inspects the request's `type` param and only short-circuits with a 404 for the standard public-comment surface this flag exists to block (`type=comment` / `type=pingback` / `type=trackback` / no `type` param). Non-standard `comment_type` values pass through untouched.
