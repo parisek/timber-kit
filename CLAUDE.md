@@ -2,6 +2,14 @@
 
 Operational notes for Claude Code sessions on this repo. Treat as authoritative — overrides default assumptions where they conflict.
 
+## Maintaining this file
+
+Go-style brevity. Bullets, not paragraphs. Add only what saves the next session real time:
+
+- **Add** a note when you hit a non-obvious gotcha (e.g. "tool X returns false when Y", "test Z is flakey because of W"), or pin a convention the codebase relies on (e.g. squash-merge `(#N)` suffix powering release notes).
+- **Don't add** restatement of README content, narration of what the codebase does, or one-off task context. README owns "what the project does"; CLAUDE.md owns "how to work on it".
+- **Cap ~150 lines.** Past that, the whole file gets skimmed instead of read. If a section grows, prune adjacent stale notes first.
+
 ## Project shape
 
 WordPress/Timber starter-kit library distributed via Composer (`parisek/timber-kit`).
