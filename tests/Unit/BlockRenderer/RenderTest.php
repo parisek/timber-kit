@@ -314,6 +314,29 @@ class RenderTest extends BlockRendererTestCase {
 		$this->assertStringContainsString( 'Article — Featured', $output );
 	}
 
+	public function test_empty_alert_html_filter_replaces_default_output(): void {
+		Functions\when( 'is_user_logged_in' )->justReturn( true );
+		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
+		Functions\when( 'esc_attr' )->alias( static fn( string $v ): string => $v );
+		Functions\when( 'esc_html' )->alias( static fn( string $v ): string => $v );
+
+		// Override the apply_filters mock to intercept just the empty_alert_html dispatch.
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ): mixed {
+				if ( $tag === 'timber_kit/block_renderer/empty_alert_html' ) {
+					return '<custom-theme-alert>OVERRIDE</custom-theme-alert>';
+				}
+				return $value;
+			}
+		);
+
+		ob_start();
+		BlockRenderer::render( Fixtures::attributes(), '', false, 0, null );
+		$output = ob_get_clean();
+
+		$this->assertSame( '<custom-theme-alert>OVERRIDE</custom-theme-alert>', $output );
+	}
+
 	public function test_side_effecting_block_excluded_from_cache(): void {
 		$this->markTestSkipped( 'Awaiting filter-override wiring in separate commit.' );
 	}
