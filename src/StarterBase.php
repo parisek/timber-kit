@@ -169,12 +169,57 @@ class StarterBase extends Site {
 	protected bool $gutenberg_disable_core_patterns = true;
 
 	/**
-	 * Register all WordPress actions and filters, then call parent Site constructor.
+	 * Slim orchestrator — resolves theme identity, delegates hook registration
+	 * to concern-focused private methods, then hands off to Timber\Site.
 	 *
 	 * @return void
 	 */
 	public function __construct() {
-		add_action( 'after_setup_theme', array( $this, 'theme_supports' ) );
+		$this->theme_name = $this->resolveThemeName();
+
+		$this->registerTimberHooks();
+		$this->registerBootstrapHooks();
+		$this->registerAssetHooks();
+		$this->registerBlockHooks();
+		$this->registerAcfHooks();
+		$this->registerAdminAndEditorHooks();
+		$this->registerMediaHooks();
+		$this->registerMiscHooks();
+		$this->registerSecurityHardeningHooks();
+		$this->registerCommentDisablingHooks();
+
+		$this->setup_dev_media_proxy();
+		$this->setup_wpforms_config_bridge();
+
+		parent::__construct();
+	}
+
+	/**
+	 * Resolve the theme's text domain from the active WordPress theme.
+	 * Extracted from __construct so the constructor is purely declarative.
+	 *
+	 * Return type is narrowed to `string` because `php-stubs/wordpress-stubs`
+	 * proves `WP_Theme::get('TextDomain')` always returns a string — `TextDomain`
+	 * is part of `WP_Theme::HEADERS`, so the underlying `$this->headers` lookup
+	 * never short-circuits to `false`. The `$theme_name` property keeps its
+	 * `string|false` shape for general safety, but this resolver is specific
+	 * to `TextDomain` and benefits from the stricter type.
+	 *
+	 * @return string
+	 */
+	private function resolveThemeName(): string {
+		$theme = wp_get_theme();
+		return $theme->get( 'TextDomain' );
+	}
+
+	/**
+	 * Register Timber/Twig integration hooks — context, template loader,
+	 * namespace registration, image URL rewriting, cache location, and the
+	 * per-post block cache invalidation handler.
+	 *
+	 * @return void
+	 */
+	private function registerTimberHooks(): void {
 		add_filter( 'timber/context', array( $this, 'timber_context' ) );
 		add_filter( 'timber/twig', array( $this, 'timber_twig' ) );
 		add_filter( 'timber/loader/loader', array( $this, 'timber_twig_loader' ) );
@@ -183,48 +228,133 @@ class StarterBase extends Site {
 		add_action( 'timber/twig/environment/options', array( $this, 'timber_cache_location' ), 10, 1 );
 		add_action( 'timber/image/new_url', array( $this, 'timber_image_new_url' ) );
 		add_action( 'timber/image/new_path', array( $this, 'timber_image_new_path' ) );
+	}
+
+	/**
+	 * Register theme bootstrap hooks — theme_supports on after_setup_theme,
+	 * menu registration and post type registration on init/acf/init.
+	 *
+	 * @return void
+	 */
+	private function registerBootstrapHooks(): void {
+		add_action( 'after_setup_theme', array( $this, 'theme_supports' ) );
 		add_action( 'init', array( $this, 'register_menus' ) );
 		add_action( 'acf/init', array( $this, 'register_post_types' ) );
+	}
+
+	/**
+	 * Register asset enqueueing hooks — block assets, font preloading,
+	 * admin scripts, editor assets, and the conditional SVG favicon filter.
+	 *
+	 * @return void
+	 */
+	private function registerAssetHooks(): void {
 		add_action( 'enqueue_block_assets', array( $this, 'assets' ) );
 		add_action( 'wp_preload_resources', array( $this, 'preload_resources' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'admin_enqueue_scripts' ) );
 		add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_block_editor_assets' ) );
+		if ( is_file( get_template_directory() . '/static/' . $this->favicon_path ) ) {
+			add_filter( 'get_site_icon_url', array( $this, 'get_site_icon_url' ), 10, 3 );
+		}
+	}
+
+	/**
+	 * Register Gutenberg block hooks — block type allowlist, block registration,
+	 * render pipeline filters, block categories, and ACF block-related actions.
+	 *
+	 * @return void
+	 */
+	private function registerBlockHooks(): void {
 		add_filter( 'allowed_block_types_all', array( $this, 'allowed_block_types_all' ), 10, 2 );
 		add_action( 'init', array( $this, 'gutenberg_blocks' ) );
 		add_action( 'acf/init', array( $this, 'acf_options_page' ) );
 		add_action( 'acf/save_post', array( $this, 'clear_cache_on_options_save' ), 20 );
 		add_action( 'acf/fields/google_map/api', array( $this, 'acf_google_map_api' ) );
-		add_filter( 'acf/settings/load_json', array( $this, 'acf_load_json' ) );
-		add_filter( 'acf/json/save_paths', array( $this, 'acf_json_save_paths' ), 10, 2 );
-		add_filter( 'acf/json/save_file_name', array( $this, 'acf_json_save_file_name' ), 10, 3 );
-		add_action( 'template_redirect', array( $this, 'template_redirect' ), 0 );
-		add_filter( 'theme_page_templates', array( $this, 'theme_page_templates' ) );
-		add_action( 'restrict_manage_posts', array( $this, 'restrict_manage_posts' ) );
 		add_filter( 'render_block_data', array( $this, 'render_block_data' ), 10, 3 );
 		add_filter( 'render_block', array( $this, 'render_block' ), 10, 2 );
 		add_filter( 'block_categories_all', array( $this, 'block_categories_all' ) );
+	}
+
+	/**
+	 * Register ACF JSON sync and field-formatting hooks — load/save paths,
+	 * save filename, wysiwyg sanitization, and post-object value fix.
+	 *
+	 * @return void
+	 */
+	private function registerAcfHooks(): void {
+		add_filter( 'acf/settings/load_json', array( $this, 'acf_load_json' ) );
+		add_filter( 'acf/json/save_paths', array( $this, 'acf_json_save_paths' ), 10, 2 );
+		add_filter( 'acf/json/save_file_name', array( $this, 'acf_json_save_file_name' ), 10, 3 );
+		add_filter( 'acf/update_value/type=wysiwyg', array( $this, 'sanitize_acf_editor_value' ), 10, 1 );
+		add_filter( 'acf/format_value/type=post_object', array( $this, 'fix_wrong_acf_orders_with_ids' ), 10, 3 );
+	}
+
+	/**
+	 * Register admin UI and editor hooks — template redirect, page templates,
+	 * post list filters, admin bar, admin head, ACF admin footer, TinyMCE,
+	 * and the frontend search post-type filter.
+	 *
+	 * @return void
+	 */
+	private function registerAdminAndEditorHooks(): void {
+		add_action( 'template_redirect', array( $this, 'template_redirect' ), 0 );
+		add_filter( 'theme_page_templates', array( $this, 'theme_page_templates' ) );
+		add_action( 'restrict_manage_posts', array( $this, 'restrict_manage_posts' ) );
 		add_action( 'admin_bar_menu', array( $this, 'admin_bar_menu' ), 100 );
 		add_action( 'admin_head', array( $this, 'hide_core_update_notifications' ), 1 );
 		add_action( 'acf/input/admin_footer', array( $this, 'acf_input_admin_footer' ) );
 		add_filter( 'tiny_mce_before_init', array( $this, 'tiny_mce_before_init' ) );
-		add_filter( 'acf/update_value/type=wysiwyg', array( $this, 'sanitize_acf_editor_value' ), 10, 1 );
+		add_filter( 'pre_get_posts', array( $this, 'search_post_type_filter' ) );
+	}
+
+	/**
+	 * Register media-processing hooks — image attributes, JPEG quality,
+	 * global styles removal, attachment cleanup, duplicate upload prevention,
+	 * and the conditional filename sanitization and upload-resize filters.
+	 *
+	 * @return void
+	 */
+	private function registerMediaHooks(): void {
 		add_filter( 'wp_get_attachment_image_attributes', array( $this, 'wp_get_attachment_image_attributes' ), 10, 2 );
 		add_filter( 'jpeg_quality', array( $this, 'jpeg_quality' ) );
 		add_filter( 'wp_editor_set_quality', array( $this, 'wp_editor_set_quality' ) );
-		add_filter( 'acf/format_value/type=post_object', array( $this, 'fix_wrong_acf_orders_with_ids' ), 10, 3 );
-		add_filter( 'pre_get_posts', array( $this, 'search_post_type_filter' ) );
 		add_action( 'init', array( $this, 'remove_global_styles_and_svg_filters' ) );
 		add_action( 'delete_attachment', array( $this, 'cleanup_cached_images' ) );
 		add_filter( 'wp_handle_upload_prefilter', array( $this, 'prevent_duplicate_filename_uploads' ), 10, 1 );
-		if ( is_file( get_template_directory() . '/static/' . $this->favicon_path ) ) {
-			add_filter( 'get_site_icon_url', array( $this, 'get_site_icon_url' ), 10, 3 );
+		// Media processing (replaces clean-image-filenames + imsanity plugins)
+		if ( $this->clean_image_filenames ) {
+			add_filter( 'sanitize_file_name', array( $this, 'clean_uploaded_filename' ), 10, 1 );
 		}
+		if ( $this->max_upload_width > 0 || $this->max_upload_height > 0 ) {
+			add_filter( 'wp_handle_upload', array( $this, 'resize_uploaded_image' ), 10, 1 );
+		}
+	}
+
+	/**
+	 * Register miscellaneous one-off hooks — disables wptexturize (Alpine.js
+	 * compatibility) and CF7 paragraph auto-wrapping.
+	 *
+	 * @return void
+	 */
+	private function registerMiscHooks(): void {
 		// Disable wptexturize to prevent WordPress from converting quotes in Alpine.js x-data attributes
 		// Without this, Alpine.js attributes like x-data="{ open: false }" get converted to curly quotes
 		// which breaks JavaScript parsing
 		// https://core.trac.wordpress.org/ticket/29882
 		add_filter( 'run_wptexturize', '__return_false' );
+		// CF7 autop disable
+		add_filter( 'wpcf7_autop_or_not', '__return_false' );
+	}
 
+	/**
+	 * Register security hardening and cleanup hooks — all 14 feature-gated blocks
+	 * (wp_head cleanup, XML-RPC, emojis, feeds, search, dashboard, admin bar,
+	 * editor role, pingbacks, REST users, application passwords, author enumeration,
+	 * file editing, WP generator).
+	 *
+	 * @return void
+	 */
+	private function registerSecurityHardeningHooks(): void {
 		// Security & cleanup hooks (consolidated from portadesign.php plugin)
 		if ( $this->cleanup_wp_head ) {
 			add_action( 'init', array( $this, 'cleanup_wp_head' ) );
@@ -238,37 +368,6 @@ class StarterBase extends Site {
 		}
 		if ( $this->disable_feeds ) {
 			add_action( 'init', array( $this, 'disable_feeds' ) );
-		}
-		if ( $this->disable_comments ) {
-			// Late priority sweeps any post types already registered on `init`.
-			add_action( 'init', array( $this, 'disable_comments' ), PHP_INT_MAX );
-			// Per-post-type hook catches anything registered after the sweep (later hooks, later priorities).
-			add_action( 'registered_post_type', array( $this, 'disable_comments_for_post_type' ) );
-			add_filter( 'comments_open', '__return_false', 20 );
-			add_filter( 'pings_open', '__return_false', 20 );
-			add_filter( 'comments_array', '__return_empty_array' );
-			add_action( 'admin_menu', array( $this, 'disable_comments_admin_menu' ), 999 );
-			add_action( 'load-edit-comments.php', array( $this, 'disable_comments_admin_redirect' ) );
-			add_action( 'load-options-discussion.php', array( $this, 'disable_comments_admin_redirect' ) );
-			add_action( 'wp_enqueue_scripts', array( $this, 'disable_comments_dequeue_scripts' ) );
-			// REST: 404 standard public comment requests on /wp/v2/comments without
-			// stripping the route — non-standard comment_type values (note/review/
-			// editorial-comment/order_note/…) used by WP 6.9+ editor notes and
-			// several plugins must still pass through.
-			add_filter( 'rest_pre_dispatch', array( $this, 'disable_comments_rest_pre_dispatch' ), 10, 3 );
-			// REST: defense in depth — block insertion of standard public comments
-			// even if a plugin re-registers a route. Non-standard types pass through
-			// for the same reason as the dispatch filter above.
-			add_filter( 'rest_pre_insert_comment', array( $this, 'disable_comments_rest_insertion' ) );
-			// XML-RPC: strip comment + pingback methods (no-op when $disable_xmlrpc is true).
-			add_filter( 'xmlrpc_methods', array( $this, 'disable_comments_xmlrpc_methods' ) );
-			// HTTP: drop X-Pingback header even when XML-RPC remains enabled site-wide.
-			add_filter( 'wp_headers', array( $this, 'remove_x_pingback_header' ) );
-			// Defaults: force closed for any post type that respects core defaults.
-			add_filter( 'pre_option_default_comment_status', fn() => 'closed' );
-			add_filter( 'pre_option_default_ping_status', fn() => 'closed' );
-			// Frontend: suppress the comments-only RSS link without depending on $disable_feeds.
-			add_filter( 'feed_links_show_comments_feed', '__return_false', -1 );
 		}
 		if ( $this->disable_search ) {
 			add_action( 'parse_query', array( $this, 'disable_search' ) );
@@ -306,25 +405,46 @@ class StarterBase extends Site {
 			// Filtering the_generator suppresses the version string in wp_head AND in every feed generator.
 			add_filter( 'the_generator', '__return_empty_string' );
 		}
+	}
 
-		// Media processing (replaces clean-image-filenames + imsanity plugins)
-		if ( $this->clean_image_filenames ) {
-			add_filter( 'sanitize_file_name', array( $this, 'clean_uploaded_filename' ), 10, 1 );
+	/**
+	 * Register comment-disabling hooks — isolated from the main security block
+	 * because the 30-line disable_comments gate deserves its own concern boundary.
+	 *
+	 * @return void
+	 */
+	private function registerCommentDisablingHooks(): void {
+		if ( $this->disable_comments ) {
+			// Late priority sweeps any post types already registered on `init`.
+			add_action( 'init', array( $this, 'disable_comments' ), PHP_INT_MAX );
+			// Per-post-type hook catches anything registered after the sweep (later hooks, later priorities).
+			add_action( 'registered_post_type', array( $this, 'disable_comments_for_post_type' ) );
+			add_filter( 'comments_open', '__return_false', 20 );
+			add_filter( 'pings_open', '__return_false', 20 );
+			add_filter( 'comments_array', '__return_empty_array' );
+			add_action( 'admin_menu', array( $this, 'disable_comments_admin_menu' ), 999 );
+			add_action( 'load-edit-comments.php', array( $this, 'disable_comments_admin_redirect' ) );
+			add_action( 'load-options-discussion.php', array( $this, 'disable_comments_admin_redirect' ) );
+			add_action( 'wp_enqueue_scripts', array( $this, 'disable_comments_dequeue_scripts' ) );
+			// REST: 404 standard public comment requests on /wp/v2/comments without
+			// stripping the route — non-standard comment_type values (note/review/
+			// editorial-comment/order_note/…) used by WP 6.9+ editor notes and
+			// several plugins must still pass through.
+			add_filter( 'rest_pre_dispatch', array( $this, 'disable_comments_rest_pre_dispatch' ), 10, 3 );
+			// REST: defense in depth — block insertion of standard public comments
+			// even if a plugin re-registers a route. Non-standard types pass through
+			// for the same reason as the dispatch filter above.
+			add_filter( 'rest_pre_insert_comment', array( $this, 'disable_comments_rest_insertion' ) );
+			// XML-RPC: strip comment + pingback methods (no-op when $disable_xmlrpc is true).
+			add_filter( 'xmlrpc_methods', array( $this, 'disable_comments_xmlrpc_methods' ) );
+			// HTTP: drop X-Pingback header even when XML-RPC remains enabled site-wide.
+			add_filter( 'wp_headers', array( $this, 'remove_x_pingback_header' ) );
+			// Defaults: force closed for any post type that respects core defaults.
+			add_filter( 'pre_option_default_comment_status', fn() => 'closed' );
+			add_filter( 'pre_option_default_ping_status', fn() => 'closed' );
+			// Frontend: suppress the comments-only RSS link without depending on $disable_feeds.
+			add_filter( 'feed_links_show_comments_feed', '__return_false', -1 );
 		}
-		if ( $this->max_upload_width > 0 || $this->max_upload_height > 0 ) {
-			add_filter( 'wp_handle_upload', array( $this, 'resize_uploaded_image' ), 10, 1 );
-		}
-
-		$this->setup_dev_media_proxy();
-		$this->setup_wpforms_config_bridge();
-
-		// CF7 autop disable
-		add_filter( 'wpcf7_autop_or_not', '__return_false' );
-
-		$theme = wp_get_theme();
-		$this->theme_name = $theme->get( 'TextDomain' );
-
-		parent::__construct();
 	}
 
 	/**
