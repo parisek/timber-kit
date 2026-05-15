@@ -338,22 +338,33 @@ final class BlockRenderer {
 	}
 
 	/**
-	 * Register the per-post cache invalidation hook.
+	 * Flush the per-post block cache group.
 	 *
-	 * Called from StarterBase boot. When ACF saves a post, the cache group
-	 * `acf_block_{$post_id}` is flushed — invalidating exactly the cached
-	 * blocks tied to that post without touching others. Priority 20 matches
-	 * the original `functions.php` registration so themes' downstream hooks
-	 * that depended on this firing at 20 still see the same ordering.
+	 * Wire as the `acf/save_post` callback (StarterBase does this at priority
+	 * 20). Flushes the cache group `acf_block_{$post_id}` so cached blocks
+	 * tied to that specific post regenerate on next render, while blocks on
+	 * other posts keep their cached output.
+	 *
+	 * Guards against non-numeric post ids (e.g. `'option'` for ACF options
+	 * pages) and against environments without an external object cache that
+	 * supports `flush_group`.
+	 *
+	 * @param mixed $post_id The post id passed by the `acf/save_post` action.
 	 */
-	public static function registerInvalidation(): void {
-		add_action( 'acf/save_post', static function ( $post_id ): void {
-			if ( is_numeric( $post_id )
-				&& function_exists( 'wp_using_ext_object_cache' ) && wp_using_ext_object_cache()
-				&& function_exists( 'wp_cache_supports' ) && wp_cache_supports( 'flush_group' ) ) {
-				wp_cache_flush_group( 'acf_block_' . $post_id );
-			}
-		}, 20 );
+	public static function flushPostBlockCache( mixed $post_id ): void {
+		if ( ! is_numeric( $post_id ) ) {
+			return;
+		}
+
+		if ( ! function_exists( 'wp_using_ext_object_cache' ) || ! wp_using_ext_object_cache() ) {
+			return;
+		}
+
+		if ( ! function_exists( 'wp_cache_supports' ) || ! wp_cache_supports( 'flush_group' ) ) {
+			return;
+		}
+
+		wp_cache_flush_group( 'acf_block_' . $post_id );
 	}
 
 	/**

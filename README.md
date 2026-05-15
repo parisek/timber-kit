@@ -78,7 +78,7 @@ What it does:
 - Wraps inserter-library previews in a 16:9 aspect-ratio box for consistent thumbnails
 - Skips the `block_<name>_content` filter during inserter-library previews so example data isn't enriched with derived values that would distort thumbnails
 
-The class is `final` with three public static methods: `render()`, `isInserterPreview()`, `registerInvalidation()`.
+The class is `final` with three public static methods: `render()`, `isInserterPreview()`, `flushPostBlockCache()`.
 
 #### Filters
 
@@ -104,7 +104,7 @@ The class is `final` with three public static methods: `render()`, `isInserterPr
 
 #### Cache invalidation
 
-`BlockRenderer::registerInvalidation()` (called from `StarterBase::__construct()`) hooks `acf/save_post` at priority 20 to flush the per-post cache group `acf_block_{$post_id}` — invalidating exactly the cached blocks tied to that post without touching others.
+`BlockRenderer::flushPostBlockCache($post_id)` is the handler `StarterBase` wires to `acf/save_post` at priority 20. When ACF saves a post, the cache group `acf_block_{$post_id}` is flushed — invalidating exactly the cached blocks tied to that post without touching others. The handler guards against non-numeric ids (ACF options-page strings, opaque `block_*` ids) and against environments without `wp_cache_supports('flush_group')`.
 
 ## Usage
 
@@ -252,7 +252,7 @@ If you're upgrading from a theme that carried `timber_block_render_callback()` i
 
     `block.json` files referencing the old function name keep working.
 
-3. Remove the freestanding `add_action( 'acf/save_post', … 'acf_block_…' flush )` hook from `functions.php` — the package now owns it via `BlockRenderer::registerInvalidation()`, called from `StarterBase::__construct()`.
+3. Remove the freestanding `add_action( 'acf/save_post', … 'acf_block_…' flush )` hook from `functions.php` — the package now owns it: `StarterBase::__construct()` wires `BlockRenderer::flushPostBlockCache()` to `acf/save_post` at priority 20.
 
 4. (Optional) If you want to keep your existing Tailwind alert template for the empty-block warning, register an override:
 
