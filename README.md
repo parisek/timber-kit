@@ -88,8 +88,9 @@ The class is `final` with three public static methods: `render()`, `isInserterPr
 |--------|------|---------|
 | `timber_kit/block_renderer/cache_key` | `(string $key, array $cache_data, string $block_name)` | Override the cache key composition (e.g. add user role / segment to the variation vectors). Default: `'acf_block_' . md5(wp_json_encode($cache_data))` with `$cache_data` = `[name, data, anchor, className, post_id, lang, paged]`. |
 | `timber_kit/block_renderer/use_cache` | `(bool $enabled, string $block_name, array $attributes)` | Override the cache-enabled decision per block. Default: `true` when the block has no registered `block_<name>_content` filter and the site uses an external object cache with `flush_group` support. |
-| `timber_kit/block_renderer/empty_alert_html` | `(string $html, string $block_name, array $attributes)` | Replace the empty-block warning HTML entirely. Themes can return their own Twig render here (see migration example below). |
+| `timber_kit/block_renderer/content_data` | `(?array $content_data, int|string $post_id, bool $is_preview, array $attributes)` | Override the content data ACF would have hydrated. Return a non-null array to short-circuit `Helpers::formatFields()` — useful for tests, storybook-style block fixtures, or projects that don't use ACF. Returning `null` (default) preserves the ACF code path. |
 | `timber_kit/block_renderer/context` | `(array $context, string $block_name, bool $is_preview)` | Last-chance Twig context modification before `Timber::compile()` runs. |
+| `timber_kit/block_renderer/empty_alert_html` | `(string $html, string $block_name, array $attributes)` | Replace the empty-block warning HTML entirely. Themes can return their own Twig render here (see migration example below). |
 
 **Per-block legacy filters** (preserved from the original `timber_block_render_callback` for backwards compatibility — `<slug>` is the block name with `acf/` stripped and dashes converted to underscores, e.g. `acf/article-featured` → `article_featured`):
 

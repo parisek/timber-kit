@@ -440,6 +440,43 @@ class RenderTest extends BlockRendererTestCase {
 		$this->addToAssertionCount( 1 );
 	}
 
+	public function test_content_data_filter_can_replace_helpers_format_fields(): void {
+		// When the content_data filter returns a non-null array, BlockRenderer
+		// uses that instead of calling Helpers::formatFields. Lets tests
+		// inject content without mocking the entire ACF stack — and lets
+		// downstream projects swap ACF for custom data sources (Custom
+		// Tables, Pods, hard-coded fixtures, …).
+
+		// Capture what reached the template-filter so we can confirm
+		// our injected data flowed through.
+		$captured = null;
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ) use ( &$captured ): mixed {
+				if ( $tag === 'timber_kit/block_renderer/content_data' ) {
+					return [ 'injected' => 'from-filter', 'title' => 'Override' ];
+				}
+				if ( $tag === 'block_article_featured_template' ) {
+					$captured = $rest[0] ?? null;
+				}
+				return $value;
+			}
+		);
+
+		ob_start();
+		BlockRenderer::render(
+			Fixtures::attributes(),
+			'',
+			false,
+			0,
+			null
+		);
+		ob_end_clean();
+
+		$this->assertIsArray( $captured );
+		$this->assertSame( 'from-filter', $captured['injected'] ?? null );
+		$this->assertSame( 'Override', $captured['title'] ?? null );
+	}
+
 	public function test_inserter_preview_wraps_in_16_9_aspect_ratio(): void {
 		Functions\when( 'is_user_logged_in' )->justReturn( true );
 		Functions\when( '__' )->alias( static fn( string $text ): string => $text );

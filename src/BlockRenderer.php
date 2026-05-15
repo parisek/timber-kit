@@ -21,8 +21,9 @@ namespace Parisek\TimberKit;
  * Filters exposed (package-owned, stable across versions):
  *   - timber_kit/block_renderer/cache_key        (string $key, array $cache_data, string $block_name)
  *   - timber_kit/block_renderer/use_cache        (bool $enabled, string $block_name, array $attributes)
- *   - timber_kit/block_renderer/empty_alert_html (string $html, string $block_name, array $attributes)
+ *   - timber_kit/block_renderer/content_data     (?array $content_data, int|string $post_id, bool $is_preview, array $attributes)
  *   - timber_kit/block_renderer/context          (array $context, string $block_name, bool $is_preview)
+ *   - timber_kit/block_renderer/empty_alert_html (string $html, string $block_name, array $attributes)
  *
  * Per-block filters dispatched during render (preserved from the original
  * timber_block_render_callback for backwards compatibility — slug is the
@@ -31,6 +32,21 @@ namespace Parisek\TimberKit;
  *   - block_<slug>_template  (string $template_path, array $content_data)
  */
 final class BlockRenderer {
+
+	/**
+	 * Cache key + group prefix shared between cache writes (render()),
+	 * default cache-key composition (buildCacheKey()), and per-post
+	 * invalidation (flushPostBlockCache()). Single source of truth so
+	 * the writer and invalidator can't drift.
+	 */
+	private const CACHE_GROUP_PREFIX = 'acf_block_';
+
+	/**
+	 * Suffixes appended to `$filter_base` to form the legacy per-block
+	 * filter names (e.g. `block_article_featured_content`).
+	 */
+	private const FILTER_SUFFIX_CONTENT  = '_content';
+	private const FILTER_SUFFIX_TEMPLATE = '_template';
 
 	/**
 	 * In-request memo of compiled block output for PREVIEW renders only,
@@ -93,9 +109,9 @@ final class BlockRenderer {
 		$post_id          = acf_get_valid_post_id();
 		$real_post_id     = self::resolveRealPostId( $callback_post_id, $post_id );
 
-		$has_dynamic_filter = has_filter( "{$filter_base}_content" );
+		$has_dynamic_filter = has_filter( $filter_base . self::FILTER_SUFFIX_CONTENT );
 		$cache_key          = self::buildCacheKey( $block_name, $attributes, $post_id );
-		$cache_group        = 'acf_block_' . ( is_numeric( $real_post_id ) ? $real_post_id : 0 );
+		$cache_group        = self::CACHE_GROUP_PREFIX . ( is_numeric( $real_post_id ) ? $real_post_id : 0 );
 
 		$use_cache_default = ! $has_dynamic_filter
 			&& function_exists( 'wp_using_ext_object_cache' ) && wp_using_ext_object_cache()
@@ -119,9 +135,9 @@ final class BlockRenderer {
 		[ $content_data, $is_inserter_preview ] = self::buildContent( $post_id, $is_preview, $attributes );
 
 		if ( ! $is_inserter_preview ) {
-			$content_data = apply_filters( "{$filter_base}_content", $content_data );
+			$content_data = apply_filters( $filter_base . self::FILTER_SUFFIX_CONTENT, $content_data );
 		}
-		$template_path = apply_filters( "{$filter_base}_template", "@component/{$slug}/{$slug}.twig", $content_data );
+		$template_path = apply_filters( $filter_base . self::FILTER_SUFFIX_TEMPLATE, "@component/{$slug}/{$slug}.twig", $content_data );
 
 		$template_output = self::compile( $template_path, $content_data, $block_name, $is_preview );
 
@@ -139,13 +155,13 @@ final class BlockRenderer {
 			&& ( array_diff( wp_scripts()->queue, $scripts_before ) || array_diff( wp_styles()->queue, $styles_before ) );
 
 		self::writeToCache(
-			$template_output,
-			$cache_key,
-			$cache_group,
-			$is_preview,
-			$use_cache,
-			$has_side_effects,
-			$rendered_empty_alert
+			template_output:      $template_output,
+			cache_key:            $cache_key,
+			cache_group:          $cache_group,
+			is_preview:           $is_preview,
+			use_cache:            $use_cache,
+			has_side_effects:     $has_side_effects,
+			rendered_empty_alert: $rendered_empty_alert,
 		);
 
 		print $template_output;
@@ -222,7 +238,7 @@ final class BlockRenderer {
 			'lang'      => apply_filters( 'wpml_current_language', '' ),
 			'paged'     => get_query_var( 'paged', 0 ),
 		];
-		$default_key = 'acf_block_' . md5( wp_json_encode( $cache_data ) );
+		$default_key = self::CACHE_GROUP_PREFIX . md5( wp_json_encode( $cache_data ) );
 
 		return apply_filters( 'timber_kit/block_renderer/cache_key', $default_key, $cache_data, $block_name );
 	}
@@ -264,7 +280,20 @@ final class BlockRenderer {
 	 * @return array{0: array<string, mixed>, 1: bool}
 	 */
 	private static function buildContent( int|string $post_id, bool $is_preview, array $attributes ): array {
-		$content_data = Helpers::formatFields( $post_id, $is_preview );
+		// Allow downstream code to inject content data without going through
+		// Helpers::formatFields (e.g. non-ACF data sources, test fixtures,
+		// storybook-style block previews). Falls back to ACF when no filter
+		// registered (default: null → use formatFields()).
+		$content_data = apply_filters(
+			'timber_kit/block_renderer/content_data',
+			null,
+			$post_id,
+			$is_preview,
+			$attributes
+		);
+		if ( null === $content_data || ! is_array( $content_data ) ) {
+			$content_data = Helpers::formatFields( $post_id, $is_preview );
+		}
 
 		$is_inserter_preview = self::isInserterPreview( $is_preview, $content_data, $attributes );
 		if ( $is_inserter_preview ) {
@@ -364,7 +393,7 @@ final class BlockRenderer {
 			return;
 		}
 
-		wp_cache_flush_group( 'acf_block_' . $post_id );
+		wp_cache_flush_group( self::CACHE_GROUP_PREFIX . $post_id );
 	}
 
 	/**
