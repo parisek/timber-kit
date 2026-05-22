@@ -751,7 +751,14 @@ class Resizer {
 	 */
 	public function resizerAspect( $image, array $orientations ): array {
 		$bucket = self::classifyAspect( $image );
-		$tuples = $orientations[ $bucket ] ?? $orientations['landscape'] ?? [];
+
+		// Pick the matched bucket's tuples when present AND non-empty;
+		// otherwise fall through to 'landscape'. `??` alone would treat
+		// `portrait => []` as "set" and skip the fallback — the caller's
+		// intent for an empty list is "I haven't filled this bucket yet",
+		// same semantic as a missing key.
+		$matched = $orientations[ $bucket ] ?? null;
+		$tuples = ( is_array( $matched ) && ! empty( $matched ) ) ? $matched : ( $orientations['landscape'] ?? [] );
 
 		if ( empty( $tuples ) || ! is_array( $tuples ) ) {
 			return is_array( $image ) ? $image : [];

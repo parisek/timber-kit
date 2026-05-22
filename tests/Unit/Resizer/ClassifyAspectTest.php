@@ -243,4 +243,32 @@ class ClassifyAspectTest extends ResizerTestCase {
 		$result = $resizer->resizerAspect( $image, [ 'landscape' => [] ] );
 		$this->assertSame( $image, $result );
 	}
+
+	public function test_resizer_aspect_falls_back_to_landscape_when_matched_bucket_is_empty_array(): void {
+		// Regression for the `??`-vs-empty bug: portrait source classifies
+		// as 'portrait', the orientations map has `portrait => []` (key
+		// present but value empty) AND a populated 'landscape' fallback.
+		// Naive `??` would treat the empty array as "set" and return the
+		// source image; the helper should instead fall through to
+		// 'landscape' tuples and delegate to resizer().
+		//
+		// We assert by recording the tuples resizer() was actually invoked
+		// with via an anonymous subclass — this stays purely in dispatch
+		// territory, no filesystem reads.
+		$this->mockFilters();
+		$resizer = new class extends Resizer {
+			public ?array $invokedWith = null;
+			public function resizer( $image, array $variants ): array {
+				$this->invokedWith = $variants;
+				return [ [ 'src' => '/stubbed-by-spy.jpg' ] ];
+			}
+		};
+		$image = [ [ 'src' => '/x.jpg', 'width' => 1080, 'height' => 1920 ] ];
+		$landscape_tuples = [ [ '960', '720', '', 'crop' ] ];
+		$resizer->resizerAspect( $image, [
+			'portrait' => [],
+			'landscape' => $landscape_tuples,
+		] );
+		$this->assertSame( $landscape_tuples, $resizer->invokedWith );
+	}
 }
