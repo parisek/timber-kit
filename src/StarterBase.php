@@ -600,6 +600,9 @@ class StarterBase extends Site {
 		if ( $this->gutenberg_editor_styles ) {
 			add_theme_support( 'editor-styles' );
 			add_editor_style( 'static/dist/css/gutenberg-editor.css' );
+			foreach ( $this->font_stylesheets as $path ) {
+				add_editor_style( 'static/' . $path );
+			}
 		}
 		if ( $this->gutenberg_disable_core_patterns ) {
 			remove_theme_support( 'core-block-patterns' );

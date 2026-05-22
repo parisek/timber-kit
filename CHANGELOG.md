@@ -35,6 +35,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - Property-based test suite (`tests/Property/`, runnable via `composer test:property`) powered by `giorgiosironi/eris`. Pilot covers structural invariants of `Resizer::normalizeVariants` (type stability, ordering, count preservation, determinism) and contract invariants of the new `Helpers::formatImageFrom()` pure core (non-throw + no PHP notices, shape contract with value-type checks, null propagation). See [#19](https://github.com/parisek/timber-kit/issues/19).
 - `Helpers::formatImageFrom( ?array $raw ): ?array` — public static pure-core formatter extracted from `Helpers::formatImage()`'s associative-array branch. Behaviour preserved for well-formed inputs.
 
+### Fixed
+- `StarterBase::theme_supports()` now forwards every `$font_stylesheets` entry to the Gutenberg editor canvas via `add_editor_style('static/' . $path)`, so custom `@font-face` styles are available inside the iframed editor just like `gutenberg-editor.css`.
+
 ## [1.5.0] - 2026-05-15
 
 ### Added
