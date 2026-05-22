@@ -105,11 +105,14 @@ class ClassifyAspectTest extends ResizerTestCase {
 	}
 
 	public function test_classifies_upper_boundary_as_square(): void {
-		// Aspect = 1.099 → clearly inside the 0.1 tolerance band → square.
-		// (Exact 1100×1000 = 1.1 lands on the boundary where IEEE-754 noise
-		// makes `abs(1.1 - 1.0) <= 0.1` flip false; pick a fixture inside.)
+		// Aspect = 1.10 EXACTLY — inclusive upper boundary of the 0.1 band → square.
+		// Locks in the contract Copilot called out: with the dimension-space
+		// comparison `abs($width - $height) <= $tolerance * $height`, the
+		// boundary case `|1100 - 1000| = 100 <= 0.1 * 1000 = 100` is exact
+		// (no IEEE-754 noise). Regression-cover for the division-based form
+		// that previously failed at this exact ratio.
 		$this->mockFilters();
-		$image = [ [ 'src' => '/x.jpg', 'width' => 1099, 'height' => 1000 ] ];
+		$image = [ [ 'src' => '/x.jpg', 'width' => 1100, 'height' => 1000 ] ];
 		$this->assertSame( 'square', Resizer::classifyAspect( $image ) );
 	}
 

@@ -700,13 +700,16 @@ class Resizer {
 		}
 
 		$tolerance = (float) apply_filters( 'timber_kit_resizer_aspect_tolerance', self::DEFAULT_ASPECT_TOLERANCE );
-		$aspect = $width / $height;
 
-		if ( abs( $aspect - 1.0 ) <= $tolerance ) {
+		// Compare in dimension space instead of `abs($width/$height - 1.0) <= $tol`:
+		// the division-based form trips IEEE-754 representation noise at the
+		// inclusive boundary (1100×1000 → 1.1000...0001, which fails `<= 0.1`).
+		// Algebraically equivalent for positive dimensions, boundary-stable here.
+		if ( abs( $width - $height ) <= $tolerance * $height ) {
 			return 'square';
 		}
 
-		return $aspect > 1.0 ? 'landscape' : 'portrait';
+		return $width > $height ? 'landscape' : 'portrait';
 	}
 
 	/**
