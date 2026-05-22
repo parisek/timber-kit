@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- `|resizer_aspect` Twig filter — aspect-aware sibling of `|resizer` that classifies a source image's orientation (`landscape` / `portrait` / `square`, ±10 % tolerance around 1:1) and routes to a per-orientation tuple set. Caller passes one map `{landscape: [...], portrait: [...], square: [...]}` instead of branching on `image.width >= image.height` in Twig. Missing-metadata, non-numeric, or zero-dimension sources fall back to `landscape`. Source-element selection mirrors `|resizer` — the last entry of the image list wins. Backed by `Parisek\TimberKit\Resizer::resizerAspect()` (instance method, the filter callback) and `Resizer::classifyAspect()` (static utility, public for callers needing the bucket without resizing). When the matched orientation bucket has no tuples the helper falls through to `orientations.landscape`; if that's also empty / absent the source is returned unchanged. Implements parisek/timber-kit#16.
+- `timber_kit_resizer_aspect_tolerance` WordPress filter — overrides the 0.1 default tolerance band used by `Resizer::classifyAspect()`. Returning a smaller value (e.g. `0.05`) tightens the square band, returning a larger value (e.g. `0.2`) loosens it.
+
 ## [1.5.0] - 2026-05-15
 
 ### Added
