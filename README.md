@@ -31,7 +31,20 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
 
 ### Resizer
 
-Image resizing via [Spatie/Image](https://github.com/spatie/image). AVIF output, responsive variants with breakpoints, crop positions, and cache management. Used as a Twig filter.
+Image resizing via [Spatie/Image](https://github.com/spatie/image). AVIF output, responsive variants with breakpoints, crop positions, and cache management. Exposed as two Twig filters:
+
+- `|resizer( ...$variants )` — caller passes the variant tuples directly.
+- `|resizer_aspect({ landscape, portrait, square })` — orientation-aware sibling. Classifies the source image's aspect (`landscape` / `portrait` / `square`, ±10 % tolerance around 1:1, overridable via the `timber_kit_resizer_aspect_tolerance` WP filter) and dispatches to the matching tuple set. Missing-metadata / zero-dimension sources fall back to `landscape`; an empty matched bucket falls through to the `landscape` tuples.
+
+  ```twig
+  {{ component_picture({
+      image: item.image|resizer_aspect({
+          landscape: [['960', '720', '1280', 'crop'], ['480', '360', '', 'crop']],
+          portrait:  [['720', '960', '1280', 'crop'], ['360', '480', '', 'crop']],
+          square:    [['800', '800', '1280', 'crop'], ['400', '400', '', 'crop']],
+      }),
+  }) }}
+  ```
 
 ### DevMediaProxy
 
@@ -200,6 +213,7 @@ Available hooks:
 - `timber_kit_resizer_probe_remote_variants` — enable/disable remote variant probing, default `true`
 - `timber_kit_resizer_remote_variant_probe_timeout` — HTTP timeout for variant probes, default `2.0`
 - `timber_kit_resizer_remote_variant_probe_limit` — max remote variant probes per request, default `50`
+- `timber_kit_resizer_aspect_tolerance` — tolerance band around 1:1 used by `Resizer::classifyAspect()` to decide whether a source qualifies as `square`, default `0.1`. Returning a smaller value (e.g. `0.05`) tightens the square band; returning a larger value (e.g. `0.2`) loosens it.
 
 ### WPForms Config Bridge
 
