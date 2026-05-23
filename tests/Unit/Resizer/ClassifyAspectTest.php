@@ -247,6 +247,35 @@ class ClassifyAspectTest extends ResizerTestCase {
 		$this->assertSame( $image, $result );
 	}
 
+	public function test_resizer_aspect_dispatches_matched_bucket_tuples_to_resizer(): void {
+		// Happy-path companion to the empty-bucket fallback test below: when
+		// the matched orientation bucket carries tuples, resizerAspect() must
+		// hand THOSE tuples to resizer() — not landscape's, not an empty list.
+		// Without this, the existing spy test would still pass on a buggy
+		// implementation that ALWAYS routed to landscape regardless of source
+		// orientation.
+		$this->mockFilters();
+		$resizer = new class extends Resizer {
+			public ?array $invokedWith = null;
+			public function resizer( $image, array $variants ): array {
+				$this->invokedWith = $variants;
+				return [ [ 'src' => '/stubbed-by-spy.jpg' ] ];
+			}
+		};
+		// Portrait source: 1080×1920.
+		$image = [ [ 'src' => '/x.jpg', 'width' => 1080, 'height' => 1920 ] ];
+		$landscape_tuples = [ [ '960', '720', '', 'crop' ] ];
+		$portrait_tuples  = [ [ '720', '960', '', 'crop' ] ];
+
+		$resizer->resizerAspect( $image, [
+			'landscape' => $landscape_tuples,
+			'portrait'  => $portrait_tuples,
+		] );
+
+		// Exact identity — these are the portrait tuples, in order, no merging.
+		$this->assertSame( $portrait_tuples, $resizer->invokedWith );
+	}
+
 	public function test_resizer_aspect_falls_back_to_landscape_when_matched_bucket_is_empty_array(): void {
 		// Regression for the `??`-vs-empty bug: portrait source classifies
 		// as 'portrait', the orientations map has `portrait => []` (key

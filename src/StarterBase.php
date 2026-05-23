@@ -629,113 +629,184 @@ class StarterBase extends Site {
 		$twig->addExtension( new StringExtension() );
 		$cloner = new VarCloner();
 		$twig->addExtension( new DumpExtension( $cloner ) );
-		$twig->addFilter( new TwigFilter( 'resizer', function ( $image, ...$variants ) {
-			$resizer = new Resizer();
-			if ( Resizer::isOrientationMap( $variants ) ) {
-				return $resizer->resizerAspect( $image, $variants[0] );
-			}
-			return $resizer->resizer( $image, $variants );
-		} ) );
-		$twig->addFunction( new TwigFunction( 'component_*', function ( Environment $env, $context, $template_name, $content = [] ) {
-			try {
-				$template_name = str_replace( '_', '-', $template_name );
-				$template = $env->load( '@component/' . $template_name . '/' . $template_name . '.twig' );
-				$context = array_merge( $context, [ 'content' => $content ] );
-
-				// we use render to allow save output to twig variable
-				return $template->render( $context );
-			} catch (\Throwable $e) {
-				try {
-					$template = $env->load( '@component/alert/alert.twig' );
-					$content = [
-						'type' => 'error',
-						'container' => 'container',
-						'message' => 'Component template <strong>' . $template_name . '.twig</strong> not found',
-					];
-					$context = array_merge( $context, [ 'content' => $content ] );
-
-					return $template->render( $context );
-				} catch (\Throwable $e) {
-					return '<div>Component template <strong>' . $template_name . '.twig</strong> not found</div>';
-				}
-			}
-		}, [
+		$twig->addFilter( new TwigFilter( 'resizer', [ $this, 'twig_resizer_filter' ] ) );
+		$twig->addFunction( new TwigFunction( 'component_*', [ $this, 'twig_component_template' ], [
 			'needs_environment' => true,
-			'needs_context' => true,
-			'is_safe' => [ 'html' ]
+			'needs_context'     => true,
+			'is_safe'           => [ 'html' ],
 		] ) );
-		$twig->addFunction( new TwigFunction( 'page_*', function ( Environment $env, $context, $template_name, $content = [] ) {
-			try {
-				$template_name = str_replace( '_', '-', $template_name );
-				$template = $env->load( '@page/' . $template_name . '/' . $template_name . '.twig' );
-				$context = array_merge( $context, [ 'content' => $content ] );
-
-				// we use render to allow save output to twig variable
-				return $template->render( $context );
-			} catch (\Throwable $e) {
-				try {
-					$template = $env->load( '@component/alert/alert.twig' );
-					$content = [
-						'type' => 'error',
-						'container' => 'container',
-						'message' => 'Page template <strong>' . $template_name . '.twig</strong> not found',
-					];
-					$context = array_merge( $context, [ 'content' => $content ] );
-
-					return $template->render( $context );
-				} catch (\Throwable $e) {
-					return '<div>Page template <strong>' . $template_name . '.twig</strong> not found</div>';
-				}
-			}
-		}, [
+		$twig->addFunction( new TwigFunction( 'page_*', [ $this, 'twig_page_template' ], [
 			'needs_environment' => true,
-			'needs_context' => true,
-			'is_safe' => [ 'html' ]
+			'needs_context'     => true,
+			'is_safe'           => [ 'html' ],
 		] ) );
-		$twig->addFunction( new TwigFunction( 'template_exists', function ( Environment $env, $context, $template_name ) {
-			try {
-				$env->load( $template_name );
-				return TRUE;
-			} catch (\Throwable $e) {
-				return FALSE;
-			}
-		}, [
+		$twig->addFunction( new TwigFunction( 'template_exists', [ $this, 'twig_template_exists' ], [
 			'needs_environment' => true,
-			'needs_context' => true,
-			'is_safe' => [ 'html' ]
+			'needs_context'     => true,
+			'is_safe'           => [ 'html' ],
 		] ) );
-		$twig->addFunction( new TwigFunction( 'merge_resizer', function ( ...$items ) {
-
-			$images = [];
-
-			// fix if mobile image is empty
-			foreach ( $items as $key => $item ) {
-				if ( empty( $item ) ) {
-					unset( $items[ $key ] );
-				}
-			}
-
-			foreach ( $items as $key => $item ) {
-				foreach ( $item as $image ) {
-					if ( $key !== array_key_last( $items ) ) {
-						if ( isset( $image['media'] ) ) {
-							$images[] = $image;
-						}
-					} else {
-						$images[] = $image;
-					}
-				}
-			}
-
-			return $images;
-		} ) );
-		$twig->addFunction( new TwigFunction( 'gtm4wp_the_gtm_tag', function () {
-			if ( function_exists( 'gtm4wp_the_gtm_tag' ) ) {
-				gtm4wp_the_gtm_tag();
-			}
-		} ) );
+		$twig->addFunction( new TwigFunction( 'merge_resizer', [ $this, 'twig_merge_resizer' ] ) );
+		$twig->addFunction( new TwigFunction( 'gtm4wp_the_gtm_tag', [ $this, 'twig_gtm4wp_the_gtm_tag' ] ) );
 
 		return $twig;
+	}
+
+	/**
+	 * Polymorphic `|resizer` Twig filter dispatcher.
+	 *
+	 * Picks between the orientation-aware {@see Resizer::resizerAspect()} path
+	 * and the historical variadic-tuples {@see Resizer::resizer()} path based on
+	 * the shape of the variadic args. See {@see Resizer::isOrientationMap()}.
+	 *
+	 * Public so it's reachable as a `[$this, 'method']` Twig callable and so
+	 * unit tests can exercise the dispatch directly without fishing the closure
+	 * out of a Twig environment via reflection.
+	 *
+	 * @param mixed $image     The image (single dict or array of dicts) passed in by the Twig filter call.
+	 * @param mixed ...$variants Either positional tuples (`['w','h','media','style', quality?]`) or a single
+	 *                           orientation-keyed map (`{landscape:[...], portrait:[...], square:[...]}`).
+	 * @return array
+	 */
+	public function twig_resizer_filter( $image, ...$variants ): array {
+		$resizer = new Resizer();
+		if ( Resizer::isOrientationMap( $variants ) ) {
+			return $resizer->resizerAspect( $image, $variants[0] );
+		}
+		return $resizer->resizer( $image, $variants );
+	}
+
+	/**
+	 * `component_*` Twig function — load a component template from the
+	 * `@component/<name>/<name>.twig` convention, with a two-tier fallback:
+	 * the `@component/alert/alert.twig` template on first failure, then a
+	 * bare `<div>` on second failure.
+	 *
+	 * @param Environment          $env           Twig environment.
+	 * @param array<string,mixed>  $context       Twig render context.
+	 * @param string               $template_name Component slug (`_` is normalised to `-`).
+	 * @param array<string,mixed>  $content       Optional content data merged into `context.content`.
+	 * @return string Rendered HTML.
+	 */
+	public function twig_component_template( Environment $env, $context, string $template_name, array $content = [] ): string {
+		return $this->render_namespaced_twig_template( $env, 'component', 'Component', $context, $template_name, $content );
+	}
+
+	/**
+	 * `page_*` Twig function — sibling of {@see twig_component_template()} for
+	 * the `@page/<name>/<name>.twig` namespace.
+	 *
+	 * @param Environment          $env           Twig environment.
+	 * @param array<string,mixed>  $context       Twig render context.
+	 * @param string               $template_name Page slug (`_` is normalised to `-`).
+	 * @param array<string,mixed>  $content       Optional content data merged into `context.content`.
+	 * @return string Rendered HTML.
+	 */
+	public function twig_page_template( Environment $env, $context, string $template_name, array $content = [] ): string {
+		return $this->render_namespaced_twig_template( $env, 'page', 'Page', $context, $template_name, $content );
+	}
+
+	/**
+	 * Shared body for {@see twig_component_template()} and {@see twig_page_template()}.
+	 * Identical control flow except for the Twig namespace and the error label.
+	 *
+	 * @param Environment          $env           Twig environment.
+	 * @param string               $namespace     Twig namespace (`component`, `page`) — used as `@{namespace}/...`.
+	 * @param string               $label         Human-readable label shown in fallback messages (`Component`, `Page`).
+	 * @param array<string,mixed>  $context       Twig render context.
+	 * @param string               $template_name Slug (`_` is normalised to `-`).
+	 * @param array<string,mixed>  $content       Content data merged into `context.content`.
+	 * @return string Rendered HTML.
+	 */
+	private function render_namespaced_twig_template( Environment $env, string $namespace, string $label, $context, string $template_name, array $content ): string {
+		try {
+			$template_name = str_replace( '_', '-', $template_name );
+			$template      = $env->load( '@' . $namespace . '/' . $template_name . '/' . $template_name . '.twig' );
+			$context       = array_merge( $context, [ 'content' => $content ] );
+
+			// Use render() so callers can save output to a Twig variable.
+			return $template->render( $context );
+		} catch ( \Throwable $e ) {
+			try {
+				$template = $env->load( '@component/alert/alert.twig' );
+				$context  = array_merge( $context, [
+					'content' => [
+						'type'      => 'error',
+						'container' => 'container',
+						'message'   => $label . ' template <strong>' . $template_name . '.twig</strong> not found',
+					],
+				] );
+
+				return $template->render( $context );
+			} catch ( \Throwable $e ) {
+				return '<div>' . $label . ' template <strong>' . $template_name . '.twig</strong> not found</div>';
+			}
+		}
+	}
+
+	/**
+	 * `template_exists` Twig function — true when Twig can resolve the template
+	 * path against the current loader, false otherwise.
+	 *
+	 * @param Environment         $env           Twig environment.
+	 * @param array<string,mixed> $context       Twig render context (unused — kept for `needs_context`).
+	 * @param string              $template_name Template path (e.g. `@component/foo/foo.twig`).
+	 */
+	public function twig_template_exists( Environment $env, $context, string $template_name ): bool {
+		unset( $context );
+		try {
+			$env->load( $template_name );
+			return true;
+		} catch ( \Throwable $e ) {
+			return false;
+		}
+	}
+
+	/**
+	 * `merge_resizer` Twig function — composes multiple `Resizer`-shaped image
+	 * lists into one, taking only media-qualified variants from non-last lists
+	 * and the entire last list (including the fallback default image). Used to
+	 * stitch a mobile + desktop image picker into a single `<picture>` source set.
+	 *
+	 * Variadic — each call argument is one `Resizer` output (a list of image
+	 * dicts). PHPStan reads the per-argument type from this annotation.
+	 *
+	 * @param array<int,array<string,mixed>> ...$items One or more resizer outputs.
+	 * @return list<array<string,mixed>>
+	 */
+	public function twig_merge_resizer( ...$items ): array {
+		$images = [];
+
+		// Drop empty lists so array_key_last reflects the real last input.
+		foreach ( $items as $key => $item ) {
+			if ( empty( $item ) ) {
+				unset( $items[ $key ] );
+			}
+		}
+
+		foreach ( $items as $key => $item ) {
+			foreach ( $item as $image ) {
+				if ( $key !== array_key_last( $items ) ) {
+					if ( isset( $image['media'] ) ) {
+						$images[] = $image;
+					}
+				} else {
+					$images[] = $image;
+				}
+			}
+		}
+
+		return $images;
+	}
+
+	/**
+	 * `gtm4wp_the_gtm_tag` Twig function — calls the global GTM4WP tag printer
+	 * when the plugin is loaded; no-op otherwise so themes can call it
+	 * unconditionally.
+	 */
+	public function twig_gtm4wp_the_gtm_tag(): void {
+		if ( function_exists( 'gtm4wp_the_gtm_tag' ) ) {
+			gtm4wp_the_gtm_tag();
+		}
 	}
 
 	/**
