@@ -21,6 +21,44 @@ use Timber\ImageHelper;
 class Helpers {
 
 	/**
+	 * Pure-core shaping for a single ACF "array" return-format attachment.
+	 *
+	 * Extracted from {@see formatImage()}'s associative-array branch so it can
+	 * be exercised in isolation by property tests. No WP/ACF calls, no global
+	 * state. Returns null for degenerate input (null, empty array) instead of
+	 * an empty dict, so callers can decide whether to skip the item.
+	 *
+	 * Missing keys yield null silently via null-coalescing; this fixes a real
+	 * source of `Undefined index` notices the in-line array branch used to emit
+	 * for malformed ACF arrays. Well-formed inputs are unaffected.
+	 *
+	 * @param array<string,mixed>|null $raw  ACF attachment array as returned by
+	 *                                       `acf_get_attachment()` or stored in an
+	 *                                       array-return-format ACF field.
+	 * @return array{id:int|null,src:string|null,type:string|null,width:int|null,height:int|null,alt:string|null,caption:string|null,description:string|null}|null
+	 */
+	public static function formatImageFrom( ?array $raw ): ?array {
+		if ( null === $raw || [] === $raw ) {
+			return null;
+		}
+		// SVG width/height-1px guard preserved from the original array branch:
+		// https://core.trac.wordpress.org/ticket/26256
+		$width  = ( ! empty( $raw['width'] )  && $raw['width']  > 1 ) ? $raw['width']  : null;
+		$height = ( ! empty( $raw['height'] ) && $raw['height'] > 1 ) ? $raw['height'] : null;
+
+		return [
+			'id'          => $raw['ID']          ?? null,
+			'src'         => $raw['url']         ?? null,
+			'type'        => $raw['mime_type']   ?? null,
+			'width'       => $width,
+			'height'      => $height,
+			'alt'         => $raw['alt']         ?? null,
+			'caption'     => $raw['caption']     ?? null,
+			'description' => $raw['description'] ?? null,
+		];
+	}
+
+	/**
 	 * Normalise an ACF image field value into a flat array (or list of arrays).
 	 *
 	 * Accepts an image in any of the formats ACF may return: a Timber image
