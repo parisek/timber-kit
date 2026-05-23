@@ -717,10 +717,13 @@ class Resizer {
 	 *
 	 * Classifies the source image's orientation (via `classifyAspect()`),
 	 * picks the matching tuple set from `$orientations`, and delegates to
-	 * `resizer()`. Callers pass three named tuple sets keyed by orientation:
+	 * `resizer()`. Callers pass three named tuple sets keyed by orientation;
+	 * the Twig surface for this is the polymorphic `|resizer` filter
+	 * (StarterBase detects an orientation-keyed map as the single argument
+	 * and routes here):
 	 *
 	 * ```twig
-	 * item.image|resizer_aspect({
+	 * item.image|resizer({
 	 *     landscape: [['960', '720', '1280', 'crop'], …],
 	 *     portrait:  [['720', '960', '1280', 'crop'], …],
 	 *     square:    [['800', '800', '1280', 'crop'], …],
@@ -738,8 +741,8 @@ class Resizer {
 	 *
 	 * ```twig
 	 * merge_resizer(
-	 *     item.image|resizer_aspect({ landscape: […], portrait: […], square: […] }),
-	 *     item.image_mobile|resizer_aspect({ landscape: […], portrait: […], square: […] }),
+	 *     item.image|resizer({ landscape: […], portrait: […], square: […] }),
+	 *     item.image_mobile|resizer({ landscape: […], portrait: […], square: […] }),
 	 * )
 	 * ```
 	 *

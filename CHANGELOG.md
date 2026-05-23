@@ -6,8 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+- `|resizer` Twig filter is now **polymorphic**: in addition to the historical variadic-tuples shape, it also accepts a single orientation-keyed map. When the input is a single associative array carrying at least one of `landscape` / `portrait` / `square` keys, the filter classifies the source image's aspect (±10 % tolerance band around 1:1, overridable via the `timber_kit_resizer_aspect_tolerance` WordPress filter) and routes to the matched bucket. Caller passes one map `{ landscape: [...], portrait: [...], square: [...] }` instead of branching on `image.width >= image.height` in Twig. Missing-metadata, non-numeric, or zero-dimension sources fall back to `landscape`. Source-element selection mirrors the tuples mode — the last entry of the image list wins. When the matched orientation bucket has no tuples (empty or absent), falls through to `landscape`; if that's also empty / absent the source is returned unchanged. Backed by `Parisek\TimberKit\Resizer::resizerAspect()` (instance method) and `Resizer::classifyAspect()` (static utility, public for callers needing the bucket without resizing). Detection in `StarterBase::register()`: tuples have integer keys (width / height / media / image_style / quality), so the two shapes can't realistically collide. Backward-compatible — existing variadic tuple calls flow through the historical branch unchanged. Implements parisek/timber-kit#16.
+
+  ```twig
+  {# Tuples mode — historical, unchanged #}
+  {{ image|resizer(['960', '720', '1280', 'crop'], ['480', '360', '', 'crop']) }}
+
+  {# Orientation-aware mode — new #}
+  {{ component_picture({
+      image: item.image|resizer({
+          landscape: [['960', '720', '1280', 'crop'], ['480', '360', '', 'crop']],
+          portrait:  [['720', '960', '1280', 'crop'], ['360', '480', '', 'crop']],
+          square:    [['800', '800', '1280', 'crop'], ['400', '400', '', 'crop']],
+      })
+  }) }}
+  ```
+
+  Mirrors the parallel unification in `parisek/styleguide` so a single Twig template renders identically against the WordPress runtime and the styleguide preview.
+
+### Removed (vs. parisek/timber-kit#18 pre-release)
+- `|resizer_aspect` Twig filter — never released, folded into `|resizer` per above before the first tag.
+
 ### Added
-- `|resizer_aspect` Twig filter — aspect-aware sibling of `|resizer` that classifies a source image's orientation (`landscape` / `portrait` / `square`, ±10 % tolerance around 1:1) and routes to a per-orientation tuple set. Caller passes one map `{landscape: [...], portrait: [...], square: [...]}` instead of branching on `image.width >= image.height` in Twig. Missing-metadata, non-numeric, or zero-dimension sources fall back to `landscape`. Source-element selection mirrors `|resizer` — the last entry of the image list wins. Backed by `Parisek\TimberKit\Resizer::resizerAspect()` (instance method, the filter callback) and `Resizer::classifyAspect()` (static utility, public for callers needing the bucket without resizing). When the matched orientation bucket has no tuples the helper falls through to `orientations.landscape`; if that's also empty / absent the source is returned unchanged. Implements parisek/timber-kit#16.
 - `timber_kit_resizer_aspect_tolerance` WordPress filter — overrides the 0.1 default tolerance band used by `Resizer::classifyAspect()`. Returning a smaller value (e.g. `0.05`) tightens the square band, returning a larger value (e.g. `0.2`) loosens it.
 
 ## [1.5.0] - 2026-05-15
