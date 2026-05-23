@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- Property-based test suite (`tests/Property/`, runnable via `composer test:property`) powered by `giorgiosironi/eris`. Pilot covers structural invariants of `Resizer::normalizeVariants` (type stability, ordering, count preservation, determinism) and contract invariants of the new `Helpers::formatImageFrom()` pure core (non-throw + no PHP notices, shape contract with value-type checks, null propagation). See [#19](https://github.com/parisek/timber-kit/issues/19).
+- `Helpers::formatImageFrom( ?array $raw ): ?array` — public static pure-core formatter extracted from `Helpers::formatImage()`'s associative-array branch. Behaviour preserved for well-formed inputs.
+
+### Changed
+
+- `Helpers::formatImage()`: missing keys on the associative-array, numeric-ID, and URL-string input branches now resolve to `null` silently instead of emitting `Undefined index` notices. The WordPress SVG-1px width/height workaround is now applied consistently across all three branches (previously only the array branch had the guard).
+
 ## [1.5.0] - 2026-05-15
 
 ### Added

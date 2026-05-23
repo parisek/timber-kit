@@ -26,8 +26,10 @@ PHP 8.3 minimum. PHPStan level 5.
 ## Commands
 
 ```bash
-composer test       # vendor/bin/phpunit
-composer phpstan    # vendor/bin/phpstan analyse
+composer test           # Unit suite (Brain\Monkey, fast — default)
+composer test:property  # Eris property suite (invariant-based, ~100 iterations/test)
+composer test:all       # both suites
+composer phpstan        # vendor/bin/phpstan analyse
 ```
 
 DDEV is the local-dev expectation (`ddev exec "composer test"`). Both run in CI matrix on PHP 8.3 + 8.4.
@@ -53,6 +55,7 @@ If you ever need to back-fill a missing GitHub Release for an older tag manually
 
 - Tests use `Brain\Monkey` to mock WordPress functions. **Function definitions persist across tests in the same run** (Brain\Monkey resets call expectations but not function existence). So `function_exists('xxx')` returns `true` for the rest of the suite once any earlier test has mocked `xxx` — designing tests that exercise `function_exists`-fail paths is unreliable. Document such guards by inspection instead.
 - The `WP_Term` / `WP_Post` stubs use `#[\AllowDynamicProperties]` mirroring WP core, so tests can hydrate arbitrary properties via the constructor without PHP 8.2+ deprecations.
+- Property tests (`tests/Property/`) are isolated from Brain\Monkey by convention — they target pure functions only. If a property test needs a WP/ACF stub, add it as a plain `function_exists`-guarded function to `tests/bootstrap.property.php` rather than reaching for `Functions\when()`. The Property suite uses its own `phpunit.property.xml` config because Brain\Monkey's Patchwork raises "DefinedTooEarly" if WP function stubs live in the shared `tests/bootstrap.php`. CI pins `ERIS_SEED=${{ github.run_id }}`; reproduce a failing build with `ERIS_SEED=<run-id> composer test:property`.
 
 ## Style
 
