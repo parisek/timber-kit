@@ -43,18 +43,23 @@ class Helpers {
 		}
 		// SVG width/height-1px guard preserved from the original array branch:
 		// https://core.trac.wordpress.org/ticket/26256
-		$width  = ( ! empty( $raw['width'] )  && $raw['width']  > 1 ) ? $raw['width']  : null;
-		$height = ( ! empty( $raw['height'] ) && $raw['height'] > 1 ) ? $raw['height'] : null;
+		// Numeric guard + int cast normalises ACF's variable scalar types
+		// (sometimes int, sometimes numeric-string) into the documented
+		// `int|null` contract — and dodges PHP 8 string-to-number comparison
+		// surprises on non-numeric values.
+		$width  = ( isset( $raw['width'] )  && is_numeric( $raw['width'] )  && (int) $raw['width']  > 1 ) ? (int) $raw['width']  : null;
+		$height = ( isset( $raw['height'] ) && is_numeric( $raw['height'] ) && (int) $raw['height'] > 1 ) ? (int) $raw['height'] : null;
+		$id     = ( isset( $raw['ID'] )     && is_numeric( $raw['ID'] ) )                              ? (int) $raw['ID']     : null;
 
 		return [
-			'id'          => $raw['ID']          ?? null,
-			'src'         => $raw['url']         ?? null,
-			'type'        => $raw['mime_type']   ?? null,
+			'id'          => $id,
+			'src'         => isset( $raw['url'] )         ? (string) $raw['url']         : null,
+			'type'        => isset( $raw['mime_type'] )   ? (string) $raw['mime_type']   : null,
 			'width'       => $width,
 			'height'      => $height,
-			'alt'         => $raw['alt']         ?? null,
-			'caption'     => $raw['caption']     ?? null,
-			'description' => $raw['description'] ?? null,
+			'alt'         => isset( $raw['alt'] )         ? (string) $raw['alt']         : null,
+			'caption'     => isset( $raw['caption'] )     ? (string) $raw['caption']     : null,
+			'description' => isset( $raw['description'] ) ? (string) $raw['description'] : null,
 		];
 	}
 

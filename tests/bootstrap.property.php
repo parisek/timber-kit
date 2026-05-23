@@ -11,7 +11,7 @@ require_once __DIR__ . '/bootstrap.php';
 
 // Plain pass-through stub for `apply_filters` so Property tests (which
 // don't set up Brain\Monkey) can instantiate Resizer without a fatal.
-// Brain\Monkey's Patchwork-based interception intercepts call SITES that
+// Brain\Monkey's Patchwork-based interception intercepts call sites that
 // are preprocessed; since Property tests never call Brain\Monkey setup,
 // Patchwork is never activated and this plain stub is sufficient.
 // The Unit suite uses bootstrap.php (without this stub) so there is no

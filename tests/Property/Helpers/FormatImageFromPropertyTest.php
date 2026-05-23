@@ -35,18 +35,22 @@ class FormatImageFromPropertyTest extends PropertyTestCase {
 			Generator\constant( '' ),
 			Generator\constant( null )
 		);
-		$maybeNullNat = Generator\oneOf(
+		// Numeric-string `'800'` is a real ACF return shape; non-numeric `'abc'`
+		// stresses the is_numeric guard. Both must produce int|null without notices.
+		$numericLike = Generator\oneOf(
 			Generator\nat(),
+			Generator\map( fn ( int $n ) => (string) $n, Generator\nat() ),
+			Generator\constant( 'abc' ),
 			Generator\constant( '' ),
 			Generator\constant( null )
 		);
 
 		$arrayShape = Generator\associative( [
-			'ID'          => Generator\oneOf( Generator\nat(), Generator\constant( null ) ),
+			'ID'          => Generator\oneOf( Generator\nat(), Generator\map( fn ( int $n ) => (string) $n, Generator\nat() ), Generator\constant( 'abc' ), Generator\constant( null ) ),
 			'url'         => $maybeNullStr,
 			'mime_type'   => $maybeNullStr,
-			'width'       => $maybeNullNat,
-			'height'      => $maybeNullNat,
+			'width'       => $numericLike,
+			'height'      => $numericLike,
 			'alt'         => $maybeNullStr,
 			'caption'     => $maybeNullStr,
 			'description' => $maybeNullStr,

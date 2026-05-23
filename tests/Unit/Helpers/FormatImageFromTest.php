@@ -83,4 +83,49 @@ class FormatImageFromTest extends HelpersTestCase {
 		$this->assertNull( $result['type'] );
 		$this->assertNull( $result['alt'] );
 	}
+
+	public function test_numeric_string_dimensions_and_id_are_cast_to_int(): void {
+		// ACF sometimes hands back numeric strings instead of ints
+		// (custom return-format normalisers, legacy meta, etc.).
+		// The contract is int|null, so the formatter must cast.
+		$raw = [
+			'ID'          => '42',
+			'url'         => 'https://example.com/image.jpg',
+			'mime_type'   => 'image/jpeg',
+			'width'       => '800',
+			'height'      => '600',
+			'alt'         => 'x',
+			'caption'     => 'x',
+			'description' => 'x',
+		];
+
+		$result = Helpers::formatImageFrom( $raw );
+
+		$this->assertSame( 42,  $result['id'] );
+		$this->assertSame( 800, $result['width'] );
+		$this->assertSame( 600, $result['height'] );
+	}
+
+	public function test_non_numeric_dimensions_do_not_emit_warnings(): void {
+		// `'foo' > 1` in earlier PHPs emitted "non-well-formed numeric value"
+		// notices. The isset + is_numeric guard avoids that branch entirely.
+		$prevLevel = error_reporting( E_ALL );
+		set_error_handler( static function ( int $errno, string $errstr ): bool {
+			throw new \RuntimeException( "Unexpected PHP error: $errstr" );
+		} );
+		try {
+			$result = Helpers::formatImageFrom( [
+				'ID'     => 'not-numeric',
+				'width'  => 'abc',
+				'height' => 'def',
+			] );
+		} finally {
+			restore_error_handler();
+			error_reporting( $prevLevel );
+		}
+
+		$this->assertNull( $result['id'] );
+		$this->assertNull( $result['width'] );
+		$this->assertNull( $result['height'] );
+	}
 }
