@@ -16,9 +16,12 @@ use Tests\Property\Support\PropertyTestCase;
  *  - Shape contract: output is null or a dict with exactly the documented keys.
  *  - Null propagation for the two degenerate inputs.
  *
- * The generator deliberately produces realistically dirty input (missing
- * keys, wrong types, null values) — not "valid ACF". The point is to find
- * implicit assumptions in the formatter that fail on real-world data.
+ * The generator deliberately produces dirty values for every documented
+ * ACF key (null / empty string / wrong-type scalars) — not "valid ACF".
+ * The point is to find implicit assumptions in the formatter that fail
+ * on real-world data. (Sparse-key coverage — i.e. arrays where a key is
+ * genuinely absent — lives in `FormatImageFromTest::test_missing_keys_default_to_null_without_warning`
+ * because `Generator\associative` always emits all declared keys.)
  */
 class FormatImageFromPropertyTest extends PropertyTestCase {
 
@@ -77,7 +80,7 @@ class FormatImageFromPropertyTest extends PropertyTestCase {
 				$result = Helpers::formatImageFrom( $raw );
 
 				if ( null === $result ) {
-					$this->assertTrue( true );
+					$this->addToAssertionCount( 1 );
 					return;
 				}
 
@@ -86,6 +89,18 @@ class FormatImageFromPropertyTest extends PropertyTestCase {
 					self::EXPECTED_KEYS,
 					array_keys( $result )
 				);
+
+				// Value-type contract: each documented key matches its declared type
+				// (int|null for id/width/height, string|null for the rest).
+				$this->assertTrue( null === $result['id']     || is_int( $result['id'] ),     'id must be int|null' );
+				$this->assertTrue( null === $result['width']  || is_int( $result['width'] ),  'width must be int|null' );
+				$this->assertTrue( null === $result['height'] || is_int( $result['height'] ), 'height must be int|null' );
+				foreach ( [ 'src', 'type', 'alt', 'caption', 'description' ] as $key ) {
+					$this->assertTrue(
+						null === $result[ $key ] || is_string( $result[ $key ] ),
+						"$key must be string|null"
+					);
+				}
 			} );
 	}
 
