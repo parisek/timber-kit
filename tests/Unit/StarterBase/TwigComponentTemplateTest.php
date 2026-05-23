@@ -7,7 +7,6 @@ namespace Tests\Unit\StarterBase;
 use Tests\Unit\StarterBaseTestCase;
 use Twig\Environment;
 use Twig\Loader\ArrayLoader;
-use Twig\TemplateWrapper;
 
 /**
  * Coverage for `StarterBase::twig_component_template()` — the `component_*`

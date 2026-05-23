@@ -301,10 +301,14 @@ class FormatImageTest extends HelpersTestCase {
 		} );
 
 		// Treat ANY notice/warning during formatImage() as a test failure —
-		// the contract is "silent null", not "null with a notice".
+		// the contract is "silent null", not "null with a notice". Limit the
+		// promotion to the levels named in the contract: deprecations and
+		// other levels (E_USER_*, E_STRICT etc.) bubble to PHPUnit normally,
+		// so e.g. a PHP 8.4 deprecation inside a downstream library doesn't
+		// turn this test red for an unrelated reason.
 		set_error_handler( static function ( int $errno, string $errstr ): bool {
 			throw new \ErrorException( $errstr, 0, $errno );
-		} );
+		}, E_NOTICE | E_WARNING );
 
 		try {
 			$result = Helpers::formatImage( 42 );

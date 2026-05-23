@@ -5,12 +5,21 @@ declare(strict_types=1);
 namespace Tests\Unit\StarterBase;
 
 use Brain\Monkey\Functions;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\Unit\StarterBaseTestCase;
 
 /**
  * Coverage for `StarterBase::twig_gtm4wp_the_gtm_tag()` — Twig function that
  * calls the global `gtm4wp_the_gtm_tag()` printer when GTM4WP is loaded and
  * is a silent no-op otherwise, so themes can call it unconditionally.
+ *
+ * Note: the `function_exists == false` path is forced into a fresh PHP
+ * process (`#[RunInSeparateProcess]` + `#[PreserveGlobalState(false)]`)
+ * because Brain\Monkey function definitions persist across tests in the
+ * same run — relying on ordering would be order-dependent and silently
+ * drop coverage as soon as any earlier test in the suite defines
+ * `gtm4wp_the_gtm_tag`.
  */
 class TwigGtm4wpTagTest extends StarterBaseTestCase {
 
@@ -26,24 +35,18 @@ class TwigGtm4wpTagTest extends StarterBaseTestCase {
 		$this->assertTrue( $called );
 	}
 
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState(false)]
 	public function test_no_op_when_gtm4wp_function_undefined(): void {
-		// Brain\Monkey function definitions persist across tests in the same
-		// run, so this test relies on running before any test that defines
-		// `gtm4wp_the_gtm_tag` — keep it in this file (and at the top of any
-		// test sequence) to preserve the function_exists==false path.
-		//
-		// If this assertion ever fails due to ordering, the right fix is to
-		// move it to its own process-isolated test (annotation
-		// `@runInSeparateProcess`) rather than mocking the gone-function path.
-		if ( function_exists( 'gtm4wp_the_gtm_tag' ) ) {
-			$this->markTestSkipped( 'gtm4wp_the_gtm_tag already defined in this PHP process by an earlier test.' );
-		}
+		// Fresh PHP process: no earlier Brain\Monkey definitions, no
+		// `gtm4wp_the_gtm_tag` global. The contract is "no fatal, no
+		// exception" — `function_exists()` guards the global call.
+		$this->assertFalse( function_exists( 'gtm4wp_the_gtm_tag' ) );
 
 		$base = $this->createStarterBase();
-
-		// Just verifying no fatal/exception is thrown is the entire contract.
 		$base->twig_gtm4wp_the_gtm_tag();
 
-		$this->assertTrue( true );
+		// Reaching this line is the assertion — the call returned without throwing.
+		$this->addToAssertionCount( 1 );
 	}
 }
