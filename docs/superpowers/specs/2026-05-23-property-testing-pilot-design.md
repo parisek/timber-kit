@@ -19,9 +19,9 @@ This spec describes a pilot that introduces property-based testing to the repo (
 
 - Establish `tests/Property/` suite, `composer test:property` script, and CI integration as reusable infrastructure for future property tests.
 - Apply property testing to two targets that exercise two different invariant styles:
-  - `Resizer::normalizeVariants`: idempotence + type stability + ordering + count preservation.
-  - `Helpers::formatImageFrom` (pure core extracted from `formatImage`): non-throw + shape contract + null propagation.
-- Extract `Helpers::formatImage` into a thin WP/ACF wrapper plus a pure transformation core, so property tests can target the core without Brain\Monkey state per iteration.
+  - `Resizer::normalizeVariants`: type stability + ordering + count preservation + determinism. **Idempotence does not apply** — input domain (indexed tuples) differs from output domain (associative dicts).
+  - `Helpers::formatImageFrom` (pure core extracted from the array branch of `formatImage`): non-throw + shape contract + null propagation.
+- Extract the array-branch of `Helpers::formatImage` into a thin WP/ACF wrapper plus a pure transformation core, so property tests can target the core without Brain\Monkey state per iteration.
 
 ## Non-goals
 
@@ -43,7 +43,8 @@ This spec describes a pilot that introduces property-based testing to the repo (
 | `tests/Property/Support/ErisCase.php` | shared trait — wraps `Eris\TestTrait`, applies default iteration count and CI seed handling |
 | `tests/Property/Resizer/NormalizeVariantsPropertyTest.php` | new, four invariants |
 | `tests/Property/Helpers/FormatImageFromPropertyTest.php` | new, three invariants |
-| `tests/Unit/Helpers/FormatImageTest.php` | retargeted to exercise the boundary (`formatImage()` wrapper); pure cases may shift to a new `FormatImageFromTest.php` example test |
+| `tests/Unit/Helpers/FormatImageTest.php` | unchanged — already exercises the `formatImage()` boundary and pre-refactor behaviour is preserved bit-for-bit |
+| `tests/Unit/Helpers/FormatImageFromTest.php` | new — minimal example tests pinning the documented happy path and the two null-input cases, so the contract is asserted independently of property tests |
 | `.github/workflows/tests.yml` | add `composer test:property` step after `composer test`, with `ERIS_SEED: ${{ github.run_id }}` |
 | `AGENTS.md` | update Commands section: list `composer test:property` and `composer test:all` |
 | `CHANGELOG.md` | add `### Added` entry under `[Unreleased]` |
@@ -58,61 +59,80 @@ No other `src/` files change.
 
 ## Production refactor
 
-Only `Helpers::formatImage` changes.
+Only `Helpers::formatImage` changes — and only by extracting one helper. Public API and return shape are preserved exactly.
 
-**Before** (today): `formatImage( int|array|null $image )` accepts an attachment ID, calls `acf_get_attachment()` / `wp_get_attachment_metadata()` / `wp_get_attachment_image_src()` to resolve it, then shapes the result. The resolution and the shaping live in one function, so testing the shaping in isolation requires mocking WP/ACF.
+**Current behaviour** (reading `src/Helpers.php:37-115`): `formatImage( $image, $post_id = null, $field = null )` returns a **list** (`array`) of image dicts — empty list when input cannot be resolved, list with one element for a single image, list with N elements for a gallery. Five input branches:
 
-**After:**
+1. Countable, non-associative → recurse for each item, collect non-empty results.
+2. Object (typically Timber image) → build one dict from object properties, applying the WP svg-width-1px guard.
+3. Associative array (post-ACF "array" return format) → build one dict from array keys, applying the same svg guard.
+4. Numeric (attachment ID) → call `acf_get_attachment()`, then take the array branch shape.
+5. URL string → resolve via `attachment_url_to_postid()` + `acf_get_attachment()`, then take the array branch shape.
+
+The branches that need WP/ACF (numeric, URL) call out to globals. The branches that don't (object, associative array) are pure data shaping today, but they live inline so a test can't reach them without a Resizer/Helpers harness that sets up Monkey for the rest of the function.
+
+**Refactor:** extract the associative-array branch into a public static pure function.
 
 ```php
-public static function formatImage( int|array|null $image ): ?array {
-    if ( null === $image ) {
+/**
+ * Shape a single ACF "array" return-format attachment into the Twig-consumable dict.
+ *
+ * Pure: no WP/ACF calls, no global state. Suitable for property testing.
+ * Returns null for degenerate input (null, empty array) instead of an empty
+ * dict, so wrapper code can decide whether to skip the item.
+ *
+ * @param array<string,mixed>|null $raw  ACF attachment array as returned by
+ *                                       `acf_get_attachment()` or stored in an
+ *                                       array-return-format ACF field.
+ * @return array{id:int|null,src:string|null,type:string|null,width:int|null,height:int|null,alt:string|null,caption:string|null,description:string|null}|null
+ */
+public static function formatImageFrom( ?array $raw ): ?array {
+    if ( null === $raw || [] === $raw ) {
         return null;
     }
-    if ( is_int( $image ) ) {
-        // Resolve via ACF / WP. Exact call shape preserved from current impl.
-        $raw = function_exists( 'acf_get_attachment' )
-            ? acf_get_attachment( $image )
-            : null;
-        if ( ! is_array( $raw ) ) {
-            return null;
-        }
-        return self::formatImageFrom( $raw );
-    }
-    return self::formatImageFrom( $image );
-}
-
-public static function formatImageFrom( ?array $raw ): ?array {
-    // Pure: takes the post-ACF-resolution array, returns the Twig-shaped dict
-    // or null. No WP calls, no global state, no Brain\Monkey needed in tests.
-    // Body mirrors the current array-branch of formatImage().
+    // svg width-1px guard preserved from current behaviour
+    $width  = ( ! empty( $raw['width'] )  && $raw['width']  > 1 ) ? $raw['width']  : null;
+    $height = ( ! empty( $raw['height'] ) && $raw['height'] > 1 ) ? $raw['height'] : null;
+    return [
+        'id'          => $raw['ID']          ?? null,
+        'src'         => $raw['url']         ?? null,
+        'type'        => $raw['mime_type']   ?? null,
+        'width'       => $width,
+        'height'      => $height,
+        'alt'         => $raw['alt']         ?? null,
+        'caption'     => $raw['caption']     ?? null,
+        'description' => $raw['description'] ?? null,
+    ];
 }
 ```
 
-The exact set of output keys (`url`, `alt`, `width`, `height`, possibly `sizes`, `caption`, `mime_type`, `ID`) is read from current `formatImage()` implementation when writing the code — this spec does not freeze that list, the existing example tests do.
+`formatImage()` is rewritten to call `formatImageFrom()` from the associative-array, numeric, and URL branches. Object branch is left inline — it has different field access (`$image->ID` not `$image['ID']`, `$image->src` not `$image['url']`, `$image->post_mime_type` not `$image['mime_type']`) and is rare. **Pre-refactor behaviour is preserved bit-for-bit**: the existing `FormatImageTest` continues to pass without modification.
 
-`tests/Unit/Helpers/FormatImageTest.php` continues to drive `formatImage()` at the boundary. Pure cases that don't need WP/ACF mocking may move to a sibling `FormatImageFromTest.php` for clarity; that's a tidy-up, not a behavioral change.
+Property tests live in `FormatImageFromPropertyTest` and target only the new pure function. The object branch remains exercised only by existing example tests.
+
+A small intentional **behaviour change** sneaks in via the extraction: the current associative-array branch uses raw access (`$image['url']`, `$image['mime_type']`, etc.) which would emit `Undefined index` warnings for ACF arrays missing those keys. The new pure function uses null-coalescing, so missing keys yield `null` silently. This matches what production already does for the numeric and URL branches today (which copy from a freshly-resolved `acf_get_attachment()` result that always has those keys) and removes a real source of PHP notices in the array branch. Existing tests cover only well-formed inputs, so this change is invisible to them.
 
 ## Invariants
 
 ### `Resizer::normalizeVariants`
 
-1. **Idempotence.** For any input `$v`:
-   `$this->callPrivate( $r, 'normalizeVariants', [ $this->callPrivate( $r, 'normalizeVariants', [ $v ] ) ] ) === $this->callPrivate( $r, 'normalizeVariants', [ $v ] )`.
+The function's input domain (indexed tuples accessed via `$variant[0..4]`) differs from its output domain (associative dicts keyed by `width`/`height`/`media`/`image_style`/`quality`). Idempotence in the classic sense (`f(f(x)) === f(x)`) is therefore not a meaningful invariant — feeding the output back in would crash on undefined indices. The four invariants below capture what the function does guarantee.
 
-2. **Type stability.** Every element of the output has exactly the keys `width:int`, `height:int`, `media:int`, `image_style:string`, `quality:int`. No extras, no missing keys, types as declared regardless of input string-ness.
+1. **Type stability.** Every element of the output has exactly the keys `width:int`, `height:int`, `media:int`, `image_style:string`, `quality:int`. No extras, no missing keys, types as declared regardless of input string-ness.
 
-3. **Ordering.** When the output has two or more elements with distinct `media` values, the array is sorted by `media DESC`. (Stable for ties is not asserted — current implementation does not guarantee it.)
+2. **Ordering.** When the output has two or more elements with distinct `media` values, the array is sorted by `media DESC`. (Stability for ties is not asserted — current implementation does not guarantee it.)
 
-4. **Count preservation.** `count(normalize($v)) === count($v)`. Normalisation neither drops nor duplicates variants.
+3. **Count preservation.** `count(normalize($v)) === count($v)`. Normalisation neither drops nor duplicates variants.
+
+4. **Determinism.** Two consecutive calls with the same input return equal output. Catches accidental dependency on global state or randomness.
 
 ### `Helpers::formatImageFrom`
 
-1. **Non-throw.** For any `?array $raw` the call **never throws Throwable**. This is the strongest guarantee — Twig templates do not catch exceptions from formatters.
+1. **Non-throw.** For any `?array $raw` the call **never throws Throwable** and **emits no PHP warnings or notices**. This is the strongest guarantee — Twig templates do not catch exceptions from formatters, and notices in production logs are noise.
 
-2. **Shape contract.** Output is either `null` or an associative array containing at minimum the keys `url`, `alt`, `width`, `height`. If output is an array, no required key is missing. (Final required-key list is locked in by reading current implementation.)
+2. **Shape contract.** Output is either `null` or an associative array with exactly the keys `id, src, type, width, height, alt, caption, description`. No extras, no missing keys. (See the function signature in the Production refactor section for value types.)
 
-3. **Null propagation.** `formatImageFrom( null ) === null`. `formatImageFrom( [] ) === null`. Degenerate input yields `null`, not a dict full of empty values that templates render as broken HTML.
+3. **Null propagation.** `formatImageFrom( null ) === null` and `formatImageFrom( [] ) === null`. Degenerate input yields `null`, not a dict full of empty values that templates render as broken HTML.
 
 ## Generators
 
