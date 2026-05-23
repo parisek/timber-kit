@@ -14,26 +14,32 @@
 
 ## File Structure
 
+> **NOTE (post-implementation):** Two structural assumptions in this plan turned out wrong during execution and were corrected in the actual PR. They are flagged inline below; the task steps as written would have produced broken state if followed literally. See the spec doc for the rationale and the final architecture.
+
 | Path | Status | Responsibility |
 | --- | --- | --- |
-| `composer.json` | modify | add Eris dev dep, retarget `scripts.test`, add `test:property` + `test:all` |
-| `phpunit.xml` | modify | add `<testsuite name="Property">` |
-| `tests/bootstrap.php` | modify | add plain-function stub for `apply_filters` (was Monkey-only) |
-| `tests/Property/Support/PropertyTestCase.php` | create | abstract base — `Eris\TestTrait`, default iteration count, seed handling, `callPrivate` reflection helper |
+| `composer.json` | modify | add Eris dev dep, retarget `scripts.test`, add `test:property` (using `-c phpunit.property.xml`) + `test:all` (chain via `["@test", "@test:property"]`) |
+| `phpunit.xml` | modify | **stays Unit-only** (the plan originally said to register a Property suite here; that won't work — see note) |
+| `phpunit.property.xml` | create | dedicated Property-suite config pointing at `tests/bootstrap.property.php` |
+| `tests/bootstrap.property.php` | create | chain `tests/bootstrap.php` then define `apply_filters` stub. Lives separate from the shared bootstrap because Patchwork raises `DefinedTooEarly` on Brain\Monkey'ed Unit tests when WP function stubs come from a bootstrap it didn't preprocess |
+| `tests/Property/Support/PropertyTestCase.php` | create | abstract base — `Eris\TestTrait` + `callPrivate` reflection helper + `getTestCaseAnnotations()` shim that lets Eris 0.14.1 work on PHPUnit 11 (returns empty annotations; `@eris-repeat` is dead until Eris ships upstream compat) |
 | `tests/Property/SmokeTest.php` | create | one trivial property to prove the suite runs in CI |
 | `tests/Property/Resizer/NormalizeVariantsPropertyTest.php` | create | four invariants (type stability, ordering, count, determinism) |
 | `tests/Property/Helpers/FormatImageFromPropertyTest.php` | create | three invariants (non-throw + no-notice, shape, null propagation) |
-| `src/Helpers.php` | modify | extract `formatImageFrom()`; rewrite `formatImage()` array-branch to delegate |
-| `tests/Unit/Helpers/FormatImageFromTest.php` | create | example tests pinning the documented contract |
-| `.github/workflows/tests.yml` | modify | add `composer test:property` step (with `ERIS_SEED` for reproducibility) |
-| `AGENTS.md` | modify | update Commands section: list `composer test:property`, `composer test:all` |
-| `CHANGELOG.md` | modify | add `### Added` entry under `[Unreleased]` |
+| `src/Helpers.php` | modify | extract `formatImageFrom()`; rewrite `formatImage()` array/numeric/URL branches to delegate; cast width/height/id to `int|null` (numeric-string ACF returns) |
+| `tests/Unit/Helpers/FormatImageFromTest.php` | create | example tests pinning the documented contract, including numeric-string and non-numeric regression cases |
+| `.gitattributes` | modify | `export-ignore` `/phpunit.property.xml` and `/docs` |
+| `.github/workflows/tests.yml` | modify | named `Unit tests` + `Property tests` steps; `ERIS_SEED: ${{ github.run_id }}` on the Property step |
+| `AGENTS.md` | modify | update Commands section; add Testing notes bullet about the two-bootstrap architecture + `ERIS_SEED` reproduction |
+| `CHANGELOG.md` | modify | `### Added` entry + `### Changed` note about SVG-1px guard extension and silent null-coalescing in `formatImage()` |
 
-Boundaries: `tests/Property/*` never imports `Brain\Monkey` and never asserts on WP/ACF function behaviour. If a property test needs a stub, the stub goes into `tests/bootstrap.php` as a plain function. PHPStan analyses only `src/`, so test-side type churn does not require new ignores.
+Boundaries: `tests/Property/*` never imports `Brain\Monkey` and never asserts on WP/ACF function behaviour. If a property test needs a stub, the stub goes into `tests/bootstrap.property.php` (not the shared `tests/bootstrap.php`) as a plain function. PHPStan analyses only `src/`, so test-side type churn does not require new ignores.
 
 ---
 
 ## Task 1: Infrastructure — Eris dep, suite, composer scripts
+
+> **Correction:** Step 3 as written below adds the Property suite to `phpunit.xml`. In the actual PR this turned out to be wrong (see Task 2 correction). The final state has `phpunit.xml` Unit-only and a separate `phpunit.property.xml`. The composer scripts in Step 2 also evolved — `test:property` ended up as `vendor/bin/phpunit -c phpunit.property.xml`, and `test:all` as `["@test", "@test:property"]`. The literal steps below were what was tried first.
 
 **Files:**
 - Modify: `composer.json`
@@ -124,6 +130,8 @@ EOF
 ---
 
 ## Task 2: Bootstrap stub + PropertyTestCase base
+
+> **Correction:** Step 1 instructs adding the `apply_filters` stub to `tests/bootstrap.php`. Doing that broke 186 Unit tests with Patchwork's `DefinedTooEarly` exception: Brain\Monkey's call interception requires that any function it patches come from a file Patchwork preprocessed, and `tests/bootstrap.php` is not preprocessed. The actual PR creates a new `tests/bootstrap.property.php` that chains the shared bootstrap and adds the stub, paired with a new `phpunit.property.xml`. The `composer test:property` script and `.gitattributes` were updated accordingly. Also: `PropertyTestCase::setUp()`'s env-driven iteration/seed logic in Step 2 was later deleted — Eris's `@before` hook overwrites `$this->iterations` and reads `ERIS_SEED` natively, so the setUp code was dead. A `getTestCaseAnnotations()` override was added instead to make Eris 0.14.1 work on PHPUnit 11 (which removed `parseTestMethodAnnotations`).
 
 **Files:**
 - Modify: `tests/bootstrap.php`

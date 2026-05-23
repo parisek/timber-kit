@@ -37,17 +37,20 @@ This spec describes a pilot that introduces property-based testing to the repo (
 
 | Path | Change |
 | --- | --- |
-| `composer.json` | add `require-dev: giorgiosironi/eris ^0.14`; tighten `scripts.test` to `--testsuite=Unit`; add `scripts.test:property` and `scripts.test:all` |
-| `phpunit.xml` | add `<testsuite name="Property">tests/Property</testsuite>` |
+| `composer.json` | add `require-dev: giorgiosironi/eris ^0.14`; tighten `scripts.test` to `--testsuite=Unit`; add `scripts.test:property` pointing at `phpunit.property.xml` and `scripts.test:all` chaining `@test` + `@test:property` |
+| `phpunit.xml` | stays Unit-only |
+| `phpunit.property.xml` | **new** — dedicated config for the Property suite, points at `tests/bootstrap.property.php` (see note below on why the bootstraps are split) |
+| `tests/bootstrap.property.php` | **new** — chains `require_once tests/bootstrap.php` then defines a pass-through `apply_filters` stub. Lives separate from `tests/bootstrap.php` because defining `apply_filters` in the shared bootstrap triggers Patchwork's `DefinedTooEarly` on every Unit test that uses Brain\Monkey to mock that function |
 | `src/Helpers.php` | extract pure core `formatImageFrom( ?array $raw ): ?array`; rewrite `formatImage()` as a thin wrapper that resolves WP/ACF inputs and delegates |
-| `tests/Property/Support/ErisCase.php` | shared trait — wraps `Eris\TestTrait`, applies default iteration count and CI seed handling |
+| `tests/Property/Support/PropertyTestCase.php` | abstract base — wraps `Eris\TestTrait`, ships `callPrivate()` reflection helper, plus a `getTestCaseAnnotations()` shim that makes Eris 0.14.1 work on PHPUnit 11 (Eris calls the removed `parseTestMethodAnnotations()`; the shim returns empty annotations so Eris falls back to defaults) |
 | `tests/Property/Resizer/NormalizeVariantsPropertyTest.php` | new, four invariants |
 | `tests/Property/Helpers/FormatImageFromPropertyTest.php` | new, three invariants |
 | `tests/Unit/Helpers/FormatImageTest.php` | unchanged — already exercises the `formatImage()` boundary and pre-refactor behaviour is preserved bit-for-bit |
 | `tests/Unit/Helpers/FormatImageFromTest.php` | new — minimal example tests pinning the documented happy path and the two null-input cases, so the contract is asserted independently of property tests |
-| `.github/workflows/tests.yml` | add `composer test:property` step after `composer test`, with `ERIS_SEED: ${{ github.run_id }}` |
-| `AGENTS.md` | update Commands section: list `composer test:property` and `composer test:all` |
-| `CHANGELOG.md` | add `### Added` entry under `[Unreleased]` |
+| `.gitattributes` | `export-ignore` `/phpunit.property.xml` and `/docs` so they don't ship with `composer require` |
+| `.github/workflows/tests.yml` | add named `Unit tests` (`composer test`) + `Property tests` (`composer test:property`) steps, with `ERIS_SEED: ${{ github.run_id }}` on the Property step |
+| `AGENTS.md` | update Commands section: list `composer test:property` and `composer test:all`; add Testing notes bullet about the two-bootstrap architecture and `ERIS_SEED` |
+| `CHANGELOG.md` | add `### Added` entry under `[Unreleased]` plus a `### Changed` note about the SVG-1px guard extension and silent null-coalescing in `formatImage()` |
 
 No other `src/` files change.
 
@@ -211,34 +214,64 @@ The generator deliberately produces **realistically dirty input**, not "valid AC
 ```json
 "scripts": {
     "test":          "vendor/bin/phpunit --testsuite=Unit",
-    "test:property": "vendor/bin/phpunit --testsuite=Property",
-    "test:all":      "vendor/bin/phpunit",
+    "test:property": "vendor/bin/phpunit -c phpunit.property.xml",
+    "test:all":      ["@test", "@test:property"],
     "phpstan":       "php -d memory_limit=2G vendor/bin/phpstan analyse"
 }
 ```
 
-Note: `composer test` narrows to the Unit suite. With no Property tests yet existing the behaviour is unchanged; after this PR `composer test` stays fast, contributors run `composer test:property` when they want the slower invariant pass.
+Note: `composer test` narrows to the Unit suite. `composer test:property` uses a dedicated `phpunit.property.xml` because the Property suite needs its own bootstrap (see below). `composer test:all` chains the two scripts sequentially via Composer's `@script` reference — running each with the right bootstrap.
 
 `AGENTS.md` Commands section is updated to reflect the split.
 
-### `phpunit.xml`
+### Two PHPUnit configs, two bootstraps
+
+Original plan was a single `phpunit.xml` with both `<testsuite>` blocks sharing `tests/bootstrap.php`. That approach broke 186 Unit tests: defining `apply_filters` in the shared bootstrap triggers Patchwork's `DefinedTooEarly` exception on every Unit test that calls `Functions\when('apply_filters')->alias(...)`. Patchwork can only intercept functions whose declarations come from files it has preprocessed; bootstrap files load before its autoload hook activates.
+
+The workable layout:
 
 ```xml
-<testsuites>
-    <testsuite name="Unit">
-        <directory suffix="Test.php">tests/Unit</directory>
-    </testsuite>
-    <testsuite name="Property">
-        <directory suffix="Test.php">tests/Property</directory>
-    </testsuite>
-</testsuites>
+<!-- phpunit.xml (Unit only) -->
+<phpunit bootstrap="tests/bootstrap.php">
+    <testsuites>
+        <testsuite name="Unit">
+            <directory suffix="Test.php">tests/Unit</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>
 ```
 
-### `ErisCase` trait
+```xml
+<!-- phpunit.property.xml (Property only) -->
+<phpunit bootstrap="tests/bootstrap.property.php">
+    <testsuites>
+        <testsuite name="Property">
+            <directory suffix="Test.php">tests/Property</directory>
+        </testsuite>
+    </testsuites>
+</phpunit>
+```
 
-Wraps `Eris\TestTrait`. Centralises:
-- Default iteration count (200 for cheap properties, 100 for everything else — invoked per test).
-- CI seed pinning via `ERIS_SEED` env var. Locally seed is random; in CI seed is `${{ github.run_id }}` so a failing build is reproducible by `ERIS_SEED=<run-id> composer test:property`.
+`tests/bootstrap.property.php` simply chains the shared bootstrap then defines the `apply_filters` stub:
+
+```php
+require_once __DIR__ . '/bootstrap.php';
+
+if ( ! function_exists( 'apply_filters' ) ) {
+    function apply_filters( $tag, $value, ...$args ) {
+        return $value;
+    }
+}
+```
+
+### `PropertyTestCase` abstract base
+
+Concrete class (not a trait — needs an `abstract class` so `extends` enforces the contract). Provides:
+
+- `use Eris\TestTrait` — `forAll`, `limitTo`, `withSeed`.
+- `callPrivate()` — reflection helper for private targets like `Resizer::normalizeVariants` (matches the helper in `ResizerTestCase`; the duplication is intentional — Property suite cannot inherit from `ResizerTestCase` without dragging in Brain\Monkey).
+- `getTestCaseAnnotations()` override — Eris 0.14.1 falls back to `PHPUnit\Util\Test::parseTestMethodAnnotations()` when PHPUnit's `getAnnotations()` is absent; PHPUnit 11 removed both. The shim returns `['class' => [], 'method' => []]` so Eris uses defaults. Side-effect: `@eris-repeat`, `@eris-duration`, `@eris-shrink` annotations are dead while the shim is in place; per-test iteration override is unavailable until Eris ships upstream PHPUnit 11 compat.
+- Eris reads `ERIS_SEED` natively in `seedingRandomNumberGeneration()`, so no setup is needed for seed pinning; CI sets `ERIS_SEED: ${{ github.run_id }}` on the Property step and a failing build reproduces locally with `ERIS_SEED=<actual-run-id-integer> composer test:property`.
 - A `tearDown` hook that prints the shrunken counterexample in `var_export` form when a property fails (Eris already does this; the trait normalises the format).
 
 ### CI
