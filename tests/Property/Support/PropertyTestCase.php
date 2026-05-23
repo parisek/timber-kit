@@ -18,8 +18,11 @@ use PHPUnit\Framework\TestCase;
  * (or near-pure with bootstrap stubs only). Any need for per-iteration Monkey
  * state means the target is in the wrong test suite.
  *
- * Iteration count: Eris defaults to 100. Override per-test with the
- * `@eris-repeat N` PHPDoc annotation on the test method.
+ * Iteration count: Eris defaults to 100. Per-test override via the
+ * `@eris-repeat N` annotation is currently INERT because the PHPUnit 11
+ * compat shim below returns empty annotations — Eris never sees them.
+ * Use the default until Eris ships PHPUnit 11 compatibility upstream and
+ * the shim is removed.
  *
  * Seed: Eris reads `ERIS_SEED` natively via `seedingRandomNumberGeneration()`.
  * Setting that env var in CI is sufficient to make a failing run reproducible.
