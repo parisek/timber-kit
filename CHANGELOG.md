@@ -36,7 +36,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `Helpers::formatImageFrom( ?array $raw ): ?array` — public static pure-core formatter extracted from `Helpers::formatImage()`'s associative-array branch. Behaviour preserved for well-formed inputs.
 
 ### Fixed
-- `StarterBase::theme_supports()` now forwards every `$font_stylesheets` entry to the Gutenberg editor canvas via `add_editor_style('static/' . $path)`, so custom `@font-face` styles are available inside the iframed editor just like `gutenberg-editor.css`.
+- Custom `@font-face` declarations now reach both the iframed and non-iframed Gutenberg editor canvas. Previously fonts enqueued on `enqueue_block_assets` only loaded into the admin chrome — never the editor canvas — so brand fonts silently fell back to system fonts inside the editor regardless of canvas mode.
+
+  New mechanism: `StarterBase::inject_font_editor_styles()`, hooked to `block_editor_settings_all`, walks `$font_stylesheets` and injects `@import url('<absolute>?v=<filemtime>')` entries into editor settings. Mirrors the production-validated [Sage 11 / Roots](https://roots.io/sage/docs/gutenberg/) pattern. `add_editor_style()` was deliberately *not* used because it inlines CSS into the iframe and strips the originating baseURL — relative `@font-face src` paths then resolve against the iframe's `blob:` document and font files silently fail to load ([Gutenberg #41035](https://github.com/WordPress/gutenberg/issues/41035)).
+
+  Mode-agnostic by design: `block_editor_settings_all` fires for both iframed canvases (modern, all blocks `apiVersion: 3` — including pure ACF v3 setups) and non-iframed legacy canvases (any ACF v2 block present on WP < 7.0). Absolute URLs in `$font_stylesheets` (e.g. Google Fonts) pass through unchanged; relative paths are resolved under `static/` and cache-busted via `filemtime`. Missing files are skipped silently.
 
 ## [1.5.0] - 2026-05-15
 
