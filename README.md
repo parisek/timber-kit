@@ -28,6 +28,7 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
 - `pagination()` — pagination formatting
 - `readTime()` — estimated reading time in minutes (Unicode-aware word counting, image budget, WPML-aware per-language WPM)
 - `getLanguage()` — normalized (lowercased, trimmed) language code for a post or the current request, with WPML per-post / site-wide / locale fallbacks. WPML region/script subtags are preserved (e.g. `pt-br`, `zh-hans`); only the locale fallback is strictly 2 letters
+- `formatImageFrom( ?array $raw ): ?array` — pure-core formatter extracted from `formatImage()`'s associative-array branch. No WordPress dependencies, safe for unit / property tests; missing keys resolve to `null` silently, `id` / `width` / `height` are cast to `int|null`, and the WordPress SVG-1px workaround is applied uniformly
 
 ### Resizer
 
@@ -176,7 +177,7 @@ Override these properties in your child constructor before calling `parent::__co
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `$menus` | array | `[]` | Registered navigation menus |
-| `$font_stylesheets` | array | `[]` | CSS files to enqueue |
+| `$font_stylesheets` | array | `[]` | CSS files to enqueue on the frontend. Also forwarded into the Gutenberg editor canvas (both iframed and non-iframed) via `block_editor_settings_all`, so custom `@font-face` declarations render in the editor without falling back to system fonts. Relative paths are resolved under `static/` and cache-busted with `filemtime`; absolute URLs pass through |
 | `$preload_fonts` | array | `[]` | Font files to preload |
 | `$search_post_types` | array | `['post']` | Post types for search |
 | `$article_post_types` | array | `['post']` | Post types treated as articles |
@@ -316,9 +317,13 @@ If you're upgrading from a theme that carried `timber_block_render_callback()` i
 
 ```bash
 ddev start
-ddev exec "vendor/bin/phpunit"
-ddev exec "vendor/bin/phpstan analyse"
+ddev exec "composer test"           # Unit suite (Brain\Monkey, fast — default)
+ddev exec "composer test:property"  # Eris property suite (invariant-based)
+ddev exec "composer test:all"       # both suites
+ddev exec "composer phpstan"
 ```
+
+The property suite (`tests/Property/`, powered by `giorgiosironi/eris`) targets pure functions only and runs under its own `phpunit.property.xml` config to stay isolated from Brain\Monkey's Patchwork hooks. CI pins `ERIS_SEED` to the Actions run ID — reproduce a failing build locally with `ERIS_SEED=<run-id> composer test:property`.
 
 ## Releasing
 
