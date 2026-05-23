@@ -24,9 +24,21 @@ use PHPUnit\Framework\TestCase;
  * Seed: Eris reads `ERIS_SEED` natively via `seedingRandomNumberGeneration()`.
  * Setting that env var in CI is sufficient to make a failing run reproducible.
  * No setUp() override is needed here.
+ *
+ * PHPUnit 11 compat: `PHPUnit\Util\Test::parseTestMethodAnnotations()` was
+ * removed in PHPUnit 10+. Eris 0.14.1 falls through to that call when
+ * `getAnnotations()` is absent. We override `getTestCaseAnnotations()` to
+ * return the empty structure Eris expects so it gracefully uses its defaults.
  */
 abstract class PropertyTestCase extends TestCase {
 	use TestTrait;
+
+	/**
+	 * @return array{class: array<string, list<string>>, method: array<string, list<string>>}
+	 */
+	public function getTestCaseAnnotations(): array {
+		return [ 'class' => [], 'method' => [] ];
+	}
 
 	/**
 	 * @param array<int, mixed> $args
