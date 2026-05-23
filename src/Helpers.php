@@ -21,6 +21,49 @@ use Timber\ImageHelper;
 class Helpers {
 
 	/**
+	 * Pure-core shaping for a single ACF "array" return-format attachment.
+	 *
+	 * Extracted from {@see formatImage()}'s associative-array branch so it can
+	 * be exercised in isolation by property tests. No WP/ACF calls, no global
+	 * state. Returns null for degenerate input (null, empty array) instead of
+	 * an empty dict, so callers can decide whether to skip the item.
+	 *
+	 * Missing keys yield null silently via null-coalescing; this fixes a real
+	 * source of `Undefined index` notices the in-line array branch used to emit
+	 * for malformed ACF arrays. Well-formed inputs are unaffected.
+	 *
+	 * @param array<string,mixed>|null $raw  ACF attachment array as returned by
+	 *                                       `acf_get_attachment()` or stored in an
+	 *                                       array-return-format ACF field.
+	 * @return array{id:int|null,src:string|null,type:string|null,width:int|null,height:int|null,alt:string|null,caption:string|null,description:string|null}|null
+	 */
+	public static function formatImageFrom( ?array $raw ): ?array {
+		if ( null === $raw || [] === $raw ) {
+			return null;
+		}
+		// SVG width/height-1px guard preserved from the original array branch:
+		// https://core.trac.wordpress.org/ticket/26256
+		// Numeric guard + int cast normalises ACF's variable scalar types
+		// (sometimes int, sometimes numeric-string) into the documented
+		// `int|null` contract — and dodges PHP 8 string-to-number comparison
+		// surprises on non-numeric values.
+		$width  = ( isset( $raw['width'] )  && is_numeric( $raw['width'] )  && (int) $raw['width']  > 1 ) ? (int) $raw['width']  : null;
+		$height = ( isset( $raw['height'] ) && is_numeric( $raw['height'] ) && (int) $raw['height'] > 1 ) ? (int) $raw['height'] : null;
+		$id     = ( isset( $raw['ID'] )     && is_numeric( $raw['ID'] ) )                              ? (int) $raw['ID']     : null;
+
+		return [
+			'id'          => $id,
+			'src'         => isset( $raw['url'] )         ? (string) $raw['url']         : null,
+			'type'        => isset( $raw['mime_type'] )   ? (string) $raw['mime_type']   : null,
+			'width'       => $width,
+			'height'      => $height,
+			'alt'         => isset( $raw['alt'] )         ? (string) $raw['alt']         : null,
+			'caption'     => isset( $raw['caption'] )     ? (string) $raw['caption']     : null,
+			'description' => isset( $raw['description'] ) ? (string) $raw['description'] : null,
+		];
+	}
+
+	/**
 	 * Normalise an ACF image field value into a flat array (or list of arrays).
 	 *
 	 * Accepts an image in any of the formats ACF may return: a Timber image
@@ -38,76 +81,57 @@ class Helpers {
 
 		$data = [];
 
-		// if we have multivalue field eg. gallery
+		// Gallery / multi-value field: recurse for each item and collect non-empty results.
 		if ( is_countable( $image ) && ! Helpers::isAssoc( $image ) ) {
 			$items = [];
 			foreach ( $image as $item ) {
-				$data = Helpers::formatImage( $item );
-				if ( $data ) {
-					$items[] = $data;
+				$resolved = Helpers::formatImage( $item );
+				if ( $resolved ) {
+					$items[] = $resolved;
 				}
 			}
 			return $items;
 		}
 
 		if ( is_object( $image ) ) {
+			// Object branch (typically a Timber image): different property names
+			// (`ID`, `src`, `post_mime_type`) so we shape it inline rather than
+			// going through formatImageFrom().
 			// fixed weird bug when image/svg+xml is sometimes width 1px / height 1px
 			// https://core.trac.wordpress.org/ticket/26256
-			$width = ( ! empty( $image->width ) && $image->width > 1 ) ? $image->width : null;
+			$width  = ( ! empty( $image->width )  && $image->width  > 1 ) ? $image->width  : null;
 			$height = ( ! empty( $image->height ) && $image->height > 1 ) ? $image->height : null;
 			$data[] = [
-				'id' => $image->ID,
-				'src' => $image->src,
-				'type' => $image->post_mime_type,
-				'width' => $width,
-				'height' => $height,
-				'alt' => $image->alt,
-				'caption' => $image->caption,
+				'id'          => $image->ID,
+				'src'         => $image->src,
+				'type'        => $image->post_mime_type,
+				'width'       => $width,
+				'height'      => $height,
+				'alt'         => $image->alt,
+				'caption'     => $image->caption,
 				'description' => $image->description,
 			];
 		} elseif ( is_array( $image ) ) {
-			// fixed weird bug when image/svg+xml is sometimes width 1px / height 1px
-			// https://core.trac.wordpress.org/ticket/26256
-			$width = ( ! empty( $image['width'] ) && $image['width'] > 1 ) ? $image['width'] : null;
-			$height = ( ! empty( $image['height'] ) && $image['height'] > 1 ) ? $image['height'] : null;
-			$data[] = [
-				'id' => isset( $image['ID'] ) ? $image['ID'] : null,
-				'src' => $image['url'],
-				'type' => $image['mime_type'],
-				'width' => $width,
-				'height' => $height,
-				'alt' => $image['alt'],
-				'caption' => $image['caption'],
-				'description' => $image['description'],
-			];
+			$item = self::formatImageFrom( $image );
+			if ( null !== $item ) {
+				$data[] = $item;
+			}
 		} elseif ( is_numeric( $image ) ) {
-			$image = acf_get_attachment( $image );
-			if ( $image ) {
-				$data[] = [
-					'id' => isset( $image['ID'] ) ? $image['ID'] : null,
-					'src' => $image['url'],
-					'type' => $image['mime_type'],
-					'width' => $image['width'],
-					'height' => $image['height'],
-					'alt' => $image['alt'],
-					'caption' => $image['caption'],
-					'description' => $image['description'],
-				];
+			$resolved = acf_get_attachment( $image );
+			if ( $resolved ) {
+				$item = self::formatImageFrom( $resolved );
+				if ( null !== $item ) {
+					$data[] = $item;
+				}
 			}
 		} elseif ( filter_var( $image, FILTER_VALIDATE_URL ) ) {
-			$image = attachment_url_to_postid( $image );
-			$image = acf_get_attachment( $image );
-			if ( $image ) {
-				$data[] = [
-					'id' => isset( $image['ID'] ) ? $image['ID'] : null,
-					'src' => $image['url'],
-					'type' => $image['mime_type'],
-					'width' => $image['width'],
-					'height' => $image['height'],
-					'alt' => $image['alt'],
-					'caption' => $image['caption'],
-					'description' => $image['description'],
-				];
+			$attachment_id = attachment_url_to_postid( $image );
+			$resolved      = acf_get_attachment( $attachment_id );
+			if ( $resolved ) {
+				$item = self::formatImageFrom( $resolved );
+				if ( null !== $item ) {
+					$data[] = $item;
+				}
 			}
 		}
 

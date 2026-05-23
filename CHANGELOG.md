@@ -25,11 +25,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
   Mirrors the parallel unification in `parisek/styleguide` so a single Twig template renders identically against the WordPress runtime and the styleguide preview.
 
+- `Helpers::formatImage()`: missing keys on the associative-array, numeric-ID, and URL-string input branches now resolve to `null` silently instead of emitting `Undefined index` notices. The WordPress SVG-1px width/height workaround is now applied consistently across all three branches (previously only the array branch had the guard). `formatImageFrom()` (and therefore those three `formatImage()` branches) now explicitly casts `id` / `width` / `height` to `int|null` to match its documented return type — ACF sometimes hands numeric strings, which the pre-refactor inline branch would propagate untouched.
+
 ### Removed (vs. parisek/timber-kit#18 pre-release)
 - `|resizer_aspect` Twig filter — never released, folded into `|resizer` per above before the first tag.
 
 ### Added
 - `timber_kit_resizer_aspect_tolerance` WordPress filter — overrides the 0.1 default tolerance band used by `Resizer::classifyAspect()`. Returning a smaller value (e.g. `0.05`) tightens the square band, returning a larger value (e.g. `0.2`) loosens it.
+- Property-based test suite (`tests/Property/`, runnable via `composer test:property`) powered by `giorgiosironi/eris`. Pilot covers structural invariants of `Resizer::normalizeVariants` (type stability, ordering, count preservation, determinism) and contract invariants of the new `Helpers::formatImageFrom()` pure core (non-throw + no PHP notices, shape contract with value-type checks, null propagation). See [#19](https://github.com/parisek/timber-kit/issues/19).
+- `Helpers::formatImageFrom( ?array $raw ): ?array` — public static pure-core formatter extracted from `Helpers::formatImage()`'s associative-array branch. Behaviour preserved for well-formed inputs.
 
 ## [1.5.0] - 2026-05-15
 

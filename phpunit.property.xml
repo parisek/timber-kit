@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PHPUnit configuration for the Property test suite only.
+  Uses tests/bootstrap.property.php which adds an apply_filters() pass-through
+  stub on top of the shared bootstrap. This is kept separate from phpunit.xml
+  so the Unit suite (which uses Brain\Monkey / Patchwork) is not affected:
+  defining apply_filters() before Patchwork loads causes DefinedTooEarly errors.
+
+  PHPUnit will report ~6 deprecation warnings from inside Eris 0.14.1 itself
+  (implicit nullable parameter types). These are vendor noise — Eris is no
+  longer maintained — and are intentionally left visible as a reminder rather
+  than suppressed via <source> exclusion.
+-->
+<phpunit
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+	bootstrap="tests/bootstrap.property.php"
+	colors="true"
+	beStrictAboutTestsThatDoNotTestAnything="true"
+>
+	<testsuites>
+		<testsuite name="Property">
+			<directory suffix="Test.php">tests/Property</directory>
+		</testsuite>
+	</testsuites>
+</phpunit>

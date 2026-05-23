@@ -19,7 +19,12 @@ jobs:
           php-version: ${{ matrix.php }}
           coverage: none
       - run: composer install --no-interaction --prefer-dist
-      - run: vendor/bin/phpunit
+      - name: Unit tests
+        run: composer test
+      - name: Property tests
+        env:
+          ERIS_SEED: ${{ github.run_id }}
+        run: composer test:property
 
   phpstan:
     runs-on: ubuntu-latest
