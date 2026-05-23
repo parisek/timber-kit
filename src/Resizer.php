@@ -717,10 +717,13 @@ class Resizer {
 	 *
 	 * Classifies the source image's orientation (via `classifyAspect()`),
 	 * picks the matching tuple set from `$orientations`, and delegates to
-	 * `resizer()`. Callers pass three named tuple sets keyed by orientation:
+	 * `resizer()`. Callers pass three named tuple sets keyed by orientation;
+	 * the Twig surface for this is the polymorphic `|resizer` filter
+	 * (StarterBase detects an orientation-keyed map as the single argument
+	 * and routes here):
 	 *
 	 * ```twig
-	 * item.image|resizer_aspect({
+	 * item.image|resizer({
 	 *     landscape: [['960', '720', '1280', 'crop'], …],
 	 *     portrait:  [['720', '960', '1280', 'crop'], …],
 	 *     square:    [['800', '800', '1280', 'crop'], …],
@@ -738,8 +741,8 @@ class Resizer {
 	 *
 	 * ```twig
 	 * merge_resizer(
-	 *     item.image|resizer_aspect({ landscape: […], portrait: […], square: […] }),
-	 *     item.image_mobile|resizer_aspect({ landscape: […], portrait: […], square: […] }),
+	 *     item.image|resizer({ landscape: […], portrait: […], square: […] }),
+	 *     item.image_mobile|resizer({ landscape: […], portrait: […], square: […] }),
 	 * )
 	 * ```
 	 *
@@ -768,5 +771,37 @@ class Resizer {
 		}
 
 		return $this->resizer( $image, $tuples );
+	}
+
+	/**
+	 * Detects whether a `|resizer` variadic-args list is an orientation-keyed
+	 * map (single arg, associative, carries at least one of `landscape` /
+	 * `portrait` / `square`) rather than positional tuple variants.
+	 *
+	 * Extracted as a static helper so the dispatch decision in
+	 * `StarterBase::timber_twig()`'s Twig filter callback stays one line and
+	 * the predicate is independently testable without going through a Twig
+	 * environment or constructing a `Resizer` instance (whose constructor
+	 * pulls in WP filters / globals).
+	 *
+	 * Returns false on multi-arg or non-array inputs — both shapes a tuple
+	 * call could plausibly take. Tuples have integer keys so the recognised
+	 * orientation strings can't collide with a positional tuple's contents.
+	 *
+	 * @param array<int, mixed> $variants The variadic tail captured by the
+	 *                                    Twig filter callback (i.e. the
+	 *                                    arguments after the piped image).
+	 * @return bool True when the args should be dispatched to
+	 *              `resizerAspect()`; false routes to `resizer()`.
+	 */
+	public static function isOrientationMap( array $variants ): bool {
+		$first = $variants[0] ?? null;
+		return count( $variants ) === 1
+			&& is_array( $first )
+			&& (
+				array_key_exists( 'landscape', $first )
+				|| array_key_exists( 'portrait', $first )
+				|| array_key_exists( 'square', $first )
+			);
 	}
 }
