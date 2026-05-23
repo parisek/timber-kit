@@ -99,4 +99,23 @@ class NormalizeVariantsPropertyTest extends PropertyTestCase {
 				$this->assertSame( $first, $second );
 			} );
 	}
+
+	public function test_output_is_sorted_by_media_descending(): void {
+		$this->forAll( $this->variantsGenerator() )
+			->then( function ( array $variants ): void {
+				$resizer = new Resizer();
+				$result  = $this->callPrivate( $resizer, 'normalizeVariants', [ $variants ] );
+
+				$mediaValues = array_map( fn ( array $row ) => $row['media'], $result );
+
+				$sorted = $mediaValues;
+				rsort( $sorted, SORT_NUMERIC );
+
+				$this->assertSame(
+					$sorted,
+					$mediaValues,
+					'normalizeVariants must sort by media DESC'
+				);
+			} );
+	}
 }
