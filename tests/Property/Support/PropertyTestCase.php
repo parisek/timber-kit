@@ -26,9 +26,11 @@ use PHPUnit\Framework\TestCase;
  * No setUp() override is needed here.
  *
  * PHPUnit 11 compat: `PHPUnit\Util\Test::parseTestMethodAnnotations()` was
- * removed in PHPUnit 10+. Eris 0.14.1 falls through to that call when
- * `getAnnotations()` is absent. We override `getTestCaseAnnotations()` to
- * return the empty structure Eris expects so it gracefully uses its defaults.
+ * removed in PHPUnit 11 (deprecated in 10). Eris 0.14.1 falls through to that
+ * call when `TestCase::getAnnotations()` is absent. We override
+ * `getTestCaseAnnotations()` to return the empty structure Eris expects so it
+ * gracefully uses its defaults. Delete this override once Eris ships PHPUnit
+ * 11 compatibility upstream.
  */
 abstract class PropertyTestCase extends TestCase {
 	use TestTrait;
