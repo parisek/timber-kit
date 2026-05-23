@@ -22,10 +22,19 @@ use Spatie\Image\Enums\Fit;
  * suitable for `<picture>` / `<img>` markup. Supports standard positional
  * cropping via Spatie/Image and entropy-based smart cropping via GD/Imagick.
  *
- * All defaults (format, quality, cache path, force-regenerate) are
- * overridable through WordPress filters prefixed with `timber_kit_resizer_`.
+ * All defaults (format, quality, cache path, force-regenerate, aspect-classification
+ * tolerance) are overridable through WordPress filters prefixed with `timber_kit_resizer_`.
  */
 class Resizer {
+
+	/**
+	 * Default tolerance band for square aspect classification.
+	 *
+	 * A source image whose `width / height` ratio falls within `[1 - TOL, 1 + TOL]`
+	 * is classified as 'square'. The 0.1 default covers most editor uploads that
+	 * are intended to be square but have minor fuzz (1020×1000, 1050×950, etc.).
+	 */
+	private const float DEFAULT_ASPECT_TOLERANCE = 0.1;
 
 	/**
 	 * Default image quality (0-100)
@@ -632,5 +641,132 @@ class Resizer {
 		$images[] = $default_image;
 
 		return $images;
+	}
+
+	/**
+	 * Classify a source image's aspect orientation.
+	 *
+	 * Returns one of three buckets based on the `width / height` ratio of the
+	 * source image, with a tolerance band around 1:1 controlling the 'square'
+	 * classification:
+	 *
+	 *   - `aspect > 1 + tolerance` → 'landscape'
+	 *   - `aspect < 1 - tolerance` → 'portrait'
+	 *   - within ± tolerance        → 'square'
+	 *
+	 * Missing or non-numeric width/height in the image metadata falls back to
+	 * 'landscape' so legacy uploads (pre-ACF imports, SVG without intrinsic
+	 * dimensions) preserve the kit's historical wide-crop default — components
+	 * that adopt `resizerAspect()` don't silently shift their rendering for
+	 * legacy assets.
+	 *
+	 * The source element is picked the same way `resizer()` picks its source:
+	 * the LAST entry of a multi-image array (per `Helpers::formatImage`'s
+	 * convention that the last item is the original / largest variant). This
+	 * keeps classification aligned with what the cropping pipeline will
+	 * actually operate on.
+	 *
+	 * WordPress filter:
+	 *
+	 *   - `timber_kit_resizer_aspect_tolerance` — float, default 0.1.
+	 *     Tighten with `add_filter( 'timber_kit_resizer_aspect_tolerance', fn() => 0.05 );`
+	 *     for design-sensitive components that shouldn't classify near-square
+	 *     sources as 'square'.
+	 *
+	 * @param array|mixed $image Image data — array from Helpers::formatImage()
+	 *                           (multiple variants, last is the original) or a
+	 *                           single image dict.
+	 * @return string One of 'landscape', 'portrait', 'square'.
+	 */
+	public static function classifyAspect( $image ): string {
+		if ( ! is_array( $image ) || empty( $image ) ) {
+			return 'landscape';
+		}
+
+		// Mirror resizer()'s source selection — the last entry of a multi-
+		// variant array is the original. Falls through to treating the input
+		// as a single image dict when there's no integer-indexed 0 key.
+		$source = isset( $image[0] ) ? end( $image ) : $image;
+
+		if ( ! is_array( $source ) ) {
+			return 'landscape';
+		}
+
+		$width = (float) ( $source['width'] ?? 0 );
+		$height = (float) ( $source['height'] ?? 0 );
+
+		if ( $width <= 0 || $height <= 0 ) {
+			return 'landscape';
+		}
+
+		$tolerance = (float) apply_filters( 'timber_kit_resizer_aspect_tolerance', self::DEFAULT_ASPECT_TOLERANCE );
+
+		// Compare in dimension space instead of `abs($width/$height - 1.0) <= $tol`:
+		// the division-based form trips IEEE-754 representation noise at the
+		// inclusive boundary (1100×1000 → 1.1000...0001, which fails `<= 0.1`).
+		// Algebraically equivalent for positive dimensions, boundary-stable here.
+		if ( abs( $width - $height ) <= $tolerance * $height ) {
+			return 'square';
+		}
+
+		return $width > $height ? 'landscape' : 'portrait';
+	}
+
+	/**
+	 * Aspect-aware variant of `resizer()`.
+	 *
+	 * Classifies the source image's orientation (via `classifyAspect()`),
+	 * picks the matching tuple set from `$orientations`, and delegates to
+	 * `resizer()`. Callers pass three named tuple sets keyed by orientation:
+	 *
+	 * ```twig
+	 * item.image|resizer_aspect({
+	 *     landscape: [['960', '720', '1280', 'crop'], …],
+	 *     portrait:  [['720', '960', '1280', 'crop'], …],
+	 *     square:    [['800', '800', '1280', 'crop'], …],
+	 * })
+	 * ```
+	 *
+	 * When the classified bucket's tuples are missing, falls back to the
+	 * 'landscape' tuples — same fallback policy as `classifyAspect()` itself.
+	 * If 'landscape' is also missing (no usable tuple set at all), returns
+	 * the image array unchanged so the caller still has something to render
+	 * rather than crashing with an empty `<picture>`.
+	 *
+	 * Composes naturally with `merge_resizer()` for art-direction layers —
+	 * each layer's source is classified independently:
+	 *
+	 * ```twig
+	 * merge_resizer(
+	 *     item.image|resizer_aspect({ landscape: […], portrait: […], square: […] }),
+	 *     item.image_mobile|resizer_aspect({ landscape: […], portrait: […], square: […] }),
+	 * )
+	 * ```
+	 *
+	 * @param array|mixed $image        Image data (same shape as `resizer()`).
+	 * @param array       $orientations Map keyed by 'landscape' / 'portrait' /
+	 *                                   'square'. Each value is a list of
+	 *                                   variant spec arrays (`[w, h, media,
+	 *                                   image_style, quality]`) — the same
+	 *                                   tuple shape `resizer()` consumes.
+	 * @return array Processed image variants matching the source orientation,
+	 *               or the original image array if no usable tuples were found.
+	 */
+	public function resizerAspect( $image, array $orientations ): array {
+		$bucket = self::classifyAspect( $image );
+
+		// Pick the matched bucket's tuples when present AND non-empty;
+		// otherwise fall through to 'landscape'. `??` alone would treat
+		// `portrait => []` as "set" and skip the fallback — the caller's
+		// intent for an empty list is "I haven't filled this bucket yet",
+		// same semantic as a missing key.
+		$matched = $orientations[ $bucket ] ?? null;
+		$tuples = ( is_array( $matched ) && ! empty( $matched ) ) ? $matched : ( $orientations['landscape'] ?? [] );
+
+		if ( empty( $tuples ) || ! is_array( $tuples ) ) {
+			return is_array( $image ) ? $image : [];
+		}
+
+		return $this->resizer( $image, $tuples );
 	}
 }
