@@ -253,6 +253,7 @@ class StarterBase extends Site {
 		add_action( 'wp_preload_resources', array( $this, 'preload_resources' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'admin_enqueue_scripts' ) );
 		add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_block_editor_assets' ) );
+		add_filter( 'block_editor_settings_all', array( $this, 'inject_font_editor_styles' ), 10, 2 );
 		if ( is_file( get_template_directory() . '/static/' . $this->favicon_path ) ) {
 			add_filter( 'get_site_icon_url', array( $this, 'get_site_icon_url' ), 10, 3 );
 		}
@@ -600,6 +601,11 @@ class StarterBase extends Site {
 		if ( $this->gutenberg_editor_styles ) {
 			add_theme_support( 'editor-styles' );
 			add_editor_style( 'static/dist/css/gutenberg-editor.css' );
+			// Font stylesheets are forwarded into the editor canvas via the
+			// `block_editor_settings_all` filter (see inject_font_editor_styles()).
+			// add_editor_style() inlines CSS into the iframe and strips the
+			// originating baseURL, so relative `@font-face src: url()` paths
+			// silently fail to load fonts — Gutenberg #41035.
 		}
 		if ( $this->gutenberg_disable_core_patterns ) {
 			remove_theme_support( 'core-block-patterns' );
@@ -939,6 +945,66 @@ class StarterBase extends Site {
 	public function enqueue_block_editor_assets() {
 		wp_enqueue_style( $this->theme_name . '-gutenberg-editor', get_template_directory_uri() . '/static/dist/css/gutenberg-editor.css', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/css/gutenberg-editor.css' ) ) );
 		wp_enqueue_script_module( $this->theme_name, get_template_directory_uri() . '/static/dist/js/script.js', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/js/script.js' ) ) );
+	}
+
+	/**
+	 * Forward `$font_stylesheets` into the block editor canvas via the
+	 * `block_editor_settings_all` filter.
+	 *
+	 * Uses `@import url('<absolute>')` rather than the file-inlining path that
+	 * `add_editor_style()` takes. The Sage 11 / Roots pattern: the browser
+	 * fetches each font CSS from its own origin, so relative `@font-face src:
+	 * url("./brand.woff2")` references resolve against the CSS file's URL —
+	 * not against the iframe's `blob:` document, which is the failure mode
+	 * tracked in https://github.com/WordPress/gutenberg/issues/41035.
+	 *
+	 * Mode-agnostic: the filter fires for both iframed (modern, all blocks
+	 * `apiVersion: 3`, including pure ACF v3 setups) and non-iframed (legacy /
+	 * any ACF v2 block present on WP <7.0) canvases.
+	 *
+	 * @param array<string,mixed>     $editor_settings Editor settings keyed under `styles`/`__experimentalFeatures`/etc.
+	 * @param mixed                   $context         Block editor context (unused).
+	 * @return array<string,mixed>
+	 */
+	public function inject_font_editor_styles( array $editor_settings, $context = null ): array {
+		if ( ! $this->gutenberg_editor_styles || empty( $this->font_stylesheets ) ) {
+			return $editor_settings;
+		}
+
+		foreach ( $this->font_stylesheets as $path ) {
+			if ( preg_match( '#^https?://#', $path ) ) {
+				$url = $path;
+			} else {
+				$abs_path = get_template_directory() . '/static/' . $path;
+				if ( ! file_exists( $abs_path ) ) {
+					continue;
+				}
+				// `ver` (not `v`) so the URL matches what wp_enqueue_style()
+				// emits in assets() — in non-iframed editor mode both
+				// register the same file and a mismatched query key would
+				// cost an extra round-trip per font. add_query_arg() also
+				// safely composes with any `?…` already present in $path.
+				$url = add_query_arg(
+					'ver',
+					filemtime( wp_normalize_path( $abs_path ) ),
+					get_template_directory_uri() . '/static/' . $path
+				);
+			}
+
+			// `esc_url_raw()` (not `esc_url()`) — `esc_url()` HTML-entity-encodes
+			// `&` to `&amp;`, which CSS does not decode, breaking Google Fonts
+			// URLs like `?family=Inter&display=swap`. Then defensively escape
+			// the CSS string context (` ' ` and `\`) so a stray quote in the
+			// URL cannot break out of the @import statement.
+			$safe_url = esc_url_raw( $url );
+			$css_url  = str_replace( array( '\\', "'" ), array( '\\\\', "\\'" ), $safe_url );
+
+			$editor_settings['styles'][] = array(
+				'css' => "@import url('" . $css_url . "');",
+			);
+		}
+
+		return $editor_settings;
 	}
 
 	/**
