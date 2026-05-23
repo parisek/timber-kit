@@ -31,20 +31,40 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
 
 ### Resizer
 
-Image resizing via [Spatie/Image](https://github.com/spatie/image). AVIF output, responsive variants with breakpoints, crop positions, and cache management. Exposed as two Twig filters:
+Image resizing via [Spatie/Image](https://github.com/spatie/image). AVIF output, responsive variants with breakpoints, crop positions, and cache management. Exposed as a single polymorphic Twig filter, `|resizer`, that detects its argument shape and routes to one of two underlying methods.
 
-- `|resizer( ...$variants )` — caller passes the variant tuples directly.
-- `|resizer_aspect({ landscape, portrait, square })` — orientation-aware sibling. Classifies the source image's aspect (`landscape` / `portrait` / `square`, ±10 % tolerance around 1:1, overridable via the `timber_kit_resizer_aspect_tolerance` WP filter) and dispatches to the matching tuple set. Missing-metadata / zero-dimension sources fall back to `landscape`; an empty matched bucket falls through to the `landscape` tuples.
+#### Tuples mode (positional, variadic)
 
-  ```twig
-  {{ component_picture({
-      image: item.image|resizer_aspect({
-          landscape: [['960', '720', '1280', 'crop'], ['480', '360', '', 'crop']],
-          portrait:  [['720', '960', '1280', 'crop'], ['360', '480', '', 'crop']],
-          square:    [['800', '800', '1280', 'crop'], ['400', '400', '', 'crop']],
-      }),
-  }) }}
-  ```
+Caller passes the variant tuples directly, in order. Each tuple is `[width, height, media-min-width, image_style, quality?]` — same shape `Resizer::resizer()` consumes:
+
+```twig
+{{ component_picture({
+    image: item.image|resizer(
+        ['960', '720', '1280', 'crop'],
+        ['480', '360', '',     'crop'],
+    ),
+}) }}
+```
+
+#### Orientation-aware mode (single map arg)
+
+When the single argument is an associative array carrying at least one of `landscape` / `portrait` / `square` keys, the filter classifies the source image's aspect (±10 % tolerance band around 1:1, overridable via the `timber_kit_resizer_aspect_tolerance` WP filter) and dispatches the matching tuple set to the standard resize pipeline:
+
+```twig
+{{ component_picture({
+    image: item.image|resizer({
+        landscape: [['960', '720', '1280', 'crop'], ['480', '360', '', 'crop']],
+        portrait:  [['720', '960', '1280', 'crop'], ['360', '480', '', 'crop']],
+        square:    [['800', '800', '1280', 'crop'], ['400', '400', '', 'crop']],
+    }),
+}) }}
+```
+
+Lets templates drop the inline `image.width >= image.height` branch.
+
+**Fallbacks.** Missing-metadata / non-numeric / zero-dimension sources classify as `landscape` (preserves the historical wide-crop default for legacy assets). When the matched bucket has no tuples (empty array or absent key), the helper falls through to the `landscape` bucket; if that's also empty / absent, the source passes through unchanged rather than crashing with an empty `<picture>`.
+
+**Detection (how the two shapes coexist).** The dispatch lives in `Resizer::isOrientationMap()`: a single arg that's an associative array with at least one recognised key flips into orientation mode. Tuples have integer keys (width / height / media / image_style / quality), so the two shapes can't realistically collide. PHP callers wanting the bucket without the resize step can call `Resizer::classifyAspect()` directly.
 
 ### DevMediaProxy
 

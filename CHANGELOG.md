@@ -6,16 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-### Added
+### Changed
+- `|resizer` Twig filter is now **polymorphic**: in addition to the historical variadic-tuples shape, it also accepts a single orientation-keyed map. When the input is a single associative array carrying at least one of `landscape` / `portrait` / `square` keys, the filter classifies the source image's aspect (±10 % tolerance band around 1:1, overridable via the `timber_kit_resizer_aspect_tolerance` WordPress filter) and routes to the matched bucket. Caller passes one map `{ landscape: [...], portrait: [...], square: [...] }` instead of branching on `image.width >= image.height` in Twig. Missing-metadata, non-numeric, or zero-dimension sources fall back to `landscape`. Source-element selection mirrors the tuples mode — the last entry of the image list wins. When the matched orientation bucket has no tuples (empty or absent), falls through to `landscape`; if that's also empty / absent the source is returned unchanged. Backed by `Parisek\TimberKit\Resizer::resizerAspect()` (instance method) and `Resizer::classifyAspect()` (static utility, public for callers needing the bucket without resizing). Detection lives in `Resizer::isOrientationMap()` (called from `StarterBase::timber_twig()`'s Twig filter callback): tuples have integer keys (width / height / media / image_style / quality), so the two shapes can't realistically collide. Backward-compatible — existing variadic tuple calls flow through the historical branch unchanged. Implements parisek/timber-kit#16.
 
-- `|resizer_aspect` Twig filter — aspect-aware sibling of `|resizer` that classifies a source image's orientation (`landscape` / `portrait` / `square`, ±10 % tolerance around 1:1) and routes to a per-orientation tuple set. Caller passes one map `{landscape: [...], portrait: [...], square: [...]}` instead of branching on `image.width >= image.height` in Twig. Missing-metadata, non-numeric, or zero-dimension sources fall back to `landscape`. Source-element selection mirrors `|resizer` — the last entry of the image list wins. Backed by `Parisek\TimberKit\Resizer::resizerAspect()` (instance method, the filter callback) and `Resizer::classifyAspect()` (static utility, public for callers needing the bucket without resizing). When the matched orientation bucket has no tuples the helper falls through to `orientations.landscape`; if that's also empty / absent the source is returned unchanged. Implements parisek/timber-kit#16.
+  ```twig
+  {# Tuples mode — historical, unchanged #}
+  {{ image|resizer(['960', '720', '1280', 'crop'], ['480', '360', '', 'crop']) }}
+
+  {# Orientation-aware mode — new #}
+  {{ component_picture({
+      image: item.image|resizer({
+          landscape: [['960', '720', '1280', 'crop'], ['480', '360', '', 'crop']],
+          portrait:  [['720', '960', '1280', 'crop'], ['360', '480', '', 'crop']],
+          square:    [['800', '800', '1280', 'crop'], ['400', '400', '', 'crop']],
+      })
+  }) }}
+  ```
+
+  Mirrors the parallel unification in `parisek/styleguide` so a single Twig template renders identically against the WordPress runtime and the styleguide preview.
+
+- `Helpers::formatImage()`: missing keys on the associative-array, numeric-ID, and URL-string input branches now resolve to `null` silently instead of emitting `Undefined index` notices. The WordPress SVG-1px width/height workaround is now applied consistently across all three branches (previously only the array branch had the guard). `formatImageFrom()` (and therefore those three `formatImage()` branches) now explicitly casts `id` / `width` / `height` to `int|null` to match its documented return type — ACF sometimes hands numeric strings, which the pre-refactor inline branch would propagate untouched.
+
+### Removed (vs. parisek/timber-kit#18 pre-release)
+- `|resizer_aspect` Twig filter — never released, folded into `|resizer` per above before the first tag.
+
+### Added
 - `timber_kit_resizer_aspect_tolerance` WordPress filter — overrides the 0.1 default tolerance band used by `Resizer::classifyAspect()`. Returning a smaller value (e.g. `0.05`) tightens the square band, returning a larger value (e.g. `0.2`) loosens it.
 - Property-based test suite (`tests/Property/`, runnable via `composer test:property`) powered by `giorgiosironi/eris`. Pilot covers structural invariants of `Resizer::normalizeVariants` (type stability, ordering, count preservation, determinism) and contract invariants of the new `Helpers::formatImageFrom()` pure core (non-throw + no PHP notices, shape contract with value-type checks, null propagation). See [#19](https://github.com/parisek/timber-kit/issues/19).
 - `Helpers::formatImageFrom( ?array $raw ): ?array` — public static pure-core formatter extracted from `Helpers::formatImage()`'s associative-array branch. Behaviour preserved for well-formed inputs.
-
-### Changed
-
-- `Helpers::formatImage()`: missing keys on the associative-array, numeric-ID, and URL-string input branches now resolve to `null` silently instead of emitting `Undefined index` notices. The WordPress SVG-1px width/height workaround is now applied consistently across all three branches (previously only the array branch had the guard).
 
 ## [1.5.0] - 2026-05-15
 

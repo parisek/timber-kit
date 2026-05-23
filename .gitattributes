@@ -1,4 +1,5 @@
 # Distribution: only src/, composer.json, LICENSE, README.md go into archive
+/composer.lock       export-ignore
 /.ddev               export-ignore
 /.github             export-ignore
 /.editorconfig       export-ignore

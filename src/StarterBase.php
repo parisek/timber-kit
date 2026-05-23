@@ -625,16 +625,10 @@ class StarterBase extends Site {
 		$twig->addExtension( new DumpExtension( $cloner ) );
 		$twig->addFilter( new TwigFilter( 'resizer', function ( $image, ...$variants ) {
 			$resizer = new Resizer();
+			if ( Resizer::isOrientationMap( $variants ) ) {
+				return $resizer->resizerAspect( $image, $variants[0] );
+			}
 			return $resizer->resizer( $image, $variants );
-		} ) );
-		// Aspect-aware sibling of `|resizer`. Classifies source orientation
-		// (landscape / portrait / square with ±10 % tolerance, overridable
-		// via the `timber_kit_resizer_aspect_tolerance` filter) and dispatches
-		// the matching tuple set from the orientation map. See Resizer::classifyAspect
-		// and Resizer::resizerAspect for the full contract.
-		$twig->addFilter( new TwigFilter( 'resizer_aspect', function ( $image, array $orientations ) {
-			$resizer = new Resizer();
-			return $resizer->resizerAspect( $image, $orientations );
 		} ) );
 		$twig->addFunction( new TwigFunction( 'component_*', function ( Environment $env, $context, $template_name, $content = [] ) {
 			try {
