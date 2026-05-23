@@ -20,6 +20,10 @@ class InjectFontEditorStylesTest extends StarterBaseTestCase {
 		Functions\when( 'get_template_directory_uri' )->justReturn( 'https://example.test/wp-content/themes/test' );
 		Functions\when( 'wp_normalize_path' )->returnArg();
 		Functions\when( 'esc_url_raw' )->returnArg();
+		Functions\when( 'add_query_arg' )->alias( function ( $key, $value, $url ) {
+			$sep = strpos( $url, '?' ) === false ? '?' : '&';
+			return $url . $sep . $key . '=' . $value;
+		} );
 	}
 
 	protected function tearDown(): void {
@@ -46,14 +50,41 @@ class InjectFontEditorStylesTest extends StarterBaseTestCase {
 		$result = $base->inject_font_editor_styles( [ 'styles' => [] ] );
 
 		$this->assertCount( 2, $result['styles'] );
+		// `ver` matches what wp_enqueue_style() emits in assets() so the
+		// browser can dedupe in non-iframed editor mode.
 		$this->assertMatchesRegularExpression(
-			'#^@import url\(\'https://example\.test/wp-content/themes/test/static/fonts/brand\.css\?v=\d+\'\);$#',
+			'#^@import url\(\'https://example\.test/wp-content/themes/test/static/fonts/brand\.css\?ver=\d+\'\);$#',
 			$result['styles'][0]['css']
 		);
 		$this->assertMatchesRegularExpression(
-			'#^@import url\(\'https://example\.test/wp-content/themes/test/static/fonts/display\.css\?v=\d+\'\);$#',
+			'#^@import url\(\'https://example\.test/wp-content/themes/test/static/fonts/display\.css\?ver=\d+\'\);$#',
 			$result['styles'][1]['css']
 		);
+	}
+
+	public function test_relative_path_with_existing_query_string_uses_ampersand_separator(): void {
+		// add_query_arg() must compose `&ver=...` not `?ver=...` when the
+		// path already carries a query — e.g. a CDN-revved manifest path
+		// like `fonts/brand.css?h=abc123`.
+		mkdir( $this->fontDir . '/static/fonts-q', 0777, true );
+		file_put_contents( $this->fontDir . '/static/fonts-q/brand.css', '/* brand */' );
+
+		$base = $this->createStarterBase( [
+			'gutenberg_editor_styles' => true,
+			'font_stylesheets' => [
+				'brand' => 'fonts-q/brand.css',
+			],
+		] );
+
+		$result = $base->inject_font_editor_styles( [ 'styles' => [] ] );
+
+		// Sanity — single ? then ver=:
+		$this->assertCount( 1, $result['styles'] );
+		$this->assertSame( 1, substr_count( $result['styles'][0]['css'], '?' ) );
+
+		// Cleanup
+		@unlink( $this->fontDir . '/static/fonts-q/brand.css' );
+		@rmdir( $this->fontDir . '/static/fonts-q' );
 	}
 
 	public function test_absolute_urls_pass_through_without_static_prefix_or_cache_bust(): void {

@@ -979,9 +979,16 @@ class StarterBase extends Site {
 				if ( ! file_exists( $abs_path ) ) {
 					continue;
 				}
-				// Cache-bust mirrors what assets() does for the frontend
-				// enqueue; block_editor_settings_all has no native version param.
-				$url = get_template_directory_uri() . '/static/' . $path . '?v=' . filemtime( wp_normalize_path( $abs_path ) );
+				// `ver` (not `v`) so the URL matches what wp_enqueue_style()
+				// emits in assets() — in non-iframed editor mode both
+				// register the same file and a mismatched query key would
+				// cost an extra round-trip per font. add_query_arg() also
+				// safely composes with any `?…` already present in $path.
+				$url = add_query_arg(
+					'ver',
+					filemtime( wp_normalize_path( $abs_path ) ),
+					get_template_directory_uri() . '/static/' . $path
+				);
 			}
 
 			// `esc_url_raw()` (not `esc_url()`) — `esc_url()` HTML-entity-encodes
