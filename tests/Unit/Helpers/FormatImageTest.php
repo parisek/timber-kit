@@ -335,9 +335,12 @@ class FormatImageTest extends HelpersTestCase {
 			];
 		} );
 
+		// Same E_NOTICE | E_WARNING scope as the numeric-ID branch above —
+		// deprecations/E_USER_* emitted from downstream code bubble to PHPUnit
+		// instead of being misattributed to the no-notice contract.
 		set_error_handler( static function ( int $errno, string $errstr ): bool {
 			throw new \ErrorException( $errstr, 0, $errno );
-		} );
+		}, E_NOTICE | E_WARNING );
 
 		try {
 			$result = Helpers::formatImage( 'https://example.com/sparse.jpg' );
