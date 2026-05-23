@@ -45,7 +45,7 @@
     "scripts": {
         "phpstan":       "php -d memory_limit=2G vendor/bin/phpstan analyse",
         "test":          "vendor/bin/phpunit --testsuite=Unit",
-        "test:property": "vendor/bin/phpunit --testsuite=Property",
+        "test:property": "vendor/bin/phpunit -c phpunit.property.xml",
         "test:all":      "vendor/bin/phpunit"
     },
     "config": {
