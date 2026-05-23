@@ -106,16 +106,18 @@ class NormalizeVariantsPropertyTest extends PropertyTestCase {
 				$resizer = new Resizer();
 				$result  = $this->callPrivate( $resizer, 'normalizeVariants', [ $variants ] );
 
+				// Pairwise check: each adjacent pair must satisfy prev >= next.
+				// Direct expression of "non-strict DESC" — avoids depending on
+				// PHP 8's stable-sort behaviour to make a `=== rsort(copy)`
+				// comparison work.
 				$mediaValues = array_map( fn ( array $row ) => $row['media'], $result );
-
-				$sorted = $mediaValues;
-				rsort( $sorted, SORT_NUMERIC );
-
-				$this->assertSame(
-					$sorted,
-					$mediaValues,
-					'normalizeVariants must sort by media DESC'
-				);
+				for ( $i = 1, $n = count( $mediaValues ); $i < $n; $i++ ) {
+					$this->assertGreaterThanOrEqual(
+						$mediaValues[ $i ],
+						$mediaValues[ $i - 1 ],
+						'normalizeVariants must sort by media DESC'
+					);
+				}
 			} );
 	}
 }
