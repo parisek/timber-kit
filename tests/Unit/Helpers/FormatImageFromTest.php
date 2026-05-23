@@ -68,13 +68,13 @@ class FormatImageFromTest extends HelpersTestCase {
 
 	public function test_missing_keys_default_to_null_without_warning(): void {
 		$prevLevel = error_reporting( E_ALL );
+		set_error_handler( static function ( int $errno, string $errstr ): bool {
+			throw new \RuntimeException( "Unexpected PHP error: $errstr" );
+		} );
 		try {
-			set_error_handler( static function ( int $errno, string $errstr ): bool {
-				throw new \RuntimeException( "Unexpected PHP error: $errstr" );
-			} );
 			$result = Helpers::formatImageFrom( [ 'ID' => 7 ] );
-			restore_error_handler();
 		} finally {
+			restore_error_handler();
 			error_reporting( $prevLevel );
 		}
 
