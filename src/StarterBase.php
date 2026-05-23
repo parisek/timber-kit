@@ -623,26 +623,6 @@ class StarterBase extends Site {
 		$twig->addExtension( new StringExtension() );
 		$cloner = new VarCloner();
 		$twig->addExtension( new DumpExtension( $cloner ) );
-		// `|resizer` is polymorphic. Two call shapes, one filter:
-		//
-		//   {# tuples — historical, variadic #}
-		//   {{ image|resizer(['960', '720', '1280', 'crop'], ['480', '360', '', 'crop']) }}
-		//
-		//   {# orientation map — classifies aspect, picks the right bucket #}
-		//   {{ image|resizer({
-		//       landscape: [['960', '720', '1280', 'crop'], …],
-		//       portrait:  [['720', '960', '1280', 'crop'], …],
-		//       square:    [['800', '800', '1280', 'crop'], …],
-		//   }) }}
-		//
-		// Detection: a single arg that's an associative array carrying at
-		// least one of `landscape` / `portrait` / `square` keys flips
-		// dispatch into orientation mode. Tuples have integer keys (width /
-		// height / media / image_style / quality), so the two shapes can't
-		// collide on a realistic call. See `Resizer::resizerAspect` and
-		// `Resizer::classifyAspect` for the orientation contract (incl. the
-		// `timber_kit_resizer_aspect_tolerance` filter for tightening /
-		// loosening the ±10 % square band).
 		$twig->addFilter( new TwigFilter( 'resizer', function ( $image, ...$variants ) {
 			$resizer = new Resizer();
 			if ( Resizer::isOrientationMap( $variants ) ) {
