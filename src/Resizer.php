@@ -772,4 +772,36 @@ class Resizer {
 
 		return $this->resizer( $image, $tuples );
 	}
+
+	/**
+	 * Detects whether a `|resizer` variadic-args list is an orientation-keyed
+	 * map (single arg, associative, carries at least one of `landscape` /
+	 * `portrait` / `square`) rather than positional tuple variants.
+	 *
+	 * Extracted as a static helper so the dispatch decision in
+	 * `StarterBase::timber_twig()`'s Twig filter callback stays one line and
+	 * the predicate is independently testable without going through a Twig
+	 * environment or constructing a `Resizer` instance (whose constructor
+	 * pulls in WP filters / globals).
+	 *
+	 * Returns false on multi-arg or non-array inputs — both shapes a tuple
+	 * call could plausibly take. Tuples have integer keys so the recognised
+	 * orientation strings can't collide with a positional tuple's contents.
+	 *
+	 * @param array<int, mixed> $variants The variadic tail captured by the
+	 *                                    Twig filter callback (i.e. the
+	 *                                    arguments after the piped image).
+	 * @return bool True when the args should be dispatched to
+	 *              `resizerAspect()`; false routes to `resizer()`.
+	 */
+	public static function isOrientationMap( array $variants ): bool {
+		$first = $variants[0] ?? null;
+		return count( $variants ) === 1
+			&& is_array( $first )
+			&& (
+				array_key_exists( 'landscape', $first )
+				|| array_key_exists( 'portrait', $first )
+				|| array_key_exists( 'square', $first )
+			);
+	}
 }

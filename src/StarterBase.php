@@ -644,17 +644,9 @@ class StarterBase extends Site {
 		// `timber_kit_resizer_aspect_tolerance` filter for tightening /
 		// loosening the ±10 % square band).
 		$twig->addFilter( new TwigFilter( 'resizer', function ( $image, ...$variants ) {
-			$first = $variants[0] ?? null;
-			$is_orientation_map = count( $variants ) === 1
-				&& is_array( $first )
-				&& (
-					array_key_exists( 'landscape', $first )
-					|| array_key_exists( 'portrait', $first )
-					|| array_key_exists( 'square', $first )
-				);
 			$resizer = new Resizer();
-			if ( $is_orientation_map ) {
-				return $resizer->resizerAspect( $image, $first );
+			if ( Resizer::isOrientationMap( $variants ) ) {
+				return $resizer->resizerAspect( $image, $variants[0] );
 			}
 			return $resizer->resizer( $image, $variants );
 		} ) );
