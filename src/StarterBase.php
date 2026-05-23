@@ -981,11 +981,19 @@ class StarterBase extends Site {
 				}
 				// Cache-bust mirrors what assets() does for the frontend
 				// enqueue; block_editor_settings_all has no native version param.
-				$url = get_template_directory_uri() . '/static/' . $path . '?v=' . filemtime( $abs_path );
+				$url = get_template_directory_uri() . '/static/' . $path . '?v=' . filemtime( wp_normalize_path( $abs_path ) );
 			}
 
+			// `esc_url_raw()` (not `esc_url()`) — `esc_url()` HTML-entity-encodes
+			// `&` to `&amp;`, which CSS does not decode, breaking Google Fonts
+			// URLs like `?family=Inter&display=swap`. Then defensively escape
+			// the CSS string context (` ' ` and `\`) so a stray quote in the
+			// URL cannot break out of the @import statement.
+			$safe_url = esc_url_raw( $url );
+			$css_url  = str_replace( array( '\\', "'" ), array( '\\\\', "\\'" ), $safe_url );
+
 			$editor_settings['styles'][] = array(
-				'css' => "@import url('" . esc_url( $url ) . "');",
+				'css' => "@import url('" . $css_url . "');",
 			);
 		}
 

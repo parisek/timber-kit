@@ -18,7 +18,8 @@ class InjectFontEditorStylesTest extends StarterBaseTestCase {
 
 		Functions\when( 'get_template_directory' )->justReturn( $this->fontDir );
 		Functions\when( 'get_template_directory_uri' )->justReturn( 'https://example.test/wp-content/themes/test' );
-		Functions\when( 'esc_url' )->returnArg();
+		Functions\when( 'wp_normalize_path' )->returnArg();
+		Functions\when( 'esc_url_raw' )->returnArg();
 	}
 
 	protected function tearDown(): void {
@@ -70,6 +71,44 @@ class InjectFontEditorStylesTest extends StarterBaseTestCase {
 			"@import url('https://fonts.googleapis.com/css2?family=Inter');",
 			$result['styles'][0]['css']
 		);
+	}
+
+	public function test_ampersand_in_url_is_not_html_entity_encoded(): void {
+		// Google Fonts URLs routinely contain `&display=swap`. esc_url() would
+		// HTML-entity-encode `&` to `&amp;`, which CSS does not decode — the
+		// browser would then request a URL with literal `&amp;`. esc_url_raw()
+		// preserves the raw `&`. Regression guard for the original `esc_url()` bug.
+		$base = $this->createStarterBase( [
+			'gutenberg_editor_styles' => true,
+			'font_stylesheets' => [
+				'google' => 'https://fonts.googleapis.com/css2?family=Inter&display=swap',
+			],
+		] );
+
+		$result = $base->inject_font_editor_styles( [ 'styles' => [] ] );
+
+		$this->assertCount( 1, $result['styles'] );
+		$this->assertStringNotContainsString( '&amp;', $result['styles'][0]['css'] );
+		$this->assertStringContainsString( '&display=swap', $result['styles'][0]['css'] );
+	}
+
+	public function test_single_quote_in_url_is_css_escaped(): void {
+		// Single quote in URL would close the @import url('…') string. The
+		// CSS-context escape (backslash) prevents breakout. esc_url_raw passes
+		// the quote through; the str_replace inside the formatter escapes it.
+		$base = $this->createStarterBase( [
+			'gutenberg_editor_styles' => true,
+			'font_stylesheets' => [
+				// Single quote in path is implausible but the defence costs nothing.
+				'evil' => "https://example.com/font.css?x='breakout",
+			],
+		] );
+
+		$result = $base->inject_font_editor_styles( [ 'styles' => [] ] );
+
+		$this->assertCount( 1, $result['styles'] );
+		// The literal single quote must appear escaped (`\'`), not raw.
+		$this->assertStringContainsString( "\\'breakout", $result['styles'][0]['css'] );
 	}
 
 	public function test_missing_file_is_skipped_silently(): void {
