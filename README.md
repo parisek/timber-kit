@@ -264,6 +264,28 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 | `$gutenberg_editor_styles` | bool | `true` | Load editor stylesheet |
 | `$gutenberg_disable_core_patterns` | bool | `true` | Remove core block patterns |
 
+### Performance
+
+Replaces the standalone [Speculation Rules](https://wordpress.org/plugins/speculation-rules/) plugin. After upgrading, downstream projects can `wp plugin deactivate speculation-rules && wp plugin delete speculation-rules` — the same prerender / moderate / logged-out behaviour ships from the theme.
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `$speculation_rules` | `?array` | `['mode' => 'prerender', 'eagerness' => 'moderate', 'authentication' => 'logged_out']` | Hooks `configure_speculation_rules()` onto the WP 6.8+ `wp_speculation_rules_configuration` filter. Defaults mirror the standalone plugin's defaults — faster than WP core's `prefetch` / `conservative`, with rules emitted only for logged-out visitors so editors browsing the frontend from `wp-admin` don't trigger `prerender`-driven double-fires of GA / GTM / Productive page-views. Override individual keys per project (e.g. drop to `prefetch` if Consent Mode v2 is configured for imperative tracking), or set the whole property to `null` to fall back to WP core defaults (no override, no auth gate). |
+| `$warn_speculation_rules_plugin_redundant` | bool | `true` | Registers a Site Health test (`Tools > Site Health` → `timber_kit_speculation_rules_redundant`). Returns `status: 'good'` when the standalone plugin is inactive; returns `status: 'recommended'` with a "Manage plugin" link when both code paths are running and would duplicate the `wp_speculation_rules_configuration` filter. Passive signal only — no admin-notice banner, no auto-deactivation. |
+
+The companion `wp_speculation_rules_href_exclude_paths` filter is intentionally **not** wrapped — WP 6.8+ core already excludes `/wp-login.php`, `/wp-admin/*`, query-string action URLs, etc., and the standalone plugin only re-emitted a legacy `plsr_…` filter for backwards compatibility. Downstream projects can still hook the WordPress core filter directly when a project-specific URL needs to be excluded.
+
+```php
+// Override mode/eagerness in your Base.php (extends StarterBase)
+class Base extends \Parisek\TimberKit\StarterBase {
+    protected ?array $speculation_rules = [
+        'mode'           => 'prefetch',     // safer when Consent Mode v2 fires on pageview
+        'eagerness'      => 'moderate',
+        'authentication' => 'logged_out',
+    ];
+}
+```
+
 ## Block renderer migration guide
 
 If you're upgrading from a theme that carried `timber_block_render_callback()` inline in `functions.php`:
