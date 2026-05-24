@@ -207,4 +207,61 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 
 		$this->assertSame( [], $result );
 	}
+
+	// -------------------------------------------------------------------
+	// Strategy: taxonomy
+	// -------------------------------------------------------------------
+
+	public function test_build_for_taxonomy_flat_term(): void {
+		$term = (object) [ 'term_id' => 10, 'name' => 'News', 'taxonomy' => 'category' ];
+		Functions\expect( 'get_queried_object' )->once()->andReturn( $term );
+		Functions\expect( 'is_taxonomy_hierarchical' )->once()->with( 'category' )->andReturn( false );
+		Functions\expect( 'get_term_link' )->once()->with( $term )->andReturn( 'https://example.test/category/news/' );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_taxonomy' );
+
+		$this->assertSame( [
+			[ 'type' => 'item', 'title' => 'News', 'url' => 'https://example.test/category/news/' ],
+		], $result );
+	}
+
+	public function test_build_for_taxonomy_hierarchical_with_ancestors(): void {
+		$term = (object) [ 'term_id' => 30, 'name' => 'Web Design', 'taxonomy' => 'services' ];
+		$parent = (object) [ 'term_id' => 20, 'name' => 'Services', 'taxonomy' => 'services' ];
+
+		Functions\expect( 'get_queried_object' )->once()->andReturn( $term );
+		Functions\expect( 'is_taxonomy_hierarchical' )->once()->with( 'services' )->andReturn( true );
+		Functions\expect( 'get_ancestors' )->once()->with( 30, 'services', 'taxonomy' )->andReturn( [ 20 ] );
+		Functions\expect( 'get_term' )->once()->with( 20, 'services' )->andReturn( $parent );
+		Functions\expect( 'is_wp_error' )->andReturn( false );
+		Functions\expect( 'get_term_link' )->times( 2 )->andReturnUsing(
+			function ( $t ) use ( $parent, $term ) {
+				return $t === $parent ? 'https://example.test/services/' : 'https://example.test/services/web-design/';
+			}
+		);
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_taxonomy' );
+
+		$this->assertSame( [
+			[ 'type' => 'item', 'title' => 'Services',   'url' => 'https://example.test/services/' ],
+			[ 'type' => 'item', 'title' => 'Web Design', 'url' => 'https://example.test/services/web-design/' ],
+		], $result );
+	}
+
+	public function test_build_for_taxonomy_handles_wp_error_term_link(): void {
+		$term = (object) [ 'term_id' => 99, 'name' => 'Broken', 'taxonomy' => 'category' ];
+		$wp_error = new \stdClass();
+		Functions\expect( 'get_queried_object' )->once()->andReturn( $term );
+		Functions\expect( 'is_taxonomy_hierarchical' )->once()->with( 'category' )->andReturn( false );
+		Functions\expect( 'get_term_link' )->once()->with( $term )->andReturn( $wp_error );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_taxonomy' );
+
+		$this->assertSame( [
+			[ 'type' => 'item', 'title' => 'Broken', 'url' => null ],
+		], $result );
+	}
 }

@@ -224,4 +224,48 @@ class Breadcrumb {
 			],
 		];
 	}
+
+	/**
+	 * Build breadcrumb items for a taxonomy term archive page.
+	 *
+	 * For hierarchical taxonomies, prepends ancestor terms (root to leaf).
+	 * `get_term_link()` returning `WP_Error` is guarded — item still added
+	 * with `url => null` (the leaf term is the current page anyway).
+	 *
+	 * @return array<int, array{type: string, title: string, url: string|null}>
+	 */
+	protected function build_for_taxonomy(): array {
+		$term = get_queried_object();
+		if ( ! $term || ! isset( $term->term_id, $term->name, $term->taxonomy ) ) {
+			return [];
+		}
+
+		$items = [];
+
+		if ( is_taxonomy_hierarchical( $term->taxonomy ) ) {
+			$ancestor_ids = get_ancestors( (int) $term->term_id, $term->taxonomy, 'taxonomy' );
+			$ancestor_ids = array_reverse( $ancestor_ids );
+			foreach ( $ancestor_ids as $ancestor_id ) {
+				$ancestor = get_term( $ancestor_id, $term->taxonomy );
+				if ( ! $ancestor || is_wp_error( $ancestor ) ) {
+					continue;
+				}
+				$ancestor_url = get_term_link( $ancestor );
+				$items[] = [
+					'type'  => 'item',
+					'title' => (string) $ancestor->name,
+					'url'   => is_string( $ancestor_url ) ? $ancestor_url : null,
+				];
+			}
+		}
+
+		$term_url = get_term_link( $term );
+		$items[] = [
+			'type'  => 'item',
+			'title' => (string) $term->name,
+			'url'   => is_string( $term_url ) ? $term_url : null,
+		];
+
+		return $items;
+	}
 }
