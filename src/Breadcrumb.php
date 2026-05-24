@@ -331,6 +331,31 @@ class Breadcrumb {
 	}
 
 	/**
+	 * Build a chain of items from a post's `post_parent` ancestors.
+	 *
+	 * Returns items in root-to-leaf order, excluding the post itself.
+	 *
+	 * @param object $post Post object (unused arg; method uses get_post() globals).
+	 * @return array<int, array{type: string, title: string, url: string}>
+	 */
+	protected function build_ancestors_chain( object $post ): array {
+		unset( $post );
+		$current_post = get_post();
+		$ancestors = get_post_ancestors( $current_post );
+		$ancestors = array_reverse( $ancestors );
+
+		$items = [];
+		foreach ( $ancestors as $ancestor_id ) {
+			$items[] = [
+				'type'  => 'item',
+				'title' => (string) get_the_title( $ancestor_id ),
+				'url'   => (string) get_permalink( $ancestor_id ),
+			];
+		}
+		return $items;
+	}
+
+	/**
 	 * Resolve the ACF `links` option for list_page_map injection.
 	 *
 	 * Returns a normalized dict where each entry has `{id, title, url}`.
@@ -407,6 +432,9 @@ class Breadcrumb {
 
 		if ( 'page' === $post_type ) {
 			$items = $this->by_menu_trail();
+			if ( empty( $items ) ) {
+				$items = $this->build_ancestors_chain( $post );
+			}
 		}
 
 		$items[] = [

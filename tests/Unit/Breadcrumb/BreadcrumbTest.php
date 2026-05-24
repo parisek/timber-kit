@@ -416,6 +416,43 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 		], $result );
 	}
 
+	public function test_build_for_singular_page_falls_back_to_ancestors_when_not_in_menu(): void {
+		Functions\when( 'get_post_type' )->justReturn( 'page' );
+		$post = (object) [ 'ID' => 30, 'post_title' => 'Orphan Page' ];
+		Functions\when( 'get_queried_object' )->justReturn( $post );
+
+		Functions\expect( 'get_nav_menu_locations' )->once()->andReturn( [] );
+		Functions\expect( 'wp_get_nav_menu_items' )->once()->andReturn( [] );
+		Functions\expect( 'get_queried_object_id' )->andReturn( 30 );
+		\Brain\Monkey\Filters\expectApplied( 'wpml_object_id' )->andReturn( 30 );
+
+		Functions\expect( 'get_post' )->once()->andReturn( $post );
+		Functions\expect( 'get_post_ancestors' )->once()->with( $post )->andReturn( [ 20, 10 ] );
+		Functions\when( 'get_permalink' )->alias( function( $id = null ) {
+			return match( $id ) {
+				10 => 'https://example.test/about/',
+				20 => 'https://example.test/about/team/',
+				default => '',
+			};
+		} );
+		Functions\when( 'get_the_title' )->alias( function( $id ) {
+			return match( $id ) {
+				10 => 'About',
+				20 => 'Team',
+				default => '',
+			};
+		} );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_singular' );
+
+		$this->assertSame( [
+			[ 'type' => 'item', 'title' => 'About', 'url' => 'https://example.test/about/' ],
+			[ 'type' => 'item', 'title' => 'Team', 'url' => 'https://example.test/about/team/' ],
+			[ 'type' => 'item', 'title' => 'Orphan Page', 'url' => null ],
+		], $result );
+	}
+
 	public function test_by_menu_trail_returns_ancestor_chain_with_current_filtered(): void {
 		$menu_items = [
 			(object) [
