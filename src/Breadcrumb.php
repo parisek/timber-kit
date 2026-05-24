@@ -113,4 +113,23 @@ class Breadcrumb {
 			],
 		];
 	}
+
+	/**
+	 * Build breadcrumb items for an author archive page.
+	 *
+	 * @return array<int, array{type: string, display_name: string, url: string}>
+	 */
+	protected function build_for_author_archive(): array {
+		$author = get_queried_object();
+		if ( ! $author || ! isset( $author->display_name, $author->ID ) ) {
+			return [];
+		}
+		return [
+			[
+				'type'         => 'author',
+				'display_name' => (string) $author->display_name,
+				'url'          => get_author_posts_url( (int) $author->ID ),
+			],
+		];
+	}
 }

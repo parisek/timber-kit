@@ -100,4 +100,28 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 			],
 		], $result );
 	}
+
+	// -------------------------------------------------------------------
+	// Strategy: author archive
+	// -------------------------------------------------------------------
+
+	public function test_build_for_author_archive_returns_author_with_url(): void {
+		$author = (object) [
+			'ID'           => 5,
+			'display_name' => 'Jane Doe',
+		];
+		Functions\expect( 'get_queried_object' )->once()->andReturn( $author );
+		Functions\expect( 'get_author_posts_url' )->once()->with( 5 )->andReturn( 'https://example.test/author/jane/' );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_author_archive' );
+
+		$this->assertSame( [
+			[
+				'type'         => 'author',
+				'display_name' => 'Jane Doe',
+				'url'          => 'https://example.test/author/jane/',
+			],
+		], $result );
+	}
 }
