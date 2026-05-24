@@ -376,15 +376,13 @@ class Breadcrumb {
 	}
 
 	/**
-	 * Build a chain of items from a post's `post_parent` ancestors.
+	 * Build a chain of items from the current post's `post_parent` ancestors.
 	 *
-	 * Returns items in root-to-leaf order, excluding the post itself.
+	 * Returns items in root-to-leaf order, excluding the current post itself.
 	 *
-	 * @param object $post Post object (unused arg; method uses get_post() globals).
 	 * @return array<int, array{type: string, title: string, url: string}>
 	 */
-	protected function build_ancestors_chain( object $post ): array {
-		unset( $post );
+	protected function build_ancestors_chain(): array {
 		$current_post = get_post();
 		$ancestors = get_post_ancestors( $current_post );
 		$ancestors = array_reverse( $ancestors );
@@ -478,7 +476,7 @@ class Breadcrumb {
 		if ( 'page' === $post_type ) {
 			$items = $this->by_menu_trail();
 			if ( empty( $items ) ) {
-				$items = $this->build_ancestors_chain( $post );
+				$items = $this->build_ancestors_chain();
 			}
 		} elseif ( isset( $this->list_page_map[ $post_type ] ) ) {
 			$links = $this->get_global_links();
@@ -500,7 +498,7 @@ class Breadcrumb {
 			if ( $menu_trail_eligible ) {
 				$items = $this->by_menu_trail();
 				if ( empty( $items ) && $is_hierarchical ) {
-					$items = $this->build_ancestors_chain( $post );
+					$items = $this->build_ancestors_chain();
 				}
 			}
 		}
