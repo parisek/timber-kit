@@ -174,20 +174,32 @@ class StarterBase extends Site {
 	 */
 
 	/**
+	 * Canonical defaults for `$speculation_rules`. Single source of truth so a
+	 * partial override (e.g. `['mode' => 'prefetch']`) merges cleanly without
+	 * leaving the unset keys as `null` in the filter payload.
+	 *
+	 * @var array{mode: 'prefetch'|'prerender', eagerness: 'conservative'|'moderate'|'eager', authentication: 'logged_out'|'any'}
+	 */
+	private const SPECULATION_RULES_DEFAULTS = [
+		'mode'           => 'prerender',
+		'eagerness'      => 'moderate',
+		'authentication' => 'logged_out',
+	];
+
+	/**
 	 * Speculation rules configuration override.
 	 *
 	 * Defaults mirror the Speculation Rules plugin's defaults (faster than WP
 	 * core's `prefetch`/`conservative`, with rules emitted only for logged-out
 	 * visitors to keep object-cached pages safe). Set to `null` to fall back to
-	 * WP core defaults (no override, no auth gate).
+	 * WP core defaults (no override, no auth gate). All keys are optional —
+	 * `configure_speculation_rules()` merges the override on top of
+	 * `SPECULATION_RULES_DEFAULTS`, so a partial array (e.g.
+	 * `['mode' => 'prefetch']`) keeps the other two keys at their default.
 	 *
-	 * @var array{mode: 'prefetch'|'prerender', eagerness: 'conservative'|'moderate'|'eager', authentication: 'logged_out'|'any'}|null
+	 * @var array{mode?: 'prefetch'|'prerender', eagerness?: 'conservative'|'moderate'|'eager', authentication?: 'logged_out'|'any'}|null
 	 */
-	protected ?array $speculation_rules = [
-		'mode'           => 'prerender',
-		'eagerness'      => 'moderate',
-		'authentication' => 'logged_out',
-	];
+	protected ?array $speculation_rules = self::SPECULATION_RULES_DEFAULTS;
 
 	/** @var bool Surface a Site Health warning when the redundant standalone Speculation Rules plugin is also active. */
 	protected bool $warn_speculation_rules_plugin_redundant = true;
@@ -2577,16 +2589,15 @@ class StarterBase extends Site {
 			return is_array( $config ) ? $config : null;
 		}
 
-		if (
-			'logged_out' === ( $this->speculation_rules['authentication'] ?? 'logged_out' )
-			&& is_user_logged_in()
-		) {
+		$resolved = array_merge( self::SPECULATION_RULES_DEFAULTS, $this->speculation_rules );
+
+		if ( 'logged_out' === $resolved['authentication'] && is_user_logged_in() ) {
 			return null;
 		}
 
 		return array(
-			'mode'      => $this->speculation_rules['mode'],
-			'eagerness' => $this->speculation_rules['eagerness'],
+			'mode'      => $resolved['mode'],
+			'eagerness' => $resolved['eagerness'],
 		);
 	}
 

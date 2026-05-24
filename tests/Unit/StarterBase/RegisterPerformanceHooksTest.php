@@ -125,6 +125,40 @@ class RegisterPerformanceHooksTest extends StarterBaseTestCase {
 		);
 	}
 
+	public function test_configure_speculation_rules_merges_partial_override_with_defaults(): void {
+		Functions\when( 'is_user_logged_in' )->justReturn( false );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'speculation_rules', [ 'mode' => 'prefetch' ] );
+
+		// Convert PHP notices/warnings to exceptions so the test fails if any key
+		// access on the partial array silently emits "Undefined array key …".
+		set_error_handler( static function ( int $errno, string $message ): bool {
+			throw new \ErrorException( $message, 0, $errno );
+		}, E_NOTICE | E_WARNING );
+		try {
+			$result = $instance->configure_speculation_rules( null );
+		} finally {
+			restore_error_handler();
+		}
+
+		// `mode` honoured from the override, `eagerness` filled from defaults.
+		$this->assertSame(
+			[ 'mode' => 'prefetch', 'eagerness' => 'moderate' ],
+			$result
+		);
+	}
+
+	public function test_configure_speculation_rules_partial_override_respects_authentication_default(): void {
+		// Partial override without `authentication` must still apply the `logged_out` default gate.
+		Functions\when( 'is_user_logged_in' )->justReturn( true );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'speculation_rules', [ 'eagerness' => 'eager' ] );
+
+		$this->assertNull( $instance->configure_speculation_rules( null ) );
+	}
+
 	public function test_configure_speculation_rules_passes_through_when_property_null(): void {
 		Functions\when( 'is_user_logged_in' )->justReturn( false );
 
