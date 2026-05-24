@@ -613,6 +613,27 @@ class StarterBase extends Site {
 		}
 		$context['search_query'] = get_search_query();
 
+		// Auto-populate $context['breadcrumb'] — unless the project still ships
+		// a global \Breadcrumb class (legacy convention from wordpress-base
+		// versions before 1.6.0). The class_exists check (with autoload=false)
+		// is a plain class-map lookup, not a filesystem probe; if the project
+		// autoloads classes/Breadcrumb.php via Composer, Base.php's constructor
+		// has already loaded it by the time timber_context() fires.
+		//
+		// Skipping when legacy class exists avoids wasted compute — the
+		// project's Base::timber_context() overwrites $context['breadcrumb']
+		// anyway via its own `new \Breadcrumb()` call.
+		if ( ! class_exists( '\Breadcrumb', false ) ) {
+			$bc = new Breadcrumb( [
+				'menu_name'             => $this->breadcrumb_menu_name,
+				'list_page_map'         => $this->breadcrumb_list_page_map,
+				'menu_trail_post_types' => $this->breadcrumb_menu_trail_post_types,
+				'include_pagination'    => $this->breadcrumb_include_pagination,
+				'labels'                => $this->breadcrumb_labels,
+			] );
+			$context['breadcrumb'] = $bc->get();
+		}
+
 		return $context;
 	}
 
