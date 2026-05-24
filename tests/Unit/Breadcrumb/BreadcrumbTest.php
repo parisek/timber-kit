@@ -17,7 +17,7 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 
 	public function test_constructor_accepts_no_arguments(): void {
 		$bc = new Breadcrumb();
-		$this->assertSame( [], $bc->get() );
+		$this->assertInstanceOf( Breadcrumb::class, $bc );
 	}
 
 	public function test_constructor_applies_config_to_known_properties(): void {
@@ -36,7 +36,7 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 
 	public function test_constructor_ignores_unknown_config_keys(): void {
 		$bc = new Breadcrumb([ 'nonexistent_key' => 'whatever' ]);
-		$this->assertSame( [], $bc->get() );
+		$this->assertInstanceOf( Breadcrumb::class, $bc );
 	}
 
 	// -------------------------------------------------------------------
@@ -633,5 +633,79 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 		$this->assertSame( 'item', $result[0]['type'] );
 		$this->assertSame( 'Home', $result[0]['title'] );
 		$this->assertSame( 'Services', $result[1]['title'] );
+	}
+
+	// -------------------------------------------------------------------
+	// Integration: get() dispatcher
+	// -------------------------------------------------------------------
+
+	public function test_get_dispatches_404_and_hydrates(): void {
+		Functions\when( 'is_front_page' )->justReturn( false );
+		Functions\when( 'is_paged' )->justReturn( false );
+		Functions\when( 'is_404' )->justReturn( true );
+		Functions\when( 'is_search' )->justReturn( false );
+		Functions\when( 'is_date' )->justReturn( false );
+		Functions\when( 'is_author' )->justReturn( false );
+		Functions\when( 'is_post_type_archive' )->justReturn( false );
+		Functions\when( 'is_tax' )->justReturn( false );
+		Functions\when( 'is_category' )->justReturn( false );
+		Functions\when( 'is_tag' )->justReturn( false );
+		Functions\when( 'is_singular' )->justReturn( false );
+		Functions\when( 'home_url' )->justReturn( 'https://example.test/' );
+
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_skip' )->andReturn( false );
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_items' )->andReturnUsing( fn( $items ) => $items );
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_labels' )->andReturnUsing( fn( $labels ) => $labels );
+
+		$bc = new Breadcrumb();
+		$result = $bc->get();
+
+		$this->assertCount( 2, $result );
+		$this->assertSame( 'home', $result[0]['type'] );
+		$this->assertSame( 'Home', $result[0]['title'] );
+		$this->assertSame( '404', $result[1]['type'] );
+		$this->assertSame( 'Page not found', $result[1]['title'] );
+	}
+
+	public function test_get_returns_empty_on_front_page(): void {
+		Functions\when( 'is_front_page' )->justReturn( true );
+		Functions\when( 'is_paged' )->justReturn( false );
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_skip' )->andReturn( false );
+
+		$bc = new Breadcrumb();
+		$this->assertSame( [], $bc->get() );
+	}
+
+	public function test_get_respects_skip_filter(): void {
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_skip' )->andReturn( true );
+
+		$bc = new Breadcrumb();
+		$this->assertSame( [], $bc->get() );
+	}
+
+	public function test_get_applies_items_filter_before_hydrate(): void {
+		Functions\when( 'is_front_page' )->justReturn( false );
+		Functions\when( 'is_paged' )->justReturn( false );
+		Functions\when( 'is_404' )->justReturn( true );
+		Functions\when( 'is_search' )->justReturn( false );
+		Functions\when( 'is_date' )->justReturn( false );
+		Functions\when( 'is_author' )->justReturn( false );
+		Functions\when( 'is_post_type_archive' )->justReturn( false );
+		Functions\when( 'is_tax' )->justReturn( false );
+		Functions\when( 'is_category' )->justReturn( false );
+		Functions\when( 'is_tag' )->justReturn( false );
+		Functions\when( 'is_singular' )->justReturn( false );
+		Functions\when( 'home_url' )->justReturn( 'https://example.test/' );
+
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_skip' )->andReturn( false );
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_items' )
+			->andReturnUsing( fn( $items ) => array_values( array_filter( $items, fn( $i ) => 'home' === $i['type'] ) ) );
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_labels' )->andReturnUsing( fn( $labels ) => $labels );
+
+		$bc = new Breadcrumb();
+		$result = $bc->get();
+
+		$this->assertCount( 1, $result );
+		$this->assertSame( 'home', $result[0]['type'] );
 	}
 }

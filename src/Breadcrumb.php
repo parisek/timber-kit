@@ -72,10 +72,48 @@ class Breadcrumb {
 	/**
 	 * Build the breadcrumb item array for the current WordPress query state.
 	 *
+	 * Routing order:
+	 * 1. `timber_kit_breadcrumb_skip` filter — return [] immediately if true.
+	 * 2. Front page (non-paged) — return [].
+	 * 3. Dispatch to the matching strategy via match(true).
+	 * 4. Optionally append a pagination item when include_pagination is set.
+	 * 5. `timber_kit_breadcrumb_items` filter — modify the structured item array.
+	 * 6. hydrate() — resolve titles and apply `timber_kit_breadcrumb_labels`.
+	 *
 	 * @return array<int, array<string, mixed>> Typed items with hydrated titles.
 	 */
 	public function get(): array {
-		return [];
+		if ( apply_filters( 'timber_kit_breadcrumb_skip', false, $GLOBALS['wp_query'] ?? null ) ) {
+			return [];
+		}
+
+		if ( is_front_page() && ! is_paged() ) {
+			return [];
+		}
+
+		$home = $this->build_home_item();
+
+		$items = match ( true ) {
+			is_404()                              => $this->build_for_404(),
+			is_search()                           => $this->build_for_search(),
+			is_date()                             => $this->build_for_date_archive(),
+			is_author()                           => $this->build_for_author_archive(),
+			is_post_type_archive()                => $this->build_for_post_type_archive(),
+			is_tax() || is_category() || is_tag() => $this->build_for_taxonomy(),
+			is_singular()                         => $this->build_for_singular(),
+			default                               => [],
+		};
+
+		if ( $this->include_pagination && is_paged() ) {
+			$items[] = $this->build_pagination_item();
+		}
+
+		$all = array_values( array_merge( [ $home ], $items ) );
+
+		/** @var array<int, array<string, mixed>> $all */
+		$all = apply_filters( 'timber_kit_breadcrumb_items', $all, $this );
+
+		return $this->hydrate( $all );
 	}
 
 	/**
