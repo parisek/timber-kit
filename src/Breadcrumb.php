@@ -77,4 +77,16 @@ class Breadcrumb {
 	public function get(): array {
 		return [];
 	}
+
+	/**
+	 * Build the home breadcrumb item. Always the first item in the trail.
+	 *
+	 * @return array{type: string, url: string}
+	 */
+	protected function build_home_item(): array {
+		return [
+			'type' => 'home',
+			'url'  => home_url( '/' ),
+		];
+	}
 }
