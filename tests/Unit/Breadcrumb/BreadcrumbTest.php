@@ -341,6 +341,47 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 		$this->assertSame( [], $result );
 	}
 
+	// -------------------------------------------------------------------
+	// Helper: get_global_links
+	// -------------------------------------------------------------------
+
+	public function test_get_global_links_returns_empty_when_acf_unavailable(): void {
+		// get_field is not stubbed — function_exists() returns false
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'get_global_links' );
+
+		$this->assertSame( [], $result );
+	}
+
+	public function test_get_global_links_returns_empty_when_acf_returns_null(): void {
+		Functions\when( 'get_field' )->justReturn( null );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'get_global_links' );
+
+		$this->assertSame( [], $result );
+	}
+
+	public function test_get_global_links_normalises_array_entry_with_post_resolution(): void {
+		Functions\when( 'get_field' )->justReturn( [
+			'article_list' => [
+				'url'   => 'https://example.test/blog',
+				'title' => 'Blog',
+			],
+		] );
+		Functions\expect( 'url_to_postid' )->with( 'https://example.test/blog' )->andReturn( 42 );
+		\Brain\Monkey\Filters\expectApplied( 'wpml_object_id' )->with( 42, 'page' )->andReturn( 42 );
+		Functions\expect( 'get_permalink' )->with( 42 )->andReturn( 'https://example.test/blog' );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'get_global_links' );
+
+		$this->assertArrayHasKey( 'article_list', $result );
+		$this->assertSame( 42, $result['article_list']['id'] );
+		$this->assertSame( 'Blog', $result['article_list']['title'] );
+		$this->assertSame( 'https://example.test/blog', $result['article_list']['url'] );
+	}
+
 	public function test_by_menu_trail_returns_ancestor_chain_with_current_filtered(): void {
 		$menu_items = [
 			(object) [

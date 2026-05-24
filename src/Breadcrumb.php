@@ -331,6 +331,59 @@ class Breadcrumb {
 	}
 
 	/**
+	 * Resolve the ACF `links` option for list_page_map injection.
+	 *
+	 * Returns a normalized dict where each entry has `{id, title, url}`.
+	 * Defensive against ACF being absent — returns `[]` without fatal.
+	 * URLs are resolved through `wpml_object_id` so a Czech site rendering
+	 * the English breadcrumb gets the English article-list page link.
+	 *
+	 * @return array<string, array{id: int, title: string, url: string}>
+	 */
+	protected function get_global_links(): array {
+		if ( ! function_exists( 'get_field' ) ) {
+			return [];
+		}
+
+		$data = [];
+		$links = get_field( 'links', 'option' );
+
+		if ( ! is_countable( $links ) ) {
+			return $data;
+		}
+
+		foreach ( $links as $key => $item ) {
+			if ( is_string( $item ) && ! empty( $item ) ) {
+				$post_id = url_to_postid( $item );
+				if ( $post_id ) {
+					$translated_id = (int) apply_filters( 'wpml_object_id', $post_id, 'page' );
+					$data[ $key ] = [
+						'id'    => $translated_id,
+						'title' => '',
+						'url'   => get_permalink( $translated_id ),
+					];
+				}
+			} elseif ( is_array( $item ) && isset( $item['url'] ) ) {
+				$post_id = url_to_postid( $item['url'] );
+				if ( $post_id ) {
+					$translated_id = (int) apply_filters( 'wpml_object_id', $post_id, 'page' );
+					$url = get_permalink( $translated_id );
+				} else {
+					$translated_id = 0;
+					$url = $item['url'];
+				}
+				$data[ $key ] = [
+					'id'    => $translated_id,
+					'title' => $item['title'] ?? '',
+					'url'   => $url,
+				];
+			}
+		}
+
+		return $data;
+	}
+
+	/**
 	 * Find a menu item in an array of items by field-value match.
 	 *
 	 * Normalizes numeric values to int before strict comparison.
