@@ -64,4 +64,40 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 
 		$this->assertSame( [ [ 'type' => '404' ] ], $result );
 	}
+
+	// -------------------------------------------------------------------
+	// Strategy: search
+	// -------------------------------------------------------------------
+
+	public function test_build_for_search_returns_query_with_url(): void {
+		Functions\expect( 'get_search_query' )->once()->andReturn( 'foo bar' );
+		Functions\expect( 'get_search_link' )->once()->andReturn( 'https://example.test/?s=foo+bar' );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_search' );
+
+		$this->assertSame( [
+			[
+				'type'  => 'search',
+				'query' => 'foo bar',
+				'url'   => 'https://example.test/?s=foo+bar',
+			],
+		], $result );
+	}
+
+	public function test_build_for_search_handles_empty_query(): void {
+		Functions\expect( 'get_search_query' )->once()->andReturn( '' );
+		Functions\expect( 'get_search_link' )->once()->andReturn( 'https://example.test/?s=' );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_search' );
+
+		$this->assertSame( [
+			[
+				'type'  => 'search',
+				'query' => '',
+				'url'   => 'https://example.test/?s=',
+			],
+		], $result );
+	}
 }

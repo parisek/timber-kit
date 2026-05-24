@@ -98,4 +98,19 @@ class Breadcrumb {
 	protected function build_for_404(): array {
 		return [ [ 'type' => '404' ] ];
 	}
+
+	/**
+	 * Build breadcrumb items for a search results page.
+	 *
+	 * @return array<int, array{type: string, query: string, url: string}>
+	 */
+	protected function build_for_search(): array {
+		return [
+			[
+				'type'  => 'search',
+				'query' => get_search_query(),
+				'url'   => get_search_link(),
+			],
+		];
+	}
 }
