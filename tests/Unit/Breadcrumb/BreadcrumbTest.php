@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Breadcrumb;
 
+use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
 use Parisek\TimberKit\Breadcrumb;
 use ReflectionClass;
@@ -304,5 +305,70 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 		$result = $this->invoke_protected( $bc, 'get_menu_item', [ 'object_id', 42, $items ] );
 
 		$this->assertSame( 'About', $result->title );
+	}
+
+	// -------------------------------------------------------------------
+	// Helper: by_menu_trail
+	// -------------------------------------------------------------------
+
+	public function test_by_menu_trail_returns_empty_when_no_menu_items(): void {
+		Functions\expect( 'get_nav_menu_locations' )->once()->andReturn( [] );
+		Functions\expect( 'wp_get_nav_menu_items' )->once()->andReturn( false );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'by_menu_trail' );
+
+		$this->assertSame( [], $result );
+	}
+
+	public function test_by_menu_trail_returns_empty_when_current_page_not_in_menu(): void {
+		Functions\expect( 'get_nav_menu_locations' )->once()->andReturn( [] );
+		Functions\expect( 'wp_get_nav_menu_items' )->once()->andReturn( [
+			(object) [
+				'ID'               => 10,
+				'object_id'        => '100',
+				'menu_item_parent' => '0',
+				'url'              => 'https://example.test/about',
+				'title'            => 'About',
+			],
+		] );
+		Functions\expect( 'get_queried_object_id' )->once()->andReturn( 999 );
+		\Brain\Monkey\Filters\expectApplied( 'wpml_object_id' )->andReturn( 999 );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'by_menu_trail' );
+
+		$this->assertSame( [], $result );
+	}
+
+	public function test_by_menu_trail_returns_ancestor_chain_with_current_filtered(): void {
+		$menu_items = [
+			(object) [
+				'ID' => 1, 'object_id' => '10', 'menu_item_parent' => '0',
+				'url' => 'https://example.test/', 'title' => 'Home',
+			],
+			(object) [
+				'ID' => 2, 'object_id' => '20', 'menu_item_parent' => '1',
+				'url' => 'https://example.test/services', 'title' => 'Services',
+			],
+			(object) [
+				'ID' => 3, 'object_id' => '30', 'menu_item_parent' => '2',
+				'url' => 'https://example.test/services/web', 'title' => 'Web',
+			],
+		];
+
+		Functions\expect( 'get_nav_menu_locations' )->once()->andReturn( [] );
+		Functions\expect( 'wp_get_nav_menu_items' )->once()->andReturn( $menu_items );
+		Functions\expect( 'get_queried_object_id' )->once()->andReturn( 30 );
+		\Brain\Monkey\Filters\expectApplied( 'wpml_object_id' )->andReturn( 30 );
+		Functions\expect( 'get_permalink' )->andReturn( 'https://example.test/services/web' );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'by_menu_trail' );
+
+		$this->assertCount( 2, $result );
+		$this->assertSame( 'item', $result[0]['type'] );
+		$this->assertSame( 'Home', $result[0]['title'] );
+		$this->assertSame( 'Services', $result[1]['title'] );
 	}
 }

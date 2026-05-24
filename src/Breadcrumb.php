@@ -270,6 +270,67 @@ class Breadcrumb {
 	}
 
 	/**
+	 * Walk the configured nav menu for the queried page's parent chain.
+	 *
+	 * Returns items in root-to-leaf order, excluding the current page (the
+	 * caller appends current as a separate item). Each item has shape
+	 * `{type: 'item', title, url}`.
+	 *
+	 * WPML-aware: the queried object id is normalized via the `wpml_object_id`
+	 * filter before menu lookup, so the chain is built from the menu items
+	 * in the *active language* rather than the default language.
+	 *
+	 * @return array<int, array{type: string, title: string, url: string}>
+	 */
+	protected function by_menu_trail(): array {
+		$menu_name = $this->menu_name;
+		$breadcrumb_items = [];
+
+		$locations = get_nav_menu_locations();
+		if ( isset( $locations[ $menu_name ] ) ) {
+			$menu_name = $locations[ $menu_name ];
+		}
+
+		$items = wp_get_nav_menu_items( $menu_name );
+		if ( false === $items ) {
+			return $breadcrumb_items;
+		}
+
+		$queried_id = (int) apply_filters( 'wpml_object_id', get_queried_object_id(), 'page' );
+
+		$item = $this->get_menu_item( 'object_id', $queried_id, $items );
+		if ( false === $item ) {
+			return $breadcrumb_items;
+		}
+
+		$menu_item_objects = [ $item ];
+		while ( 0 !== (int) $item->menu_item_parent ) {
+			$item = $this->get_menu_item( 'ID', $item->menu_item_parent, $items );
+			if ( false === $item ) {
+				break;
+			}
+			$menu_item_objects[] = $item;
+		}
+		$menu_item_objects = array_reverse( $menu_item_objects );
+
+		foreach ( $menu_item_objects as $menu_item ) {
+			if ( ! isset( $menu_item->url ) || empty( $menu_item->url ) || '#' === $menu_item->url ) {
+				continue;
+			}
+			if ( $menu_item->url === get_permalink() ) {
+				continue;
+			}
+			$breadcrumb_items[] = [
+				'type'  => 'item',
+				'title' => (string) $menu_item->title,
+				'url'   => (string) $menu_item->url,
+			];
+		}
+
+		return $breadcrumb_items;
+	}
+
+	/**
 	 * Find a menu item in an array of items by field-value match.
 	 *
 	 * Normalizes numeric values to int before strict comparison.
