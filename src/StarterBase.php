@@ -87,6 +87,27 @@ class StarterBase extends Site {
 	/** @var string Twig template used to wrap core Gutenberg blocks on non-article pages. */
 	protected string $block_wrapper_template = '@component/content/content.twig';
 
+	/** @var string Nav menu location for breadcrumb menu-trail strategy */
+	protected string $breadcrumb_menu_name = 'main-menu';
+
+	/** @var array<string, string> Post type → ACF option key for "listing page" injection */
+	protected array $breadcrumb_list_page_map = [];
+
+	/** @var array<int, string>|null Post types eligible for menu-trail; null = auto-detect hierarchical */
+	protected ?array $breadcrumb_menu_trail_post_types = null;
+
+	/** @var bool Whether to add "Page N" item on paginated views */
+	protected bool $breadcrumb_include_pagination = false;
+
+	/** @var array{home: string, '404': string, search: string, pagination: string, author: string} Default English labels */
+	protected array $breadcrumb_labels = [
+		'home'       => 'Home',
+		'404'        => 'Page not found',
+		'search'     => 'Search: %s',
+		'pagination' => 'Page %d',
+		'author'     => 'Author: %s',
+	];
+
 	/**
 	 * Security & cleanup — override in child constructor to disable
 	 */
