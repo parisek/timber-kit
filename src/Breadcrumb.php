@@ -191,4 +191,37 @@ class Breadcrumb {
 
 		return $items;
 	}
+
+	/**
+	 * Build breadcrumb items for a post type archive page.
+	 *
+	 * @return array<int, array{type: string, title: string, url: string}>
+	 */
+	protected function build_for_post_type_archive(): array {
+		$post_type = get_query_var( 'post_type' );
+		if ( is_array( $post_type ) ) {
+			$post_type = reset( $post_type );
+		}
+		if ( ! $post_type || ! is_string( $post_type ) ) {
+			return [];
+		}
+
+		$cpt = get_post_type_object( $post_type );
+		if ( ! $cpt || ! isset( $cpt->labels->archives ) ) {
+			return [];
+		}
+
+		$url = get_post_type_archive_link( $post_type );
+		if ( ! is_string( $url ) ) {
+			return [];
+		}
+
+		return [
+			[
+				'type'  => 'item',
+				'title' => (string) $cpt->labels->archives,
+				'url'   => $url,
+			],
+		];
+	}
 }

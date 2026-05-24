@@ -173,4 +173,38 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 			[ 'type' => 'date_day',   'year' => 2024, 'month' => 5, 'day' => 15 ],
 		], $result );
 	}
+
+	// -------------------------------------------------------------------
+	// Strategy: post type archive
+	// -------------------------------------------------------------------
+
+	public function test_build_for_post_type_archive_returns_archive_label(): void {
+		Functions\expect( 'get_query_var' )->with( 'post_type' )->andReturn( 'project' );
+		$cpt_object = (object) [
+			'name'   => 'project',
+			'labels' => (object) [ 'archives' => 'Projects archive' ],
+		];
+		Functions\expect( 'get_post_type_object' )->once()->with( 'project' )->andReturn( $cpt_object );
+		Functions\expect( 'get_post_type_archive_link' )->once()->with( 'project' )->andReturn( 'https://example.test/projects/' );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_post_type_archive' );
+
+		$this->assertSame( [
+			[
+				'type'  => 'item',
+				'title' => 'Projects archive',
+				'url'   => 'https://example.test/projects/',
+			],
+		], $result );
+	}
+
+	public function test_build_for_post_type_archive_skips_missing_cpt(): void {
+		Functions\expect( 'get_query_var' )->with( 'post_type' )->andReturn( false );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_post_type_archive' );
+
+		$this->assertSame( [], $result );
+	}
 }
