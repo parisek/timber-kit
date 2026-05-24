@@ -268,4 +268,30 @@ class Breadcrumb {
 
 		return $items;
 	}
+
+	/**
+	 * Find a menu item in an array of items by field-value match.
+	 *
+	 * Normalizes numeric values to int before strict comparison.
+	 * `wp_get_nav_menu_items()` returns `object_id` and `menu_item_parent`
+	 * as strings (post_meta is always stringified) while `ID` is int
+	 * (from wp_posts) and `get_queried_object_id()` also returns int.
+	 * Without this normalization `'42' === 42` is false and the menu
+	 * lookup silently fails — breaking breadcrumbs for normal nav menus.
+	 *
+	 * @param string             $field     Property name to compare.
+	 * @param mixed              $object_id Needle value.
+	 * @param array<int, object> $items     Haystack of menu-item objects.
+	 * @return object|false Matching item, or false if not found.
+	 */
+	protected function get_menu_item( string $field, mixed $object_id, array $items ): object|false {
+		$needle = is_numeric( $object_id ) ? (int) $object_id : $object_id;
+		foreach ( $items as $item ) {
+			$haystack = is_numeric( $item->$field ) ? (int) $item->$field : $item->$field;
+			if ( $haystack === $needle ) {
+				return $item;
+			}
+		}
+		return false;
+	}
 }

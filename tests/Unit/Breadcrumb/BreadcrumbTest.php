@@ -264,4 +264,45 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 			[ 'type' => 'item', 'title' => 'Broken', 'url' => null ],
 		], $result );
 	}
+
+	// -------------------------------------------------------------------
+	// Helper: get_menu_item (pure, no WP calls)
+	// -------------------------------------------------------------------
+
+	public function test_get_menu_item_returns_matching_item_by_id(): void {
+		$items = [
+			(object) [ 'ID' => 1, 'title' => 'Home' ],
+			(object) [ 'ID' => 2, 'title' => 'About' ],
+			(object) [ 'ID' => 3, 'title' => 'Contact' ],
+		];
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'get_menu_item', [ 'ID', 2, $items ] );
+
+		$this->assertSame( 'About', $result->title );
+	}
+
+	public function test_get_menu_item_returns_false_when_no_match(): void {
+		$items = [ (object) [ 'ID' => 1, 'title' => 'Home' ] ];
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'get_menu_item', [ 'ID', 99, $items ] );
+
+		$this->assertFalse( $result );
+	}
+
+	public function test_get_menu_item_normalizes_string_int_mismatch(): void {
+		// REGRESSION: wp_get_nav_menu_items() returns object_id as STRING
+		// (post_meta is stringified); get_queried_object_id() returns INT.
+		// Without is_numeric normalization, strict `===` silently fails.
+		$items = [
+			(object) [ 'object_id' => '42', 'title' => 'About' ],
+			(object) [ 'object_id' => '99', 'title' => 'Other' ],
+		];
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'get_menu_item', [ 'object_id', 42, $items ] );
+
+		$this->assertSame( 'About', $result->title );
+	}
 }
