@@ -87,6 +87,27 @@ class StarterBase extends Site {
 	/** @var string Twig template used to wrap core Gutenberg blocks on non-article pages. */
 	protected string $block_wrapper_template = '@component/content/content.twig';
 
+	/** @var string Nav menu location for breadcrumb menu-trail strategy */
+	protected string $breadcrumb_menu_name = 'main-menu';
+
+	/** @var array<string, string> Post type → ACF option key for "listing page" injection */
+	protected array $breadcrumb_list_page_map = [];
+
+	/** @var array<int, string>|null Post types eligible for menu-trail; null = auto-detect hierarchical */
+	protected ?array $breadcrumb_menu_trail_post_types = null;
+
+	/** @var bool Whether to add "Page N" item on paginated views */
+	protected bool $breadcrumb_include_pagination = false;
+
+	/** @var array{home: string, '404': string, search: string, pagination: string, author: string} Default English labels */
+	protected array $breadcrumb_labels = [
+		'home'       => 'Home',
+		'404'        => 'Page not found',
+		'search'     => 'Search: %s',
+		'pagination' => 'Page %d',
+		'author'     => 'Author: %s',
+	];
+
 	/**
 	 * Security & cleanup — override in child constructor to disable
 	 */
@@ -591,6 +612,27 @@ class StarterBase extends Site {
 			$context['langcode'] = get_bloginfo( 'language' );
 		}
 		$context['search_query'] = get_search_query();
+
+		// Auto-populate $context['breadcrumb'] — unless the project still ships
+		// a global \Breadcrumb class (legacy convention from wordpress-base
+		// versions before 1.6.0). class_exists triggers Composer's classmap
+		// autoload when the class is registered (cheap; one map lookup), so
+		// the guard reliably detects the legacy class even before the project
+		// instantiates it.
+		//
+		// Skipping when legacy class exists avoids double computation — the
+		// project's Base::timber_context() overrides $context['breadcrumb']
+		// later anyway via its own `new \Breadcrumb()` call.
+		if ( ! class_exists( '\Breadcrumb' ) ) {
+			$bc = new Breadcrumb( [
+				'menu_name'             => $this->breadcrumb_menu_name,
+				'list_page_map'         => $this->breadcrumb_list_page_map,
+				'menu_trail_post_types' => $this->breadcrumb_menu_trail_post_types,
+				'include_pagination'    => $this->breadcrumb_include_pagination,
+				'labels'                => $this->breadcrumb_labels,
+			] );
+			$context['breadcrumb'] = $bc->get();
+		}
 
 		return $context;
 	}
