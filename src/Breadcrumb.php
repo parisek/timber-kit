@@ -321,15 +321,15 @@ class Breadcrumb {
 	 * @return array<int, array{type: string, title: string, url: string}>
 	 */
 	protected function by_menu_trail(): array {
-		$menu_name = $this->menu_name;
+		$resolved_menu = $this->menu_name;
 		$breadcrumb_items = [];
 
 		$locations = get_nav_menu_locations();
-		if ( isset( $locations[ $menu_name ] ) ) {
-			$menu_name = $locations[ $menu_name ];
+		if ( isset( $locations[ $resolved_menu ] ) ) {
+			$resolved_menu = $locations[ $resolved_menu ];
 		}
 
-		$items = wp_get_nav_menu_items( $menu_name );
+		$items = wp_get_nav_menu_items( $resolved_menu );
 		if ( false === $items ) {
 			return $breadcrumb_items;
 		}
@@ -369,7 +369,7 @@ class Breadcrumb {
 		$breadcrumb_items = apply_filters(
 			'timber_kit_breadcrumb_menu_trail',
 			$breadcrumb_items,
-			$menu_name
+			$this->menu_name
 		);
 
 		return $breadcrumb_items;
