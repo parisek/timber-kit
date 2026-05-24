@@ -89,4 +89,13 @@ class Breadcrumb {
 			'url'  => home_url( '/' ),
 		];
 	}
+
+	/**
+	 * Build breadcrumb items for a 404 page.
+	 *
+	 * @return array<int, array{type: string}>
+	 */
+	protected function build_for_404(): array {
+		return [ [ 'type' => '404' ] ];
+	}
 }

@@ -53,4 +53,15 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 			'url'  => 'https://example.test/',
 		], $result );
 	}
+
+	// -------------------------------------------------------------------
+	// Strategy: 404
+	// -------------------------------------------------------------------
+
+	public function test_build_for_404_returns_single_404_item(): void {
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_404' );
+
+		$this->assertSame( [ [ 'type' => '404' ] ], $result );
+	}
 }
