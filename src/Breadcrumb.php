@@ -384,6 +384,41 @@ class Breadcrumb {
 	}
 
 	/**
+	 * Build breadcrumb items for a singular page/post/CPT.
+	 *
+	 * Branches by post type:
+	 * - `page`: menu-trail via configured nav menu, fallback to post_parent ancestors.
+	 * - `post` (or post type in `list_page_map`): listing page + current title.
+	 * - hierarchical CPT: menu-trail (if enabled) or post_parent ancestors.
+	 * - flat CPT: just current title.
+	 *
+	 * All branches append the current post title as the leaf (no url).
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	protected function build_for_singular(): array {
+		$post = get_queried_object();
+		if ( ! $post || ! isset( $post->ID, $post->post_title ) ) {
+			return [];
+		}
+
+		$post_type = get_post_type();
+		$items = [];
+
+		if ( 'page' === $post_type ) {
+			$items = $this->by_menu_trail();
+		}
+
+		$items[] = [
+			'type'  => 'item',
+			'title' => (string) $post->post_title,
+			'url'   => null,
+		];
+
+		return $items;
+	}
+
+	/**
 	 * Find a menu item in an array of items by field-value match.
 	 *
 	 * Normalizes numeric values to int before strict comparison.

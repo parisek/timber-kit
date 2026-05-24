@@ -382,6 +382,40 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 		$this->assertSame( 'https://example.test/blog', $result['article_list']['url'] );
 	}
 
+	// -------------------------------------------------------------------
+	// Strategy: singular (page, menu-trail success)
+	// -------------------------------------------------------------------
+
+	public function test_build_for_singular_page_with_menu_trail(): void {
+		Functions\when( 'get_post_type' )->justReturn( 'page' );
+		$post = (object) [ 'ID' => 30, 'post_title' => 'Web Design' ];
+		Functions\when( 'get_queried_object' )->justReturn( $post );
+		Functions\when( 'get_permalink' )->alias( function( $id = null ) {
+			return 'https://example.test/services/web';  // both no-arg and arg-30 return same
+		} );
+
+		Functions\expect( 'get_nav_menu_locations' )->once()->andReturn( [] );
+		Functions\expect( 'wp_get_nav_menu_items' )->once()->andReturn( [
+			(object) [ 'ID' => 1, 'object_id' => '10', 'menu_item_parent' => '0',
+				'url' => 'https://example.test/', 'title' => 'Home' ],
+			(object) [ 'ID' => 2, 'object_id' => '20', 'menu_item_parent' => '1',
+				'url' => 'https://example.test/services', 'title' => 'Services' ],
+			(object) [ 'ID' => 3, 'object_id' => '30', 'menu_item_parent' => '2',
+				'url' => 'https://example.test/services/web', 'title' => 'Web Design' ],
+		] );
+		Functions\expect( 'get_queried_object_id' )->andReturn( 30 );
+		\Brain\Monkey\Filters\expectApplied( 'wpml_object_id' )->andReturn( 30 );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_singular' );
+
+		$this->assertSame( [
+			[ 'type' => 'item', 'title' => 'Home',     'url' => 'https://example.test/' ],
+			[ 'type' => 'item', 'title' => 'Services', 'url' => 'https://example.test/services' ],
+			[ 'type' => 'item', 'title' => 'Web Design', 'url' => null ],
+		], $result );
+	}
+
 	public function test_by_menu_trail_returns_ancestor_chain_with_current_filtered(): void {
 		$menu_items = [
 			(object) [
