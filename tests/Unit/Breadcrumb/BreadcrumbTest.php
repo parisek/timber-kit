@@ -735,4 +735,44 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 		$this->assertCount( 1, $result );
 		$this->assertSame( 'home', $result[0]['type'] );
 	}
+
+	// -------------------------------------------------------------------
+	// Integration: include_pagination
+	// -------------------------------------------------------------------
+
+	public function test_get_appends_pagination_when_enabled(): void {
+		Functions\when( 'is_front_page' )->justReturn( false );
+		Functions\when( 'is_paged' )->justReturn( true );
+		Functions\when( 'is_404' )->justReturn( false );
+		Functions\when( 'is_search' )->justReturn( false );
+		Functions\when( 'is_date' )->justReturn( false );
+		Functions\when( 'is_author' )->justReturn( false );
+		Functions\when( 'is_post_type_archive' )->justReturn( false );
+		Functions\when( 'is_tax' )->justReturn( false );
+		Functions\when( 'is_category' )->justReturn( true );
+		Functions\when( 'is_tag' )->justReturn( false );
+		Functions\when( 'is_singular' )->justReturn( false );
+		Functions\when( 'home_url' )->justReturn( 'https://example.test/' );
+
+		$term = (object) [ 'term_id' => 10, 'name' => 'News', 'taxonomy' => 'category' ];
+		Functions\when( 'get_queried_object' )->justReturn( $term );
+		Functions\when( 'is_taxonomy_hierarchical' )->justReturn( false );
+		Functions\when( 'get_term_link' )->justReturn( 'https://example.test/category/news/' );
+
+		Functions\when( 'get_query_var' )->justReturn( 3 );
+		Functions\when( 'get_pagenum_link' )->justReturn( 'https://example.test/category/news/' );
+
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_skip' )->andReturn( false );
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_items' )->andReturnUsing( fn( $items ) => $items );
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_labels' )->andReturnUsing( fn( $labels ) => $labels );
+
+		$bc = new Breadcrumb([ 'include_pagination' => true ]);
+		$result = $bc->get();
+
+		$this->assertCount( 3, $result );
+		$this->assertSame( 'home', $result[0]['type'] );
+		$this->assertSame( 'item', $result[1]['type'] );
+		$this->assertSame( 'pagination', $result[2]['type'] );
+		$this->assertSame( 'Page 3', $result[2]['title'] );
+	}
 }
