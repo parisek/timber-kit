@@ -2576,12 +2576,19 @@ class StarterBase extends Site {
 	 * Returns the configured mode/eagerness array, or `null` when the configured
 	 * authentication gate is `logged_out` and the current request belongs to an
 	 * authenticated user — matching the behaviour of the standalone Speculation
-	 * Rules plugin. Returning `null` makes WordPress fall back to its default
-	 * (no speculation rules emitted), which is the safe choice for logged-in
-	 * sessions where prerender would otherwise pollute analytics, double-fire
-	 * GTM events, or interfere with stateful previews.
+	 * Rules plugin. Returning `null` is a load-bearing short-circuit, not a
+	 * fall-through to WP core defaults: `wp_get_speculation_rules_configuration()`
+	 * exits at `if (null === $config) return null;` *before* the auto→prefetch
+	 * coercion runs, so no `<script type="speculationrules">` is emitted for that
+	 * request. This is the safe outcome for logged-in sessions where prerender
+	 * would otherwise pollute analytics, double-fire GTM events, or interfere
+	 * with stateful previews.
 	 *
-	 * @param array<string, string>|null|mixed $config The current configuration array passed through the filter.
+	 * @param array<string, string>|null $config Current filter value as documented by WP core's
+	 *                                           `wp_speculation_rules_configuration` filter. Other
+	 *                                           filter callbacks may legitimately pass through unrelated
+	 *                                           shapes, so the method defensively guards with
+	 *                                           `is_array()` before reading keys.
 	 * @return array{mode: 'prefetch'|'prerender', eagerness: 'conservative'|'moderate'|'eager'}|null
 	 */
 	public function configure_speculation_rules( $config ): ?array {
