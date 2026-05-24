@@ -24,7 +24,7 @@ The project's `classes/Breadcrumb.php` is **deleted entirely**. `wordpress-base`
 
 | Repo | Changes | Version |
 |---|---|---|
-| **`parisek/timber-kit`** | `src/Breadcrumb.php` (new), `src/StarterBase.php` (+5 properties + auto-context behind legacy-class guard), `tests/Unit/BreadcrumbTest.php` (~35 brain/monkey tests), `CHANGELOG.md` | 1.6.0 (minor, additive) |
+| **`parisek/timber-kit`** | `src/Breadcrumb.php` (new), `src/StarterBase.php` (+5 properties + auto-context behind legacy-class guard), `tests/Unit/BreadcrumbTest.php` (~35 brain/monkey tests), `CHANGELOG.md` | Unreleased (minor, additive) |
 | **`wordpress-base`** | `classes/Base.php` (use `$breadcrumb_*` properties), **delete** `classes/Breadcrumb.php`, **delete** `tests/unit/BreadcrumbTest.php`, `.claude/rules/wordpress/timber-kit.md` (new property rows) | n/a |
 | **`tailwind-base`** | **None.** Items shape stays backward-compatible (`type` key is additive) | n/a |
 
@@ -111,7 +111,7 @@ class Base extends StarterBase {
 
 ### 4.1 Legacy compatibility guard
 
-To avoid double-computation in projects that consume TimberKit 1.6.0 but haven't yet migrated their `Base.php` away from `new \Breadcrumb()`, the auto-populate is gated on a class-existence check:
+To avoid double-computation in projects that consume the next TimberKit release but haven't yet migrated their `Base.php` away from `new \Breadcrumb()`, the auto-populate is gated on a class-existence check:
 
 ```php
 public function timber_context( $context ) {
@@ -223,7 +223,7 @@ public function get(): array {
 | `build_for_author_archive()` | `[{type: 'author', display_name, url}]` | |
 | `build_for_post_type_archive()` | `[{type: 'item', title, url}]` | Title from `post_type_object->labels->archives` |
 | `build_for_taxonomy()` | ancestor terms + current term | Hierarchical ancestors via `get_ancestors()`; `is_string()` guard on `get_term_link()` for `WP_Error` |
-| `build_for_singular()` | dispatch by post type | `page` → menu-trail OR ancestors; `post` (or post type in `list_page_map`) → list-page + title; hierarchical CPT → menu-trail OR ancestors; flat CPT → CPT archive label + title |
+| `build_for_singular()` | dispatch by post type | `page` → menu-trail OR ancestors; `post` (or post type in `list_page_map`) → list-page + title; hierarchical CPT → menu-trail OR ancestors; flat CPT without `list_page_map` entry → current title only |
 | `build_pagination_item()` | `[{type: 'pagination', page, url}]` | `url` = page-1 link via `get_pagenum_link(1)` |
 
 ### Hydrate
@@ -300,7 +300,7 @@ The existing hide rule `items|length <= 2 ? 'hidden' : ''` keeps working: Home i
 
 ## 9. Project: delete `theme/classes/Breadcrumb.php` entirely
 
-After TimberKit 1.6.0 release, the project's `Breadcrumb.php` is **removed** — no deprecated shim, no compatibility bridge.
+After the next TimberKit release (Unreleased), the project's `Breadcrumb.php` is **removed** — no deprecated shim, no compatibility bridge.
 
 **Rationale**: `wordpress-base` is the canonical create-project template. New projects clone from it; there are no long-running downstream sites with their own `new \Breadcrumb()` call sites that need a migration period. The only consumer of the class is `Base::timber_context()`, which is updated in the same PR to use property overrides.
 
@@ -352,13 +352,13 @@ If a future need arises to assert that `Base` correctly wires `$breadcrumb_*` pr
 - `src/StarterBase.php` (+5 properties + auto-populate in `timber_context()`)
 - `tests/Unit/BreadcrumbTest.php` (~35 brain/monkey tests)
 - `CHANGELOG.md` entry with migration note for downstream consumers
-- **Git tag `v1.6.0`** at merge time. (Library `composer.json` doesn't carry a `version` field — Composer reads tags. Setting `version` in `composer.json` for a library is an anti-pattern.)
+- **Git tag** (next minor version) at merge time. (Library `composer.json` doesn't carry a `version` field — Composer reads tags. Setting `version` in `composer.json` for a library is an anti-pattern.)
 
-Draft + assignee per `tailwind-base`-style doctrine (chat-first → draft → owner review). User merges + tags `v1.6.0` when satisfied.
+Draft + assignee per `tailwind-base`-style doctrine (chat-first → draft → owner review). User merges + tags when satisfied.
 
 ### PR #2 — `wordpress-base` project (after #1 merged + tagged)
 
-- `composer.json`: `parisek/timber-kit: ^1.6`
+- `composer.json`: `parisek/timber-kit` bumped to the new tag
 - `composer update parisek/timber-kit`
 - `classes/Base.php`:
   - Add `$this->breadcrumb_list_page_map` + `$this->breadcrumb_labels` overrides in `__construct()`
@@ -393,7 +393,7 @@ Pre-flight check: `git grep "new \\\\Breadcrumb\|new Breadcrumb" wp-content/them
 | Question | Default if unanswered |
 |---|---|
 | TimberKit repo URL (GitHub org/name) | Determine from `composer show -s parisek/timber-kit` or ask user before cloning |
-| Should `Breadcrumb` register a Twig function (e.g. `{{ breadcrumb_items() }}` in pages without `$context`) | Out of scope for 1.6.0 — Twig context wiring is StarterBase's job |
+| Should `Breadcrumb` register a Twig function (e.g. `{{ breadcrumb_items() }}` in pages without `$context`) | Out of scope for this release — Twig context wiring is StarterBase's job |
 | Should TimberKit ship a default `breadcrumb.twig` component? | No — view layer lives in `tailwind-base`. TimberKit is PHP runtime, not template provider. |
 
 ---
@@ -410,8 +410,8 @@ Pre-flight check: `git grep "new \\\\Breadcrumb\|new Breadcrumb" wp-content/them
 | Where does StarterBase populate `$context['breadcrumb']`? | Inside `timber_context()`, no Base.php call needed | "Full TimberKit" — project just configures properties |
 | Twig component change | None | Items shape is shape-compatible; component reads `url` + `title`, ignores `type` |
 | Test framework in TimberKit | `brain/monkey` | TimberKit convention; project's WP_Mock tests get rewritten, not ported |
-| Version bump | `v1.6.0` git tag (minor, additive) | Class is new in TimberKit; StarterBase additions are property-additive; no existing API breaks. Library `composer.json` doesn't carry `version` — Composer reads git tags. |
-| PR sequencing | TimberKit first → tag → project follows | Standard upstream-first; project's `composer require ^1.6` needs the tag to exist |
+| Version bump | Next minor git tag (Unreleased) | Class is new in TimberKit; StarterBase additions are property-additive; no existing API breaks. Library `composer.json` doesn't carry `version` — Composer reads git tags. |
+| PR sequencing | TimberKit first → tag → project follows | Standard upstream-first; project's `composer require` constraint bump needs the tag to exist |
 | Project-side deprecated shim | **None** — class deleted outright | `wordpress-base` is a create-project template, not a long-running site; no historical call sites to preserve. Trades graceful migration for cleaner skeleton. |
 | Legacy projects on composer-only update | `class_exists('\Breadcrumb', false)` guard in `StarterBase::timber_context()` | Legacy convention auto-opt-out; no Base.php change required for safety. Migrated projects (where class is deleted) get auto-populate. See §4.1. |
 
