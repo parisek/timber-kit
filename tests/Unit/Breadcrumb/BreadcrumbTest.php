@@ -476,6 +476,48 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 		], $result );
 	}
 
+	public function test_build_for_singular_hierarchical_cpt_uses_ancestors(): void {
+		Functions\when( 'get_post_type' )->justReturn( 'project' );
+		$post = (object) [ 'ID' => 70, 'post_title' => 'Project Z' ];
+		Functions\when( 'get_queried_object' )->justReturn( $post );
+
+		Functions\expect( 'is_post_type_hierarchical' )->with( 'project' )->andReturn( true );
+
+		// by_menu_trail returns [] (no menu items)
+		Functions\expect( 'get_nav_menu_locations' )->once()->andReturn( [] );
+		Functions\expect( 'wp_get_nav_menu_items' )->once()->andReturn( [] );
+		Functions\expect( 'get_queried_object_id' )->andReturn( 70 );
+		\Brain\Monkey\Filters\expectApplied( 'wpml_object_id' )->andReturn( 70 );
+
+		// Fallback to ancestors
+		Functions\when( 'get_post' )->justReturn( $post );
+		Functions\expect( 'get_post_ancestors' )->once()->with( $post )->andReturn( [ 60 ] );
+		Functions\when( 'get_the_title' )->alias( fn( $id ) => $id === 60 ? 'Parent Project' : '' );
+		Functions\when( 'get_permalink' )->alias( fn( $id = null ) => $id === 60 ? 'https://example.test/projects/parent/' : '' );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_singular' );
+
+		$this->assertSame( [
+			[ 'type' => 'item', 'title' => 'Parent Project', 'url' => 'https://example.test/projects/parent/' ],
+			[ 'type' => 'item', 'title' => 'Project Z', 'url' => null ],
+		], $result );
+	}
+
+	public function test_build_for_singular_flat_cpt_just_title(): void {
+		Functions\when( 'get_post_type' )->justReturn( 'team' );
+		$post = (object) [ 'ID' => 80, 'post_title' => 'John Doe' ];
+		Functions\when( 'get_queried_object' )->justReturn( $post );
+		Functions\expect( 'is_post_type_hierarchical' )->with( 'team' )->andReturn( false );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_singular' );
+
+		$this->assertSame( [
+			[ 'type' => 'item', 'title' => 'John Doe', 'url' => null ],
+		], $result );
+	}
+
 	public function test_by_menu_trail_returns_ancestor_chain_with_current_filtered(): void {
 		$menu_items = [
 			(object) [

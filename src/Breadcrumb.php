@@ -445,6 +445,19 @@ class Breadcrumb {
 					'url'   => (string) $links[ $list_key ]['url'],
 				];
 			}
+		} else {
+			// CPT branch — hierarchical uses ancestors; flat uses only the title
+			$is_hierarchical = is_post_type_hierarchical( $post_type );
+			$menu_trail_eligible = null === $this->menu_trail_post_types
+				? $is_hierarchical
+				: in_array( $post_type, $this->menu_trail_post_types, true );
+
+			if ( $menu_trail_eligible ) {
+				$items = $this->by_menu_trail();
+				if ( empty( $items ) && $is_hierarchical ) {
+					$items = $this->build_ancestors_chain( $post );
+				}
+			}
 		}
 
 		$items[] = [
