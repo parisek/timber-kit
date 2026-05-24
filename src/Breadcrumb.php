@@ -365,6 +365,13 @@ class Breadcrumb {
 			];
 		}
 
+		/** @var array<int, array<string, string>> $breadcrumb_items */
+		$breadcrumb_items = apply_filters(
+			'timber_kit_breadcrumb_menu_trail',
+			$breadcrumb_items,
+			$menu_name
+		);
+
 		return $breadcrumb_items;
 	}
 

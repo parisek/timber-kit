@@ -636,6 +636,33 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 	}
 
 	// -------------------------------------------------------------------
+	// Filter: menu_trail
+	// -------------------------------------------------------------------
+
+	public function test_by_menu_trail_applies_menu_trail_filter(): void {
+		Functions\expect( 'get_nav_menu_locations' )->once()->andReturn( [] );
+		Functions\expect( 'wp_get_nav_menu_items' )->once()->andReturn( [
+			(object) [ 'ID' => 1, 'object_id' => '10', 'menu_item_parent' => '0',
+				'url' => 'https://example.test/about/', 'title' => 'About' ],
+		] );
+		Functions\expect( 'get_queried_object_id' )->andReturn( 10 );
+		\Brain\Monkey\Filters\expectApplied( 'wpml_object_id' )->andReturn( 10 );
+		Functions\when( 'get_permalink' )->justReturn( 'https://elsewhere/' );
+
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_menu_trail' )
+			->once()
+			->andReturnUsing( function( $items, $menu_name ) {
+				$items[0]['title'] = 'Modified ' . $items[0]['title'];
+				return $items;
+			} );
+
+		$bc = new Breadcrumb([ 'menu_name' => 'main-menu' ]);
+		$result = $this->invoke_protected( $bc, 'by_menu_trail' );
+
+		$this->assertSame( 'Modified About', $result[0]['title'] );
+	}
+
+	// -------------------------------------------------------------------
 	// Integration: get() dispatcher
 	// -------------------------------------------------------------------
 
