@@ -7,12 +7,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [Unreleased]
 
 ### Added
+
+- **`Parisek\TimberKit\Breadcrumb` class** — strategy dispatcher producing typed item arrays (`[{type, url, title, …extras}]`) for the current WordPress query state. Covers 404, search, date archives, author archives, post type archives, taxonomy (with hierarchical ancestors), singular pages/posts/CPTs (menu-trail + post_parent fallback + list_page_map injection), and pagination.
+- **`StarterBase` properties** for breadcrumb configuration: `$breadcrumb_menu_name`, `$breadcrumb_list_page_map`, `$breadcrumb_menu_trail_post_types`, `$breadcrumb_include_pagination`, `$breadcrumb_labels`. Child `Base::__construct()` overrides these before calling `parent::__construct()`.
+- **`StarterBase::timber_context()` auto-populates `$context['breadcrumb']`** — unless the project still ships a global `\Breadcrumb` class (legacy compatibility guard via `class_exists('\Breadcrumb', false)`).
+- **Filter API**: `timber_kit_breadcrumb_items`, `timber_kit_breadcrumb_labels`, `timber_kit_breadcrumb_skip`, `timber_kit_breadcrumb_menu_trail`.
 - `StarterBase` now bundles the behaviour previously provided by the standalone [Speculation Rules](https://wordpress.org/plugins/speculation-rules/) plugin so downstream projects can `wp plugin deactivate speculation-rules && wp plugin delete speculation-rules` after upgrading. Two new properties drive it:
 
   - `$speculation_rules` (`?array`, default `['mode' => 'prerender', 'eagerness' => 'moderate', 'authentication' => 'logged_out']`) — registers `configure_speculation_rules()` on the WordPress 6.8+ `wp_speculation_rules_configuration` filter. Defaults mirror the plugin's defaults: meaningfully faster than WP core's `prefetch` / `conservative`, but rules are emitted only for logged-out visitors (`is_user_logged_in()` short-circuits to `null`) so admin previews and editor sessions don't trigger `prerender`-driven double-firing of GA / GTM / Productive page-view events. Set to `null` to fall back to WP core defaults entirely; set `authentication` to `'any'` to emit rules for logged-in users too. Partial overrides are supported — supply only the keys you want to change (e.g. `['mode' => 'prefetch']`), the remaining keys fall back to the defaults declared in `StarterBase::SPECULATION_RULES_DEFAULTS`.
   - `$warn_speculation_rules_plugin_redundant` (`bool`, default `true`) — registers a Site Health test (`Tools > Site Health`) named `timber_kit_speculation_rules_redundant`. Returns `status: 'good'` when the standalone plugin is inactive; returns `status: 'recommended'` with a "Manage plugin" link when both code paths are active and would duplicate the `wp_speculation_rules_configuration` filter. Passive signal only — no `admin_notices` banner, no auto-deactivation; the conflict is discovered during routine Site Health audits.
 
   Hooks are wired through a new `registerPerformanceHooks()` private method invoked from the constructor's declarative orchestrator, matching the concern-per-method shape of `registerSecurityHardeningHooks()` and `registerCommentDisablingHooks()`. The `wp_speculation_rules_href_exclude_paths` filter is intentionally **not** re-exposed: WP 6.8+ core already excludes `/wp-login.php`, `/wp-admin/*`, `*action=*` etc., and the standalone plugin only re-emits the legacy `plsr_…` filter for backwards compatibility — no downstream project under `wordpress-base` hooked the legacy name, so dropping it is safe. See [#23](https://github.com/parisek/timber-kit/pull/23).
+
+### Migration note for downstream consumers (breadcrumb)
+
+If your project still uses the global `\Breadcrumb` class (typical pre-migration `wordpress-base` setup), **no action is required for the upcoming release** — the legacy compatibility guard auto-detects your class and skips the new auto-populate. Your existing `new \Breadcrumb()` call sites keep working.
+
+To activate the new auto-populate:
+
+1. Delete your project's `classes/Breadcrumb.php` (and its tests).
+2. Remove the manual `$breadcrumbs = new \Breadcrumb(); $context['breadcrumb'] = $breadcrumbs->get();` block from your `Base::timber_context()`.
+3. Override `$breadcrumb_*` properties in your `Base::__construct()` (provide `_x()`-translated `$breadcrumb_labels` matching your text domain).
+4. `$context['breadcrumb']` is now populated by `parent::timber_context()` automatically.
+
+The items shape `[{type, url, title}]` is backward-compatible with the previous `[{url, title}]` — `type` is an additive key. No Twig component changes required.
 
 ## [1.6.0] - 2026-05-24
 
