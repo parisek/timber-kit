@@ -169,6 +169,42 @@ class StarterBase extends Site {
 	protected bool $gutenberg_disable_core_patterns = true;
 
 	/**
+	 * Performance — replaces the standalone Speculation Rules plugin
+	 * (https://wordpress.org/plugins/speculation-rules/)
+	 */
+
+	/**
+	 * Canonical defaults for `$speculation_rules`. Single source of truth so a
+	 * partial override (e.g. `['mode' => 'prefetch']`) merges cleanly without
+	 * leaving the unset keys as `null` in the filter payload.
+	 *
+	 * @var array{mode: 'prefetch'|'prerender', eagerness: 'conservative'|'moderate'|'eager', authentication: 'logged_out'|'any'}
+	 */
+	private const SPECULATION_RULES_DEFAULTS = [
+		'mode'           => 'prerender',
+		'eagerness'      => 'moderate',
+		'authentication' => 'logged_out',
+	];
+
+	/**
+	 * Speculation rules configuration override.
+	 *
+	 * Defaults mirror the Speculation Rules plugin's defaults (faster than WP
+	 * core's `prefetch`/`conservative`, with rules emitted only for logged-out
+	 * visitors to keep object-cached pages safe). Set to `null` to fall back to
+	 * WP core defaults (no override, no auth gate). All keys are optional —
+	 * `configure_speculation_rules()` merges the override on top of
+	 * `SPECULATION_RULES_DEFAULTS`, so a partial array (e.g.
+	 * `['mode' => 'prefetch']`) keeps the other two keys at their default.
+	 *
+	 * @var array{mode?: 'prefetch'|'prerender', eagerness?: 'conservative'|'moderate'|'eager', authentication?: 'logged_out'|'any'}|null
+	 */
+	protected ?array $speculation_rules = self::SPECULATION_RULES_DEFAULTS;
+
+	/** @var bool Surface a Site Health warning when the redundant standalone Speculation Rules plugin is also active. */
+	protected bool $warn_speculation_rules_plugin_redundant = true;
+
+	/**
 	 * Slim orchestrator — resolves theme identity, delegates hook registration
 	 * to concern-focused private methods, then hands off to Timber\Site.
 	 *
@@ -187,6 +223,7 @@ class StarterBase extends Site {
 		$this->registerMiscHooks();
 		$this->registerSecurityHardeningHooks();
 		$this->registerCommentDisablingHooks();
+		$this->registerPerformanceHooks();
 
 		$this->setup_dev_media_proxy();
 		$this->setup_wpforms_config_bridge();
@@ -445,6 +482,23 @@ class StarterBase extends Site {
 			add_filter( 'pre_option_default_ping_status', fn() => 'closed' );
 			// Frontend: suppress the comments-only RSS link without depending on $disable_feeds.
 			add_filter( 'feed_links_show_comments_feed', '__return_false', -1 );
+		}
+	}
+
+	/**
+	 * Register performance hooks — Speculation Rules filter (`wp_speculation_rules_configuration`)
+	 * and the redundant-plugin Site Health check. Both are gated by their own feature flags so
+	 * a project that genuinely needs to keep the standalone Speculation Rules plugin (or stay on
+	 * WP core defaults) can opt out independently.
+	 *
+	 * @return void
+	 */
+	private function registerPerformanceHooks(): void {
+		if ( null !== $this->speculation_rules ) {
+			add_filter( 'wp_speculation_rules_configuration', array( $this, 'configure_speculation_rules' ) );
+		}
+		if ( $this->warn_speculation_rules_plugin_redundant ) {
+			add_filter( 'site_status_tests', array( $this, 'site_health_register_speculation_rules_test' ) );
 		}
 	}
 
@@ -2510,6 +2564,108 @@ class StarterBase extends Site {
 		}
 		status_header( 404 );
 		nocache_headers();
+	}
+
+	// =========================================================================
+	// Performance (replaces the standalone Speculation Rules plugin)
+	// =========================================================================
+
+	/**
+	 * Filter callback for `wp_speculation_rules_configuration` (WordPress 6.8+).
+	 *
+	 * Returns the configured mode/eagerness array, or `null` when the configured
+	 * authentication gate is `logged_out` and the current request belongs to an
+	 * authenticated user — matching the behaviour of the standalone Speculation
+	 * Rules plugin. Returning `null` is a load-bearing short-circuit, not a
+	 * fall-through to WP core defaults: `wp_get_speculation_rules_configuration()`
+	 * exits at `if (null === $config) return null;` *before* the auto→prefetch
+	 * coercion runs, so no `<script type="speculationrules">` is emitted for that
+	 * request. This is the safe outcome for logged-in sessions where prerender
+	 * would otherwise pollute analytics, double-fire GTM events, or interfere
+	 * with stateful previews.
+	 *
+	 * @param array<string, string>|null $config Current filter value as documented by WP core's
+	 *                                           `wp_speculation_rules_configuration` filter. Other
+	 *                                           filter callbacks may legitimately pass through unrelated
+	 *                                           shapes, so the method defensively guards with
+	 *                                           `is_array()` before reading keys.
+	 * @return array{mode: 'prefetch'|'prerender', eagerness: 'conservative'|'moderate'|'eager'}|null
+	 */
+	public function configure_speculation_rules( $config ): ?array {
+		if ( null === $this->speculation_rules ) {
+			return is_array( $config ) ? $config : null;
+		}
+
+		$resolved = array_merge( self::SPECULATION_RULES_DEFAULTS, $this->speculation_rules );
+
+		if ( 'logged_out' === $resolved['authentication'] && is_user_logged_in() ) {
+			return null;
+		}
+
+		return array(
+			'mode'      => $resolved['mode'],
+			'eagerness' => $resolved['eagerness'],
+		);
+	}
+
+	/**
+	 * Register a Site Health test that warns when the standalone Speculation
+	 * Rules plugin is still active alongside the theme's built-in handling.
+	 *
+	 * @param array<string, array<string, array<string, mixed>>> $tests The current Site Health tests registry.
+	 * @return array<string, array<string, array<string, mixed>>>
+	 */
+	public function site_health_register_speculation_rules_test( $tests ): array {
+		if ( ! is_array( $tests ) ) {
+			$tests = array( 'direct' => array(), 'async' => array() );
+		}
+		$tests['direct']['timber_kit_speculation_rules_redundant'] = array(
+			'label' => __( 'Speculation Rules plugin redundancy', 'timber-kit' ),
+			'test'  => array( $this, 'site_health_test_speculation_rules' ),
+		);
+		return $tests;
+	}
+
+	/**
+	 * Site Health test callback. Returns a `good` result when the standalone
+	 * plugin is inactive, or a `recommended` result with a link to manage the
+	 * plugin when both code paths are running.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function site_health_test_speculation_rules(): array {
+		if ( ! function_exists( 'is_plugin_active' ) ) {
+			require_once ABSPATH . 'wp-admin/includes/plugin.php';
+		}
+
+		if ( ! is_plugin_active( 'speculation-rules/load.php' ) ) {
+			return array(
+				'label'       => __( 'Speculation Rules is handled by the theme', 'timber-kit' ),
+				'status'      => 'good',
+				'badge'       => array(
+					'label' => __( 'Performance', 'timber-kit' ),
+					'color' => 'blue',
+				),
+				'description' => '<p>' . esc_html__( 'The standalone Speculation Rules plugin is not active. parisek/timber-kit configures equivalent prerender/moderate behaviour for logged-out visitors directly.', 'timber-kit' ) . '</p>',
+				'test'        => 'timber_kit_speculation_rules_redundant',
+			);
+		}
+
+		return array(
+			'label'       => __( 'Speculation Rules plugin is redundant', 'timber-kit' ),
+			'status'      => 'recommended',
+			'badge'       => array(
+				'label' => __( 'Performance', 'timber-kit' ),
+				'color' => 'orange',
+			),
+			'description' => '<p>' . esc_html__( 'parisek/timber-kit already configures Speculation Rules. Running the standalone plugin alongside duplicates the wp_speculation_rules_configuration filter and may cause settings to drift between the two sources. Deactivate and delete the plugin to keep a single source of truth.', 'timber-kit' ) . '</p>',
+			'actions'     => sprintf(
+				'<p><a href="%s">%s</a></p>',
+				esc_url( admin_url( 'plugins.php?s=speculation-rules' ) ),
+				esc_html__( 'Manage plugin', 'timber-kit' )
+			),
+			'test'        => 'timber_kit_speculation_rules_redundant',
+		);
 	}
 
 	// =========================================================================

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+- `StarterBase` now bundles the behaviour previously provided by the standalone [Speculation Rules](https://wordpress.org/plugins/speculation-rules/) plugin so downstream projects can `wp plugin deactivate speculation-rules && wp plugin delete speculation-rules` after upgrading. Two new properties drive it:
+
+  - `$speculation_rules` (`?array`, default `['mode' => 'prerender', 'eagerness' => 'moderate', 'authentication' => 'logged_out']`) — registers `configure_speculation_rules()` on the WordPress 6.8+ `wp_speculation_rules_configuration` filter. Defaults mirror the plugin's defaults: meaningfully faster than WP core's `prefetch` / `conservative`, but rules are emitted only for logged-out visitors (`is_user_logged_in()` short-circuits to `null`) so admin previews and editor sessions don't trigger `prerender`-driven double-firing of GA / GTM / Productive page-view events. Set to `null` to fall back to WP core defaults entirely; set `authentication` to `'any'` to emit rules for logged-in users too. Partial overrides are supported — supply only the keys you want to change (e.g. `['mode' => 'prefetch']`), the remaining keys fall back to the defaults declared in `StarterBase::SPECULATION_RULES_DEFAULTS`.
+  - `$warn_speculation_rules_plugin_redundant` (`bool`, default `true`) — registers a Site Health test (`Tools > Site Health`) named `timber_kit_speculation_rules_redundant`. Returns `status: 'good'` when the standalone plugin is inactive; returns `status: 'recommended'` with a "Manage plugin" link when both code paths are active and would duplicate the `wp_speculation_rules_configuration` filter. Passive signal only — no `admin_notices` banner, no auto-deactivation; the conflict is discovered during routine Site Health audits.
+
+  Hooks are wired through a new `registerPerformanceHooks()` private method invoked from the constructor's declarative orchestrator, matching the concern-per-method shape of `registerSecurityHardeningHooks()` and `registerCommentDisablingHooks()`. The `wp_speculation_rules_href_exclude_paths` filter is intentionally **not** re-exposed: WP 6.8+ core already excludes `/wp-login.php`, `/wp-admin/*`, `*action=*` etc., and the standalone plugin only re-emits the legacy `plsr_…` filter for backwards compatibility — no downstream project under `wordpress-base` hooked the legacy name, so dropping it is safe. See [#23](https://github.com/parisek/timber-kit/pull/23).
+
 ## [1.6.0] - 2026-05-24
 
 ### Changed
