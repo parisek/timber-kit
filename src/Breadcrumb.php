@@ -132,4 +132,63 @@ class Breadcrumb {
 			],
 		];
 	}
+
+	/**
+	 * Build breadcrumb items for a date archive (year / month / day).
+	 *
+	 * Year linked when month follows; month linked when day follows; day is
+	 * always the leaf (no url). Each item carries the date components needed
+	 * for hydrate() to format the title.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	protected function build_for_date_archive(): array {
+		$year  = (int) get_query_var( 'year' );
+		$month = (int) get_query_var( 'monthnum' );
+		$day   = (int) get_query_var( 'day' );
+
+		if ( $year <= 0 ) {
+			return [];
+		}
+
+		$items = [];
+
+		if ( $month > 0 ) {
+			$items[] = [
+				'type' => 'date_year',
+				'year' => $year,
+				'url'  => get_year_link( $year ),
+			];
+
+			if ( $day > 0 ) {
+				$items[] = [
+					'type'  => 'date_month',
+					'year'  => $year,
+					'month' => $month,
+					'url'   => get_month_link( $year, $month ),
+				];
+				$items[] = [
+					'type'  => 'date_day',
+					'year'  => $year,
+					'month' => $month,
+					'day'   => $day,
+				];
+			} else {
+				$items[] = [
+					'type'  => 'date_month',
+					'year'  => $year,
+					'month' => $month,
+					'url'   => null,
+				];
+			}
+		} else {
+			$items[] = [
+				'type' => 'date_year',
+				'year' => $year,
+				'url'  => null,
+			];
+		}
+
+		return $items;
+	}
 }

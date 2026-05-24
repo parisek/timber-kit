@@ -124,4 +124,53 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 			],
 		], $result );
 	}
+
+	// -------------------------------------------------------------------
+	// Strategy: date archive
+	// -------------------------------------------------------------------
+
+	public function test_build_for_date_archive_year_only(): void {
+		Functions\expect( 'get_query_var' )->times( 3 )->andReturnUsing(
+			static fn( string $key ): string => [ 'year' => '2024', 'monthnum' => '', 'day' => '' ][ $key ] ?? ''
+		);
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_date_archive' );
+
+		$this->assertSame( [
+			[ 'type' => 'date_year', 'year' => 2024, 'url' => null ],
+		], $result );
+	}
+
+	public function test_build_for_date_archive_year_and_month(): void {
+		Functions\expect( 'get_query_var' )->times( 3 )->andReturnUsing(
+			static fn( string $key ): string => [ 'year' => '2024', 'monthnum' => '5', 'day' => '' ][ $key ] ?? ''
+		);
+		Functions\expect( 'get_year_link' )->once()->with( 2024 )->andReturn( 'https://example.test/2024/' );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_date_archive' );
+
+		$this->assertSame( [
+			[ 'type' => 'date_year',  'year' => 2024, 'url' => 'https://example.test/2024/' ],
+			[ 'type' => 'date_month', 'year' => 2024, 'month' => 5, 'url' => null ],
+		], $result );
+	}
+
+	public function test_build_for_date_archive_year_month_day(): void {
+		Functions\expect( 'get_query_var' )->times( 3 )->andReturnUsing(
+			static fn( string $key ): string => [ 'year' => '2024', 'monthnum' => '5', 'day' => '15' ][ $key ] ?? ''
+		);
+		Functions\expect( 'get_year_link' )->once()->with( 2024 )->andReturn( 'https://example.test/2024/' );
+		Functions\expect( 'get_month_link' )->once()->with( 2024, 5 )->andReturn( 'https://example.test/2024/05/' );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_for_date_archive' );
+
+		$this->assertSame( [
+			[ 'type' => 'date_year',  'year' => 2024, 'url' => 'https://example.test/2024/' ],
+			[ 'type' => 'date_month', 'year' => 2024, 'month' => 5, 'url' => 'https://example.test/2024/05/' ],
+			[ 'type' => 'date_day',   'year' => 2024, 'month' => 5, 'day' => 15 ],
+		], $result );
+	}
 }
