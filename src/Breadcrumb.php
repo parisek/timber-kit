@@ -485,6 +485,42 @@ class Breadcrumb {
 	}
 
 	/**
+	 * Resolve `title` on every item using the configured labels.
+	 *
+	 * Each item's `type` discriminator selects the label template; structured
+	 * extras (`query`, `page`, `year`, etc.) feed `sprintf()` placeholders.
+	 * Items already carrying a `title` (type 'item') pass through unchanged.
+	 *
+	 * Labels are filterable via `timber_kit_breadcrumb_labels` for per-request
+	 * customization (WPML language-aware overrides, per-page brand changes).
+	 *
+	 * @param array<int, array<string, mixed>> $items
+	 * @return array<int, array<string, mixed>>
+	 */
+	protected function hydrate( array $items ): array {
+		/** @var array<string, string> $labels */
+		$labels = apply_filters( 'timber_kit_breadcrumb_labels', $this->labels, $items );
+
+		foreach ( $items as &$item ) {
+			$type = $item['type'] ?? 'item';
+			$item['title'] = match ( $type ) {
+				'home'       => $labels['home']       ?? 'Home',
+				'404'        => $labels['404']        ?? 'Page not found',
+				'search'     => sprintf( $labels['search']     ?? '%s', $item['query']        ?? '' ),
+				'pagination' => sprintf( $labels['pagination'] ?? '%d', $item['page']         ?? 1  ),
+				'author'     => sprintf( $labels['author']     ?? '%s', $item['display_name'] ?? '' ),
+				'date_year'  => (string) ( $item['year'] ?? '' ),
+				'date_month' => wp_date( 'F', mktime( 0, 0, 0, $item['month'] ?? 1, 1, $item['year'] ?? (int) date( 'Y' ) ) ),
+				'date_day'   => (string) ( $item['day']  ?? '' ),
+				default      => $item['title'] ?? '',
+			};
+		}
+		unset( $item );
+
+		return $items;
+	}
+
+	/**
 	 * Find a menu item in an array of items by field-value match.
 	 *
 	 * Normalizes numeric values to int before strict comparison.

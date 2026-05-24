@@ -536,6 +536,74 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 		], $result );
 	}
 
+	// -------------------------------------------------------------------
+	// Hydrate
+	// -------------------------------------------------------------------
+
+	public function test_hydrate_resolves_all_types(): void {
+		Functions\when( 'wp_date' )->justReturn( 'May' );
+
+		$bc = new Breadcrumb([
+			'labels' => [
+				'home'       => 'Domů',
+				'404'        => 'Nenalezeno',
+				'search'     => 'Hledání: %s',
+				'pagination' => 'Strana %d',
+				'author'     => 'Autor: %s',
+			],
+		]);
+
+		$items = [
+			[ 'type' => 'home', 'url' => 'https://example.test/' ],
+			[ 'type' => 'item', 'title' => 'About', 'url' => '/about/' ],
+			[ 'type' => '404' ],
+			[ 'type' => 'search', 'query' => 'foo', 'url' => '/?s=foo' ],
+			[ 'type' => 'pagination', 'page' => 2, 'url' => '/page/1/' ],
+			[ 'type' => 'author', 'display_name' => 'Jane', 'url' => '/author/jane/' ],
+			[ 'type' => 'date_year', 'year' => 2024, 'url' => null ],
+			[ 'type' => 'date_month', 'year' => 2024, 'month' => 5, 'url' => null ],
+			[ 'type' => 'date_day', 'year' => 2024, 'month' => 5, 'day' => 15 ],
+		];
+
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_labels' )
+			->andReturnUsing( fn( $labels ) => $labels );
+
+		$result = $this->invoke_protected( $bc, 'hydrate', [ $items ] );
+
+		$this->assertSame( 'Domů', $result[0]['title'] );
+		$this->assertSame( 'About', $result[1]['title'] );
+		$this->assertSame( 'Nenalezeno', $result[2]['title'] );
+		$this->assertSame( 'Hledání: foo', $result[3]['title'] );
+		$this->assertSame( 'Strana 2', $result[4]['title'] );
+		$this->assertSame( 'Autor: Jane', $result[5]['title'] );
+		$this->assertSame( '2024', $result[6]['title'] );
+		$this->assertSame( 'May', $result[7]['title'] );
+		$this->assertSame( '15', $result[8]['title'] );
+	}
+
+	public function test_hydrate_falls_back_to_english_when_labels_missing(): void {
+		$bc = new Breadcrumb();  // default English labels
+		$items = [ [ 'type' => '404' ] ];
+
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_labels' )
+			->andReturnUsing( fn( $labels ) => $labels );
+
+		$result = $this->invoke_protected( $bc, 'hydrate', [ $items ] );
+		$this->assertSame( 'Page not found', $result[0]['title'] );
+	}
+
+	public function test_hydrate_applies_labels_filter(): void {
+		$bc = new Breadcrumb();
+		$items = [ [ 'type' => 'home', 'url' => '/' ] ];
+
+		\Brain\Monkey\Filters\expectApplied( 'timber_kit_breadcrumb_labels' )
+			->once()
+			->andReturnUsing( fn( $labels ) => array_merge( $labels, [ 'home' => 'Hauptseite' ] ) );
+
+		$result = $this->invoke_protected( $bc, 'hydrate', [ $items ] );
+		$this->assertSame( 'Hauptseite', $result[0]['title'] );
+	}
+
 	public function test_by_menu_trail_returns_ancestor_chain_with_current_filtered(): void {
 		$menu_items = [
 			(object) [
