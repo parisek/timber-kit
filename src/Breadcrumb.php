@@ -470,6 +470,21 @@ class Breadcrumb {
 	}
 
 	/**
+	 * Build a pagination item for paged archive views.
+	 *
+	 * URL points to page 1 of the same archive (allows "back to first page").
+	 *
+	 * @return array{type: string, page: int, url: string}
+	 */
+	protected function build_pagination_item(): array {
+		return [
+			'type' => 'pagination',
+			'page' => (int) get_query_var( 'paged' ),
+			'url'  => get_pagenum_link( 1 ),
+		];
+	}
+
+	/**
 	 * Find a menu item in an array of items by field-value match.
 	 *
 	 * Normalizes numeric values to int before strict comparison.

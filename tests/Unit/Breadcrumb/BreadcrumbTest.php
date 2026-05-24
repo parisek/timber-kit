@@ -267,6 +267,24 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 	}
 
 	// -------------------------------------------------------------------
+	// Strategy: pagination
+	// -------------------------------------------------------------------
+
+	public function test_build_pagination_item_returns_paged_with_url(): void {
+		Functions\expect( 'get_query_var' )->once()->with( 'paged' )->andReturn( 3 );
+		Functions\expect( 'get_pagenum_link' )->once()->with( 1 )->andReturn( 'https://example.test/category/news/' );
+
+		$bc = new Breadcrumb();
+		$result = $this->invoke_protected( $bc, 'build_pagination_item' );
+
+		$this->assertSame( [
+			'type' => 'pagination',
+			'page' => 3,
+			'url'  => 'https://example.test/category/news/',
+		], $result );
+	}
+
+	// -------------------------------------------------------------------
 	// Helper: get_menu_item (pure, no WP calls)
 	// -------------------------------------------------------------------
 
