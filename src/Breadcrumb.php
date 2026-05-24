@@ -435,6 +435,16 @@ class Breadcrumb {
 			if ( empty( $items ) ) {
 				$items = $this->build_ancestors_chain( $post );
 			}
+		} elseif ( isset( $this->list_page_map[ $post_type ] ) ) {
+			$links = $this->get_global_links();
+			$list_key = $this->list_page_map[ $post_type ];
+			if ( isset( $links[ $list_key ]['url'], $links[ $list_key ]['title'] ) ) {
+				$items[] = [
+					'type'  => 'item',
+					'title' => (string) $links[ $list_key ]['title'],
+					'url'   => (string) $links[ $list_key ]['url'],
+				];
+			}
 		}
 
 		$items[] = [

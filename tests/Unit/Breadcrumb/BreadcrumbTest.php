@@ -453,6 +453,29 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 		], $result );
 	}
 
+	public function test_build_for_singular_post_with_list_page_map(): void {
+		Functions\when( 'get_post_type' )->justReturn( 'post' );
+		$post = (object) [ 'ID' => 50, 'post_title' => 'My Article' ];
+		Functions\when( 'get_queried_object' )->justReturn( $post );
+
+		Functions\when( 'get_field' )->justReturn( [
+			'article_list' => [ 'url' => 'https://example.test/blog/', 'title' => 'Blog' ],
+		] );
+		Functions\expect( 'url_to_postid' )->with( 'https://example.test/blog/' )->andReturn( 42 );
+		\Brain\Monkey\Filters\expectApplied( 'wpml_object_id' )->with( 42, 'page' )->andReturn( 42 );
+		Functions\when( 'get_permalink' )->justReturn( 'https://example.test/blog/' );
+
+		$bc = new Breadcrumb([
+			'list_page_map' => [ 'post' => 'article_list' ],
+		]);
+		$result = $this->invoke_protected( $bc, 'build_for_singular' );
+
+		$this->assertSame( [
+			[ 'type' => 'item', 'title' => 'Blog', 'url' => 'https://example.test/blog/' ],
+			[ 'type' => 'item', 'title' => 'My Article', 'url' => null ],
+		], $result );
+	}
+
 	public function test_by_menu_trail_returns_ancestor_chain_with_current_filtered(): void {
 		$menu_items = [
 			(object) [
