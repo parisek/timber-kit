@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-05-25
+
 ### Added
 
 - **`Parisek\TimberKit\Breadcrumb` class** — strategy dispatcher producing typed item arrays (`[{type, url, title, …extras}]`) for the current WordPress query state. Covers 404, search, date archives, author archives, post type archives, taxonomy (with hierarchical ancestors), singular pages/posts/CPTs (menu-trail + post_parent fallback + list_page_map injection), and pagination.
