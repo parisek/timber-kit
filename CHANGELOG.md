@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `Helpers::formatFields('option')` no longer silently returns `[]` when the registered options page uses ACF's default `post_id` of `'options'` (the default for any `acf_add_options_page()` call without an explicit `post_id`). The previous `decodeOptionsNamespace()` compared the caller's `'option'` (singular) against the page's `'options'` (plural) via `acf_decode_post_id()`, which on ACF Pro 6.x does NOT collapse the alias — the helper's docblock claimed it did, but the existing test fixture papered over the gap by stubbing `acf_decode_post_id` to normalize both forms. Now the alias is canonicalized inside `decodeOptionsNamespace()`, so calls with either form match the page's namespace and surface all registered fields. Discovered during the neoli WordPress theme migration to timber-kit ([portadesign/neoli#17](https://github.com/portadesign/neoli/pull/17)) — symptom was an empty footer + missing global ACF data despite the data being present in `wp_options`. New regression test (`test_options_singular_alias_matches_plural_post_id`) mirrors real ACF Pro 6.x semantics (no normalization in the stub) so the fix can't silently re-regress.
+
 ## [1.7.0] - 2026-05-25
 
 ### Added

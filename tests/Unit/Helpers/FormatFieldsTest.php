@@ -420,6 +420,59 @@ class FormatFieldsTest extends HelpersTestCase {
 		$this->assertSame( [], $result );
 	}
 
+	public function test_options_singular_alias_matches_plural_post_id(): void {
+		// Regression for the option/options alias bug discovered during the
+		// neoli → timber-kit migration (see portadesign/neoli#17).
+		//
+		// `acf_add_options_page()` without an explicit `post_id` defaults to
+		// `post_id => 'options'` (plural). The previous existing fixture for
+		// this code path stubbed `acf_decode_post_id` to normalize BOTH input
+		// forms to `id => 'option'` (singular) — which papered over a real-
+		// world gap: in ACF Pro 6.x, `acf_decode_post_id` does NOT collapse
+		// the alias. Concretely:
+		//
+		//   acf_decode_post_id('option')  => ['type' => 'option', 'id' => 'option']
+		//   acf_decode_post_id('options') => ['type' => 'option', 'id' => 'options']
+		//
+		// Result: `formatFields('option')` and the default-`'options'` options
+		// page have non-matching namespaces, `decodeOptionsNamespace` returns
+		// two different strings, and `getFieldObjectsForOptions` falls through
+		// without surfacing any field group.
+		//
+		// `decodeOptionsNamespace` must canonicalize the alias so both forms
+		// resolve to the same namespace. This test stubs `acf_decode_post_id`
+		// with the REAL ACF Pro 6.x semantics (no normalization) and asserts
+		// that `formatFields('option')` still finds the registered page.
+
+		Functions\when( 'get_field_objects' )->justReturn( false );
+		Functions\when( 'acf_decode_post_id' )->alias( function ( $id ) {
+			// Mirror real ACF Pro 6.x: do NOT collapse the alias.
+			return [ 'type' => 'option', 'id' => (string) $id ];
+		} );
+		Functions\when( 'acf_get_options_pages' )->justReturn( [
+			// Default `post_id` is `'options'` (plural) for an options page
+			// registered without an explicit `post_id` argument.
+			'settings' => [ 'menu_slug' => 'settings', 'post_id' => 'options' ],
+		] );
+		Functions\when( 'acf_get_field_groups' )->alias( function ( $screen ) {
+			return ( $screen['options_page'] ?? '' ) === 'settings'
+				? [ [ 'key' => 'group_options_footer', 'name' => 'footer_group' ] ]
+				: [];
+		} );
+		Functions\when( 'acf_get_fields' )->alias( function ( $group ) {
+			return [ [ 'key' => 'field_footer', 'name' => 'footer', 'type' => 'text' ] ];
+		} );
+		Functions\when( 'get_field' )->alias( fn ( $name, $id ) => "$name@$id" );
+
+		// Caller passes singular `'option'`; page registers default plural
+		// `'options'`. The alias collapse in `decodeOptionsNamespace` must
+		// make these resolve to the same namespace.
+		$result = Helpers::formatFields( 'option' );
+
+		$this->assertArrayHasKey( 'footer', $result, 'formatFields("option") must find the default-post_id="options" page' );
+		$this->assertSame( 'footer@option', $result['footer'] );
+	}
+
 	public function test_block_prefix_string_does_not_hit_options_path(): void {
 		// `'block_*'` strings must not be misclassified as options page ids.
 		Functions\when( 'acf_decode_post_id' )->justReturn( [ 'type' => 'block', 'id' => 'block_abc' ] );
