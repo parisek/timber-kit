@@ -592,11 +592,11 @@ class StarterBase extends Site {
 	 *
 	 *     public function setup_breadcrumb_labels() {
 	 *         $this->breadcrumb_labels = [
-	 *             'home'       => _x( 'Úvod', 'breadcrumb', 'mytheme' ),
-	 *             '404'        => _x( '404', 'breadcrumb', 'mytheme' ),
-	 *             'search'     => _x( 'Vyhledávání: %s', 'breadcrumb', 'mytheme' ),
-	 *             'pagination' => _x( 'Strana %d', 'breadcrumb', 'mytheme' ),
-	 *             'author'     => _x( 'Autor: %s', 'breadcrumb', 'mytheme' ),
+	 *             'home'       => _x( 'Úvod', 'breadcrumb', $this->theme_name ),
+	 *             '404'        => _x( '404', 'breadcrumb', $this->theme_name ),
+	 *             'search'     => _x( 'Vyhledávání: %s', 'breadcrumb', $this->theme_name ),
+	 *             'pagination' => _x( 'Strana %d', 'breadcrumb', $this->theme_name ),
+	 *             'author'     => _x( 'Autor: %s', 'breadcrumb', $this->theme_name ),
 	 *         ];
 	 *     }
 	 *
