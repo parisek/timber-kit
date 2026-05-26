@@ -836,9 +836,11 @@ class Helpers {
 	 * stores its fields under `company_settings`, not under the default
 	 * `option` namespace — so `formatFields('option')` must not surface them,
 	 * and `formatFields('company_settings')` must not pick up unrelated
-	 * default-namespace pages. Both sides are normalized through
-	 * `acf_decode_post_id()`, which collapses the `option` / `options` alias
-	 * to a single canonical id.
+	 * default-namespace pages. Both sides are routed through
+	 * `decodeOptionsNamespace()`, which canonicalizes the default-namespace
+	 * `option` / `options` alias to a single id (`'options'`). ACF Pro's
+	 * own `acf_decode_post_id()` does NOT collapse the alias on its own —
+	 * see {@see decodeOptionsNamespace()} for details.
 	 *
 	 * Multiple pages sharing the same namespace are still unioned. Fields
 	 * with the same `name` across same-namespace pages collide on
@@ -895,8 +897,17 @@ class Helpers {
 	 * string doesn't decode to an options namespace.
 	 *
 	 * Used to compare a caller's `$post_id` against each registered options
-	 * page's `post_id` after collapsing the `option` / `options` alias —
-	 * `acf_decode_post_id()` returns the same `id` for both forms.
+	 * page's `post_id` after collapsing the `option` / `options` alias to a
+	 * single canonical id.
+	 *
+	 * ACF Pro's `acf_decode_post_id()` does NOT collapse the alias on its own:
+	 * `acf_decode_post_id('option')` returns `id='option'` while
+	 * `acf_decode_post_id('options')` returns `id='options'`. Both refer to
+	 * the default options namespace, so the comparison must canonicalize them
+	 * to the same string. Without this, `formatFields('option')` (singular)
+	 * silently returns an empty array when the registered options page uses
+	 * the ACF default `post_id` of `'options'` (plural) — which is every
+	 * page registered without an explicit `post_id` argument.
 	 *
 	 * @param mixed $post_id Caller's `$post_id` argument or a page's
 	 *                      `$page['post_id']` field.
@@ -908,7 +919,18 @@ class Helpers {
 			return null;
 		}
 		$id = $decoded['id'] ?? null;
-		return is_string( $id ) && $id !== '' ? $id : null;
+		if ( ! is_string( $id ) || $id === '' ) {
+			return null;
+		}
+		// Collapse the 'option' / 'options' alias — both refer to the default
+		// options namespace. ACF Pro's acf_decode_post_id() keeps them
+		// separate; canonicalize to the plural form (the default `post_id`
+		// that ACF uses for an options page registered without an explicit
+		// `post_id`, so this matches what `acf_get_options_pages()` reports).
+		if ( $id === 'option' ) {
+			$id = 'options';
+		}
+		return $id;
 	}
 
 	/**
