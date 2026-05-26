@@ -591,13 +591,13 @@ class StarterBase extends Site {
 	 * Example override in `Base.php`:
 	 *
 	 *     public function setup_breadcrumb_labels() {
-	 *         $this->breadcrumb_labels = [
+	 *         $this->breadcrumb_labels = array(
 	 *             'home'       => _x( 'Úvod', $this->theme_name, $this->theme_name ),
 	 *             '404'        => _x( '404', $this->theme_name, $this->theme_name ),
 	 *             'search'     => _x( 'Vyhledávání: %s', $this->theme_name, $this->theme_name ),
 	 *             'pagination' => _x( 'Strana %d', $this->theme_name, $this->theme_name ),
 	 *             'author'     => _x( 'Autor: %s', $this->theme_name, $this->theme_name ),
-	 *         ];
+	 *         );
 	 *     }
 	 *
 	 * Hooked to `init` (priority 1).
