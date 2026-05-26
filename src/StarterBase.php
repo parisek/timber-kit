@@ -297,6 +297,7 @@ class StarterBase extends Site {
 	private function registerBootstrapHooks(): void {
 		add_action( 'after_setup_theme', array( $this, 'theme_supports' ) );
 		add_action( 'init', array( $this, 'register_menus' ) );
+		add_action( 'init', array( $this, 'setup_breadcrumb_labels' ), 1 );
 		add_action( 'acf/init', array( $this, 'register_post_types' ) );
 	}
 
@@ -568,6 +569,43 @@ class StarterBase extends Site {
 		foreach ( $this->menus as $slug => $label ) {
 			register_nav_menu( $slug, __( $label, $this->theme_name ) );
 		}
+	}
+
+	/**
+	 * Hook point for projects to populate `$breadcrumb_labels` with translated
+	 * strings via `_x()` / `__()` calls.
+	 *
+	 * Runs on `init` (priority 1) — after WordPress has loaded the theme's
+	 * textdomain, so translation functions are safe. Before `Breadcrumb`
+	 * dispatcher consumes the labels (`timber/context` filter fires later
+	 * during request rendering).
+	 *
+	 * Calling `_x()` in `Base::__construct()` to populate `$breadcrumb_labels`
+	 * triggers WordPress 6.7+'s `_load_textdomain_just_in_time` notice because
+	 * the constructor runs before `init`. Override this method instead — the
+	 * library calls it at the right time.
+	 *
+	 * Default implementation is a no-op; the English defaults declared on the
+	 * `$breadcrumb_labels` property apply when a project doesn't override.
+	 *
+	 * Example override in `Base.php`:
+	 *
+	 *     public function setup_breadcrumb_labels() {
+	 *         $this->breadcrumb_labels = array(
+	 *             'home'       => _x( 'Úvod', $this->theme_name, $this->theme_name ),
+	 *             '404'        => _x( '404', $this->theme_name, $this->theme_name ),
+	 *             'search'     => _x( 'Vyhledávání: %s', $this->theme_name, $this->theme_name ),
+	 *             'pagination' => _x( 'Strana %d', $this->theme_name, $this->theme_name ),
+	 *             'author'     => _x( 'Autor: %s', $this->theme_name, $this->theme_name ),
+	 *         );
+	 *     }
+	 *
+	 * Hooked to `init` (priority 1).
+	 *
+	 * @return void
+	 */
+	public function setup_breadcrumb_labels() {
+		// No-op by default. Subclasses override to assign translated labels.
 	}
 
 	/**
