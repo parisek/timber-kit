@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`StarterBase::setup_breadcrumb_labels()`** — new public hook method, registered on `init` (priority 1), that projects override to populate `$breadcrumb_labels` with translated strings. WordPress 6.7+ emits a `_load_textdomain_just_in_time` notice when `_x()` / `__()` are called before `init` (e.g. in `Base::__construct()`), because the textdomain hasn't loaded yet. The new hook gives projects a sanctioned post-`init` callsite. Default implementation is a no-op — the English defaults declared on the `$breadcrumb_labels` property remain in effect for projects that don't override. Backward-compatible: projects already setting `$breadcrumb_labels` to raw (non-translated) strings in `__construct()` keep working unchanged; only projects calling `_x()` to populate the array need to migrate that block into the new override method. Discovered during the neoli WordPress theme migration ([portadesign/neoli#17](https://github.com/portadesign/neoli/pull/17)) where the labels block had been moved to `timber_context()` as a workaround.
+
 ## [1.7.1] - 2026-05-26
 
 ### Fixed

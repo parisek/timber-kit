@@ -63,4 +63,35 @@ class RegisterBootstrapHooksTest extends StarterBaseTestCase {
 		$acfInit = array_filter( $actions, fn( $a ) => $a['hook'] === 'acf/init' && is_array( $a['callback'] ) && $a['callback'][1] === 'register_post_types' );
 		$this->assertNotEmpty( $acfInit, 'acf/init → register_post_types must be registered' );
 	}
+
+	public function test_registers_init_for_setup_breadcrumb_labels_at_priority_1(): void {
+		$actions = [];
+		Functions\when( 'add_action' )->alias( function ( $hook, $callback, $priority = 10 ) use ( &$actions ) {
+			$actions[] = [ 'hook' => $hook, 'callback' => $callback, 'priority' => $priority ];
+		} );
+
+		$instance = $this->bareInstance();
+		$this->invokeRegisterBootstrapHooks( $instance );
+
+		$labels = array_values( array_filter(
+			$actions,
+			fn( $a ) => $a['hook'] === 'init'
+				&& is_array( $a['callback'] )
+				&& $a['callback'][1] === 'setup_breadcrumb_labels'
+		) );
+		$this->assertNotEmpty( $labels, 'init → setup_breadcrumb_labels must be registered' );
+		$this->assertSame( 1, $labels[0]['priority'], 'setup_breadcrumb_labels must run on init priority 1' );
+	}
+
+	public function test_default_setup_breadcrumb_labels_is_noop(): void {
+		$instance = $this->bareInstance();
+
+		$ref = new \ReflectionProperty( StarterBase::class, 'breadcrumb_labels' );
+		$before = $ref->getValue( $instance );
+
+		$instance->setup_breadcrumb_labels();
+
+		$after = $ref->getValue( $instance );
+		$this->assertSame( $before, $after, 'Default setup_breadcrumb_labels must not mutate the property — projects override to translate' );
+	}
 }
