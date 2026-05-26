@@ -836,9 +836,11 @@ class Helpers {
 	 * stores its fields under `company_settings`, not under the default
 	 * `option` namespace — so `formatFields('option')` must not surface them,
 	 * and `formatFields('company_settings')` must not pick up unrelated
-	 * default-namespace pages. Both sides are normalized through
-	 * `acf_decode_post_id()`, which collapses the `option` / `options` alias
-	 * to a single canonical id.
+	 * default-namespace pages. Both sides are routed through
+	 * `decodeOptionsNamespace()`, which canonicalizes the default-namespace
+	 * `option` / `options` alias to a single id (`'options'`). ACF Pro's
+	 * own `acf_decode_post_id()` does NOT collapse the alias on its own —
+	 * see {@see decodeOptionsNamespace()} for details.
 	 *
 	 * Multiple pages sharing the same namespace are still unioned. Fields
 	 * with the same `name` across same-namespace pages collide on

@@ -473,6 +473,52 @@ class FormatFieldsTest extends HelpersTestCase {
 		$this->assertSame( 'footer@option', $result['footer'] );
 	}
 
+	public function test_options_wpml_prefixed_namespace_is_preserved(): void {
+		// Regression guard against an overly aggressive alias collapse: the
+		// `option`/`options` canonicalization in `decodeOptionsNamespace`
+		// must NOT touch WPML's language-prefixed options ids like
+		// `'options_en'`, `'options_cs'`, etc. WPML's ACF integration stores
+		// per-language values under those prefixed namespaces, and a page
+		// registered with `post_id => 'options_en'` must still surface only
+		// when the caller asks for the same prefix.
+		//
+		// Behavior asserted here:
+		//   * `formatFields('options_en')` matches a page with `post_id => 'options_en'`
+		//   * `formatFields('options_en')` does NOT match a default-namespace
+		//     page (`post_id => 'options'`)
+
+		Functions\when( 'get_field_objects' )->justReturn( false );
+		Functions\when( 'acf_decode_post_id' )->alias( function ( $id ) {
+			// Real ACF Pro 6.x: type=option, id=verbatim. No normalization.
+			return [ 'type' => 'option', 'id' => (string) $id ];
+		} );
+		Functions\when( 'acf_get_options_pages' )->justReturn( [
+			'general'    => [ 'menu_slug' => 'general',    'post_id' => 'options' ],
+			'general_en' => [ 'menu_slug' => 'general-en', 'post_id' => 'options_en' ],
+		] );
+		Functions\when( 'acf_get_field_groups' )->alias( function ( $screen ) {
+			$slug = $screen['options_page'] ?? '';
+			if ( $slug === 'general' ) {
+				return [ [ 'key' => 'group_default', 'name' => 'default_group' ] ];
+			}
+			if ( $slug === 'general-en' ) {
+				return [ [ 'key' => 'group_en', 'name' => 'en_group' ] ];
+			}
+			return [];
+		} );
+		Functions\when( 'acf_get_fields' )->alias( function ( $group ) {
+			$name = $group['key'] === 'group_en' ? 'site_logo_en' : 'site_logo';
+			return [ [ 'key' => "field_{$group['key']}", 'name' => $name, 'type' => 'text' ] ];
+		} );
+		Functions\when( 'get_field' )->alias( fn ( $name, $id ) => "$name@$id" );
+
+		$result = Helpers::formatFields( 'options_en' );
+
+		$this->assertArrayHasKey( 'site_logo_en', $result, 'WPML-prefixed call must surface the matching page' );
+		$this->assertArrayNotHasKey( 'site_logo', $result, 'WPML-prefixed call must NOT leak the default-namespace page' );
+		$this->assertSame( 'site_logo_en@options_en', $result['site_logo_en'] );
+	}
+
 	public function test_block_prefix_string_does_not_hit_options_path(): void {
 		// `'block_*'` strings must not be misclassified as options page ids.
 		Functions\when( 'acf_decode_post_id' )->justReturn( [ 'type' => 'block', 'id' => 'block_abc' ] );
@@ -853,9 +899,14 @@ class FormatFieldsTest extends HelpersTestCase {
 
 	public function test_options_namespace_filter_aliases_option_and_options(): void {
 		// A page registered with the plural form `post_id => 'options'` must
-		// still match a `formatFields('option')` caller, because
-		// `acf_decode_post_id()` collapses both forms onto the same canonical
-		// id ('option').
+		// still match a `formatFields('option')` caller. The aliasing happens
+		// inside `decodeOptionsNamespace()` — ACF Pro's own `acf_decode_post_id()`
+		// does NOT collapse the alias on its own (see
+		// `test_options_singular_alias_matches_plural_post_id` for a stub that
+		// mirrors real ACF Pro 6.x behavior). This older fixture stubs
+		// `acf_decode_post_id` with a loose normalization that pre-dates the
+		// understanding of ACF's real behavior; the assertion still holds
+		// because both code paths produce the same answer.
 		Functions\when( 'get_field_objects' )->justReturn( false );
 		Functions\when( 'acf_decode_post_id' )->alias( function ( $id ) {
 			return in_array( $id, [ 'option', 'options' ], true )
