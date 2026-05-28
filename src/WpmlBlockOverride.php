@@ -47,7 +47,11 @@ final class WpmlBlockOverride {
 
 	private const HOOK_PRIORITY = 20;
 	private const CACHE_KEY = 'timber_kit_wpml_copy_fields_index';
-	private const CACHE_TTL = DAY_IN_SECONDS;
+	// Literal seconds-per-day instead of `DAY_IN_SECONDS` — class constants are
+	// evaluated at autoload time, before WordPress bootstrap is guaranteed to
+	// have defined the global constant. Using the literal keeps the class
+	// self-contained for unit tests and any non-WP load context.
+	private const CACHE_TTL = 86400;
 
 	/** @var array<int, array<int, array>> per-request memo: source_post_id → flat blocks */
 	private static array $sourceBlocksMemo = [];
@@ -213,10 +217,14 @@ final class WpmlBlockOverride {
 					$copy_fields = [ ...$copy_fields, ...self::walkFields( $fields, [] ) ];
 				}
 
-				$index[ $short ] = (array) \apply_filters(
+				$filtered = (array) \apply_filters(
 					'timber_kit/wpml_block_override/copy_fields',
 					$copy_fields, $short
 				);
+				// Normalize filter output — themes/plugins may return entries
+				// without the expected shape. Drop anything missing `field.name`;
+				// default `path` to []. This keeps applyCopyFields()'s reads safe.
+				$index[ $short ] = self::normalizeCopyFields( $filtered );
 			}
 		}
 
@@ -260,6 +268,29 @@ final class WpmlBlockOverride {
 			}
 		}
 		return $copy_fields;
+	}
+
+	/**
+	 * Normalize the output of the `timber_kit/wpml_block_override/copy_fields`
+	 * filter to the shape applyCopyFields() expects. Drops malformed entries
+	 * silently — themes that hook this filter shouldn't crash the render
+	 * pipeline by returning garbage.
+	 *
+	 * Required shape per entry: `['field' => ['name' => non-empty-string, ...], 'path' => array]`.
+	 */
+	private static function normalizeCopyFields( array $entries ): array {
+		$result = [];
+		foreach ( $entries as $entry ) {
+			if ( ! \is_array( $entry ) ) continue;
+			if ( ! isset( $entry['field'] ) || ! \is_array( $entry['field'] ) ) continue;
+			$name = $entry['field']['name'] ?? null;
+			if ( ! \is_string( $name ) || $name === '' ) continue;
+			if ( ! isset( $entry['path'] ) || ! \is_array( $entry['path'] ) ) {
+				$entry['path'] = [];
+			}
+			$result[] = $entry;
+		}
+		return $result;
 	}
 
 	public static function invalidateCopyFieldsCache(): void {
