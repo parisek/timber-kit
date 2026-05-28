@@ -1,0 +1,23 @@
+{
+	"blockName": "acf/faq-group",
+	"attrs": {
+		"id": "faq-group-fixture-1",
+		"name": "acf/faq-group",
+		"data": {
+			"faq_sections_0_label": "General Questions",
+			"faq_sections_0_items_0_title": "What is your return policy?",
+			"faq_sections_0_items_0_content": "We offer a 30-day return policy.",
+			"faq_sections_0_items_1_title": "How long does shipping take?",
+			"faq_sections_0_items_1_content": "Standard shipping takes 3-5 business days.",
+			"faq_sections_0_items": 2,
+			"faq_sections_1_label": "Technical Support",
+			"faq_sections_1_items": 0,
+			"faq_sections_2_label": "Billing",
+			"faq_sections_2_items_0_title": "What payment methods do you accept?",
+			"faq_sections_2_items_0_content": "We accept all major credit cards and PayPal.",
+			"faq_sections_2_items": 1,
+			"faq_sections": 3
+		}
+	},
+	"innerBlocks": []
+}
