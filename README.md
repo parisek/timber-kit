@@ -1,6 +1,6 @@
 # timber-kit
 
-WordPress/Timber starter kit — configurable base class, ACF helpers, image resizer, dev media proxy, WPForms config bridge, ACF block renderer.
+WordPress/Timber starter kit — configurable base class, ACF helpers, image resizer, dev media proxy, WPForms config bridge, ACF block renderer, WPML Copy-field override.
 
 ## Installation
 
@@ -140,6 +140,57 @@ The class is `final` with three public static methods: `render()`, `isInserterPr
 #### Cache invalidation
 
 `BlockRenderer::flushPostBlockCache($post_id)` is the handler `StarterBase` wires to `acf/save_post` at priority 20. When ACF saves a post, the cache group `acf_block_{$post_id}` is flushed — invalidating exactly the cached blocks tied to that post without touching others. The handler guards against non-numeric ids (ACF options-page strings, opaque `block_*` ids) and against environments without `wp_cache_supports('flush_group')`.
+
+### WpmlBlockOverride
+
+Runtime override of Copy field values in ACF Gutenberg blocks for WPML-multilingual sites. Hooks `render_block_data` at priority 20 (after WPML's own handlers) and, for ACF blocks rendered in a non-default language, overwrites `attrs.data.<field>` for fields marked `wpml_cf_preferences = 1` (Copy) with the source-language post's value. Attachment IDs (image / file / gallery) are remapped to per-language duplicates via `wpml_object_id`.
+
+Solves the long-standing WPML problem where changing a Copy field (typically an image) in the source language never propagates to translated `post_content` without a manual ATE re-job. ACF configuration becomes the single source of truth for Copy fields — no DB writes, no admin UI, no drift.
+
+Wire from your theme's `functions.php`:
+
+```php
+add_action( 'init', static function (): void {
+    if ( class_exists( \Parisek\TimberKit\WpmlBlockOverride::class ) ) {
+        \Parisek\TimberKit\WpmlBlockOverride::register();
+    }
+} );
+```
+
+Requirements (verified at `register()`):
+
+- WPML active (`ICL_SITEPRESS_VERSION` defined)
+- ACF Pro active (`acf_get_field_groups` available)
+
+#### What it does
+
+- Bypasses non-ACF blocks, admin context, REST requests, and the default language
+- Walks ACF field definitions recursively to find every leaf marked `wpml_cf_preferences = 1` — top-level, plus nested inside repeater / group containers at arbitrary depth
+- Generates ACF's flattened block-data key pattern for each Copy field (`items_N_image`, `faq_sections_N_items_M_title`, …) and overrides each from source
+- Remaps attachment IDs (`image`, `file`, `gallery` types) to per-language duplicates via `wpml_object_id`
+- Caches the full block-name → copy-fields index as a single transient with per-request memo
+- Skips the persistent transient entirely under `WP_DEBUG` so dev iteration doesn't need manual invalidation
+- Emits diagnostic `error_log` lines (`[timber_kit/wpml_block_override] …`) under `WP_DEBUG` for override events and missing source-block matches
+
+#### Filters
+
+| Filter | Args | Purpose |
+|---|---|---|
+| `timber_kit/wpml_block_override/should_override` | `(bool $default, array $block, string $current_lang, string $default_lang)` | Per-block veto. Default `true` after non-ACF / admin / REST / default-language guards have passed. |
+| `timber_kit/wpml_block_override/copy_fields` | `(array $copy_fields, string $block_name)` | Extend or trim the Copy-field discovery for a block. `$copy_fields` shape: `[ ['field' => array, 'path' => array<int, array{name,type}>], … ]`. |
+
+#### Not supported (this iteration)
+
+- `flexible_content` sub-fields — per-layout `sub_fields` require layout-name awareness
+- REST API output — `render_block_data` doesn't fire for raw REST responses; out of scope for server-rendered themes
+
+#### Known limitation
+
+Cache invalidation hooks (`acf/update_field_group` + `save_post_acf-field-group`) do **not** fire for programmatic field registration via `acf_add_local_field_group()`. Code-only changes to `wpml_cf_preferences` will serve stale cache for up to 24 hours on production. Under `WP_DEBUG` the persistent transient is bypassed entirely so dev iteration is unaffected. Production workaround: `wp transient delete timber_kit_wpml_copy_fields_index` in the deploy script, or include a theme-version constant in the cache key.
+
+#### Design context
+
+See [`docs/adr/2026-05-28-wpml-block-override.md`](docs/adr/2026-05-28-wpml-block-override.md) for the full design rationale, prior-art comparison, and cache architecture decisions.
 
 ## Usage
 
