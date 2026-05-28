@@ -264,6 +264,41 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 | `$gutenberg_editor_styles` | bool | `true` | Load editor stylesheet |
 | `$gutenberg_disable_core_patterns` | bool | `true` | Remove core block patterns |
 
+### Breadcrumbs
+
+Breadcrumb data (`$context['breadcrumb']`) is auto-populated by `StarterBase::timber_context()` from the properties below — projects only override these to customise behaviour. A legacy compatibility guard (`class_exists('\Breadcrumb', false)`) skips auto-populate when a project still ships the pre-1.7 global `\Breadcrumb` class.
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `$breadcrumb_labels` | `array<string, string>` | `['home' => 'Home', '404' => 'Page not found', 'search' => 'Search: %s', 'pagination' => 'Page %d', 'author' => 'Author: %s']` | Pre-translated labels for typed items. Defaults are English raw strings — override via `setup_breadcrumb_labels()` (not `__construct()`), see below. |
+| `$breadcrumb_menu_name` | `string` | `'main-menu'` | Nav-menu location slug for the menu-trail strategy (`by_menu_trail`). Set to a different menu's location slug if breadcrumbs should follow a non-main navigation. |
+| `$breadcrumb_list_page_map` | `array<string, string>` | `[]` | Post type → ACF option key for "listing page" injection between Home and a single post of that type. Example: `['post' => 'article_list']` injects `links.article_list` (from the ACF Global Options Page) as the parent crumb on every single `post`. |
+| `$breadcrumb_menu_trail_post_types` | `?array` | `null` | Post types eligible for menu-trail. `null` = auto-detect via `is_post_type_hierarchical()`. Pass an explicit list to opt-in / opt-out specific CPTs regardless of hierarchy. |
+| `$breadcrumb_include_pagination` | `bool` | `false` | Append a `"Page N"` item on paginated archive views. Off by default — opt in per project. |
+
+#### Localising labels — override `setup_breadcrumb_labels()`, not `__construct()`
+
+Calling `_x()` from `Base::__construct()` to populate `$breadcrumb_labels` triggers WordPress 6.7+'s `_load_textdomain_just_in_time` notice — the constructor runs before `init`, but the theme's textdomain has not loaded yet. `StarterBase` registers `setup_breadcrumb_labels()` on `init` (priority 1) as the project-side hook for translated labels:
+
+```php
+class Base extends \Parisek\TimberKit\StarterBase {
+
+    public function setup_breadcrumb_labels() {
+        $this->breadcrumb_labels = array(
+            'home'       => _x( 'Home', $this->theme_name, $this->theme_name ),
+            '404'        => _x( 'Page not found', $this->theme_name, $this->theme_name ),
+            'search'     => _x( 'Search: %s', $this->theme_name, $this->theme_name ),
+            'pagination' => _x( 'Page %d', $this->theme_name, $this->theme_name ),
+            'author'     => _x( 'Author: %s', $this->theme_name, $this->theme_name ),
+        );
+    }
+}
+```
+
+`$this->theme_name` in both `_x()` slots is intentional — it doubles as the translation context and the textdomain, so a single project identifier scopes everything. Substitute the source strings with the project's locale (Czech, German, …) and the WPML / Polylang stack picks the right translation at render time.
+
+Projects that don't need translated labels (single-locale English sites) can skip the override entirely — the English defaults declared on `$breadcrumb_labels` apply unchanged.
+
 ### Performance
 
 Replaces the standalone [Speculation Rules](https://wordpress.org/plugins/speculation-rules/) plugin. After upgrading, downstream projects can `wp plugin deactivate speculation-rules && wp plugin delete speculation-rules` — the same prerender / moderate / logged-out behaviour ships from the theme.

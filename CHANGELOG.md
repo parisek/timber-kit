@@ -6,6 +6,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Documentation
+
+- **README — new `### Breadcrumbs` subsection under `## Configuration`** documenting the `$breadcrumb_*` properties and the `setup_breadcrumb_labels()` override pattern. Mirrors the `### Performance` (speculation rules) section's shape: rationale → property table → worked example. Worked example uses English source strings (`_x( 'Home', $this->theme_name, $this->theme_name )`, …) so projects in any locale can copy-paste it and substitute the source strings for their language; clarifies that `$this->theme_name` in both `_x()` slots is intentional (context + textdomain unified). Discovered during the neoli WordPress theme migration ([portadesign/neoli#17](https://github.com/portadesign/neoli/pull/17)) — the `setup_breadcrumb_labels()` hook landed in 1.7.2 but was undocumented outside the source-code docstring.
+- **`StarterBase::setup_breadcrumb_labels()` docstring example** — switched the Czech example (`'Úvod'`, `'Vyhledávání: %s'`, …) to English (`'Home'`, `'Search: %s'`, …) to align with the README's locale-agnostic stance. The hook itself is unchanged; only the inline example in the PHPDoc.
+
 ## [1.7.2] - 2026-05-26
 
 ### Added
