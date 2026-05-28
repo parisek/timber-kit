@@ -72,4 +72,44 @@ class NormalizeCopyFieldsTest extends WpmlBlockOverrideTestCase {
 		$this->assertSame( [], $result[0]['path'], 'missing path defaults to []' );
 		$this->assertSame( [], $result[1]['path'], 'scalar path replaced with []' );
 	}
+
+	public function test_drops_entries_with_malformed_path_elements(): void {
+		$entries = [
+			// path element is a scalar
+			[ 'field' => [ 'name' => 'a' ], 'path' => [ 'broken-string-component' ] ],
+			// path element missing name
+			[ 'field' => [ 'name' => 'b' ], 'path' => [ [ 'type' => 'repeater' ] ] ],
+			// path element missing type
+			[ 'field' => [ 'name' => 'c' ], 'path' => [ [ 'name' => 'items' ] ] ],
+			// path element with unsupported type (flexible_content not allowed in paths)
+			[ 'field' => [ 'name' => 'd' ], 'path' => [ [ 'name' => 'flex', 'type' => 'flexible_content' ] ] ],
+			// valid for comparison
+			[ 'field' => [ 'name' => 'ok' ], 'path' => [ [ 'name' => 'items', 'type' => 'repeater' ] ] ],
+		];
+
+		$result = self::callPrivate( 'normalizeCopyFields', [ $entries ] );
+
+		$this->assertCount( 1, $result, 'only the well-formed entry survives' );
+		$this->assertSame( 'ok', $result[0]['field']['name'] );
+	}
+
+	public function test_keeps_entries_with_valid_group_or_repeater_components(): void {
+		$entries = [
+			[
+				'field' => [ 'name' => 'email' ],
+				'path' => [ [ 'name' => 'contact', 'type' => 'group' ] ],
+			],
+			[
+				'field' => [ 'name' => 'image' ],
+				'path' => [
+					[ 'name' => 'items', 'type' => 'repeater' ],
+					[ 'name' => 'meta',  'type' => 'group' ],
+				],
+			],
+		];
+
+		$result = self::callPrivate( 'normalizeCopyFields', [ $entries ] );
+
+		$this->assertCount( 2, $result, 'mixed repeater+group nesting accepted' );
+	}
 }

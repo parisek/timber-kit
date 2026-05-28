@@ -285,9 +285,25 @@ final class WpmlBlockOverride {
 			if ( ! isset( $entry['field'] ) || ! \is_array( $entry['field'] ) ) continue;
 			$name = $entry['field']['name'] ?? null;
 			if ( ! \is_string( $name ) || $name === '' ) continue;
+
+			// Default missing or scalar `path` to []; validate elements of an
+			// array `path` so overrideNestedPaths() can safely do
+			// $component['name'] / ['type'] access. Drop the whole entry if any
+			// component is malformed (theme returned garbage via filter).
 			if ( ! isset( $entry['path'] ) || ! \is_array( $entry['path'] ) ) {
 				$entry['path'] = [];
+			} else {
+				$valid = true;
+				foreach ( $entry['path'] as $component ) {
+					if ( ! \is_array( $component ) ) { $valid = false; break; }
+					$comp_name = $component['name'] ?? null;
+					$comp_type = $component['type'] ?? null;
+					if ( ! \is_string( $comp_name ) || $comp_name === '' ) { $valid = false; break; }
+					if ( ! \in_array( $comp_type, [ 'repeater', 'group' ], true ) ) { $valid = false; break; }
+				}
+				if ( ! $valid ) continue;
 			}
+
 			$result[] = $entry;
 		}
 		return $result;

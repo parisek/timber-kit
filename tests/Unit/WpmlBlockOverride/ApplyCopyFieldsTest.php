@@ -214,4 +214,100 @@ class ApplyCopyFieldsTest extends WpmlBlockOverrideTestCase {
 			'no fictional keys created for zero-row inner repeater'
 		);
 	}
+
+	// ─────────────────────────────────────────────────────────
+	// Group container tests
+	// ─────────────────────────────────────────────────────────
+
+	public function test_group_subfield_overrides_via_group_prefix(): void {
+		// ACF group flattens as parent_subfield (no row index).
+		$source = [
+			'blockName' => 'acf/contact-block',
+			'attrs' => [ 'data' => [
+				'contact_email' => 'source@example.com',
+				'contact_phone' => '+1-555-source',
+			] ],
+		];
+		$translation = [
+			'blockName' => 'acf/contact-block',
+			'attrs' => [ 'data' => [
+				'contact_email' => 'translation@example.com',
+				'contact_phone' => '+1-555-translation',
+			] ],
+		];
+
+		$copy_fields = [
+			[
+				'field' => [ 'name' => 'email', 'type' => 'email' ],
+				'path'  => [ [ 'name' => 'contact', 'type' => 'group' ] ],
+			],
+		];
+
+		$result = self::callPrivate(
+			'applyCopyFields',
+			[ $translation, $source, $copy_fields, 1, 'en' ]
+		);
+
+		$this->assertSame(
+			'source@example.com',
+			$result['attrs']['data']['contact_email'],
+			'group sub-field marked Copy overridden via parent_subfield prefix'
+		);
+		$this->assertSame(
+			'+1-555-translation',
+			$result['attrs']['data']['contact_phone'],
+			'sibling group field not in copy_fields stays untouched'
+		);
+	}
+
+	public function test_group_inside_repeater_overrides_each_row(): void {
+		// Combined nesting: repeater 'items' containing group 'meta' containing leaf 'email'.
+		// ACF flattens as items_N_meta_email.
+		$source = [
+			'blockName' => 'acf/team',
+			'attrs' => [ 'data' => [
+				'items'              => 2,
+				'items_0_name'       => 'Alice',
+				'items_0_meta_email' => 'alice@source.com',
+				'items_1_name'       => 'Bob',
+				'items_1_meta_email' => 'bob@source.com',
+			] ],
+		];
+		$translation = [
+			'blockName' => 'acf/team',
+			'attrs' => [ 'data' => [
+				'items'              => 2,
+				'items_0_name'       => 'Alice',
+				'items_0_meta_email' => 'OLD-alice@translation.com',
+				'items_1_name'       => 'Bob',
+				'items_1_meta_email' => 'OLD-bob@translation.com',
+			] ],
+		];
+
+		$copy_fields = [
+			[
+				'field' => [ 'name' => 'email', 'type' => 'email' ],
+				'path'  => [
+					[ 'name' => 'items', 'type' => 'repeater' ],
+					[ 'name' => 'meta',  'type' => 'group' ],
+				],
+			],
+		];
+
+		$result = self::callPrivate(
+			'applyCopyFields',
+			[ $translation, $source, $copy_fields, 1, 'en' ]
+		);
+
+		$this->assertSame(
+			'alice@source.com',
+			$result['attrs']['data']['items_0_meta_email'],
+			'row 0 group sub-field overridden'
+		);
+		$this->assertSame(
+			'bob@source.com',
+			$result['attrs']['data']['items_1_meta_email'],
+			'row 1 group sub-field overridden'
+		);
+	}
 }
