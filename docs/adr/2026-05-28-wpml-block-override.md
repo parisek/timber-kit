@@ -91,7 +91,7 @@ Matching is therefore by **block name + ordinal position**: the Nth occurrence o
 - Repeater sub-field Copy at arbitrary nesting depth (`steps_N_image`, `faq_sections_N_items_M_title`, …)
 - Group sub-field Copy (`contact_email` inside a `contact` group)
 - Mixed nesting (repeater × group × repeater)
-- Attachment ID remap to per-language duplicate via `wpml_object_id`
+- Reference id remap to target-language equivalents via `wpml_object_id`: image/file/gallery → attachment, post_object/relationship/page_link → post (element type resolved per id), taxonomy → term. `user` and `link` are left untouched (WPML doesn't translate users; link URLs go through WPML's own conversion)
 
 **Not yet supported:**
 - `flexible_content` sub-fields (per-layout `sub_fields` require layout-name awareness)

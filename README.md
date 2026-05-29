@@ -167,7 +167,14 @@ Requirements (verified at `register()`):
 - Bypasses non-ACF blocks, admin context, REST requests, and the default language
 - Walks ACF field definitions recursively to find every leaf marked `wpml_cf_preferences = 1` — top-level, plus nested inside repeater / group containers at arbitrary depth
 - Generates ACF's flattened block-data key pattern for each Copy field (`items_N_image`, `faq_sections_N_items_M_title`, …) and overrides each from source
-- Remaps attachment IDs (`image`, `file`, `gallery` types) to per-language duplicates via `wpml_object_id`
+- Remaps reference ids to their target-language equivalents via `wpml_object_id`, so a translated page points at translated entities — not the source-language ones:
+
+  | ACF field type | Remapped as | Notes |
+  |---|---|---|
+  | `image`, `file`, `gallery` | attachment | |
+  | `post_object`, `relationship`, `page_link` | post | element type resolved per id via `get_post_type()` (a `page_link` holding a raw URL passes through) |
+  | `taxonomy` | term | element type is the field's `taxonomy` |
+  | `user`, `link`, scalar fields | — | not remapped (`user`: WPML doesn't translate users; `link`: URL handled by WPML's own link conversion) |
 - Caches the full block-name → copy-fields index as a single transient with per-request memo
 - Skips the persistent transient entirely under `WP_DEBUG` so dev iteration doesn't need manual invalidation
 - Emits diagnostic `error_log` lines (`[timber_kit/wpml_block_override] …`) under `WP_DEBUG` for override events and missing source-block matches
@@ -177,7 +184,40 @@ Requirements (verified at `register()`):
 | Filter | Args | Purpose |
 |---|---|---|
 | `timber_kit/wpml_block_override/should_override` | `(bool $default, array $block, string $current_lang, string $default_lang)` | Per-block veto. Default `true` after non-ACF / admin / REST / default-language guards have passed. |
-| `timber_kit/wpml_block_override/copy_fields` | `(array $copy_fields, string $block_name)` | Extend or trim the Copy-field discovery for a block. `$copy_fields` shape: `[ ['field' => array, 'path' => array<int, array{name,type}>], … ]`. |
+| `timber_kit/wpml_block_override/copy_fields` | `(array $copy_fields, string $block_name)` | Extend or trim the Copy-field discovery for a block. `$block_name` is the **short** name (no `acf/` prefix). `$copy_fields` shape: `[ ['field' => array, 'path' => array<int, array{name,type}>], … ]`. |
+
+Note the two filters receive the block name differently: `should_override` gets the full parsed block (`$block['blockName']` is `acf/foo`), while `copy_fields` gets the short name (`foo`).
+
+#### Disabling / opting out
+
+**Per project** — the simplest opt-out is to not call `register()` from the theme. To force it off at runtime even where `register()` already ran (e.g. a shared bootstrap), veto every block:
+
+```php
+add_filter( 'timber_kit/wpml_block_override/should_override', '__return_false' );
+```
+
+**Per block** — skip specific block types via `should_override` (full `acf/` name here):
+
+```php
+add_filter( 'timber_kit/wpml_block_override/should_override', function ( $enabled, $block ) {
+    $off = [ 'acf/hero-text', 'acf/booking-form' ];
+    return in_array( $block['blockName'] ?? '', $off, true ) ? false : $enabled;
+}, 10, 2 );
+```
+
+**Per field** — keep the block syncing but drop one field from the Copy set via `copy_fields` (short block name here; the returned list is re-normalized, so re-indexing isn't required):
+
+```php
+add_filter( 'timber_kit/wpml_block_override/copy_fields', function ( $copy_fields, $block_name ) {
+    if ( $block_name !== 'jumbotron-video' ) {
+        return $copy_fields;
+    }
+    return array_values( array_filter(
+        $copy_fields,
+        fn ( $entry ) => $entry['field']['name'] !== 'background_image'
+    ) );
+}, 10, 2 );
+```
 
 #### Not supported (this iteration)
 
