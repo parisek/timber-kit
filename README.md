@@ -228,10 +228,6 @@ add_filter( 'timber_kit/wpml_block_override/copy_fields', function ( $copy_field
 
 Cache invalidation hooks (`acf/update_field_group` + `save_post_acf-field-group`) do **not** fire for programmatic field registration via `acf_add_local_field_group()`. Code-only changes to `wpml_cf_preferences` will serve stale cache for up to 24 hours on production. Under `WP_DEBUG` the persistent transient is bypassed entirely so dev iteration is unaffected. Production workaround: `wp transient delete timber_kit_wpml_copy_fields_index` in the deploy script, or include a theme-version constant in the cache key.
 
-#### Design context
-
-See [`docs/adr/2026-05-28-wpml-block-override.md`](docs/adr/2026-05-28-wpml-block-override.md) for the full design rationale, prior-art comparison, and cache architecture decisions.
-
 ## Usage
 
 Create a `Base` class in your theme that extends `StarterBase`:
