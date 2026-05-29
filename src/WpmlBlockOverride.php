@@ -241,11 +241,17 @@ final class WpmlBlockOverride {
 
 	/**
 	 * Structural-integrity gate. True only when the source and translation hold the
-	 * same number of blocks of `$block_name` — the precondition under which
-	 * positional matching is sound. A mismatch (added / removed / reordered block)
-	 * means the Nth source block may not correspond to the Nth translation block, so
-	 * callers skip the override entirely rather than risk landing a Copy value on the
-	 * wrong instance.
+	 * same number of blocks of `$block_name`, the precondition under which
+	 * positional matching is sound.
+	 *
+	 * This catches add/remove drift (counts differ → caller skips the name). It does
+	 * NOT catch an equal-count manual swap of two same-named instances — counts stay
+	 * equal, so positional matching would pair them in the wrong order. That residual
+	 * is an accepted, documented limitation: it requires a translation reordered
+	 * independently of ATE (which preserves source order), there is no stable
+	 * per-instance id in post_content to detect it, and the blast radius is bounded
+	 * to a same-type sibling's Copy value, read-time only. See README
+	 * "Known limitations".
 	 */
 	private static function blockCountsMatch( string $block_name, array $source_blocks, array $translation_blocks ): bool {
 		if ( $block_name === '' ) return false;
