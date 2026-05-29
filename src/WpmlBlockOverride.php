@@ -75,8 +75,7 @@ final class WpmlBlockOverride {
 	private static array $blockOrdinals = [];
 
 	public static function register(): void {
-		if ( ! \defined( 'ICL_SITEPRESS_VERSION' ) ) return;
-		if ( ! \function_exists( 'acf_get_field_groups' ) ) return;
+		if ( ! self::dependenciesAvailable() ) return;
 
 		\add_filter( 'render_block_data', [ self::class, 'filter' ], self::HOOK_PRIORITY, 2 );
 		// Reset positional counters at the start of each `the_content` pass (priority
@@ -89,6 +88,19 @@ final class WpmlBlockOverride {
 		// `wp acf json sync`. Registering both keeps the cache invalidated across paths.
 		\add_action( 'acf/update_field_group', [ self::class, 'invalidateCopyFieldsCache' ] );
 		\add_action( 'save_post_acf-field-group', [ self::class, 'invalidateCopyFieldsCache' ] );
+	}
+
+	/**
+	 * Soft-dependency probe for the two plugins this feature builds on. These
+	 * capability checks are the idiomatic WordPress way to detect optional
+	 * dependencies — there is no plugin registry to query at this layer, and
+	 * `is_plugin_active()` needs an admin include and only reflects activation,
+	 * not load order. WPML advertises itself via the `ICL_SITEPRESS_VERSION`
+	 * constant; ACF Pro via the `acf_get_field_groups()` function we actually
+	 * call (checking the exact API guards against partial/stub ACF builds too).
+	 */
+	private static function dependenciesAvailable(): bool {
+		return \defined( 'ICL_SITEPRESS_VERSION' ) && \function_exists( 'acf_get_field_groups' );
 	}
 
 	public static function resetBlockOrdinals( string $content ): string {
