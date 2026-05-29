@@ -121,4 +121,53 @@ class FindSourceBlockTest extends WpmlBlockOverrideTestCase {
 		$content = '<p>unchanged</p>';
 		$this->assertSame( $content, \Parisek\TimberKit\WpmlBlockOverride::resetBlockOrdinals( $content ) );
 	}
+
+	// ─────────────────────────────────────────────────────────
+	// Structural-integrity gate: blockCountsMatch + countByName
+	// ─────────────────────────────────────────────────────────
+
+	public function test_count_by_name_counts_only_matching_blocks(): void {
+		$blocks = [
+			self::block( 'acf/hero' ),
+			self::block( 'acf/gallery' ),
+			self::block( 'acf/hero' ),
+			self::block( 'core/paragraph' ),
+		];
+
+		$this->assertSame( 2, self::callPrivate( 'countByName', [ $blocks, 'acf/hero' ] ) );
+		$this->assertSame( 1, self::callPrivate( 'countByName', [ $blocks, 'acf/gallery' ] ) );
+		$this->assertSame( 0, self::callPrivate( 'countByName', [ $blocks, 'acf/missing' ] ) );
+	}
+
+	public function test_counts_match_when_source_and_translation_agree(): void {
+		$source      = [ self::block( 'acf/hero' ), self::block( 'acf/other' ), self::block( 'acf/hero' ) ];
+		$translation = [ self::block( 'acf/hero' ), self::block( 'acf/hero' ) ]; // 2 hero each
+
+		$this->assertTrue(
+			self::callPrivate( 'blockCountsMatch', [ 'acf/hero', $source, $translation ] ),
+			'2 hero in source, 2 in translation → match'
+		);
+	}
+
+	public function test_counts_mismatch_when_translation_has_extra_block(): void {
+		// Translation gained a 3rd hero the source doesn't have → structural drift.
+		$source      = [ self::block( 'acf/hero' ), self::block( 'acf/hero' ) ];
+		$translation = [ self::block( 'acf/hero' ), self::block( 'acf/hero' ), self::block( 'acf/hero' ) ];
+
+		$this->assertFalse(
+			self::callPrivate( 'blockCountsMatch', [ 'acf/hero', $source, $translation ] ),
+			'3 vs 2 → no match, whole name skipped'
+		);
+	}
+
+	public function test_counts_mismatch_when_source_has_extra_block(): void {
+		$source      = [ self::block( 'acf/hero' ), self::block( 'acf/hero' ) ];
+		$translation = [ self::block( 'acf/hero' ) ];
+
+		$this->assertFalse( self::callPrivate( 'blockCountsMatch', [ 'acf/hero', $source, $translation ] ) );
+	}
+
+	public function test_counts_match_is_false_for_empty_block_name(): void {
+		$this->assertFalse( self::callPrivate( 'blockCountsMatch', [ '', [], [] ] ) );
+	}
 }

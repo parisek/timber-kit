@@ -19,6 +19,10 @@ declare(strict_types=1);
  * ACF blocks carry no stable per-instance id in `post_content` (`attrs.id` is the
  * optional, manually-set HTML anchor), and WPML/ATE preserves block order and
  * count when rebuilding a translation, so the ordinal is a reliable join key.
+ * Guarded by a structural-integrity check: if the source and translation disagree
+ * on how many blocks of a name exist (block added / removed / manually reordered),
+ * that whole block name is skipped — a safe no-op rather than a risk of overriding
+ * the wrong instance.
  *
  * Solves the long-standing WPML problem where changing a Copy field (typically
  * an image) in the source language never propagates to translated post_content
@@ -106,6 +110,20 @@ final class WpmlBlockOverride {
 		if ( ! $source_post_id ) return $block;
 
 		$source_blocks = self::getSourceBlocks( $source_post_id );
+
+		// Structural-integrity gate: only override when source and translation agree
+		// on how many blocks of this name exist. Any difference means the
+		// translation's structure has diverged from the source (block added,
+		// removed, or manually reordered), so positional matching could land a Copy
+		// value on the wrong instance — skip the whole block name as a no-op.
+		// getSourceBlocks() parses + flattens + memoizes any post; here it's the
+		// translation being rendered.
+		$translation_blocks = self::getSourceBlocks( $post->ID );
+		if ( ! self::blockCountsMatch( $block['blockName'] ?? '', $source_blocks, $translation_blocks ) ) {
+			self::logStructuralMismatch( $block, $source_post_id );
+			return $block;
+		}
+
 		$matched = self::findSourceBlock( $block, $source_blocks, $source_post_id );
 		if ( ! $matched ) {
 			self::logMissingMatch( $block, $source_post_id );
@@ -187,8 +205,9 @@ final class WpmlBlockOverride {
 	 * only *some* instances of a duplicated block name it can desync the ordinal —
 	 * keep such a filter's decision deterministic per block name, not per instance.
 	 *
-	 * Returns null on structural drift (source has fewer same-named blocks than the
-	 * translation) so the override is a safe no-op rather than a mismatch.
+	 * `filter()` runs `blockCountsMatch()` upstream, so by the time we get here the
+	 * counts agree and every ordinal has a counterpart. The null-on-overflow return
+	 * below is kept as defense-in-depth (and for direct unit testing).
 	 */
 	private static function findSourceBlock( array $block, array $source_blocks, int $source_post_id ): ?array {
 		$block_name = $block['blockName'] ?? '';
@@ -204,6 +223,27 @@ final class WpmlBlockOverride {
 			$occurrence++;
 		}
 		return null;
+	}
+
+	/**
+	 * Structural-integrity gate. True only when the source and translation hold the
+	 * same number of blocks of `$block_name` — the precondition under which
+	 * positional matching is sound. A mismatch (added / removed / reordered block)
+	 * means the Nth source block may not correspond to the Nth translation block, so
+	 * callers skip the override entirely rather than risk landing a Copy value on the
+	 * wrong instance.
+	 */
+	private static function blockCountsMatch( string $block_name, array $source_blocks, array $translation_blocks ): bool {
+		if ( $block_name === '' ) return false;
+		return self::countByName( $source_blocks, $block_name ) === self::countByName( $translation_blocks, $block_name );
+	}
+
+	private static function countByName( array $blocks, string $block_name ): int {
+		$count = 0;
+		foreach ( $blocks as $b ) {
+			if ( ( $b['blockName'] ?? '' ) === $block_name ) $count++;
+		}
+		return $count;
 	}
 
 	private static function getCopyFields( string $block_name ): array {
@@ -499,6 +539,15 @@ final class WpmlBlockOverride {
 			'[timber_kit/wpml_block_override] no source match blockName=%s ordinal=%d source_post=%d',
 			$block_name,
 			$ordinal,
+			$source_post_id
+		) );
+	}
+
+	private static function logStructuralMismatch( array $block, int $source_post_id ): void {
+		if ( ! \defined( 'WP_DEBUG' ) || ! WP_DEBUG ) return;
+		\error_log( \sprintf(
+			'[timber_kit/wpml_block_override] structural mismatch blockName=%s source_post=%d — block counts differ, skipping',
+			$block['blockName'] ?? '?',
 			$source_post_id
 		) );
 	}
