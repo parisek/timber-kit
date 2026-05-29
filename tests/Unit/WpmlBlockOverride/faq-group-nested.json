@@ -1,7 +1,6 @@
 {
 	"blockName": "acf/faq-group",
 	"attrs": {
-		"id": "faq-group-fixture-1",
 		"name": "acf/faq-group",
 		"data": {
 			"faq_sections_0_label": "General Questions",

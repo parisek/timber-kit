@@ -1,7 +1,6 @@
 {
 	"blockName": "acf/how-it-works",
 	"attrs": {
-		"id": "how-it-works-fixture-1",
 		"name": "acf/how-it-works",
 		"data": {
 			"steps_0_image": 2486,

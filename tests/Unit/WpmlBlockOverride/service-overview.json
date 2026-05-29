@@ -1,7 +1,6 @@
 {
 	"blockName": "acf/service-overview",
 	"attrs": {
-		"id": "service-overview-fixture-1",
 		"name": "acf/service-overview",
 		"data": {
 			"headline": "Our Services",

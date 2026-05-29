@@ -16,6 +16,7 @@ abstract class WpmlBlockOverrideTestCase extends TestCase {
 		// Reset static memo properties on the class under test between tests.
 		$this->resetMemo( 'sourceBlocksMemo', [] );
 		$this->resetMemo( 'copyFieldsIndex', null );
+		$this->resetMemo( 'blockOrdinals', [] );
 	}
 
 	protected function tearDown(): void {

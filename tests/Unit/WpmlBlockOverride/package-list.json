@@ -1,7 +1,6 @@
 {
 	"blockName": "acf/package-list",
 	"attrs": {
-		"id": "package-list-fixture-1",
 		"name": "acf/package-list",
 		"data": {
 			"items_0_category": "Basic",

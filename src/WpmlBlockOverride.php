@@ -14,6 +14,12 @@ declare(strict_types=1);
  * duplicates via `wpml_object_id`. Nested fields inside repeater/group containers
  * are supported through path-aware key generation.
  *
+ * A translation block is matched to its source counterpart by position — the Nth
+ * occurrence of a block name in the translation pairs with the Nth in the source.
+ * ACF blocks carry no stable per-instance id in `post_content` (`attrs.id` is the
+ * optional, manually-set HTML anchor), and WPML/ATE preserves block order and
+ * count when rebuilding a translation, so the ordinal is a reliable join key.
+ *
  * Solves the long-standing WPML problem where changing a Copy field (typically
  * an image) in the source language never propagates to translated post_content
  * without manual ATE re-job. ACF configuration becomes the single source of truth
@@ -59,15 +65,29 @@ final class WpmlBlockOverride {
 	/** @var array<string, array>|null per-request memo of full copy-fields index */
 	private static ?array $copyFieldsIndex = null;
 
+	/** @var array<int, array<string, int>> per-render-pass positional counter: source_post_id → block_name → next ordinal */
+	private static array $blockOrdinals = [];
+
 	public static function register(): void {
 		if ( ! \defined( 'ICL_SITEPRESS_VERSION' ) ) return;
 		if ( ! \function_exists( 'acf_get_field_groups' ) ) return;
 
 		\add_filter( 'render_block_data', [ self::class, 'filter' ], self::HOOK_PRIORITY, 2 );
-		// acf/update_field_group fires only from ACF admin UI saves.
-		// save_post_acf-field-group also covers programmatic saves (incl. `wp acf json sync`).
+		// Reset positional counters at the start of each `the_content` pass (priority
+		// before do_blocks at 9) so a secondary do_blocks() pass — e.g. an SEO plugin
+		// parsing content for a meta description — can't desync the ordinals the
+		// visible render relies on.
+		\add_filter( 'the_content', [ self::class, 'resetBlockOrdinals' ], 5 );
+		// Both hooks fire on a field-group save: acf/update_field_group from the admin
+		// UI, save_post_acf-field-group additionally from programmatic saves such as
+		// `wp acf json sync`. Registering both keeps the cache invalidated across paths.
 		\add_action( 'acf/update_field_group', [ self::class, 'invalidateCopyFieldsCache' ] );
 		\add_action( 'save_post_acf-field-group', [ self::class, 'invalidateCopyFieldsCache' ] );
+	}
+
+	public static function resetBlockOrdinals( string $content ): string {
+		self::$blockOrdinals = [];
+		return $content;
 	}
 
 	public static function filter( array $block, array $source_block ): array {
@@ -86,7 +106,7 @@ final class WpmlBlockOverride {
 		if ( ! $source_post_id ) return $block;
 
 		$source_blocks = self::getSourceBlocks( $source_post_id );
-		$matched = self::findSourceBlock( $block, $source_blocks );
+		$matched = self::findSourceBlock( $block, $source_blocks, $source_post_id );
 		if ( ! $matched ) {
 			self::logMissingMatch( $block, $source_post_id );
 			return $block;
@@ -151,14 +171,37 @@ final class WpmlBlockOverride {
 		return $result;
 	}
 
-	private static function findSourceBlock( array $block, array $source_blocks ): ?array {
-		$id = $block['attrs']['id'] ?? null;
-		if ( ! $id ) return null;
+	/**
+	 * Match a translation block to its source-language counterpart by position.
+	 *
+	 * Real ACF blocks carry no stable per-instance identifier in their serialized
+	 * `post_content` — `attrs.id` is the optional HTML anchor (block.json
+	 * `supports.anchor`), set manually by an editor and absent on virtually all
+	 * blocks. So we pair the Nth occurrence of a block name in the translation
+	 * with the Nth occurrence in the source. WPML/ATE rebuilds a translation from
+	 * the source as a template, preserving block order and count, which makes the
+	 * ordinal a reliable join key.
+	 *
+	 * The per-name ordinal advances once per call; callers rely on `filter()`
+	 * invoking this in document order. If a custom `should_override` filter vetoes
+	 * only *some* instances of a duplicated block name it can desync the ordinal —
+	 * keep such a filter's decision deterministic per block name, not per instance.
+	 *
+	 * Returns null on structural drift (source has fewer same-named blocks than the
+	 * translation) so the override is a safe no-op rather than a mismatch.
+	 */
+	private static function findSourceBlock( array $block, array $source_blocks, int $source_post_id ): ?array {
+		$block_name = $block['blockName'] ?? '';
+		if ( $block_name === '' ) return null;
 
+		$ordinal = self::$blockOrdinals[ $source_post_id ][ $block_name ] ?? 0;
+		self::$blockOrdinals[ $source_post_id ][ $block_name ] = $ordinal + 1;
+
+		$occurrence = 0;
 		foreach ( $source_blocks as $candidate ) {
-			if ( ( $candidate['attrs']['id'] ?? null ) === $id ) {
-				return $candidate;
-			}
+			if ( ( $candidate['blockName'] ?? '' ) !== $block_name ) continue;
+			if ( $occurrence === $ordinal ) return $candidate;
+			$occurrence++;
 		}
 		return null;
 	}
@@ -447,10 +490,15 @@ final class WpmlBlockOverride {
 
 	private static function logMissingMatch( array $block, int $source_post_id ): void {
 		if ( ! \defined( 'WP_DEBUG' ) || ! WP_DEBUG ) return;
+		// A miss now means structural drift: the source post has fewer same-named
+		// blocks than the translation at this position. Report the ordinal that
+		// failed (the counter was already advanced in findSourceBlock).
+		$block_name = $block['blockName'] ?? '?';
+		$ordinal = ( self::$blockOrdinals[ $source_post_id ][ $block_name ] ?? 1 ) - 1;
 		\error_log( \sprintf(
-			'[timber_kit/wpml_block_override] no source match blockName=%s id=%s source_post=%d',
-			$block['blockName'] ?? '?',
-			$block['attrs']['id'] ?? '?',
+			'[timber_kit/wpml_block_override] no source match blockName=%s ordinal=%d source_post=%d',
+			$block_name,
+			$ordinal,
 			$source_post_id
 		) );
 	}

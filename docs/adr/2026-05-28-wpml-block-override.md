@@ -55,7 +55,7 @@ render_block_data filter (priority 20 — after WPML's own handlers)
   ↓ getCopyFields()       cached index of {block_name → copy_fields[]}
   ↓ getSourcePostId()     wpml_object_id → default-language post id
   ↓ getSourceBlocks()     parse_blocks() on source post_content, memoized
-  ↓ findSourceBlock()     match by attrs.id (safe degrade if missing)
+  ↓ findSourceBlock()     match by block name + ordinal position (safe no-op on drift)
   ↓ applyCopyFields()     overwrite attrs.data + remap attachment IDs
   → return modified block to WP render pipeline
 ```
@@ -73,6 +73,12 @@ The persistent transient holds **field metadata** (`{block_name → copy_fields[
 ### Hook priority decision
 
 Priority **20** (not the default 10) so we run *after* WPML's own `render_block_data` handlers (documented as "highest priority"). Ensures our overrides aren't reverted by later filters.
+
+### Block matching decision
+
+A translation block must be paired with its source-language counterpart. The first cut matched by `attrs.id`, but that was wrong: `attrs.id` is the optional HTML anchor (`supports.anchor`), set manually per block — empirically **0 of 35** blocks on a real ACF v3 (`block.json`) site carried one, and at the `render_block_data` stage ACF's serialized `attrs` are only `name` / `data` / `mode`. ACF's render-time `block_<hash>` id is generated per render, absent from `post_content`, and not exposed at this filter stage, so there is no stable per-instance id to join on.
+
+Matching is therefore by **block name + ordinal position**: the Nth occurrence of a name in the translation pairs with the Nth in the source. WPML/ATE rebuilds a translation from the source as a template, preserving block order and count, which makes the ordinal a reliable join key (verified: real pages carry duplicate same-named blocks, e.g. 2–3× `hero-text`, so name alone is insufficient). The per-name counter is reset at the start of each `the_content` pass (priority 5, before `do_blocks` at 9) so a secondary `do_blocks()` pass — e.g. an SEO plugin extracting a meta description — can't desync the ordinals the visible render relies on. Structural drift (source has fewer same-named blocks) returns null → safe no-op, never a mismatch.
 
 ---
 
