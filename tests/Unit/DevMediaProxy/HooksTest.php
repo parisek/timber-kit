@@ -20,6 +20,7 @@ class HooksTest extends TestCase {
 		Monkey\setUp();
 		DevMediaProxy::reset_for_tests();
 		@mkdir( $this->uploads_base_dir . '/2024/01', 0777, true );
+		Functions\when( 'home_url' )->justReturn( 'https://local.test' );
 		Functions\when( 'wp_get_upload_dir' )->justReturn(
 			array(
 				'baseurl' => $this->uploads_base_url,
@@ -50,6 +51,37 @@ class HooksTest extends TestCase {
 		$this->assertSame( 'wp_get_attachment_url', $filters[0][0] );
 		$this->assertSame( 'wp_prepare_attachment_for_js', $filters[4][0] );
 		$this->assertSame( 'timber_kit_resizer_missing_source_variants', $filters[5][0] );
+	}
+
+	public function test_register_skips_self_referential_origin_by_uploads_host(): void {
+		// Origin host equals the uploads-base host, even though the path
+		// differs — register() must refuse it (a rewrite would loop back to the
+		// same missing file). The host comparison is what matters, not the path.
+		$filters = array();
+		Functions\when( 'add_filter' )->alias(
+			function ( string $tag, mixed $callback, int $priority, int $accepted_args ) use ( &$filters ) {
+				$filters[] = $tag;
+				return true;
+			}
+		);
+
+		DevMediaProxy::register( 'https://local.test/some/other/path' );
+
+		$this->assertSame( array(), $filters );
+	}
+
+	public function test_register_skips_non_http_scheme_origin(): void {
+		$filters = array();
+		Functions\when( 'add_filter' )->alias(
+			function ( string $tag, mixed $callback, int $priority, int $accepted_args ) use ( &$filters ) {
+				$filters[] = $tag;
+				return true;
+			}
+		);
+
+		DevMediaProxy::register( 'file:///etc/passwd' );
+
+		$this->assertSame( array(), $filters );
 	}
 
 	public function test_filter_attachment_url_rewrites_missing_file(): void {

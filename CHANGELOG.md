@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `DevMediaProxy` can now be enabled via the `TIMBERKIT_MEDIA_ORIGIN` environment variable, not only the constant. `StarterBase::setup_dev_media_proxy()` falls back to `getenv()` when the constant is undefined; the constant still wins when both are set, so existing `define()`-based setups are unchanged. The env path lets a project enable the proxy with a single git-tracked line in `.ddev/.env`, which propagates to every git worktree without any PHP edit — the motivating use case being fresh worktrees whose `wp-content/uploads` is empty. Design rationale recorded in [ADR 0003](docs/adr/0003-dev-media-origin-env-and-self-host-guard.md). See [#32](https://github.com/parisek/timber-kit/pull/32).
+
+### Fixed
+
+- `DevMediaProxy::register()` now refuses a self-referential origin: when the configured origin host equals the **uploads base URL host** (`wp_get_upload_dir()['baseurl']`), the proxy bails instead of rewriting a missing file to a URL that resolves back to the same missing file. The uploads host — not `home_url()`, which can diverge (subdir installs, custom content URLs, `ddev share`) — is the comparand because that's the host the rewrite actually keys on. Guarding inside `register()` covers every caller regardless of whether the origin came from the constant or the environment variable. It's a host-level check (no `www`/port/IDN normalization). `register()` additionally rejects non-`http(s)` origin schemes. See [#32](https://github.com/parisek/timber-kit/pull/32).
+
 ### Documentation
 
 - **README — new `### Breadcrumbs` subsection under `## Configuration`** documenting the `$breadcrumb_*` properties and the `setup_breadcrumb_labels()` override pattern. Mirrors the `### Performance` (speculation rules) section's shape: rationale → property table → worked example. Worked example uses English source strings (`_x( 'Home', $this->theme_name, $this->theme_name )`, …) so projects in any locale can copy-paste it and substitute the source strings for their language; clarifies that `$this->theme_name` in both `_x()` slots is intentional (context + textdomain unified). Discovered during the neoli WordPress theme migration ([portadesign/neoli#17](https://github.com/portadesign/neoli/pull/17)) — the `setup_breadcrumb_labels()` hook landed in 1.7.2 but was undocumented outside the source-code docstring.

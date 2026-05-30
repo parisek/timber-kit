@@ -530,11 +530,16 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	protected function setup_dev_media_proxy(): void {
-		if ( ! defined( 'TIMBERKIT_MEDIA_ORIGIN' ) ) {
-			return;
-		}
+		// Resolve the upstream origin from either an explicit constant or an
+		// environment variable. The constant wins when both are present so an
+		// existing project that defines it keeps its exact behaviour; the env
+		// fallback lets a project enable the proxy with a single line in
+		// .ddev/.env (tracked, so it propagates to git worktrees) and no PHP.
+		$origin = defined( 'TIMBERKIT_MEDIA_ORIGIN' )
+			? (string) constant( 'TIMBERKIT_MEDIA_ORIGIN' )
+			: (string) getenv( 'TIMBERKIT_MEDIA_ORIGIN', true );
 
-		$origin = trim( (string) constant( 'TIMBERKIT_MEDIA_ORIGIN' ) );
+		$origin = trim( $origin );
 		if ( '' === $origin ) {
 			return;
 		}
