@@ -40,6 +40,17 @@ DDEV is the local-dev expectation (`ddev exec "composer test"`). Both run in CI 
 - **Squash-merge PRs** into `main` so the merge commit subject ends with `(#N)`. The auto-release workflow scrapes `(#N)` suffixes from `git log <prev_tag>..<tag>` to assemble the release's Pull Requests section. Merge commits without the suffix won't show up.
 - **Stacked PRs**: when a PR depends on another, target the parent branch (not main). After the parent merges, GitHub auto-retargets — but if `--delete-branch` runs on the parent merge, the child PR auto-closes (chicken-and-egg, recovery requires recreating the deleted branch). Either skip `--delete-branch` until the whole stack lands, or retarget the child to `main` *before* merging the parent.
 
+## Architecture decisions (ADRs)
+
+Significant decisions live in `docs/adr/` — the only tracked subtree under the
+otherwise git-ignored `docs/`. See `docs/adr/README.md` for the template and index.
+
+- Record **sparingly** — only when a decision is (1) hard to reverse, (2) surprising without context, and (3) the result of a real trade-off. Most changes warrant none.
+- Propose and get a yes **before** writing one. Don't auto-create.
+- One file per decision, `NNNN-kebab-title.md`, sequential and permanent (never renumber/reuse).
+- Structure is the Nygard triad: `## Context` / `## Decision` / `## Consequences`. No status line.
+- To reverse a past decision, write a new ADR linking back — don't edit the old one.
+
 ## Release process — DO NOT bypass
 
 Two GitHub Actions automate releases. **Never stamp + tag manually** unless the workflow is broken:

@@ -1,0 +1,55 @@
+# Architecture Decision Records
+
+Short, immutable notes on decisions that shaped this repo — the *why* behind
+choices a future reader would otherwise have to reverse-engineer from the code.
+
+`docs/` is git-ignored repo-wide; only this `adr/` subtree is tracked (see
+`.gitignore`). So ADRs commit, scratch docs don't.
+
+## When to write one
+
+Offer an ADR **sparingly** — only when **all three** are true:
+
+1. **Hard to reverse** — the cost of changing your mind later is meaningful.
+2. **Surprising without context** — a future reader will wonder *"why did they
+   do it this way?"*
+3. **The result of a real trade-off** — there were genuine alternatives and one
+   was picked for specific reasons.
+
+Most changes are none of these. A routine helper tweak, a typo fix, a test — no
+ADR. If you're unsure, it probably doesn't need one.
+
+Propose the ADR, get a yes, *then* write it. Don't auto-create.
+
+## Format
+
+Classic Nygard triad — Context / Decision / Consequences. No status line, no
+ceremony. Keep it to what the three headings demand.
+
+- One file per decision: `NNNN-kebab-title.md`, zero-padded, sequential.
+- Numbers are permanent — never renumber or reuse, even if an ADR is later
+  superseded. To reverse a decision, write a new ADR and link back to the old
+  one (leave the old file in place as history).
+
+```markdown
+# NNNN. Short title in the imperative
+
+## Context
+
+What forces are at play — the problem, constraints, and what made the obvious
+path unworkable.
+
+## Decision
+
+What we decided, stated plainly.
+
+## Consequences
+
+What follows — the good, the bad, and what now has to stay true. Name the
+guard (test, CI check, convention) that keeps it from drifting, if any.
+```
+
+## Index
+
+- [0001](0001-wpml-block-override.md) — Sync ACF Copy fields into translated blocks at render time
+- [0002](0002-breadcrumb-design.md) — Move Breadcrumb upstream into the kit with typed items
