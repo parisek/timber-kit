@@ -53,3 +53,4 @@ guard (test, CI check, convention) that keeps it from drifting, if any.
 
 - [0001](0001-wpml-block-override.md) — Sync ACF Copy fields into translated blocks at render time
 - [0002](0002-breadcrumb-design.md) — Move Breadcrumb upstream into the kit with typed items
+- [0003](0003-dev-media-origin-env-and-self-host-guard.md) — Dev-media origin via env, with a self-host guard
