@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.7.7] - 2026-06-01
+
 ### Security
 
 - Audited and patched the resolved dependency tree via a new `composer audit` CI gate: **twig/twig** v3.24 → v3.27.1 ([CVE-2026-46634](https://symfony.com/cve-2026-46634), sandbox escape) and **symfony/yaml** v7.4.6 → v7.4.13 (CVE-2026-45304/45305/45133 — Billion Laughs / ReDoS / stack exhaustion). Lockfile-level (the lock is `export-ignore`d, so a consumer's own resolution is unchanged) — `timber/timber ^2.0` already requires `twig/twig ^3.27` for downstreams. See [#37](https://github.com/parisek/timber-kit/pull/37).
