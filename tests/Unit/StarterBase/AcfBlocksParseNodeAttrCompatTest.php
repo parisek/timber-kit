@@ -50,6 +50,20 @@ class AcfBlocksParseNodeAttrCompatTest extends StarterBaseTestCase {
 	}
 
 	/**
+	 * The filter must stay SCOPED — it returns the untouched `current` for every
+	 * attribute it does not explicitly need to bypass, so ACF keeps handling
+	 * genuine JSON props normally. Guards against an over-broad rewrite (e.g. a
+	 * blanket `() => node`) silently satisfying the coverage assertions above.
+	 */
+	public function test_filter_defaults_to_acf_for_other_attributes(): void {
+		$this->assertStringContainsString(
+			': current',
+			$this->emittedFooterScript(),
+			'The pass-through predicate must keep a default branch returning `current`; a blanket pass-through would change how ACF treats real JSON-prop attributes.'
+		);
+	}
+
+	/**
 	 * Each attribute family that legitimately renders a value starting with `[`
 	 * or `{` must be covered by the pass-through predicate, or ACF's JSON.parse
 	 * crashes the block preview.
