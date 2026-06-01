@@ -34,7 +34,7 @@ composer normalize      # tidy composer.json (CI checks it with --dry-run)
 composer audit          # scan the dependency tree for known advisories
 ```
 
-DDEV is the local-dev expectation (`ddev exec "composer test"`). CI runs the suites across PHP 8.3 + 8.4 × `highest`/`lowest` dependency resolution, plus a `composer` hygiene job (validate + audit + normalize check). `config.platform.php` is pinned to 8.3 so the lock resolves for the supported floor.
+DDEV is the local-dev expectation (`ddev exec "composer test"`). CI runs the suites on PHP 8.3 + 8.4, plus a `composer` hygiene job (validate + audit + normalize check). `config.platform.php` is pinned to 8.3 so the lock resolves for the supported floor.
 
 ## TDD — non-negotiable
 
