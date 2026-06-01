@@ -29,10 +29,12 @@ PHP 8.3 minimum. PHPStan level 5.
 composer test           # Unit suite (Brain\Monkey, fast — default)
 composer test:property  # Eris property suite (invariant-based, ~100 iterations/test)
 composer test:all       # both suites
-composer phpstan        # vendor/bin/phpstan analyse
+composer phpstan        # static analysis
+composer normalize      # tidy composer.json (CI checks it with --dry-run)
+composer audit          # scan the dependency tree for known advisories
 ```
 
-DDEV is the local-dev expectation (`ddev exec "composer test"`). Both run in CI matrix on PHP 8.3 + 8.4.
+DDEV is the local-dev expectation (`ddev exec "composer test"`). CI runs the suites on PHP 8.3 + 8.4, plus a `composer` hygiene job (validate + audit + normalize check). `config.platform.php` is pinned to 8.3 so the lock resolves for the supported floor.
 
 ## TDD — non-negotiable
 
@@ -40,7 +42,7 @@ Always work test-first. The discipline, not just the coverage:
 
 - **Failing test first.** Write it, run it, watch it go red *for the right reason*, then write the minimal code to green. No production change lands without a test that failed before it existed.
 - **Bug fixes too** — reproduce the bug as a failing test first; it doubles as the regression guard (e.g. `AcfBlocksParseNodeAttrCompatTest` pins the ACF↔Alpine attribute filter so it can't silently narrow back to `x-`-only).
-- **Keep output pristine.** `composer test` must stay green *and deprecation-free* for code you touch. PHPUnit 11 deprecates `@dataProvider` doc-annotations — use `#[DataProvider('method')]` attributes (static provider methods).
+- **Keep output pristine.** `composer test` must stay green *and notice/deprecation-free* for code you touch. PHPUnit 12 deprecates **all** doc-comment metadata — use attributes: `#[DataProvider('method')]` (static provider), `#[RunInSeparateProcess]` + `#[PreserveGlobalState(false)]`, etc. Use `createStub()` (not `createMock()`) for objects you only stub return values on, or PHPUnit 12 emits a "no expectations configured" notice.
 - **JS embedded in PHP** (admin-footer shims etc.) has no JS runtime here — assert against the emitted source string, the same way the sibling `acf_input_admin_footer` test does.
 
 ## Per-PR conventions

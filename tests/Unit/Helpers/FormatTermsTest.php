@@ -37,7 +37,7 @@ class FormatTermsTest extends HelpersTestCase {
 	}
 
 	public function test_formats_timber_term(): void {
-		$term = $this->createMock( \Timber\Term::class );
+		$term = $this->createStub( \Timber\Term::class );
 		$term->method( 'link' )->willReturn( '/category/test' );
 		$term->ID = 5;
 		$term->title = 'Test Category';
@@ -54,7 +54,7 @@ class FormatTermsTest extends HelpersTestCase {
 	}
 
 	public function test_clears_url_with_taxonomy_query_param(): void {
-		$term = $this->createMock( \Timber\Term::class );
+		$term = $this->createStub( \Timber\Term::class );
 		$term->method( 'link' )->willReturn( '/page?taxonomy=category' );
 		$term->ID = 1;
 		$term->title = 'Test';
@@ -69,7 +69,7 @@ class FormatTermsTest extends HelpersTestCase {
 	public function test_formats_multiple_terms(): void {
 		$terms = [];
 		for ( $i = 1; $i <= 3; $i++ ) {
-			$term = $this->createMock( \Timber\Term::class );
+			$term = $this->createStub( \Timber\Term::class );
 			$term->method( 'link' )->willReturn( "/category/term-{$i}" );
 			$term->ID = $i;
 			$term->title = "Term {$i}";
