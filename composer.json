@@ -45,6 +45,7 @@
     },
     "config": {
         "allow-plugins": {
+            "composer/installers": false,
             "ergebnis/composer-normalize": true
         },
         "platform": {
