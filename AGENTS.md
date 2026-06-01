@@ -21,7 +21,7 @@ WordPress/Timber starter-kit library distributed via Composer (`parisek/timber-k
 - `.github/workflows/` — CI (`tests.yml`) + release automation (`release-stamp.yml`, `release.yml`)
 - `.gitattributes` controls dist scope — `composer require` only ships `src/`, `composer.json`, `LICENSE`, `README.md`. Everything else (`tests/`, `.github/`, `CHANGELOG.md`, `CLAUDE.md`, `.ddev/`, lint configs) is `export-ignore`.
 
-PHP 8.3 minimum. PHPStan level 5.
+PHP 8.3 minimum. PHPStan level 8 (existing findings grandfathered in phpstan-baseline.neon — new code must be clean).
 
 ## Commands
 
