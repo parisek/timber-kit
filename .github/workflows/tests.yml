@@ -6,19 +6,46 @@ on:
   pull_request:
 
 jobs:
+  composer:
+    name: composer hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+      - name: Validate composer.json
+        run: composer validate --strict
+      - run: composer install --no-interaction --prefer-dist
+      - name: Audit dependencies for known advisories
+        run: composer audit
+      - name: composer.json is normalized
+        run: composer normalize --dry-run
+
   tests:
+    name: PHP ${{ matrix.php }} (${{ matrix.deps }})
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
         php: ['8.3', '8.4']
-    name: PHP ${{ matrix.php }}
+        deps: ['highest', 'lowest']
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
           coverage: none
-      - run: composer install --no-interaction --prefer-dist
+      - name: Install dependencies
+        env:
+          DEPS: ${{ matrix.deps }}
+        run: |
+          if [ "$DEPS" = "lowest" ]; then
+            composer update --no-interaction --prefer-dist --prefer-lowest --prefer-stable
+          else
+            composer install --no-interaction --prefer-dist
+          fi
       - name: Unit tests
         run: composer test
       - name: Property tests
@@ -27,8 +54,8 @@ jobs:
         run: composer test:property
 
   phpstan:
-    runs-on: ubuntu-latest
     name: PHPStan
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: shivammathur/setup-php@v2
@@ -36,4 +63,4 @@ jobs:
           php-version: '8.3'
           coverage: none
       - run: composer install --no-interaction --prefer-dist
-      - run: vendor/bin/phpstan analyse
+      - run: composer phpstan

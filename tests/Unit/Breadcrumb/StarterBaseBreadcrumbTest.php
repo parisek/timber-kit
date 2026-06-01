@@ -7,6 +7,8 @@ use Brain\Monkey;
 use Brain\Monkey\Functions;
 use Brain\Monkey\Filters;
 use Parisek\TimberKit\StarterBase;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionMethod;
@@ -33,10 +35,8 @@ final class StarterBaseBreadcrumbTest extends TestCase {
 		parent::tearDown();
 	}
 
-	/**
-	 * @runInSeparateProcess
-	 * @preserveGlobalState disabled
-	 */
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState(false)]
 	public function test_auto_populate_skipped_when_breadcrumb_class_exists(): void {
 		require __DIR__ . '/../../Fixtures/LegacyBreadcrumbStub.php';
 
@@ -48,10 +48,8 @@ final class StarterBaseBreadcrumbTest extends TestCase {
 		$this->assertSame( 'preserved', $context['existing_key'] );
 	}
 
-	/**
-	 * @runInSeparateProcess
-	 * @preserveGlobalState disabled
-	 */
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState(false)]
 	public function test_auto_populate_runs_when_breadcrumb_class_absent(): void {
 		// Fixture NOT required — \Breadcrumb is absent in this fresh process.
 		$this->stub_timber_context_wp_functions();
