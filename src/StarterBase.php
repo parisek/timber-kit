@@ -1451,9 +1451,16 @@ class StarterBase extends Site {
 					});
 				});
 				});
-				// Compatibility with Alpine.js and Gutenberg preview
+				// Compatibility with Alpine.js and Gutenberg preview.
+				// ACF's parseJSX JSON.parses any attribute value starting with `[` or `{`,
+				// which crashes the block preview (and blocks saving) for Alpine directives
+				// and regex `pattern`s that legitimately start with those chars. Pass those
+				// attributes through untouched so ACF skips the JSON.parse.
 				// https://discourse.roots.io/t/alpine-js-and-blade-acf-composer/23756/12
-				acf.addFilter('acf_blocks_parse_node_attr', (current, node) => node.name.startsWith('x-') ? node : current);
+				acf.addFilter('acf_blocks_parse_node_attr', (current, node) => {
+					var name = node.name;
+					return (name.startsWith('x-') || name.startsWith(':') || name.startsWith('@') || name === 'pattern') ? node : current;
+				});
 			})(jQuery)
 			</script>
 		EOF;

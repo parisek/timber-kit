@@ -34,6 +34,15 @@ composer phpstan        # vendor/bin/phpstan analyse
 
 DDEV is the local-dev expectation (`ddev exec "composer test"`). Both run in CI matrix on PHP 8.3 + 8.4.
 
+## TDD — non-negotiable
+
+Always work test-first. The discipline, not just the coverage:
+
+- **Failing test first.** Write it, run it, watch it go red *for the right reason*, then write the minimal code to green. No production change lands without a test that failed before it existed.
+- **Bug fixes too** — reproduce the bug as a failing test first; it doubles as the regression guard (e.g. `AcfBlocksParseNodeAttrCompatTest` pins the ACF↔Alpine attribute filter so it can't silently narrow back to `x-`-only).
+- **Keep output pristine.** `composer test` must stay green *and deprecation-free* for code you touch. PHPUnit 11 deprecates `@dataProvider` doc-annotations — use `#[DataProvider('method')]` attributes (static provider methods).
+- **JS embedded in PHP** (admin-footer shims etc.) has no JS runtime here — assert against the emitted source string, the same way the sibling `acf_input_admin_footer` test does.
+
 ## Per-PR conventions
 
 - **CHANGELOG.md**: every behavior-affecting PR adds an entry under `## [Unreleased]` with [Keep a Changelog](https://keepachangelog.com/) categories (`### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, `### Security`). The release workflow relies on this.

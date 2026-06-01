@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **ACF ⇄ Alpine.js block-preview compatibility** — the `acf_blocks_parse_node_attr` filter emitted by `StarterBase::acf_input_admin_footer()` now passes through Alpine binds (`:`), events (`@`), and the HTML `pattern` attribute, not just `x-` directives. ACF Pro's `parseJSX` runs `JSON.parse()` on any block-preview attribute value starting with `[` or `{`; for `:class="{…}"` object binds and regex `pattern="[…]"` (e.g. a phone field) that threw, crashing the block preview and making the post **unsavable** (*"Response is not valid JSON"*). Coverage now spans `x-`, `:`, `@`, and `pattern`; `AcfBlocksParseNodeAttrCompatTest` pins each family so it can't silently narrow again. Discovered on the aleszejdl theme (expert-register / expert-profile blocks). See [#34](https://github.com/parisek/timber-kit/pull/34).
+
 ## [1.7.5] - 2026-05-30
 
 ### Added
