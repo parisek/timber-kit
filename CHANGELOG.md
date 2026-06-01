@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.7.5] - 2026-05-30
+
 ### Added
 
 - `DevMediaProxy` can now be enabled via the `TIMBERKIT_MEDIA_ORIGIN` environment variable, not only the constant. `StarterBase::setup_dev_media_proxy()` falls back to `getenv()` when the constant is undefined; the constant still wins when both are set, so existing `define()`-based setups are unchanged. The env path lets a project enable the proxy with a single git-tracked line in `.ddev/.env`, which propagates to every git worktree without any PHP edit — the motivating use case being fresh worktrees whose `wp-content/uploads` is empty. Design rationale recorded in [ADR 0003](docs/adr/0003-dev-media-origin-env-and-self-host-guard.md). See [#32](https://github.com/parisek/timber-kit/pull/32).
