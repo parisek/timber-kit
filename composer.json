@@ -27,7 +27,7 @@
         "giorgiosironi/eris": "^1.1",
         "php-stubs/acf-pro-stubs": "^6.5",
         "phpstan/phpstan": "^2.1",
-        "phpunit/phpunit": "^12.0",
+        "phpunit/phpunit": "^12.5.28",
         "szepeviktor/phpstan-wordpress": "^2.0"
     },
     "suggest": {
