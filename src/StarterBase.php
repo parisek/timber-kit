@@ -810,7 +810,7 @@ class StarterBase extends Site {
 	 * @param string      $context Gettext context.
 	 * @param string      $domain  Text domain.
 	 */
-	public function twig_xt( Environment $twig, string $text, string $context = '', string $domain = 'default' ): string {
+	public function twig_xt( Environment $twig, string $text, string $context, string $domain = 'default' ): string {
 		return $this->apply_typography( $twig, _x( $text, $context, $domain ) );
 	}
 
@@ -834,7 +834,7 @@ class StarterBase extends Site {
 	 * @param int         $number Count selecting singular/plural.
 	 * @param string      $domain Text domain.
 	 */
-	public function twig_nt( Environment $twig, string $single, string $plural, int $number = 1, string $domain = 'default' ): string {
+	public function twig_nt( Environment $twig, string $single, string $plural, int $number, string $domain = 'default' ): string {
 		return $this->apply_typography( $twig, _n( $single, $plural, $number, $domain ) );
 	}
 
@@ -848,7 +848,7 @@ class StarterBase extends Site {
 	 * @param string      $context Gettext context.
 	 * @param string      $domain  Text domain.
 	 */
-	public function twig_nxt( Environment $twig, string $single, string $plural, int $number, string $context = '', string $domain = 'default' ): string {
+	public function twig_nxt( Environment $twig, string $single, string $plural, int $number, string $context, string $domain = 'default' ): string {
 		return $this->apply_typography( $twig, _nx( $single, $plural, $number, $context, $domain ) );
 	}
 
