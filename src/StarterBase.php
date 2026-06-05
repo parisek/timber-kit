@@ -160,6 +160,15 @@ class StarterBase extends Site {
 	/** @var bool Filter the_generator to empty so the WP version disappears from wp_head and feeds. */
 	protected bool $remove_wp_generator = true;
 
+	/** @var bool Remove the core author (users) sitemap (/wp-sitemap-users-1.xml), which lists author slugs regardless of ?author= blocking. Default on; set false on sites that intentionally expose author archives for SEO. */
+	protected bool $disable_author_sitemap = true;
+
+	/** @var bool Emit baseline security response headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, CSP, Permissions-Policy, X-XSS-Protection, HSTS over TLS). Off by default. */
+	protected bool $security_headers = false;
+
+	/** @var array<string,string|null> Override, extend, or (with a null value) drop individual security headers, keyed by header name. Applied on top of the defaults. */
+	protected array $security_headers_config = [];
+
 	/**
 	 * Media processing — replaces clean-image-filenames + imsanity plugins
 	 */
@@ -464,6 +473,14 @@ class StarterBase extends Site {
 		if ( $this->remove_wp_generator ) {
 			// Filtering the_generator suppresses the version string in wp_head AND in every feed generator.
 			add_filter( 'the_generator', '__return_empty_string' );
+		}
+		if ( $this->disable_author_sitemap ) {
+			// Drops /wp-sitemap-users-1.xml — the third username-enumeration vector alongside REST + ?author=.
+			add_filter( 'wp_sitemaps_add_provider', array( $this, 'disable_author_sitemap_provider' ), 10, 2 );
+		}
+		if ( $this->security_headers ) {
+			// wp_headers (same point as the X-Pingback removal) → filterable array, not raw header() calls.
+			add_filter( 'wp_headers', array( $this, 'security_headers' ) );
 		}
 	}
 
@@ -2734,6 +2751,92 @@ class StarterBase extends Site {
 		}
 		status_header( 404 );
 		nocache_headers();
+	}
+
+	/**
+	 * Remove the core "users" sitemap provider (`/wp-sitemap-users-1.xml`).
+	 *
+	 * WordPress 5.5+ exposes author slugs/usernames through that sitemap
+	 * regardless of `?author=N` blocking, so it's a third username-enumeration
+	 * vector alongside REST (`restrict_rest_users`) and `?author=`
+	 * (`block_author_enumeration`). Returning false for the `users` provider
+	 * drops it; every other provider (`posts`, `taxonomies`, custom) passes
+	 * through untouched.
+	 *
+	 * Hooked to `wp_sitemaps_add_provider`.
+	 *
+	 * @param mixed  $provider The sitemap provider (or an already-filtered value).
+	 * @param string $name     The provider name (post-types, taxonomies, users).
+	 * @return mixed False to drop the users provider, otherwise $provider unchanged.
+	 */
+	public function disable_author_sitemap_provider( $provider, $name ) {
+		return 'users' === $name ? false : $provider;
+	}
+
+	/**
+	 * Emit a baseline set of security response headers.
+	 *
+	 * Merges a hardened default set over WordPress's outgoing header array, then
+	 * applies `$security_headers_config` on top so projects can override, extend,
+	 * or — by mapping a header to `null` — drop individual headers. HSTS is added
+	 * only when the request is genuinely over TLS (see `request_is_https()`), so
+	 * it still fires behind a TLS-terminating proxy — where the canonical
+	 * `.htaccess` `env=HTTPS` gate silently fails — and never half-applies on
+	 * plain HTTP.
+	 *
+	 * Hooked to `wp_headers` (the same lifecycle point as the X-Pingback
+	 * removal), so the headers ride out with the main front-end response and the
+	 * set stays a filterable/testable array rather than raw `header()` calls.
+	 *
+	 * @param array<string,string> $headers Outgoing headers WordPress will send.
+	 * @return array<string,string> Headers with the security set merged in.
+	 */
+	public function security_headers( $headers ) {
+		$defaults = array(
+			'X-Frame-Options'         => 'SAMEORIGIN',
+			'X-Content-Type-Options'  => 'nosniff',
+			'Referrer-Policy'         => 'strict-origin-when-cross-origin',
+			'Content-Security-Policy' => 'upgrade-insecure-requests',
+			'Permissions-Policy'      => 'geolocation=(), microphone=(), camera=()',
+			'X-XSS-Protection'        => '0',
+		);
+
+		if ( $this->request_is_https() ) {
+			$defaults['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+		}
+
+		$merged = array_merge( $headers, $defaults, $this->security_headers_config );
+
+		// A null in $security_headers_config means "drop this header" — array_merge
+		// can only override/extend, so the unset is applied here, after the merge.
+		return array_filter( $merged, static fn ( $value ) => null !== $value );
+	}
+
+	/**
+	 * Whether the current request reached the site over TLS.
+	 *
+	 * Trusts `is_ssl()` first, then falls back to the `X-Forwarded-Proto` hint a
+	 * TLS-terminating reverse proxy sets (Cloudways Nginx+Apache, Cloudflare, …),
+	 * where `is_ssl()` reports false because PHP only sees the upstream
+	 * plain-HTTP hop. This is the gate that keeps HSTS from silently vanishing
+	 * behind such proxies.
+	 *
+	 * @return bool
+	 */
+	private function request_is_https(): bool {
+		if ( is_ssl() ) {
+			return true;
+		}
+
+		if ( ! isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) ) {
+			return false;
+		}
+
+		// A multi-hop chain ("https, http") lists the client-facing protocol first.
+		$forwarded     = (string) wp_unslash( $_SERVER['HTTP_X_FORWARDED_PROTO'] );
+		$client_proto  = strtolower( trim( explode( ',', $forwarded )[0] ) );
+
+		return 'https' === $client_proto;
 	}
 
 	// =========================================================================

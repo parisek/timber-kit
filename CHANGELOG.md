@@ -10,6 +10,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **Typography-aware translation Twig helpers `_xt` / `__t` / `_nt` / `_nxt`.** Same signatures as WordPress's `_x` / `__` / `_n` / `_nx`, but the translated string is piped through the env's `|typography` filter — so long-form copy gets consistent typographic treatment without `|typography` on every callsite (`_x` → `_xt` is a one-character opt-in). Registered in `StarterBase::timber_twig()` with `is_safe: ['html']`; the typography filter is resolved at call time (falls back to the raw translation if absent). This is the production (Timber) side of [parisek/styleguide#21](https://github.com/parisek/styleguide/issues/21) — the authoring surface (`_xt('…', 'ctx')`) is now identical in the styleguide preview and on the live site. See [#42](https://github.com/parisek/timber-kit/issues/42).
 
+### Security
+
+- **Closed the author-sitemap username-enumeration vector + added an opt-in security-headers emitter** ([#40](https://github.com/parisek/timber-kit/issues/40)). Two new `StarterBase` flags, consistent with the existing hardening set:
+  - **`$disable_author_sitemap`** (default `true`) — removes the core `/wp-sitemap-users-1.xml` provider, which leaks author slugs/usernames regardless of `?author=` or REST blocking. The third enumeration vector alongside `restrict_rest_users` (REST) and `block_author_enumeration` (`?author=N`). **Upgrade note:** set it `false` on sites that intentionally expose author archives for SEO.
+  - **`$security_headers`** (default `false`) + **`$security_headers_config`** — emits a hardened baseline header set (`X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Content-Security-Policy: upgrade-insecure-requests`, `Permissions-Policy: geolocation=(), microphone=(), camera=()`, `X-XSS-Protection: 0`) on the `wp_headers` filter. HSTS is added **only over real TLS** — gated on `is_ssl()` OR an `X-Forwarded-Proto: https` hint, so it still fires behind a TLS-terminating proxy (Cloudways Nginx+Apache, Cloudflare, …) where the canonical `.htaccess` `env=HTTPS` gate silently fails. `$security_headers_config` overrides, extends, or (with a `null` value) drops individual headers — a git-versioned, host-independent alternative to `.htaccess` headers.
+
+  Rate-limiting, payload filtering, and file-integrity monitoring stay out of scope — those remain the WAF's job.
+
 ## [1.7.7] - 2026-06-01
 
 ### Security

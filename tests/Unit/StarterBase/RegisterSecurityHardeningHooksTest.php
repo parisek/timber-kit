@@ -36,6 +36,8 @@ class RegisterSecurityHardeningHooksTest extends StarterBaseTestCase {
 			'block_author_enumeration',
 			'disable_file_editing',
 			'remove_wp_generator',
+			'disable_author_sitemap',
+			'security_headers',
 		] as $flag ) {
 			$this->setProperty( $instance, $flag, false );
 		}
@@ -140,5 +142,38 @@ class RegisterSecurityHardeningHooksTest extends StarterBaseTestCase {
 
 		$this->assertArrayHasKey( 'the_generator', $filters );
 		$this->assertSame( '__return_empty_string', $filters['the_generator'] );
+	}
+
+	public function test_disable_author_sitemap_registers_provider_filter(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, $callback = null, $priority = 10, $accepted_args = 1 ) use ( &$filters ) {
+			$filters[ $hook ] = [ 'priority' => $priority, 'accepted_args' => $accepted_args ];
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstanceWithAllFlagsOff();
+		$this->setProperty( $instance, 'disable_author_sitemap', true );
+
+		$this->invokeRegisterSecurityHardeningHooks( $instance );
+
+		$this->assertArrayHasKey( 'wp_sitemaps_add_provider', $filters );
+		// The handler needs the 2nd arg ($name) to tell the users provider apart —
+		// regress if the `, 10, 2` is ever dropped from the registration.
+		$this->assertSame( 2, $filters['wp_sitemaps_add_provider']['accepted_args'] );
+	}
+
+	public function test_security_headers_registers_wp_headers_filter_when_enabled(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstanceWithAllFlagsOff();
+		$this->setProperty( $instance, 'security_headers', true );
+
+		$this->invokeRegisterSecurityHardeningHooks( $instance );
+
+		$this->assertContains( 'wp_headers', $filters );
 	}
 }
