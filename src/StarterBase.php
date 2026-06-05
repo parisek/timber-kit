@@ -160,13 +160,13 @@ class StarterBase extends Site {
 	/** @var bool Filter the_generator to empty so the WP version disappears from wp_head and feeds. */
 	protected bool $remove_wp_generator = true;
 
-	/** @var bool Remove the core author (users) sitemap (/wp-sitemap-users-1.xml), which lists author slugs regardless of ?author= blocking. */
+	/** @var bool Remove the core author (users) sitemap (/wp-sitemap-users-1.xml), which lists author slugs regardless of ?author= blocking. Default on; set false on sites that intentionally expose author archives for SEO. */
 	protected bool $disable_author_sitemap = true;
 
 	/** @var bool Emit baseline security response headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, CSP, Permissions-Policy, X-XSS-Protection, HSTS over TLS). Off by default. */
 	protected bool $security_headers = false;
 
-	/** @var array<string,string> Override or extend the default security header set, keyed by header name. Applied on top of the defaults. */
+	/** @var array<string,string|null> Override, extend, or (with a null value) drop individual security headers, keyed by header name. Applied on top of the defaults. */
 	protected array $security_headers_config = [];
 
 	/**
@@ -2777,11 +2777,12 @@ class StarterBase extends Site {
 	 * Emit a baseline set of security response headers.
 	 *
 	 * Merges a hardened default set over WordPress's outgoing header array, then
-	 * applies `$security_headers_config` on top so projects can override or
-	 * extend individual headers. HSTS is added only when the request is genuinely
-	 * over TLS (see `request_is_https()`), so it still fires behind a
-	 * TLS-terminating proxy — where the canonical `.htaccess` `env=HTTPS` gate
-	 * silently fails — and never half-applies on plain HTTP.
+	 * applies `$security_headers_config` on top so projects can override, extend,
+	 * or — by mapping a header to `null` — drop individual headers. HSTS is added
+	 * only when the request is genuinely over TLS (see `request_is_https()`), so
+	 * it still fires behind a TLS-terminating proxy — where the canonical
+	 * `.htaccess` `env=HTTPS` gate silently fails — and never half-applies on
+	 * plain HTTP.
 	 *
 	 * Hooked to `wp_headers` (the same lifecycle point as the X-Pingback
 	 * removal), so the headers ride out with the main front-end response and the
@@ -2804,7 +2805,11 @@ class StarterBase extends Site {
 			$defaults['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
 		}
 
-		return array_merge( $headers, $defaults, $this->security_headers_config );
+		$merged = array_merge( $headers, $defaults, $this->security_headers_config );
+
+		// A null in $security_headers_config means "drop this header" — array_merge
+		// can only override/extend, so the unset is applied here, after the merge.
+		return array_filter( $merged, static fn ( $value ) => null !== $value );
 	}
 
 	/**
@@ -2823,11 +2828,15 @@ class StarterBase extends Site {
 			return true;
 		}
 
-		$proto = isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] )
-			? strtolower( (string) wp_unslash( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) )
-			: '';
+		if ( ! isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) ) {
+			return false;
+		}
 
-		return 'https' === $proto;
+		// A multi-hop chain ("https, http") lists the client-facing protocol first.
+		$forwarded     = (string) wp_unslash( $_SERVER['HTTP_X_FORWARDED_PROTO'] );
+		$client_proto  = strtolower( trim( explode( ',', $forwarded )[0] ) );
+
+		return 'https' === $client_proto;
 	}
 
 	// =========================================================================

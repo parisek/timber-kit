@@ -21,8 +21,8 @@ class SecurityHeadersTest extends StarterBaseTestCase {
 		$this->assertSame( 'SAMEORIGIN', $headers['X-Frame-Options'] );
 		$this->assertSame( 'nosniff', $headers['X-Content-Type-Options'] );
 		$this->assertSame( 'strict-origin-when-cross-origin', $headers['Referrer-Policy'] );
-		$this->assertArrayHasKey( 'Content-Security-Policy', $headers );
-		$this->assertArrayHasKey( 'Permissions-Policy', $headers );
+		$this->assertSame( 'upgrade-insecure-requests', $headers['Content-Security-Policy'] );
+		$this->assertSame( 'geolocation=(), microphone=(), camera=()', $headers['Permissions-Policy'] );
 		$this->assertSame( '0', $headers['X-XSS-Protection'] );
 	}
 
@@ -73,5 +73,18 @@ class SecurityHeadersTest extends StarterBaseTestCase {
 
 		$this->assertSame( 'DENY', $headers['X-Frame-Options'] );
 		$this->assertSame( 'on', $headers['X-Custom-Header'] );
+	}
+
+	public function test_config_null_value_drops_a_default_header(): void {
+		Functions\when( 'is_ssl' )->justReturn( false );
+		$base = $this->createStarterBase( [
+			'security_headers_config' => [ 'X-XSS-Protection' => null ],
+		] );
+
+		$headers = $base->security_headers( [] );
+
+		// A null override removes the header entirely (array_merge can't unset).
+		$this->assertArrayNotHasKey( 'X-XSS-Protection', $headers );
+		$this->assertSame( 'SAMEORIGIN', $headers['X-Frame-Options'] );
 	}
 }

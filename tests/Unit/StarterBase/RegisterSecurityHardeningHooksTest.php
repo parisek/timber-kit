@@ -146,8 +146,8 @@ class RegisterSecurityHardeningHooksTest extends StarterBaseTestCase {
 
 	public function test_disable_author_sitemap_registers_provider_filter(): void {
 		$filters = [];
-		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
-			$filters[] = $hook;
+		Functions\when( 'add_filter' )->alias( function ( $hook, $callback = null, $priority = 10, $accepted_args = 1 ) use ( &$filters ) {
+			$filters[ $hook ] = [ 'priority' => $priority, 'accepted_args' => $accepted_args ];
 		} );
 		Functions\when( 'add_action' )->justReturn( true );
 
@@ -156,7 +156,10 @@ class RegisterSecurityHardeningHooksTest extends StarterBaseTestCase {
 
 		$this->invokeRegisterSecurityHardeningHooks( $instance );
 
-		$this->assertContains( 'wp_sitemaps_add_provider', $filters );
+		$this->assertArrayHasKey( 'wp_sitemaps_add_provider', $filters );
+		// The handler needs the 2nd arg ($name) to tell the users provider apart —
+		// regress if the `, 10, 2` is ever dropped from the registration.
+		$this->assertSame( 2, $filters['wp_sitemaps_add_provider']['accepted_args'] );
 	}
 
 	public function test_security_headers_registers_wp_headers_filter_when_enabled(): void {
