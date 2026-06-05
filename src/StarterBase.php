@@ -787,7 +787,85 @@ class StarterBase extends Site {
 		$twig->addFunction( new TwigFunction( 'merge_resizer', [ $this, 'twig_merge_resizer' ] ) );
 		$twig->addFunction( new TwigFunction( 'gtm4wp_the_gtm_tag', [ $this, 'twig_gtm4wp_the_gtm_tag' ] ) );
 
+		// Typography-aware translation helpers (`…t` suffix = "translate +
+		// typography"): `_xt`/`__t`/`_nt`/`_nxt` mirror `_x`/`__`/`_n`/`_nx` but
+		// pipe the translated string through `|typography`, so long-form copy
+		// gets consistent typographic treatment without `|typography` on every
+		// callsite. Production (Timber) side of parisek/styleguide#21 — keeps
+		// the authoring surface identical preview ↔ live site. `is_safe: html`
+		// mirrors the `|typography` filter's own contract.
+		$twig->addFunction( new TwigFunction( '_xt', [ $this, 'twig_xt' ], [ 'needs_environment' => true, 'is_safe' => [ 'html' ] ] ) );
+		$twig->addFunction( new TwigFunction( '__t', [ $this, 'twig_t' ], [ 'needs_environment' => true, 'is_safe' => [ 'html' ] ] ) );
+		$twig->addFunction( new TwigFunction( '_nt', [ $this, 'twig_nt' ], [ 'needs_environment' => true, 'is_safe' => [ 'html' ] ] ) );
+		$twig->addFunction( new TwigFunction( '_nxt', [ $this, 'twig_nxt' ], [ 'needs_environment' => true, 'is_safe' => [ 'html' ] ] ) );
+
 		return $twig;
+	}
+
+	/**
+	 * `_xt` — `_x()` then `|typography`. Backs the `_xt` Twig function.
+	 *
+	 * @param Environment $twig    Injected via `needs_environment`.
+	 * @param string      $text    Source string.
+	 * @param string      $context Gettext context.
+	 * @param string      $domain  Text domain.
+	 */
+	public function twig_xt( Environment $twig, string $text, string $context = '', string $domain = 'default' ): string {
+		return $this->apply_typography( $twig, _x( $text, $context, $domain ) );
+	}
+
+	/**
+	 * `__t` — `__()` then `|typography`. Backs the `__t` Twig function.
+	 *
+	 * @param Environment $twig   Injected via `needs_environment`.
+	 * @param string      $text   Source string.
+	 * @param string      $domain Text domain.
+	 */
+	public function twig_t( Environment $twig, string $text, string $domain = 'default' ): string {
+		return $this->apply_typography( $twig, __( $text, $domain ) );
+	}
+
+	/**
+	 * `_nt` — `_n()` then `|typography`. Backs the `_nt` Twig function.
+	 *
+	 * @param Environment $twig   Injected via `needs_environment`.
+	 * @param string      $single Singular form.
+	 * @param string      $plural Plural form.
+	 * @param int         $number Count selecting singular/plural.
+	 * @param string      $domain Text domain.
+	 */
+	public function twig_nt( Environment $twig, string $single, string $plural, int $number = 1, string $domain = 'default' ): string {
+		return $this->apply_typography( $twig, _n( $single, $plural, $number, $domain ) );
+	}
+
+	/**
+	 * `_nxt` — `_nx()` then `|typography`. Backs the `_nxt` Twig function.
+	 *
+	 * @param Environment $twig    Injected via `needs_environment`.
+	 * @param string      $single  Singular form.
+	 * @param string      $plural  Plural form.
+	 * @param int         $number  Count selecting singular/plural.
+	 * @param string      $context Gettext context.
+	 * @param string      $domain  Text domain.
+	 */
+	public function twig_nxt( Environment $twig, string $single, string $plural, int $number, string $context = '', string $domain = 'default' ): string {
+		return $this->apply_typography( $twig, _nx( $single, $plural, $number, $context, $domain ) );
+	}
+
+	/**
+	 * Run a string through the env's `|typography` filter, resolved at call
+	 * time so the project's tuned TypographyExtension wins. Falls back to the
+	 * raw value if no `typography` filter is registered (defensive — the filter
+	 * is registered by `timber_twig()` itself, so this is normally unreachable).
+	 */
+	private function apply_typography( Environment $twig, string $value ): string {
+		$callable = $twig->getFilter( 'typography' )?->getCallable();
+
+		if ( ! is_callable( $callable ) ) {
+			return $value;
+		}
+
+		return (string) $callable( $value );
 	}
 
 	/**

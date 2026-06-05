@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **Typography-aware translation Twig helpers `_xt` / `__t` / `_nt` / `_nxt`.** Same signatures as WordPress's `_x` / `__` / `_n` / `_nx`, but the translated string is piped through the env's `|typography` filter — so long-form copy gets consistent typographic treatment without `|typography` on every callsite (`_x` → `_xt` is a one-character opt-in). Registered in `StarterBase::timber_twig()` with `is_safe: ['html']`; the typography filter is resolved at call time (falls back to the raw translation if absent). This is the production (Timber) side of [parisek/styleguide#21](https://github.com/parisek/styleguide/issues/21) — the authoring surface (`_xt('…', 'ctx')`) is now identical in the styleguide preview and on the live site. See [#42](https://github.com/parisek/timber-kit/issues/42).
+
 ## [1.7.7] - 2026-06-01
 
 ### Security
