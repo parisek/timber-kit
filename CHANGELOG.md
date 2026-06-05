@@ -12,9 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Security
 
-- **Closed the remaining username-enumeration vectors + added an opt-in security-headers emitter** ([#40](https://github.com/parisek/timber-kit/issues/40)). Three new `StarterBase` flags, consistent with the existing hardening set:
+- **Closed the author-sitemap username-enumeration vector + added an opt-in security-headers emitter** ([#40](https://github.com/parisek/timber-kit/issues/40)). Two new `StarterBase` flags, consistent with the existing hardening set:
   - **`$disable_author_sitemap`** (default `true`) — removes the core `/wp-sitemap-users-1.xml` provider, which leaks author slugs/usernames regardless of `?author=` or REST blocking. The third enumeration vector alongside `restrict_rest_users` (REST) and `block_author_enumeration` (`?author=N`).
-  - **`$normalize_login_errors`** (default `false`) — collapses every login error to one generic message so a failed login can't confirm whether a username exists. Off by default because it also genericizes non-credential errors (cookies disabled, empty fields); opt in per project.
   - **`$security_headers`** (default `false`) + **`$security_headers_config`** — emits a hardened baseline header set (`X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Content-Security-Policy: upgrade-insecure-requests`, `Permissions-Policy: geolocation=(), microphone=(), camera=()`, `X-XSS-Protection: 0`) on the `wp_headers` filter. HSTS is added **only over real TLS** — gated on `is_ssl()` OR an `X-Forwarded-Proto: https` hint, so it still fires behind a TLS-terminating proxy (Cloudways Nginx+Apache, Cloudflare, …) where the canonical `.htaccess` `env=HTTPS` gate silently fails. `$security_headers_config` overrides or extends individual headers — a git-versioned, host-independent alternative to `.htaccess` headers.
 
   Rate-limiting, payload filtering, and file-integrity monitoring stay out of scope — those remain the WAF's job.

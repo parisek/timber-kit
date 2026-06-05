@@ -163,9 +163,6 @@ class StarterBase extends Site {
 	/** @var bool Remove the core author (users) sitemap (/wp-sitemap-users-1.xml), which lists author slugs regardless of ?author= blocking. */
 	protected bool $disable_author_sitemap = true;
 
-	/** @var bool Normalize login errors to one generic message so a failed login can't confirm whether a username exists. Off by default (also genericizes non-credential errors). */
-	protected bool $normalize_login_errors = false;
-
 	/** @var bool Emit baseline security response headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, CSP, Permissions-Policy, X-XSS-Protection, HSTS over TLS). Off by default. */
 	protected bool $security_headers = false;
 
@@ -480,9 +477,6 @@ class StarterBase extends Site {
 		if ( $this->disable_author_sitemap ) {
 			// Drops /wp-sitemap-users-1.xml — the third username-enumeration vector alongside REST + ?author=.
 			add_filter( 'wp_sitemaps_add_provider', array( $this, 'disable_author_sitemap_provider' ), 10, 2 );
-		}
-		if ( $this->normalize_login_errors ) {
-			add_filter( 'login_errors', array( $this, 'normalize_login_errors' ) );
 		}
 		if ( $this->security_headers ) {
 			// wp_headers (same point as the X-Pingback removal) → filterable array, not raw header() calls.
@@ -2777,25 +2771,6 @@ class StarterBase extends Site {
 	 */
 	public function disable_author_sitemap_provider( $provider, $name ) {
 		return 'users' === $name ? false : $provider;
-	}
-
-	/**
-	 * Replace every login error with one generic message.
-	 *
-	 * Default WordPress login errors distinguish "unknown username" from "wrong
-	 * password", which confirms whether a username exists. Returning a single
-	 * constant string closes that confirmation oracle. Off by default
-	 * (`$normalize_login_errors`) because it also genericizes non-credential
-	 * errors (cookies disabled, empty fields), a small UX trade-off projects opt
-	 * into per-site.
-	 *
-	 * Hooked to `login_errors`.
-	 *
-	 * @param string $errors The original (HTML) login error message.
-	 * @return string The generic replacement message.
-	 */
-	public function normalize_login_errors( $errors ) {
-		return __( 'The username or password you entered is incorrect.', $this->theme_name );
 	}
 
 	/**
