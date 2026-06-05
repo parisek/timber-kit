@@ -687,7 +687,7 @@ parameters:
 		-
 			message: '#^Parameter \#2 \$domain of function __ expects string, string\|false given\.$#'
 			identifier: argument.type
-			count: 9
+			count: 10
 			path: src/StarterBase.php
 
 		-

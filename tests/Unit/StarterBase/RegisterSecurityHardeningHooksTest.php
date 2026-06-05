@@ -36,6 +36,9 @@ class RegisterSecurityHardeningHooksTest extends StarterBaseTestCase {
 			'block_author_enumeration',
 			'disable_file_editing',
 			'remove_wp_generator',
+			'disable_author_sitemap',
+			'normalize_login_errors',
+			'security_headers',
 		] as $flag ) {
 			$this->setProperty( $instance, $flag, false );
 		}
@@ -140,5 +143,50 @@ class RegisterSecurityHardeningHooksTest extends StarterBaseTestCase {
 
 		$this->assertArrayHasKey( 'the_generator', $filters );
 		$this->assertSame( '__return_empty_string', $filters['the_generator'] );
+	}
+
+	public function test_disable_author_sitemap_registers_provider_filter(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstanceWithAllFlagsOff();
+		$this->setProperty( $instance, 'disable_author_sitemap', true );
+
+		$this->invokeRegisterSecurityHardeningHooks( $instance );
+
+		$this->assertContains( 'wp_sitemaps_add_provider', $filters );
+	}
+
+	public function test_normalize_login_errors_registers_filter_when_enabled(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstanceWithAllFlagsOff();
+		$this->setProperty( $instance, 'normalize_login_errors', true );
+
+		$this->invokeRegisterSecurityHardeningHooks( $instance );
+
+		$this->assertContains( 'login_errors', $filters );
+	}
+
+	public function test_security_headers_registers_wp_headers_filter_when_enabled(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstanceWithAllFlagsOff();
+		$this->setProperty( $instance, 'security_headers', true );
+
+		$this->invokeRegisterSecurityHardeningHooks( $instance );
+
+		$this->assertContains( 'wp_headers', $filters );
 	}
 }
