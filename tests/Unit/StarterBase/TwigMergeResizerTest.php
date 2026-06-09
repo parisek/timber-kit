@@ -85,6 +85,71 @@ class TwigMergeResizerTest extends StarterBaseTestCase {
 		);
 	}
 
+	public function test_non_last_list_contributing_only_empty_media_adds_nothing(): void {
+		// A non-last list whose ONLY entries are empty-media (no media-qualified
+		// variant at all) contributes nothing — the whole list is conditional and
+		// none of its <source>s should appear. Everything visible comes from the
+		// last list.
+		$desktop = [
+			[ 'src' => '/d-fallback.avif', 'media' => '' ],
+			[ 'src' => '/d-original.jpg' ], // no 'media' key
+		];
+		$mobile = [
+			[ 'src' => '/m-variant.avif', 'media' => '(min-width: 320px)' ],
+			[ 'src' => '/m-original.jpg' ],
+		];
+
+		$base   = $this->createStarterBase();
+		$result = $base->twig_merge_resizer( $desktop, $mobile );
+
+		$this->assertSame(
+			[ '/m-variant.avif', '/m-original.jpg' ],
+			array_column( $result, 'src' ),
+		);
+	}
+
+	public function test_drops_empty_media_variant_from_a_middle_list(): void {
+		// Three-list call where the MIDDLE list carries an empty-media variant.
+		// Both outer non-last lists are filtered to media-qualified entries only;
+		// the middle list's empty-media entry must be dropped too.
+		$xs = [ [ 'src' => '/xs.avif', 'media' => '(min-width: 320px)' ] ];
+		$sm = [
+			[ 'src' => '/sm.avif', 'media' => '(min-width: 640px)' ],
+			[ 'src' => '/sm-fallback.avif', 'media' => '' ], // must be dropped (sm is non-last)
+		];
+		$lg = [
+			[ 'src' => '/lg.avif', 'media' => '(min-width: 1024px)' ],
+			[ 'src' => '/lg-fallback.jpg' ],
+		];
+
+		$base   = $this->createStarterBase();
+		$result = $base->twig_merge_resizer( $xs, $sm, $lg );
+
+		$this->assertSame(
+			[ '/xs.avif', '/sm.avif', '/lg.avif', '/lg-fallback.jpg' ],
+			array_column( $result, 'src' ),
+		);
+	}
+
+	public function test_null_media_value_is_dropped_from_non_last_list(): void {
+		// `Resizer` never emits a null media today (it's '' or a min-width string),
+		// but `! empty( null )` is false, so a null-media entry is correctly dropped
+		// from a non-last list. Lock the behaviour in case the producer ever changes.
+		$desktop = [
+			[ 'src' => '/d-variant.avif', 'media' => '(min-width: 1024px)' ],
+			[ 'src' => '/d-null.avif', 'media' => null ],
+		];
+		$mobile = [ [ 'src' => '/m.jpg' ] ];
+
+		$base   = $this->createStarterBase();
+		$result = $base->twig_merge_resizer( $desktop, $mobile );
+
+		$this->assertSame(
+			[ '/d-variant.avif', '/m.jpg' ],
+			array_column( $result, 'src' ),
+		);
+	}
+
 	public function test_last_list_contributes_all_items_including_unqualified(): void {
 		// Single-list call — the only list IS the last list, so even
 		// unqualified entries pass through.
