@@ -1020,7 +1020,14 @@ class StarterBase extends Site {
 		foreach ( $items as $key => $item ) {
 			foreach ( $item as $image ) {
 				if ( $key !== array_key_last( $items ) ) {
-					if ( isset( $image['media'] ) ) {
+					// Non-last lists contribute ONLY media-qualified variants.
+					// `Resizer::processVariant()` always sets a 'media' key, using
+					// '' for tuples without a maxWidth — so `isset()` is not enough
+					// (it keeps ''). `! empty()` drops both the empty-media fallback
+					// and the no-key default_image, leaving the unconditional <img>
+					// fallback to the LAST list (e.g. the mobile crop). Without this,
+					// a desktop empty-media <source> shadows the mobile image.
+					if ( ! empty( $image['media'] ) ) {
 						$images[] = $image;
 					}
 				} else {
