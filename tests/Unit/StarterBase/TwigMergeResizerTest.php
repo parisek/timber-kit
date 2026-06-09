@@ -48,6 +48,43 @@ class TwigMergeResizerTest extends StarterBaseTestCase {
 		$this->assertSame( '/d-fallback.jpg', $result[2]['src'] );
 	}
 
+	public function test_drops_empty_media_string_variant_from_non_last_list(): void {
+		// Regression (mobile hero image never rendered): `Resizer::processVariant()`
+		// ALWAYS emits a 'media' key, setting it to '' when the tuple carries no
+		// maxWidth. A non-last (desktop) list therefore contributes a
+		// fallback-shaped entry with 'media' => '' — NOT a missing key. That entry
+		// must still be dropped: an empty-media <source> has no media attribute, so
+		// it matches every viewport and shadows the LAST list's mobile image, which
+		// then never renders. `isset()` keeps '' (key exists); `! empty()` drops it.
+		//
+		// The earlier tests only covered the missing-key fallback shape, so the
+		// `'media' => ''` case slipped through — this locks it.
+		$desktop = [
+			[ 'src' => '/d-2560.avif', 'media' => '(min-width: 2560px)' ],
+			[ 'src' => '/d-768.avif',  'media' => '(min-width: 768px)' ],
+			[ 'src' => '/d-fallback.avif', 'media' => '' ], // processVariant shape: empty-string media
+			[ 'src' => '/d-original.jpg' ],                 // appended default_image: no 'media' key
+		];
+		$mobile = [
+			[ 'src' => '/m-portrait.avif', 'media' => '' ], // mobile crop, empty-string media
+			[ 'src' => '/m-original.jpg' ],                 // mobile default_image
+		];
+
+		$base   = $this->createStarterBase();
+		$result = $base->twig_merge_resizer( $desktop, $mobile );
+
+		$srcs = array_column( $result, 'src' );
+
+		// Desktop (non-last) contributes ONLY its two real media variants. Both its
+		// empty-media fallback and its default_image are dropped — otherwise the
+		// empty-media <source> would match on mobile and the mobile image would
+		// never render.
+		$this->assertSame(
+			[ '/d-2560.avif', '/d-768.avif', '/m-portrait.avif', '/m-original.jpg' ],
+			$srcs,
+		);
+	}
+
 	public function test_last_list_contributes_all_items_including_unqualified(): void {
 		// Single-list call — the only list IS the last list, so even
 		// unqualified entries pass through.
