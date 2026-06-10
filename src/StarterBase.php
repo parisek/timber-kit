@@ -210,6 +210,30 @@ class StarterBase extends Site {
 	protected bool $wpml_block_override = false;
 
 	/**
+	 * ACF Datastore ({@see https://www.advancedcustomfields.com/resources/acf-settings-enable_datastore/}).
+	 *
+	 * Opt-in (default off). Switches how ACF saves field values — through the
+	 * REST / Gutenberg `wp.data` flow instead of the legacy metabox AJAX request
+	 * — which lets ACF values participate in **revisions** and **autosave**.
+	 * Storage is unchanged (still postmeta), Local JSON is untouched, and the
+	 * Timber read path (`get_field()`) is identical. The REST save still calls
+	 * `acf_save_post()` and fires the same `acf/save_post` action, so
+	 * `BlockRenderer::flushPostBlockCache` and `acfml`'s WPML sync keep working.
+	 *
+	 * Site-wide on/off only — ACF evaluates `acf_is_using_datastore()` in
+	 * no-post contexts (`rest_api_init`) where `get_post_type()` is `false`, so
+	 * a per-post-type conditional would silently disable the save hooks
+	 * everywhere. Requires WP 6.7+ and ACF Pro 6.8.1+ (ACF self-guards both).
+	 * Fully reversible. Left off in the library because the feature is still in
+	 * ACF's feedback phase and is not yet WPML-certified against the datastore;
+	 * projects enable it deliberately (pilot on staging — see
+	 * {@link https://github.com/portadesign/wordpress-base/issues/38}).
+	 *
+	 * @var bool
+	 */
+	protected bool $acf_datastore = false;
+
+	/**
 	 * Performance — replaces the standalone Speculation Rules plugin
 	 * (https://wordpress.org/plugins/speculation-rules/)
 	 */
@@ -365,7 +389,8 @@ class StarterBase extends Site {
 
 	/**
 	 * Register ACF JSON sync and field-formatting hooks — load/save paths,
-	 * save filename, wysiwyg sanitization, and post-object value fix.
+	 * save filename, wysiwyg sanitization, and post-object value fix. Plus the
+	 * opt-in `acf/settings/enable_datastore` filter when `$acf_datastore` is on.
 	 *
 	 * @return void
 	 */
@@ -375,6 +400,12 @@ class StarterBase extends Site {
 		add_filter( 'acf/json/save_file_name', array( $this, 'acf_json_save_file_name' ), 10, 3 );
 		add_filter( 'acf/update_value/type=wysiwyg', array( $this, 'sanitize_acf_editor_value' ), 10, 1 );
 		add_filter( 'acf/format_value/type=post_object', array( $this, 'fix_wrong_acf_orders_with_ids' ), 10, 3 );
+		if ( $this->acf_datastore ) {
+			// Opt-in: route ACF saves through the REST/datastore path so values land
+			// in revisions + autosave. Site-wide boolean — see the $acf_datastore
+			// docblock for why a per-post-type gate would silently disable it.
+			add_filter( 'acf/settings/enable_datastore', '__return_true' );
+		}
 	}
 
 	/**

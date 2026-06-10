@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`StarterBase::$acf_datastore` flag** (default `false`) — opt-in switch for the **ACF Datastore** (`acf/settings/enable_datastore`, ACF Pro 6.8.1+ / WP 6.7+). When enabled in a downstream `Base`, `registerAcfHooks()` adds `add_filter( 'acf/settings/enable_datastore', '__return_true' )`, routing ACF field saves through the REST / Gutenberg `wp.data` flow instead of the legacy metabox AJAX request. This lets ACF values participate in **post revisions** and **autosave**. Value storage is unchanged (still postmeta), ACF Local JSON is untouched, and the Timber read path (`Helpers::formatFields()` → `get_field()`) is identical. The REST save still calls `acf_save_post()` and fires the same `acf/save_post` action, so `BlockRenderer::flushPostBlockCache` (block-cache invalidation) and `acfml`'s WPML sync keep firing unchanged. Site-wide boolean by design — ACF evaluates `acf_is_using_datastore()` in no-post contexts (`rest_api_init`) where `get_post_type()` is `false`, so a per-post-type gate would silently disable the save hooks everywhere. Left **off** in the library because the feature is still in ACF's feedback phase and is not yet WPML-certified against the datastore; projects opt in deliberately (pilot on staging). Fully reversible via `__return_false`. Evaluation, source-verified backport-risk analysis, and the staging checklist live in [portadesign/wordpress-base#38](https://github.com/portadesign/wordpress-base/issues/38).
+
 ## [1.9.0] - 2026-06-10
 
 ### Added
