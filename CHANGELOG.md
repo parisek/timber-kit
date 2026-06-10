@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-06-10
+
 ### Added
 
 - **`Resizer` input allow-list is now capability-gated against the active image backend, with a public availability API and Site Health reporting.** Instead of a hardcoded five-format list, the resizer builds its allowed-input set at runtime by intersecting a desired superset (`jpeg`/`png`/`gif`/`webp`/`bmp`/`avif`/`tiff`/`heic`/`heif`) with what the active backend can actually decode — mirroring Spatie/Image's own driver pick (Imagick when loaded, else GD). On an Imagick + libheif/libavif server all formats are processed; on a GD-only server the modern formats are excluded automatically rather than failing or silently shipping the full-size original.
