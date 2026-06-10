@@ -1302,11 +1302,11 @@ class Helpers {
 		$type = $field['type'] ?? '';
 
 		if ( in_array( $type, [ 'image', 'file', 'gallery' ], true ) ) {
-			return self::remapIds( $value, $target_lang, static fn( int $id ): string => 'attachment' );
+			return self::remapObjectIds( $value, $target_lang, static fn( int $id ): string => 'attachment' );
 		}
 
 		if ( in_array( $type, [ 'post_object', 'relationship', 'page_link' ], true ) ) {
-			return self::remapIds( $value, $target_lang, static fn( int $id ): string => get_post_type( $id ) ?: 'post' );
+			return self::remapObjectIds( $value, $target_lang, static fn( int $id ): string => get_post_type( $id ) ?: 'post' );
 		}
 
 		if ( $type === 'taxonomy' ) {
@@ -1314,37 +1314,40 @@ class Helpers {
 			if ( $taxonomy === '' ) {
 				return $value;
 			}
-			return self::remapIds( $value, $target_lang, static fn( int $id ): string => $taxonomy );
+			return self::remapObjectIds( $value, $target_lang, static fn( int $id ): string => $taxonomy );
 		}
 
 		return $value;
 	}
 
 	/**
-	 * Apply `wpml_object_id` to a single id or a list of ids. `$element_type_for`
-	 * resolves the WPML element type for each id. Non-numeric / non-positive
-	 * values pass through unchanged.
+	 * Remap a single WPML object id or a list of them to `$target_lang` via the
+	 * `wpml_object_id` filter. `$element_type_for` resolves the WPML element type
+	 * for each id. Non-numeric / non-positive values pass through unchanged.
 	 *
 	 * @param mixed                $value
 	 * @param callable(int):string $element_type_for
 	 * @return mixed
 	 */
-	private static function remapIds( $value, string $target_lang, callable $element_type_for ) {
+	private static function remapObjectIds( $value, string $target_lang, callable $element_type_for ) {
 		if ( is_array( $value ) ) {
 			return array_map(
-				static fn( $id ) => self::remapId( $id, $target_lang, $element_type_for ),
+				static fn( $id ) => self::remapObjectId( $id, $target_lang, $element_type_for ),
 				$value
 			);
 		}
-		return self::remapId( $value, $target_lang, $element_type_for );
+		return self::remapObjectId( $value, $target_lang, $element_type_for );
 	}
 
 	/**
+	 * Remap one WPML object id to `$target_lang`, keeping the original when it is
+	 * non-numeric, non-positive, or has no translation (`return_original = true`).
+	 *
 	 * @param mixed                $value
 	 * @param callable(int):string $element_type_for
 	 * @return mixed
 	 */
-	private static function remapId( $value, string $target_lang, callable $element_type_for ) {
+	private static function remapObjectId( $value, string $target_lang, callable $element_type_for ) {
 		if ( ! is_numeric( $value ) ) {
 			return $value;
 		}
