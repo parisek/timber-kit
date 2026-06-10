@@ -185,6 +185,28 @@ class ApplyCopyFieldsTest extends WpmlBlockOverrideTestCase {
 		);
 	}
 
+	public function test_repeater_count_mismatch_skips_nested_override(): void {
+		// Sub-block structural drift: source has 2 rows, translation 1. The nested
+		// Copy field must NOT sync — same safe-degrade posture as the block-level
+		// count gate — rather than write a row the translation's count ignores.
+		$source = [
+			'blockName' => 'acf/foo',
+			'attrs'     => [ 'data' => [ 'rows' => 2, 'rows_0_img' => 901, 'rows_1_img' => 902 ] ],
+		];
+		$translation = [
+			'blockName' => 'acf/foo',
+			'attrs'     => [ 'data' => [ 'rows' => 1, 'rows_0_img' => 111 ] ],
+		];
+		$copy_fields = [
+			[ 'field' => [ 'name' => 'img', 'type' => 'image' ], 'path' => [ [ 'name' => 'rows', 'type' => 'repeater' ] ] ],
+		];
+
+		$result = self::callPrivate( 'applyCopyFields', [ $translation, $source, $copy_fields, 1, 'en' ] );
+
+		$this->assertSame( 111, $result['attrs']['data']['rows_0_img'], 'row-count mismatch leaves the translation value stale' );
+		$this->assertArrayNotHasKey( 'rows_1_img', $result['attrs']['data'], 'no phantom row written past the translation row count' );
+	}
+
 	public function test_nested_repeater_with_zero_count_skips_rows(): void {
 		// faq-group section 1 has items: 0 (zero rows). Verify no error, no fictional keys created.
 		$source_full = Fixtures::load( 'faq-group-nested' );

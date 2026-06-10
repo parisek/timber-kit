@@ -75,6 +75,39 @@ class GetCopyFieldsIndexTest extends WpmlBlockOverrideTestCase {
 		$this->assertSame( 'bg_image', $first['hero'][0]['field']['name'] );
 	}
 
+	public function test_warm_transient_is_returned_without_rebuilding(): void {
+		// Warm cache (WP_DEBUG off): a cached index short-circuits the ACF walk.
+		$cached = [ 'hero' => [ [ 'field' => [ 'name' => 'bg_image', 'type' => 'image' ], 'path' => [] ] ] ];
+		Functions\when( 'get_transient' )->justReturn( $cached );
+		Functions\expect( 'acf_get_block_types' )->never();
+		Functions\expect( 'set_transient' )->never();
+
+		$result = self::callPrivate( 'getCopyFieldsIndex', [] );
+
+		$this->assertSame( $cached, $result, 'cached transient is returned verbatim, ACF not re-walked' );
+	}
+
+	public function test_cold_cache_writes_the_built_index_to_the_transient(): void {
+		// Cold cache (WP_DEBUG off): miss → walk ACF → persist the built index.
+		Functions\when( 'get_transient' )->justReturn( false );
+		Functions\when( 'acf_get_block_types' )->justReturn( $this->syntheticBlockTypes() );
+		Functions\when( 'acf_get_field_groups' )->justReturn( $this->syntheticFieldGroups() );
+		Functions\when( 'acf_get_fields' )->justReturn( $this->syntheticFields() );
+
+		$captured = null;
+		Functions\expect( 'set_transient' )->once()->andReturnUsing(
+			static function ( $key, $value, $ttl ) use ( &$captured ) {
+				$captured = $value;
+				return true;
+			}
+		);
+
+		$result = self::callPrivate( 'getCopyFieldsIndex', [] );
+
+		$this->assertSame( $result, $captured, 'the built index is what gets persisted' );
+		$this->assertArrayHasKey( 'hero', $captured );
+	}
+
 	/**
 	 * Under WP_DEBUG=true the production code bypasses get_transient/set_transient
 	 * and builds the index fresh from ACF each request (per-request memo still applies).

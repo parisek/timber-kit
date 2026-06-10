@@ -539,6 +539,19 @@ final class WpmlBlockOverride {
 		// repeater: row count lives at "{prefix}{name}" in source_data.
 		$count_key = "{$prefix}{$name}";
 		$count = (int) ( $source_data[ $count_key ] ?? 0 );
+
+		// Sub-block structural-integrity gate. The block-level blockCountsMatch()
+		// only guards same-named block counts; a repeater whose row count differs
+		// between source and translation is the same kind of drift one level down
+		// (a translation edited outside ATE). Driving the loop off the source count
+		// alone would write rows the translation's own count ignores, or leave its
+		// extra rows stale — so skip this field's nested override (safe degrade),
+		// leaving the translation's stored value untouched.
+		$translation_count = (int) ( $block['attrs']['data'][ $count_key ] ?? 0 );
+		if ( $count !== $translation_count ) {
+			return $block;
+		}
+
 		for ( $i = 0; $i < $count; $i++ ) {
 			$new_prefix = "{$prefix}{$name}_{$i}_";
 			$block = self::overrideNestedPaths(

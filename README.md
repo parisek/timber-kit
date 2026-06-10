@@ -200,6 +200,8 @@ Requirements (verified at `register()`):
 
 Note the two filters receive the block name differently: `should_override` gets the full parsed block (`$block['blockName']` is `acf/foo`), while `copy_fields` gets the short name (`foo`).
 
+**`should_override` and duplicate blocks.** The veto runs *before* positional pairing, so it must be deterministic per block **name**, not per **instance**. If a page has 2+ blocks of the same name and you veto only some instances, the surviving ones' ordinals shift and pair with the wrong source block (silently applying a sibling's Copy value). Decide per block *type*, as the examples below do — never per individual occurrence.
+
 #### Disabling / opting out
 
 **Per project** — the simplest opt-out is to not call `register()` from the theme. To force it off at runtime even where `register()` already ran (e.g. a shared bootstrap), veto every block:
@@ -240,7 +242,7 @@ add_filter( 'timber_kit/wpml_block_override/copy_fields', function ( $copy_field
 
 **Stale cache on programmatic field registration.** Cache invalidation hooks (`acf/update_field_group` + `save_post_acf-field-group`) do **not** fire for programmatic field registration via `acf_add_local_field_group()`. Code-only changes to `wpml_cf_preferences` will serve stale cache for up to 24 hours on production. Under `WP_DEBUG` the persistent transient is bypassed entirely so dev iteration is unaffected. Production workaround: `wp transient delete timber_kit_wpml_copy_fields_index` in the deploy script, or include a theme-version constant in the cache key.
 
-**Reordered duplicate blocks.** Source and translation blocks are paired by position, so a page with 2+ blocks of the same name relies on source and translation sharing the same block order. Block add/remove is guarded — if the counts of a block name differ, that name is skipped (no-op). The one unguarded case is an *equal-count manual swap*: a translation edited independently (not through ATE, which rebuilds from the source and preserves order) where two same-named instances are reordered. Positional matching would then apply one instance's Copy value to the other. There is no stable per-instance id in `post_content` to detect this, and the blast radius is bounded — a Copy value from a sibling block of the *same type*, read-time only (no DB writes). If you reorder duplicate blocks in a translation independently, re-run it through the WPML translation editor to restore source order.
+**Reordered duplicate blocks / rows.** Both same-named blocks and a repeater's rows within a matched block are paired by position, relying on source and translation sharing the same order and count. Add/remove is guarded at **both** levels — if the counts of a block name differ, that name is skipped; if a repeater's row count differs between source and translation, that nested field is skipped (no-op). The one unguarded case is an *equal-count manual swap*: a translation edited independently (not through ATE, which rebuilds from the source and preserves order) where two same-named blocks — or two rows of the same repeater — are reordered without changing the count. Positional matching would then apply one instance's Copy value to the other. There is no stable per-instance id in `post_content` to detect this, and the blast radius is bounded — a Copy value from a sibling of the *same type*, read-time only (no DB writes). If you reorder duplicate blocks or rows in a translation independently, re-run it through the WPML translation editor to restore source order.
 
 ## Usage
 
