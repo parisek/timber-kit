@@ -21,6 +21,29 @@ use Tests\Unit\WpmlBlockOverrideTestCase;
  * needed. wpml_object_id distinguishes the source-pairing call (return_original
  * = false → maps the translation id to the source post) from the per-value remap
  * call (return_original = true → passthrough, so source values assert exactly).
+ *
+ * ── Reproducing this against a LIVE WPML + ACF Pro site (wp eval-file) ──────
+ * The same scenarios run end to end on a real site; the non-obvious bits:
+ *   1. wp eval-file runs through eval() → NO `declare(strict_types)`, NO
+ *      `namespace`, NO `use`; reference the class by its fully-qualified name.
+ *   2. Make a translation pair: do_action('wpml_set_element_language_details',
+ *      [...'trid'=>false, language=<default>]) on the source, read the trid via
+ *      apply_filters('wpml_element_trid', null, $src, 'post_post'), then the same
+ *      action with that trid + the secondary language on the translation. Detect
+ *      languages with the wpml_default_language / wpml_active_languages filters;
+ *      switch with do_action('wpml_switch_language', <secondary>).
+ *   3. Drive the feature by calling WpmlBlockOverride::filter($b, $b) directly —
+ *      NOT apply_filters('render_block_data', …), which also fires core's 3-arg
+ *      wp_add_parent_layout_to_parsed_block — and recurse into innerBlocks to
+ *      mirror how core renders nested blocks.
+ *   4. Declare Copy fields without ACFML: register a synthetic block
+ *      (acf_register_block_type works mid-request) and return the copy-field defs
+ *      through the timber_kit/wpml_block_override/copy_fields filter. Call
+ *      WpmlBlockOverride::invalidateCopyFieldsCache() before (so the synthetic
+ *      block is picked up) and after (so the live site's transient isn't left
+ *      polluted), since the index is cached in a transient when WP_DEBUG is off.
+ *   5. Reset the per-request statics between documents (sourceBlocksMemo,
+ *      blockOrdinals, copyFieldsIndex) — same three this test resets in setUp().
  */
 class FilterScenariosTest extends WpmlBlockOverrideTestCase {
 
