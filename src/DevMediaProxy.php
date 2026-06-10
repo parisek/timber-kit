@@ -71,6 +71,21 @@ final class DevMediaProxy {
 			return;
 		}
 
+		// Refuse a self-referential origin. `rewriteIfMissing()` only rewrites
+		// URLs under the local uploads base URL, so the host that actually
+		// matters is the uploads-base host — not home_url(), which can diverge
+		// (subdir installs, custom content URLs, or `ddev share` temporarily
+		// repointing home_url at the tunnel host while uploads stay local). If
+		// the origin host equals the uploads host, a missing-file rewrite would
+		// just resolve back to the same missing file. Guarding here — not in the
+		// caller — makes the proxy refuse self-reference regardless of whether
+		// the origin came from the constant or the env.
+		$uploads_host = parse_url( $uploads_base_url, PHP_URL_HOST );
+		$origin_host  = parse_url( $origin_base_url, PHP_URL_HOST );
+		if ( is_string( $uploads_host ) && is_string( $origin_host ) && 0 === strcasecmp( $uploads_host, $origin_host ) ) {
+			return;
+		}
+
 		self::$uploads_base_url = $uploads_base_url;
 		self::$uploads_base_dir = $uploads_base_dir;
 		self::$origin_base_url  = $origin_base_url;
@@ -362,7 +377,20 @@ final class DevMediaProxy {
 		}
 
 		$parts = parse_url( $origin_base_url );
-		if ( false === $parts || ! isset( $parts['scheme'], $parts['host'] ) ) {
+		if ( false === $parts ) {
+			return $origin_base_url;
+		}
+
+		// Only http(s) origins are valid media sources. Rejecting other schemes
+		// keeps a misconfigured or injected origin (e.g. file://, gopher://)
+		// from reaching the wp_remote_head() probe in the resizer fallback.
+		// Checked before the host-presence guard because scheme-only URLs such
+		// as file:///path parse with a scheme but no host.
+		if ( isset( $parts['scheme'] ) && ! in_array( strtolower( $parts['scheme'] ), array( 'http', 'https' ), true ) ) {
+			return '';
+		}
+
+		if ( ! isset( $parts['scheme'], $parts['host'] ) ) {
 			return $origin_base_url;
 		}
 

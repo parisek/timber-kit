@@ -15,12 +15,13 @@ on:
 
 permissions:
   contents: write
+  actions: write # dispatch release.yml in the final step (gh workflow run)
 
 jobs:
   stamp:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -61,10 +62,10 @@ jobs:
       - run: composer install --no-interaction --prefer-dist
 
       - name: Run tests
-        run: vendor/bin/phpunit
+        run: composer test
 
       - name: Run PHPStan
-        run: vendor/bin/phpstan analyse
+        run: composer phpstan
 
       - name: Stamp CHANGELOG
         env:
@@ -104,9 +105,9 @@ jobs:
 
       - name: Trigger release workflow
         # Tag pushes made by GITHUB_TOKEN don't fire downstream `on: push: tags`
-        # workflows by GitHub design. Cross-workflow `workflow_dispatch` over
-        # the API does work with GITHUB_TOKEN, so explicitly invoke release.yml
-        # for the tag we just pushed.
+        # workflows by GitHub design. Dispatch release.yml explicitly instead —
+        # this requires the job's `actions: write` permission (declared above),
+        # or the API returns 403 "Resource not accessible by integration".
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ inputs.version }}

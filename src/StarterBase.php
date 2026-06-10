@@ -160,6 +160,15 @@ class StarterBase extends Site {
 	/** @var bool Filter the_generator to empty so the WP version disappears from wp_head and feeds. */
 	protected bool $remove_wp_generator = true;
 
+	/** @var bool Remove the core author (users) sitemap (/wp-sitemap-users-1.xml), which lists author slugs regardless of ?author= blocking. Default on; set false on sites that intentionally expose author archives for SEO. */
+	protected bool $disable_author_sitemap = true;
+
+	/** @var bool Emit baseline security response headers (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, CSP, Permissions-Policy, X-XSS-Protection, HSTS over TLS). Off by default. */
+	protected bool $security_headers = false;
+
+	/** @var array<string,string|null> Override, extend, or (with a null value) drop individual security headers, keyed by header name. Applied on top of the defaults. */
+	protected array $security_headers_config = [];
+
 	/**
 	 * Media processing — replaces clean-image-filenames + imsanity plugins
 	 */
@@ -224,6 +233,9 @@ class StarterBase extends Site {
 
 	/** @var bool Surface a Site Health warning when the redundant standalone Speculation Rules plugin is also active. */
 	protected bool $warn_speculation_rules_plugin_redundant = true;
+
+	/** @var bool Surface a Site Health test + debug info reporting which uploadable image formats the resizer backend can actually decode. */
+	protected bool $resizer_format_health = true;
 
 	/**
 	 * Slim orchestrator — resolves theme identity, delegates hook registration
@@ -465,6 +477,14 @@ class StarterBase extends Site {
 			// Filtering the_generator suppresses the version string in wp_head AND in every feed generator.
 			add_filter( 'the_generator', '__return_empty_string' );
 		}
+		if ( $this->disable_author_sitemap ) {
+			// Drops /wp-sitemap-users-1.xml — the third username-enumeration vector alongside REST + ?author=.
+			add_filter( 'wp_sitemaps_add_provider', array( $this, 'disable_author_sitemap_provider' ), 10, 2 );
+		}
+		if ( $this->security_headers ) {
+			// wp_headers (same point as the X-Pingback removal) → filterable array, not raw header() calls.
+			add_filter( 'wp_headers', array( $this, 'security_headers' ) );
+		}
 	}
 
 	/**
@@ -522,6 +542,10 @@ class StarterBase extends Site {
 		if ( $this->warn_speculation_rules_plugin_redundant ) {
 			add_filter( 'site_status_tests', array( $this, 'site_health_register_speculation_rules_test' ) );
 		}
+		if ( $this->resizer_format_health ) {
+			add_filter( 'site_status_tests', array( $this, 'site_health_register_resizer_formats_test' ) );
+			add_filter( 'debug_information', array( $this, 'site_health_resizer_formats_debug' ) );
+		}
 	}
 
 	/**
@@ -530,11 +554,16 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	protected function setup_dev_media_proxy(): void {
-		if ( ! defined( 'TIMBERKIT_MEDIA_ORIGIN' ) ) {
-			return;
-		}
+		// Resolve the upstream origin from either an explicit constant or an
+		// environment variable. The constant wins when both are present so an
+		// existing project that defines it keeps its exact behaviour; the env
+		// fallback lets a project enable the proxy with a single line in
+		// .ddev/.env (tracked, so it propagates to git worktrees) and no PHP.
+		$origin = defined( 'TIMBERKIT_MEDIA_ORIGIN' )
+			? (string) constant( 'TIMBERKIT_MEDIA_ORIGIN' )
+			: (string) getenv( 'TIMBERKIT_MEDIA_ORIGIN', true );
 
-		$origin = trim( (string) constant( 'TIMBERKIT_MEDIA_ORIGIN' ) );
+		$origin = trim( $origin );
 		if ( '' === $origin ) {
 			return;
 		}
@@ -782,7 +811,85 @@ class StarterBase extends Site {
 		$twig->addFunction( new TwigFunction( 'merge_resizer', [ $this, 'twig_merge_resizer' ] ) );
 		$twig->addFunction( new TwigFunction( 'gtm4wp_the_gtm_tag', [ $this, 'twig_gtm4wp_the_gtm_tag' ] ) );
 
+		// Typography-aware translation helpers (`…t` suffix = "translate +
+		// typography"): `_xt`/`__t`/`_nt`/`_nxt` mirror `_x`/`__`/`_n`/`_nx` but
+		// pipe the translated string through `|typography`, so long-form copy
+		// gets consistent typographic treatment without `|typography` on every
+		// callsite. Production (Timber) side of parisek/styleguide#21 — keeps
+		// the authoring surface identical preview ↔ live site. `is_safe: html`
+		// mirrors the `|typography` filter's own contract.
+		$twig->addFunction( new TwigFunction( '_xt', [ $this, 'twig_xt' ], [ 'needs_environment' => true, 'is_safe' => [ 'html' ] ] ) );
+		$twig->addFunction( new TwigFunction( '__t', [ $this, 'twig_t' ], [ 'needs_environment' => true, 'is_safe' => [ 'html' ] ] ) );
+		$twig->addFunction( new TwigFunction( '_nt', [ $this, 'twig_nt' ], [ 'needs_environment' => true, 'is_safe' => [ 'html' ] ] ) );
+		$twig->addFunction( new TwigFunction( '_nxt', [ $this, 'twig_nxt' ], [ 'needs_environment' => true, 'is_safe' => [ 'html' ] ] ) );
+
 		return $twig;
+	}
+
+	/**
+	 * `_xt` — `_x()` then `|typography`. Backs the `_xt` Twig function.
+	 *
+	 * @param Environment $twig    Injected via `needs_environment`.
+	 * @param string      $text    Source string.
+	 * @param string      $context Gettext context.
+	 * @param string      $domain  Text domain.
+	 */
+	public function twig_xt( Environment $twig, string $text, string $context, string $domain = 'default' ): string {
+		return $this->apply_typography( $twig, _x( $text, $context, $domain ) );
+	}
+
+	/**
+	 * `__t` — `__()` then `|typography`. Backs the `__t` Twig function.
+	 *
+	 * @param Environment $twig   Injected via `needs_environment`.
+	 * @param string      $text   Source string.
+	 * @param string      $domain Text domain.
+	 */
+	public function twig_t( Environment $twig, string $text, string $domain = 'default' ): string {
+		return $this->apply_typography( $twig, __( $text, $domain ) );
+	}
+
+	/**
+	 * `_nt` — `_n()` then `|typography`. Backs the `_nt` Twig function.
+	 *
+	 * @param Environment $twig   Injected via `needs_environment`.
+	 * @param string      $single Singular form.
+	 * @param string      $plural Plural form.
+	 * @param int         $number Count selecting singular/plural.
+	 * @param string      $domain Text domain.
+	 */
+	public function twig_nt( Environment $twig, string $single, string $plural, int $number, string $domain = 'default' ): string {
+		return $this->apply_typography( $twig, _n( $single, $plural, $number, $domain ) );
+	}
+
+	/**
+	 * `_nxt` — `_nx()` then `|typography`. Backs the `_nxt` Twig function.
+	 *
+	 * @param Environment $twig    Injected via `needs_environment`.
+	 * @param string      $single  Singular form.
+	 * @param string      $plural  Plural form.
+	 * @param int         $number  Count selecting singular/plural.
+	 * @param string      $context Gettext context.
+	 * @param string      $domain  Text domain.
+	 */
+	public function twig_nxt( Environment $twig, string $single, string $plural, int $number, string $context, string $domain = 'default' ): string {
+		return $this->apply_typography( $twig, _nx( $single, $plural, $number, $context, $domain ) );
+	}
+
+	/**
+	 * Run a string through the env's `|typography` filter, resolved at call
+	 * time so the project's tuned TypographyExtension wins. Falls back to the
+	 * raw value if no `typography` filter is registered (defensive — the filter
+	 * is registered by `timber_twig()` itself, so this is normally unreachable).
+	 */
+	private function apply_typography( Environment $twig, string $value ): string {
+		$callable = $twig->getFilter( 'typography' )?->getCallable();
+
+		if ( ! is_callable( $callable ) ) {
+			return $value;
+		}
+
+		return (string) $callable( $value );
 	}
 
 	/**
@@ -920,7 +1027,14 @@ class StarterBase extends Site {
 		foreach ( $items as $key => $item ) {
 			foreach ( $item as $image ) {
 				if ( $key !== array_key_last( $items ) ) {
-					if ( isset( $image['media'] ) ) {
+					// Non-last lists contribute ONLY media-qualified variants.
+					// `Resizer::processVariant()` always sets a 'media' key, using
+					// '' for tuples without a maxWidth — so `isset()` is not enough
+					// (it keeps ''). `! empty()` drops both the empty-media fallback
+					// and the no-key default_image, leaving the unconditional <img>
+					// fallback to the LAST list (e.g. the mobile crop). Without this,
+					// a desktop empty-media <source> shadows the mobile image.
+					if ( ! empty( $image['media'] ) ) {
 						$images[] = $image;
 					}
 				} else {
@@ -1446,9 +1560,16 @@ class StarterBase extends Site {
 					});
 				});
 				});
-				// Compatibility with Alpine.js and Gutenberg preview
+				// Compatibility with Alpine.js and Gutenberg preview.
+				// ACF's parseJSX JSON.parses any attribute value starting with `[` or `{`,
+				// which crashes the block preview (and blocks saving) for Alpine directives
+				// and regex `pattern`s that legitimately start with those chars. Pass those
+				// attributes through untouched so ACF skips the JSON.parse.
 				// https://discourse.roots.io/t/alpine-js-and-blade-acf-composer/23756/12
-				acf.addFilter('acf_blocks_parse_node_attr', (current, node) => node.name.startsWith('x-') ? node : current);
+				acf.addFilter('acf_blocks_parse_node_attr', (current, node) => {
+					var name = node.name;
+					return (name.startsWith('x-') || name.startsWith(':') || name.startsWith('@') || name === 'pattern') ? node : current;
+				});
 			})(jQuery)
 			</script>
 		EOF;
@@ -2646,6 +2767,92 @@ class StarterBase extends Site {
 		nocache_headers();
 	}
 
+	/**
+	 * Remove the core "users" sitemap provider (`/wp-sitemap-users-1.xml`).
+	 *
+	 * WordPress 5.5+ exposes author slugs/usernames through that sitemap
+	 * regardless of `?author=N` blocking, so it's a third username-enumeration
+	 * vector alongside REST (`restrict_rest_users`) and `?author=`
+	 * (`block_author_enumeration`). Returning false for the `users` provider
+	 * drops it; every other provider (`posts`, `taxonomies`, custom) passes
+	 * through untouched.
+	 *
+	 * Hooked to `wp_sitemaps_add_provider`.
+	 *
+	 * @param mixed  $provider The sitemap provider (or an already-filtered value).
+	 * @param string $name     The provider name (post-types, taxonomies, users).
+	 * @return mixed False to drop the users provider, otherwise $provider unchanged.
+	 */
+	public function disable_author_sitemap_provider( $provider, $name ) {
+		return 'users' === $name ? false : $provider;
+	}
+
+	/**
+	 * Emit a baseline set of security response headers.
+	 *
+	 * Merges a hardened default set over WordPress's outgoing header array, then
+	 * applies `$security_headers_config` on top so projects can override, extend,
+	 * or — by mapping a header to `null` — drop individual headers. HSTS is added
+	 * only when the request is genuinely over TLS (see `request_is_https()`), so
+	 * it still fires behind a TLS-terminating proxy — where the canonical
+	 * `.htaccess` `env=HTTPS` gate silently fails — and never half-applies on
+	 * plain HTTP.
+	 *
+	 * Hooked to `wp_headers` (the same lifecycle point as the X-Pingback
+	 * removal), so the headers ride out with the main front-end response and the
+	 * set stays a filterable/testable array rather than raw `header()` calls.
+	 *
+	 * @param array<string,string> $headers Outgoing headers WordPress will send.
+	 * @return array<string,string> Headers with the security set merged in.
+	 */
+	public function security_headers( $headers ) {
+		$defaults = array(
+			'X-Frame-Options'         => 'SAMEORIGIN',
+			'X-Content-Type-Options'  => 'nosniff',
+			'Referrer-Policy'         => 'strict-origin-when-cross-origin',
+			'Content-Security-Policy' => 'upgrade-insecure-requests',
+			'Permissions-Policy'      => 'geolocation=(), microphone=(), camera=()',
+			'X-XSS-Protection'        => '0',
+		);
+
+		if ( $this->request_is_https() ) {
+			$defaults['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+		}
+
+		$merged = array_merge( $headers, $defaults, $this->security_headers_config );
+
+		// A null in $security_headers_config means "drop this header" — array_merge
+		// can only override/extend, so the unset is applied here, after the merge.
+		return array_filter( $merged, static fn ( $value ) => null !== $value );
+	}
+
+	/**
+	 * Whether the current request reached the site over TLS.
+	 *
+	 * Trusts `is_ssl()` first, then falls back to the `X-Forwarded-Proto` hint a
+	 * TLS-terminating reverse proxy sets (Cloudways Nginx+Apache, Cloudflare, …),
+	 * where `is_ssl()` reports false because PHP only sees the upstream
+	 * plain-HTTP hop. This is the gate that keeps HSTS from silently vanishing
+	 * behind such proxies.
+	 *
+	 * @return bool
+	 */
+	private function request_is_https(): bool {
+		if ( is_ssl() ) {
+			return true;
+		}
+
+		if ( ! isset( $_SERVER['HTTP_X_FORWARDED_PROTO'] ) ) {
+			return false;
+		}
+
+		// A multi-hop chain ("https, http") lists the client-facing protocol first.
+		$forwarded     = (string) wp_unslash( $_SERVER['HTTP_X_FORWARDED_PROTO'] );
+		$client_proto  = strtolower( trim( explode( ',', $forwarded )[0] ) );
+
+		return 'https' === $client_proto;
+	}
+
 	// =========================================================================
 	// Performance (replaces the standalone Speculation Rules plugin)
 	// =========================================================================
@@ -2746,6 +2953,124 @@ class StarterBase extends Site {
 			),
 			'test'        => 'timber_kit_speculation_rules_redundant',
 		);
+	}
+
+	/**
+	 * Register a Site Health test reporting whether the resizer's image backend
+	 * can decode every image format WordPress accepts as an upload.
+	 *
+	 * @param array<string, array<string, array<string, mixed>>> $tests The current Site Health tests registry.
+	 * @return array<string, array<string, array<string, mixed>>>
+	 */
+	public function site_health_register_resizer_formats_test( $tests ): array {
+		if ( ! is_array( $tests ) ) {
+			$tests = array( 'direct' => array(), 'async' => array() );
+		}
+		$tests['direct']['timber_kit_resizer_formats'] = array(
+			'label' => __( 'Image resizer format support', 'timber-kit' ),
+			'test'  => array( $this, 'site_health_test_resizer_formats' ),
+		);
+		return $tests;
+	}
+
+	/**
+	 * Site Health test callback. `good` when the resizer backend decodes every
+	 * uploadable image format; `recommended` (with the specific gaps + remedy)
+	 * when a format WordPress lets editors upload can't be resized — those uploads
+	 * silently fall back to the full-size original instead of being optimized.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function site_health_test_resizer_formats(): array {
+		$gaps = $this->resizer_format_gaps();
+
+		if ( empty( $gaps ) ) {
+			return array(
+				'label'       => __( 'The image resizer can decode every uploadable format', 'timber-kit' ),
+				'status'      => 'good',
+				'badge'       => array(
+					'label' => __( 'Performance', 'timber-kit' ),
+					'color' => 'blue',
+				),
+				'description' => '<p>' . esc_html__( 'Every image format WordPress accepts as an upload can be decoded by the active image backend, so uploads are cropped and downscaled rather than served at full size.', 'timber-kit' ) . '</p>',
+				'test'        => 'timber_kit_resizer_formats',
+			);
+		}
+
+		$gap_list = implode( ', ', array_map( static fn ( string $mime ): string => esc_html( $mime ), $gaps ) );
+
+		return array(
+			'label'       => __( 'Some uploadable image formats cannot be resized', 'timber-kit' ),
+			'status'      => 'recommended',
+			'badge'       => array(
+				'label' => __( 'Performance', 'timber-kit' ),
+				'color' => 'orange',
+			),
+			'description' => '<p>' . sprintf(
+				/* translators: %s: comma-separated list of image MIME types. */
+				esc_html__( 'WordPress accepts uploads in these formats, but the active image backend (Imagick or GD) cannot decode them: %s. Images uploaded in these formats are served at their original size — not cropped or downscaled. Install or enable the matching Imagick delegate (e.g. libheif for HEIC/HEIF, libavif for AVIF), or restrict editors to formats the backend supports.', 'timber-kit' ),
+				$gap_list
+			) . '</p>',
+			'test'        => 'timber_kit_resizer_formats',
+		);
+	}
+
+	/**
+	 * Add the resizer's input-format capability matrix to the Site Health
+	 * "Info" tab (Tools → Site Health → Info), for support / debugging.
+	 *
+	 * @param array<string, mixed> $info The current debug information registry.
+	 * @return array<string, mixed>
+	 */
+	public function site_health_resizer_formats_debug( $info ): array {
+		if ( ! is_array( $info ) ) {
+			return $info;
+		}
+
+		$fields = array();
+		foreach ( ( new Resizer() )->supportedInputFormats() as $mime => $decodable ) {
+			$fields[ $mime ] = array(
+				'label' => $mime,
+				'value' => $decodable
+					? __( 'decodable', 'timber-kit' )
+					: __( 'not decodable', 'timber-kit' ),
+				'debug' => $decodable ? 'yes' : 'no',
+			);
+		}
+
+		$info['timber_kit_resizer'] = array(
+			'label'       => __( 'Timber Kit — image resizer', 'timber-kit' ),
+			'description' => __( 'Input image formats the resizer backend can decode on this server. Formats reported as "not decodable" are served at their original size.', 'timber-kit' ),
+			'fields'      => $fields,
+		);
+		return $info;
+	}
+
+	/**
+	 * Image MIME types WordPress accepts as uploads that the resizer *wants* to
+	 * process but the active backend cannot decode — the silent full-size-fallback
+	 * gaps. Returns an empty array when there are none.
+	 *
+	 * @return array<int, string>
+	 */
+	private function resizer_format_gaps(): array {
+		$supported = ( new Resizer() )->supportedInputFormats();
+
+		$uploadable = array_filter(
+			(array) get_allowed_mime_types(),
+			static fn ( string $mime ): bool => str_starts_with( $mime, 'image/' )
+		);
+
+		$gaps = array();
+		foreach ( $uploadable as $mime ) {
+			// Only formats the resizer actually targets (present in the matrix) and
+			// that the backend can't decode count as a gap. SVG / ico / sequence
+			// types aren't in the matrix — they're out of the resizer's scope, not gaps.
+			if ( array_key_exists( $mime, $supported ) && false === $supported[ $mime ] ) {
+				$gaps[] = $mime;
+			}
+		}
+		return array_values( array_unique( $gaps ) );
 	}
 
 	// =========================================================================

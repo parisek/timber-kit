@@ -1,0 +1,715 @@
+parameters:
+	ignoreErrors:
+		-
+			message: '#^Method Parisek\\TimberKit\\BlockRenderer\:\:renderEmptyAlert\(\) has parameter \$attributes with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/BlockRenderer.php
+
+		-
+			message: '#^Parameter \#1 \$string of function md5 expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/BlockRenderer.php
+
+		-
+			message: '#^Access to an undefined property object\:\:\$menu_item_parent\.$#'
+			identifier: property.notFound
+			count: 2
+			path: src/Breadcrumb.php
+
+		-
+			message: '#^Access to an undefined property object\:\:\$title\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Breadcrumb.php
+
+		-
+			message: '#^Argument of an invalid type array\<mixed\>\|Countable supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 1
+			path: src/Breadcrumb.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Breadcrumb\:\:by_menu_trail\(\) should return array\<int, array\{type\: string, title\: string, url\: string\}\> but returns array\<int, array\<string, string\>\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Breadcrumb.php
+
+		-
+			message: '#^Parameter \#1 \$post of function get_post_ancestors expects int\|WP_Post, WP_Post\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Breadcrumb.php
+
+		-
+			message: '#^Parameter \#1 \$post_type of function is_post_type_hierarchical expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Breadcrumb.php
+
+		-
+			message: '#^Parameter \#1 \$term of function get_term_link expects int\|string\|WP_Term, WP_Post\|WP_Post_Type\|WP_Term\|WP_User given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Breadcrumb.php
+
+		-
+			message: '#^Parameter \#2 \$timestamp of function wp_date expects int\|null, int\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Breadcrumb.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\DevMediaProxy\:\:build_remote_resizer_variant\(\) has parameter \$default_image with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/DevMediaProxy.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\DevMediaProxy\:\:build_remote_resizer_variant\(\) has parameter \$variant with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/DevMediaProxy.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\DevMediaProxy\:\:filter_resizer_missing_source_variants\(\) has parameter \$context with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/DevMediaProxy.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\DevMediaProxy\:\:filter_resizer_missing_source_variants\(\) has parameter \$default_image with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/DevMediaProxy.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\DevMediaProxy\:\:filter_resizer_missing_source_variants\(\) has parameter \$variants with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/DevMediaProxy.php
+
+		-
+			message: '#^Access to an undefined property object\:\:\$ID\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Access to an undefined property object\:\:\$alt\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Access to an undefined property object\:\:\$caption\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Access to an undefined property object\:\:\$current\.$#'
+			identifier: property.notFound
+			count: 2
+			path: src/Helpers.php
+
+		-
+			message: '#^Access to an undefined property object\:\:\$description\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Access to an undefined property object\:\:\$post_mime_type\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Access to an undefined property object\:\:\$src\.$#'
+			identifier: property.notFound
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Argument of an invalid type array\<mixed\>\|Countable supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 5
+			path: src/Helpers.php
+
+		-
+			message: '#^Argument of an invalid type array\|Countable supplied for foreach, only iterables are supported\.$#'
+			identifier: foreach.nonIterable
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Cannot access offset ''acf_fc_layout'' on non\-empty\-array\|Countable\.$#'
+			identifier: offsetAccess.nonOffsetAccessible
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Cannot access property \$name on Timber\\Menu\|null\.$#'
+			identifier: property.nonObject
+			count: 2
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatFile\(\) has parameter \$field with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatFile\(\) has parameter \$file with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatFile\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatFile\(\) should return array\{id\: int\|null, src\: string, type\: string, subtype\: string, filename\: string, filesize\: string, alt\: string, caption\: string, \.\.\.\}\|string but returns array\{id\: mixed, src\: mixed, type\: mixed, subtype\: mixed, filename\: mixed, filesize\: string\|false, alt\: mixed, caption\: mixed, \.\.\.\}\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatImage\(\) has parameter \$field with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatImage\(\) has parameter \$image with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatImage\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatLink\(\) has parameter \$field with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatMenu\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatMenu\(\) should return array\<int, array\{id\: int, title\: string, url\: string, description\: string, attributes\: array\{target\: string\|null, class\: string\}, in_active_trail\: bool, is_active\: bool, below\: array\}\> but returns list\<non\-empty\-array\<string, mixed\>\>\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatTerms\(\) has parameter \$terms with no value type specified in iterable type iterable\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatTerms\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatVideo\(\) has parameter \$field with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:formatVideo\(\) has parameter \$file with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:getFieldObjectsByScreen\(\) has parameter \$screen with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:isAssoc\(\) has parameter \$array with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Helpers\:\:resizeImage\(\) has parameter \$image with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Offset ''pages'' might not exist on array\{current\?\: int, total\?\: int, pages\?\: non\-empty\-list\<array\{url\: mixed, title\: mixed, current\: mixed\}\>, first\: array\{url\: mixed, title\: ''First'', disabled\: bool\}\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Offset ''pages'' might not exist on array\{\}\|array\{current\?\: int, total\?\: int, pages\?\: non\-empty\-list\<array\{url\: mixed, title\: mixed, current\: mixed\}\>\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Offset ''relative'' might not exist on array\{path\: string, url\: string, subdir\: string, basedir\: string, baseurl\: string, error\: string\|false, relative\?\: \(array\<string\>\|string\)\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/Helpers.php
+
+		-
+			message: '#^Parameter \#1 \$array of static method Parisek\\TimberKit\\Helpers\:\:isAssoc\(\) expects array, array\<mixed\>\|Countable given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Parameter \#1 \$array of static method Parisek\\TimberKit\\Helpers\:\:isAssoc\(\) expects array, array\|Countable given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Parameter \#1 \$bytes of function size_format expects int\|string, float\|int\|string given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Parameter \#1 \$menu_or_name of static method Parisek\\TimberKit\\Helpers\:\:formatMenu\(\) expects string\|Timber\\Menu, Timber\\Menu\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Parameter \#2 \$post_id of static method Parisek\\TimberKit\\Helpers\:\:formatFile\(\) expects int\|null, int\|string\|null given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/Helpers.php
+
+		-
+			message: '#^Parameter \#2 \$post_id of static method Parisek\\TimberKit\\Helpers\:\:formatImage\(\) expects int\|null, int\|string\|null given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/Helpers.php
+
+		-
+			message: '#^Parameter \#2 \$post_id of static method Parisek\\TimberKit\\Helpers\:\:formatLink\(\) expects int\|null, int\|string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Parameter \#2 \$post_id of static method Parisek\\TimberKit\\Helpers\:\:formatVideo\(\) expects int\|null, int\|string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Helpers.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:findOptimalSubgrid\(\) has parameter \$entropyGrid with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:findOptimalSubgrid\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:getEntropyCropByGridding\(\) should return array\{x\: int, y\: int, width\: int, height\: int\} but returns array\.$#'
+			identifier: return.type
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:normalizeVariants\(\) has parameter \$variants with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:normalizeVariants\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:prepareDefaultImage\(\) has parameter \$image with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:prepareDefaultImage\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:processVariant\(\) has parameter \$default_image with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:processVariant\(\) has parameter \$variant with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:processVariant\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:resizer\(\) has parameter \$variants with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:resizer\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:resizerAspect\(\) has parameter \$orientations with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:resizerAspect\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Parameter \#1 \$data of function imagecreatefromstring expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Cannot access property \$base on WP_Screen\|null\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Cannot access property \$post_type on WP_Screen\|null\.$#'
+			identifier: property.nonObject
+			count: 2
+			path: src/StarterBase.php
+
+		-
+			message: '#^Cannot access property \$roles on WP_User\|false\.$#'
+			identifier: property.nonObject
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Cannot call method add_cap\(\) on WP_Role\|null\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Cannot call method getFilename\(\) on SplFileInfo\|string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Cannot call method getPathname\(\) on SplFileInfo\|string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Cannot call method isDir\(\) on SplFileInfo\|string\.$#'
+			identifier: method.nonObject
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:acf_google_map_api\(\) has parameter \$api with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:acf_google_map_api\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:acf_json_save_file_name\(\) has parameter \$post with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:acf_json_save_paths\(\) has parameter \$post with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:block_categories_all\(\) has parameter \$categories with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:block_categories_all\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:configure_speculation_rules\(\) should return array\{mode\: ''prefetch''\|''prerender'', eagerness\: ''conservative''\|''eager''\|''moderate''\}\|null but returns array\<string, string\>\|null\.$#'
+			identifier: return.type
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:editor_privacy_page_cap\(\) has parameter \$args with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:fix_wrong_acf_orders_with_ids\(\) has parameter \$field with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:preload_resources\(\) has parameter \$preload_resources with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:preload_resources\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:prevent_duplicate_filename_uploads\(\) has parameter \$file with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:prevent_duplicate_filename_uploads\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:remove_x_pingback_header\(\) has parameter \$headers with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:remove_x_pingback_header\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:render_block\(\) has parameter \$block with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:render_block\(\) should return string but returns bool\|string\.$#'
+			identifier: return.type
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:render_block_data\(\) has parameter \$parsed_block with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:render_block_data\(\) has parameter \$source_block with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:render_block_data\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:resize_uploaded_image\(\) has parameter \$upload with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:resize_uploaded_image\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:timber_cache_location\(\) has parameter \$options with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:timber_cache_location\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:timber_context\(\) has parameter \$context with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:timber_context\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:tiny_mce_before_init\(\) has parameter \$mceInit with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:tiny_mce_before_init\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:twig_resizer_filter\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:wp_get_attachment_image_attributes\(\) has parameter \$attr with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\StarterBase\:\:wp_get_attachment_image_attributes\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Offset ''relative'' might not exist on array\{path\: string, url\: string, subdir\: string, basedir\: string, baseurl\: string, error\: string\|false, relative\?\: \(array\<string\>\|string\)\}\.$#'
+			identifier: offsetAccess.notFound
+			count: 2
+			path: src/StarterBase.php
+
+		-
+			message: '#^Parameter \#1 \$args of function wp_dropdown_categories expects array\{show_option_all\?\: string, show_option_none\?\: string, option_none_value\?\: string, orderby\?\: string, pad_counts\?\: bool, show_count\?\: bool\|int, echo\?\: bool\|int, hierarchical\?\: bool\|int, \.\.\.\}, array\{show_option_all\: mixed, pad_counts\: true, show_count\: true, hierarchical\: true, name\: string\|false, id\: non\-falsy\-string, class\: '''', value_field\: ''slug'', \.\.\.\} given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Parameter \#1 \$domain of function load_theme_textdomain expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Parameter \#1 \$handle of function wp_enqueue_style expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/StarterBase.php
+
+		-
+			message: '#^Parameter \#1 \$id of function wp_enqueue_script_module expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/StarterBase.php
+
+		-
+			message: '#^Parameter \#1 \$string of function trim expects string, string\|null given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Parameter \#1 \$variants of static method Parisek\\TimberKit\\Resizer\:\:isOrientationMap\(\) expects array\<int, mixed\>, array\<int\|string, mixed\> given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Parameter \#2 \$domain of function __ expects string, string\|false given\.$#'
+			identifier: argument.type
+			count: 9
+			path: src/StarterBase.php
+
+		-
+			message: '#^Parameter \#3 \$subject of function preg_replace expects array\<float\|int\|string\>\|string, string\|null given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/StarterBase.php
+
+		-
+			message: '#^Parameter \#4 \$ver of function wp_enqueue_script expects bool\|string\|null, int\<0, max\>\|false given\.$#'
+			identifier: argument.type
+			count: 1
+			path: src/StarterBase.php
+
+		-
+			message: '#^Parameter \#4 \$ver of function wp_enqueue_style expects bool\|string\|null, int\<0, max\>\|false given\.$#'
+			identifier: argument.type
+			count: 5
+			path: src/StarterBase.php
+
+		-
+			message: '#^Parameter \#4 \$version of function wp_enqueue_script_module expects string\|false\|null, int\<0, max\>\|false given\.$#'
+			identifier: argument.type
+			count: 2
+			path: src/StarterBase.php

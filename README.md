@@ -303,9 +303,17 @@ Override these properties in your child constructor before calling `parent::__co
 
 ### Dev Media Proxy
 
-Configure the proxy in environment config such as VPConfig:
+Off by default. Enable it by pointing it at an upstream origin's uploads URL, via **either** an environment variable **or** a PHP constant:
+
+```bash
+# .ddev/.env — preferred: one line, no PHP, git-tracked so it
+# propagates to every git worktree automatically (DDEV >= 1.25
+# surfaces it to PHP via getenv()).
+TIMBERKIT_MEDIA_ORIGIN=https://example.com/wp-content/uploads
+```
 
 ```php
+// wp-config.php — alternative / override (the constant always wins)
 define( 'TIMBERKIT_MEDIA_ORIGIN', 'https://example.com' );
 ```
 
@@ -316,6 +324,15 @@ Behavior:
 - a domain-only origin such as `https://example.com` automatically reuses the local uploads path
 - a full origin such as `https://example.com/wp-content/uploads` is used verbatim
 - Resizer can use the same origin to probe already-generated remote variants when local source files are missing
+
+Configuration source & safety:
+
+- **Constant wins.** When both the constant and the env var are set, the constant is used — an existing `define()` keeps its exact behaviour. An explicitly-empty constant (`define( 'TIMBERKIT_MEDIA_ORIGIN', '' )`) means "disabled" and does **not** fall through to the env var.
+- **Self-reference is refused.** If the origin host equals the site's own uploads host, the proxy stays off — a missing-file rewrite would just resolve back to the same missing file. Host-level check (no `www`/port/IDN normalization).
+- **`http(s)` only.** Origins with any other scheme are ignored.
+- **Dev-only / trusted config.** Anyone who can set the origin can point media URLs (and the remote probe) at a host they choose. Don't enable it in untrusted environments.
+
+See [ADR 0003](docs/adr/0003-dev-media-origin-env-and-self-host-guard.md) for the design rationale.
 
 Available hooks:
 

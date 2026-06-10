@@ -21,7 +21,7 @@ WordPress/Timber starter-kit library distributed via Composer (`parisek/timber-k
 - `.github/workflows/` — CI (`tests.yml`) + release automation (`release-stamp.yml`, `release.yml`)
 - `.gitattributes` controls dist scope — `composer require` only ships `src/`, `composer.json`, `LICENSE`, `README.md`. Everything else (`tests/`, `.github/`, `CHANGELOG.md`, `CLAUDE.md`, `.ddev/`, lint configs) is `export-ignore`.
 
-PHP 8.3 minimum. PHPStan level 5.
+PHP 8.3 minimum. PHPStan level 8 (existing findings grandfathered in phpstan-baseline.neon — new code must be clean).
 
 ## Commands
 
@@ -29,16 +29,38 @@ PHP 8.3 minimum. PHPStan level 5.
 composer test           # Unit suite (Brain\Monkey, fast — default)
 composer test:property  # Eris property suite (invariant-based, ~100 iterations/test)
 composer test:all       # both suites
-composer phpstan        # vendor/bin/phpstan analyse
+composer phpstan        # static analysis
+composer normalize      # tidy composer.json (CI checks it with --dry-run)
+composer audit          # scan the dependency tree for known advisories
 ```
 
-DDEV is the local-dev expectation (`ddev exec "composer test"`). Both run in CI matrix on PHP 8.3 + 8.4.
+DDEV is the local-dev expectation (`ddev exec "composer test"`). CI runs the suites on PHP 8.3 + 8.4, plus a `composer` hygiene job (validate + audit + normalize check). `config.platform.php` is pinned to 8.3 so the lock resolves for the supported floor.
+
+## TDD — non-negotiable
+
+Always work test-first. The discipline, not just the coverage:
+
+- **Failing test first.** Write it, run it, watch it go red *for the right reason*, then write the minimal code to green. No production change lands without a test that failed before it existed.
+- **Bug fixes too** — reproduce the bug as a failing test first; it doubles as the regression guard (e.g. `AcfBlocksParseNodeAttrCompatTest` pins the ACF↔Alpine attribute filter so it can't silently narrow back to `x-`-only).
+- **Keep output pristine.** `composer test` must stay green *and notice/deprecation-free* for code you touch. PHPUnit 12 deprecates **all** doc-comment metadata — use attributes: `#[DataProvider('method')]` (static provider), `#[RunInSeparateProcess]` + `#[PreserveGlobalState(false)]`, etc. Use `createStub()` (not `createMock()`) for objects you only stub return values on, or PHPUnit 12 emits a "no expectations configured" notice.
+- **JS embedded in PHP** (admin-footer shims etc.) has no JS runtime here — assert against the emitted source string, the same way the sibling `acf_input_admin_footer` test does.
 
 ## Per-PR conventions
 
 - **CHANGELOG.md**: every behavior-affecting PR adds an entry under `## [Unreleased]` with [Keep a Changelog](https://keepachangelog.com/) categories (`### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, `### Security`). The release workflow relies on this.
 - **Squash-merge PRs** into `main` so the merge commit subject ends with `(#N)`. The auto-release workflow scrapes `(#N)` suffixes from `git log <prev_tag>..<tag>` to assemble the release's Pull Requests section. Merge commits without the suffix won't show up.
 - **Stacked PRs**: when a PR depends on another, target the parent branch (not main). After the parent merges, GitHub auto-retargets — but if `--delete-branch` runs on the parent merge, the child PR auto-closes (chicken-and-egg, recovery requires recreating the deleted branch). Either skip `--delete-branch` until the whole stack lands, or retarget the child to `main` *before* merging the parent.
+
+## Architecture decisions (ADRs)
+
+Significant decisions live in `docs/adr/` — the only tracked subtree under the
+otherwise git-ignored `docs/`. See `docs/adr/README.md` for the template and index.
+
+- Record **sparingly** — only when a decision is (1) hard to reverse, (2) surprising without context, and (3) the result of a real trade-off. Most changes warrant none.
+- Propose and get a yes **before** writing one. Don't auto-create.
+- One file per decision, `NNNN-kebab-title.md`, sequential and permanent (never renumber/reuse).
+- Structure is the Nygard triad: `## Context` / `## Decision` / `## Consequences`. No status line.
+- To reverse a past decision, write a new ADR linking back — don't edit the old one.
 
 ## Release process — DO NOT bypass
 

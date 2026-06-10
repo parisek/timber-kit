@@ -8,8 +8,58 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- **`Parisek\TimberKit\Helpers::remapReference()`** — shared formatting-layer primitive that remaps an ACF reference field's id(s) to a target WPML language via `wpml_object_id`, with the element type resolved per field type (image / file / gallery → `attachment`; post_object / relationship / page_link → the referenced post's own type; taxonomy → the field's taxonomy). `WpmlBlockOverride` now delegates Copy-field reference remapping here instead of carrying its own private copy, so the block-sync path and any field formatter resolve translated entities the same way. Non-reference and non-numeric values pass through unchanged.
 - **`Parisek\TimberKit\WpmlBlockOverride` class** — runtime override of Copy field values in ACF Gutenberg blocks for WPML-multilingual sites. Hooks `render_block_data` at priority 20 and, for ACF blocks rendered in a non-default language, overwrites `attrs.data.<field>` for fields marked `wpml_cf_preferences = 1` (Copy) with the source-language post's value. Attachment IDs (image / file / gallery) are remapped to per-language duplicates via `wpml_object_id`. Supports nested Copy fields inside repeater / group containers at arbitrary depth via recursive `walkFields()` + path-aware key generation (e.g. `steps_N_image`, `faq_sections_N_items_M_title`). Cached as a single block-name → copy-fields index transient with per-request memo; persistent layer bypassed under `WP_DEBUG`. Filters exposed: `timber_kit/wpml_block_override/should_override`, `timber_kit/wpml_block_override/copy_fields`. Solves the long-standing WPML pain point where changing a Copy field (typically an image) in the source language never propagates to translated `post_content` without manual ATE re-job. Reference implementation in [portadesign/atelier99#14](https://github.com/portadesign/atelier99/pull/14); research, prior art, and design discussion in [#29](https://github.com/parisek/timber-kit/issues/29).
+- **`Parisek\TimberKit\Helpers::remapReference()`** — shared formatting-layer primitive that remaps an ACF reference field's id(s) to a target WPML language via `wpml_object_id`, with the element type resolved per field type (image / file / gallery → `attachment`; post_object / relationship / page_link → the referenced post's own type; taxonomy → the field's taxonomy). `WpmlBlockOverride` delegates Copy-field reference remapping here instead of carrying its own private copy, so the block-sync path and any field formatter resolve translated entities the same way. Non-reference and non-numeric values pass through unchanged.
+
+## [1.8.1] - 2026-06-10
+
+### Added
+
+- **`Resizer` input allow-list is now capability-gated against the active image backend, with a public availability API and Site Health reporting.** Instead of a hardcoded five-format list, the resizer builds its allowed-input set at runtime by intersecting a desired superset (`jpeg`/`png`/`gif`/`webp`/`bmp`/`avif`/`tiff`/`heic`/`heif`) with what the active backend can actually decode — mirroring Spatie/Image's own driver pick (Imagick when loaded, else GD). On an Imagick + libheif/libavif server all formats are processed; on a GD-only server the modern formats are excluded automatically rather than failing or silently shipping the full-size original.
+  - **Public API on `Resizer`:** `supportedInputFormats(): array` returns the full `[mime => bool]` capability matrix; `canDecode(string $mime): bool` checks a single format. Memoized per request. The gated list is filterable via `timber_kit_resizer_allowed_types` (`array $mimes, array $backend_formats`) to force a format on/off regardless of the probe.
+  - **Site Health (`StarterBase`, flag `$resizer_format_health`, default `true`):** a Status test (`good` / `recommended`) flags any image format WordPress accepts as an upload that the backend can't decode — those uploads silently fall back to the full-size original, so the test names them and points at the missing Imagick delegate. An Info-tab section lists the full decodable-format matrix for support.
+
+### Fixed
+
+- **`Resizer` no longer ships `avif` / `tiff` / `heic` / `heif` sources at full size.** The previous five-format allow-list (`jpeg`/`png`/`gif`/`webp`/`bmp`) let any other type fall through `prepareDefaultImage()` and return the **original** image untouched — no crop, no downscale, no `<source>` variants. AVIF was excluded *deliberately* ("it's already the target format"), but that ignored that the resizer also **crops and downscales** — so an already-`avif` upload still needs processing. Discovered in `proficiohub`: partner logos uploaded as 1800×1050 / 2560×1707 AVIF rendered as full-size originals into a ~258 px orbit sphere (`<picture>` emitted a bare `<img src=…/uploads/…avif>` with zero `<source>` children; `cache/image/900x530-crop/…avif` 404'd). The capability gate above is the fix: decode-able modern formats (`avif` since WP 6.5, `heic`/`heif` since 6.7) are now processed. SVG stays excluded (vector — not raster-resizable); `heic-sequence` / `heif-sequence` and `ico` are out of scope. Re-encoding an AVIF source to a smaller AVIF variant costs one-time CPU per cached variant, far outweighed by serving a correctly cropped, display-sized image. The two tests that asserted `avif` / `tiff` were *not* allowed are reframed against the capability gate; `heic` / `heif` and Site Health coverage added.
+
+## [1.8.0] - 2026-06-09
+
+### Added
+
+- **Typography-aware translation Twig helpers `_xt` / `__t` / `_nt` / `_nxt`.** Same signatures as WordPress's `_x` / `__` / `_n` / `_nx`, but the translated string is piped through the env's `|typography` filter — so long-form copy gets consistent typographic treatment without `|typography` on every callsite (`_x` → `_xt` is a one-character opt-in). Registered in `StarterBase::timber_twig()` with `is_safe: ['html']`; the typography filter is resolved at call time (falls back to the raw translation if absent). This is the production (Timber) side of [parisek/styleguide#21](https://github.com/parisek/styleguide/issues/21) — the authoring surface (`_xt('…', 'ctx')`) is now identical in the styleguide preview and on the live site. See [#42](https://github.com/parisek/timber-kit/issues/42).
+
+### Fixed
+
+- **`merge_resizer()` no longer lets a desktop empty-`media` variant shadow the mobile image.** The non-last-list filter used `isset( $image['media'] )`, but `Resizer::processVariant()` always emits a `media` key — set to `''` for tuples without a `maxWidth`. `isset('')` is `true`, so a desktop fallback tuple (`['600','800','']`) survived the filter and rendered as a media-less `<source>` that matches every viewport — shadowing the last (mobile) list's image, which then never rendered on phones. Switched to `! empty( $image['media'] )` so empty-string-media variants are dropped from non-last lists, matching the documented contract ("non-last lists contribute only their media-qualified variants"). The single-list / last-list path is unchanged, so the desktop-only fallback still works. Regression test added for the `'media' => ''` production shape (the prior tests only covered the missing-key fallback shape, which `isset` happened to handle).
+
+- **Closed the author-sitemap username-enumeration vector + added an opt-in security-headers emitter** ([#40](https://github.com/parisek/timber-kit/issues/40)). Two new `StarterBase` flags, consistent with the existing hardening set:
+  - **`$disable_author_sitemap`** (default `true`) — removes the core `/wp-sitemap-users-1.xml` provider, which leaks author slugs/usernames regardless of `?author=` or REST blocking. The third enumeration vector alongside `restrict_rest_users` (REST) and `block_author_enumeration` (`?author=N`). **Upgrade note:** set it `false` on sites that intentionally expose author archives for SEO.
+  - **`$security_headers`** (default `false`) + **`$security_headers_config`** — emits a hardened baseline header set (`X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Content-Security-Policy: upgrade-insecure-requests`, `Permissions-Policy: geolocation=(), microphone=(), camera=()`, `X-XSS-Protection: 0`) on the `wp_headers` filter. HSTS is added **only over real TLS** — gated on `is_ssl()` OR an `X-Forwarded-Proto: https` hint, so it still fires behind a TLS-terminating proxy (Cloudways Nginx+Apache, Cloudflare, …) where the canonical `.htaccess` `env=HTTPS` gate silently fails. `$security_headers_config` overrides, extends, or (with a `null` value) drops individual headers — a git-versioned, host-independent alternative to `.htaccess` headers.
+
+  Rate-limiting, payload filtering, and file-integrity monitoring stay out of scope — those remain the WAF's job.
+
+## [1.7.7] - 2026-06-01
+
+### Security
+
+- Audited and patched the resolved dependency tree via a new `composer audit` CI gate: **twig/twig** v3.24 → v3.27.1 ([CVE-2026-46634](https://symfony.com/cve-2026-46634), sandbox escape) and **symfony/yaml** v7.4.6 → v7.4.13 (CVE-2026-45304/45305/45133 — Billion Laughs / ReDoS / stack exhaustion). Lockfile-level (the lock is `export-ignore`d, so a consumer's own resolution is unchanged) — `timber/timber ^2.0` already requires `twig/twig ^3.27` for downstreams. See [#37](https://github.com/parisek/timber-kit/pull/37).
+
+## [1.7.6] - 2026-06-01
+
+### Fixed
+
+- **ACF ⇄ Alpine.js block-preview compatibility** — the `acf_blocks_parse_node_attr` filter emitted by `StarterBase::acf_input_admin_footer()` now passes through Alpine binds (`:`), events (`@`), and the HTML `pattern` attribute, not just `x-` directives. ACF Pro's `parseJSX` runs `JSON.parse()` on any block-preview attribute value starting with `[` or `{`; for `:class="{…}"` object binds and regex `pattern="[…]"` (e.g. a phone field) that threw, crashing the block preview and making the post **unsavable** (*"Response is not valid JSON"*). Coverage now spans `x-`, `:`, `@`, and `pattern`; `AcfBlocksParseNodeAttrCompatTest` pins each family so it can't silently narrow again. Discovered on the aleszejdl theme (expert-register / expert-profile blocks). See [#34](https://github.com/parisek/timber-kit/pull/34).
+
+## [1.7.5] - 2026-05-30
+
+### Added
+
+- `DevMediaProxy` can now be enabled via the `TIMBERKIT_MEDIA_ORIGIN` environment variable, not only the constant. `StarterBase::setup_dev_media_proxy()` falls back to `getenv()` when the constant is undefined; the constant still wins when both are set, so existing `define()`-based setups are unchanged. The env path lets a project enable the proxy with a single git-tracked line in `.ddev/.env`, which propagates to every git worktree without any PHP edit — the motivating use case being fresh worktrees whose `wp-content/uploads` is empty. Design rationale recorded in [ADR 0003](docs/adr/0003-dev-media-origin-env-and-self-host-guard.md). See [#32](https://github.com/parisek/timber-kit/pull/32).
+
+### Fixed
+
+- `DevMediaProxy::register()` now refuses a self-referential origin: when the configured origin host equals the **uploads base URL host** (`wp_get_upload_dir()['baseurl']`), the proxy bails instead of rewriting a missing file to a URL that resolves back to the same missing file. The uploads host — not `home_url()`, which can diverge (subdir installs, custom content URLs, `ddev share`) — is the comparand because that's the host the rewrite actually keys on. Guarding inside `register()` covers every caller regardless of whether the origin came from the constant or the environment variable. It's a host-level check (no `www`/port/IDN normalization). `register()` additionally rejects non-`http(s)` origin schemes. See [#32](https://github.com/parisek/timber-kit/pull/32).
 
 ### Documentation
 
