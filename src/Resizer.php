@@ -107,7 +107,23 @@ class Resizer {
 	 * @return bool True if allowed, false otherwise.
 	 */
 	private function isAllowedImageType( string $file_path ): bool {
-		$allowed_types = [ 'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp' ];
+		$allowed_types = [
+			'image/jpeg',
+			'image/png',
+			'image/gif',
+			'image/webp',
+			'image/bmp',
+			// Modern raster formats WordPress accepts as uploads (avif since WP 6.5,
+			// heic/heif since 6.7) and that Imagick/GD can decode. Included even though
+			// the resizer's *target* format is also avif: the resizer crops AND
+			// downscales, so an already-avif source still needs processing — skipping it
+			// (the old behaviour) shipped the full-size, un-cropped original. tiff/heic/
+			// heif had the same passthrough problem.
+			'image/avif',
+			'image/tiff',
+			'image/heic',
+			'image/heif',
+		];
 		$filetype = wp_check_filetype( $file_path );
 		return in_array( $filetype['type'], $allowed_types, true );
 	}

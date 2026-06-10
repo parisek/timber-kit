@@ -72,22 +72,51 @@ class IsAllowedImageTypeTest extends ResizerTestCase {
 		$this->assertTrue( $result );
 	}
 
-	public function test_avif_not_allowed(): void {
+	public function test_avif_allowed(): void {
 		$resizer = $this->createResizer();
 
-		// AVIF is the target format but not in the source allowed list
+		// AVIF is also the *target* format, but an avif source still needs cropping +
+		// downscaling — so it must be processed, not passed through at full size.
 		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/avif', 'ext' => 'avif' ] );
 
 		$result = $this->callPrivate( $resizer, 'isAllowedImageType', [ 'photo.avif' ] );
-		$this->assertFalse( $result );
+		$this->assertTrue( $result );
 	}
 
-	public function test_tiff_not_allowed(): void {
+	public function test_tiff_allowed(): void {
 		$resizer = $this->createResizer();
 
 		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/tiff', 'ext' => 'tiff' ] );
 
 		$result = $this->callPrivate( $resizer, 'isAllowedImageType', [ 'scan.tiff' ] );
+		$this->assertTrue( $result );
+	}
+
+	public function test_heic_allowed(): void {
+		$resizer = $this->createResizer();
+
+		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/heic', 'ext' => 'heic' ] );
+
+		$result = $this->callPrivate( $resizer, 'isAllowedImageType', [ 'iphone.heic' ] );
+		$this->assertTrue( $result );
+	}
+
+	public function test_heif_allowed(): void {
+		$resizer = $this->createResizer();
+
+		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/heif', 'ext' => 'heif' ] );
+
+		$result = $this->callPrivate( $resizer, 'isAllowedImageType', [ 'iphone.heif' ] );
+		$this->assertTrue( $result );
+	}
+
+	public function test_svg_still_not_allowed(): void {
+		$resizer = $this->createResizer();
+
+		// SVG is vector — the raster resizer can't crop/downscale it, so it stays excluded.
+		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/svg+xml', 'ext' => 'svg' ] );
+
+		$result = $this->callPrivate( $resizer, 'isAllowedImageType', [ 'logo.svg' ] );
 		$this->assertFalse( $result );
 	}
 }

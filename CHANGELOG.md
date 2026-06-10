@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Resizer` now processes `avif` / `tiff` / `heic` / `heif` sources instead of passing them through at full size.** `isAllowedImageType()` gated the resizer on a five-format allow-list (`jpeg`/`png`/`gif`/`webp`/`bmp`); any other type fell through `prepareDefaultImage()` and returned the **original** image untouched — no crop, no downscale, no `<source>` variants. AVIF was excluded *deliberately* ("it's already the target format"), but that reasoning ignored that the resizer also **crops and downscales** — so an already-`avif` upload still needs processing. Discovered in `proficiohub`: partner logos uploaded as 1800×1050 / 2560×1707 AVIF rendered as full-size originals into a ~258 px orbit sphere (`<picture>` emitted a bare `<img src=…/uploads/…avif>` with zero `<source>` children; `cache/image/900x530-crop/…avif` 404'd). Added the four modern raster formats WordPress accepts as uploads (`avif` since WP 6.5, `heic`/`heif` since 6.7) and that Imagick/GD decode. SVG stays excluded (vector — not raster-resizable); `heic-sequence` / `heif-sequence` and `ico` are intentionally out of scope. Re-encoding an AVIF source to a smaller AVIF variant costs one-time CPU per cached variant, far outweighed by serving a correctly cropped, display-sized image. The two tests that asserted `avif` / `tiff` were *not* allowed are flipped; `heic` / `heif` coverage added.
+
 ## [1.8.0] - 2026-06-09
 
 ### Added
