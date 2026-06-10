@@ -56,6 +56,44 @@ class RegisterAcfHooksTest extends StarterBaseTestCase {
 
 		$this->invokeRegisterAcfHooks( $this->bareInstance() );
 
-		$this->assertCount( 5, $filters, 'registerAcfHooks should register exactly 5 filters' );
+		$this->assertCount( 5, $filters, 'registerAcfHooks should register exactly 5 filters when the datastore flag is off (default)' );
+	}
+
+	public function test_does_not_register_datastore_filter_by_default(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$this->invokeRegisterAcfHooks( $this->bareInstance() );
+
+		$this->assertNotContains(
+			'acf/settings/enable_datastore',
+			$filters,
+			'ACF datastore must be opt-in — not registered while $acf_datastore is off (default)'
+		);
+	}
+
+	public function test_registers_datastore_filter_when_flag_enabled(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, $callback = null, ...$rest ) use ( &$filters ) {
+			$filters[] = [ 'hook' => $hook, 'callback' => $callback ];
+		} );
+
+		$instance = $this->bareInstance();
+		$prop = new \ReflectionProperty( StarterBase::class, 'acf_datastore' );
+		$prop->setValue( $instance, true );
+
+		$this->invokeRegisterAcfHooks( $instance );
+
+		$datastore = array_filter( $filters, fn( $f ) => $f['hook'] === 'acf/settings/enable_datastore' );
+		$this->assertCount( 1, $datastore, 'flag on → exactly one acf/settings/enable_datastore filter registered' );
+
+		$entry = array_values( $datastore )[0];
+		$this->assertSame(
+			'__return_true',
+			$entry['callback'],
+			'datastore is enabled site-wide via the __return_true callback'
+		);
 	}
 }
