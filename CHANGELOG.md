@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-06-10
+
 ### Added
 
 - **`Parisek\TimberKit\WpmlBlockOverride` class** — runtime override of Copy field values in ACF Gutenberg blocks for WPML-multilingual sites. Hooks `render_block_data` at priority 20 and, for ACF blocks rendered in a non-default language, overwrites `attrs.data.<field>` for fields marked `wpml_cf_preferences = 1` (Copy) with the source-language post's value. Attachment IDs (image / file / gallery) are remapped to per-language duplicates via `wpml_object_id`. Supports nested Copy fields inside repeater / group containers at arbitrary depth via recursive `walkFields()` + path-aware key generation (e.g. `steps_N_image`, `faq_sections_N_items_M_title`). Cached as a single block-name → copy-fields index transient with per-request memo; persistent layer bypassed under `WP_DEBUG`. Filters exposed: `timber_kit/wpml_block_override/should_override`, `timber_kit/wpml_block_override/copy_fields`. Enabled via the opt-in `StarterBase::$wpml_block_override` flag (default `false` — it changes rendered output, so projects opt in), which hooks `register()` on `init`; consumers that don't extend `StarterBase` can call `WpmlBlockOverride::register()` directly. Solves the long-standing WPML pain point where changing a Copy field (typically an image) in the source language never propagates to translated `post_content` without manual ATE re-job. Reference implementation in [portadesign/atelier99#14](https://github.com/portadesign/atelier99/pull/14); research, prior art, and design discussion in [#29](https://github.com/parisek/timber-kit/issues/29).
