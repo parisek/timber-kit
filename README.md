@@ -1,6 +1,6 @@
 # timber-kit
 
-WordPress/Timber starter kit — configurable base class, ACF helpers, image resizer, dev media proxy, WPForms config bridge, ACF block renderer.
+WordPress/Timber starter kit — configurable base class, ACF helpers, image resizer, dev media proxy, WPForms config bridge, ACF block renderer, WPML Copy-field override.
 
 ## Installation
 
@@ -21,6 +21,7 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
 - `formatImage()`, `formatFile()`, `formatVideo()` — media formatting
 - `formatFields()`, `fieldFormatter()` — ACF field processing
 - `formatLink()` — link/button formatting
+- `remapWpmlReference( $value, array $field, string $target_lang )` — remaps an ACF reference field's id(s) to a target WPML language via `wpml_object_id`, with the element type resolved per ACF field type (`image`/`file`/`gallery` → attachment, `post_object`/`relationship`/`page_link` → post, `taxonomy` → term; non-reference and non-numeric values pass through). Shared formatting-layer primitive that `WpmlBlockOverride` delegates to, reusable by any field formatter
 - `formatMenu()` — navigation menus
 - `formatTerms()` — taxonomy terms
 - `formatLanguageSwitcher()` — WPML language switcher
@@ -140,6 +141,108 @@ The class is `final` with three public static methods: `render()`, `isInserterPr
 #### Cache invalidation
 
 `BlockRenderer::flushPostBlockCache($post_id)` is the handler `StarterBase` wires to `acf/save_post` at priority 20. When ACF saves a post, the cache group `acf_block_{$post_id}` is flushed — invalidating exactly the cached blocks tied to that post without touching others. The handler guards against non-numeric ids (ACF options-page strings, opaque `block_*` ids) and against environments without `wp_cache_supports('flush_group')`.
+
+### WpmlBlockOverride
+
+Runtime override of Copy field values in ACF Gutenberg blocks for WPML-multilingual sites. Hooks `render_block_data` at priority 20 (after WPML's own handlers) and, for ACF blocks rendered in a non-default language, overwrites `attrs.data.<field>` for fields marked `wpml_cf_preferences = 1` (Copy) with the source-language post's value. Attachment IDs (image / file / gallery) are remapped to per-language duplicates via `wpml_object_id`.
+
+Solves the long-standing WPML problem where changing a Copy field (typically an image) in the source language never propagates to translated `post_content` without a manual ATE re-job. ACF configuration becomes the single source of truth for Copy fields — no DB writes, no admin UI, no drift.
+
+Enable it with the `$wpml_block_override` flag on your `Base extends StarterBase` — opt-in (default off) because it changes rendered output. Set it before `parent::__construct()`:
+
+```php
+class Base extends StarterBase {
+    public function __construct() {
+        $this->wpml_block_override = true;
+        parent::__construct();
+    }
+}
+```
+
+StarterBase then hooks `WpmlBlockOverride::register()` on `init` when the flag is on. `register()` self-guards on WPML + ACF Pro, so it no-ops where they're absent. If you don't extend `StarterBase`, call it yourself:
+
+```php
+add_action( 'init', static function (): void {
+    if ( class_exists( \Parisek\TimberKit\WpmlBlockOverride::class ) ) {
+        \Parisek\TimberKit\WpmlBlockOverride::register();
+    }
+} );
+```
+
+Requirements (verified at `register()`):
+
+- WPML active (`ICL_SITEPRESS_VERSION` defined)
+- ACF Pro active (`acf_get_field_groups` available)
+
+#### What it does
+
+- Bypasses non-ACF blocks, admin context, REST requests, and the default language
+- Walks ACF field definitions recursively to find every leaf marked `wpml_cf_preferences = 1` — top-level, plus nested inside repeater / group containers at arbitrary depth
+- Generates ACF's flattened block-data key pattern for each Copy field (`items_N_image`, `faq_sections_N_items_M_title`, …) and overrides each from source
+- Remaps reference ids to their target-language equivalents via the shared `Helpers::remapWpmlReference()` primitive (so this and the field formatters resolve translated entities the same way), so a translated page points at translated entities — not the source-language ones:
+
+  | ACF field type | Remapped as | Notes |
+  |---|---|---|
+  | `image`, `file`, `gallery` | attachment | |
+  | `post_object`, `relationship`, `page_link` | post | element type resolved per id via `get_post_type()` (a `page_link` holding a raw URL passes through) |
+  | `taxonomy` | term | element type is the field's `taxonomy` |
+  | `user`, `link`, scalar fields | — | not remapped (`user`: WPML doesn't translate users; `link`: URL handled by WPML's own link conversion) |
+- Caches the full block-name → copy-fields index as a single transient with per-request memo
+- Skips the persistent transient entirely under `WP_DEBUG` so dev iteration doesn't need manual invalidation
+- Emits diagnostic `error_log` lines (`[timber_kit/wpml_block_override] …`) under `WP_DEBUG` for override events and missing source-block matches
+
+#### Filters
+
+| Filter | Args | Purpose |
+|---|---|---|
+| `timber_kit/wpml_block_override/should_override` | `(bool $default, array $block, string $current_lang, string $default_lang)` | Per-block veto. Default `true` after non-ACF / admin / REST / default-language guards have passed. |
+| `timber_kit/wpml_block_override/copy_fields` | `(array $copy_fields, string $block_name)` | Extend or trim the Copy-field discovery for a block. `$block_name` is the **short** name (no `acf/` prefix). `$copy_fields` shape: `[ ['field' => array, 'path' => array<int, array{name,type}>], … ]`. |
+
+Note the two filters receive the block name differently: `should_override` gets the full parsed block (`$block['blockName']` is `acf/foo`), while `copy_fields` gets the short name (`foo`).
+
+**`should_override` and duplicate blocks.** The veto runs *before* positional pairing, so it must be deterministic per block **name**, not per **instance**. If a page has 2+ blocks of the same name and you veto only some instances, the surviving ones' ordinals shift and pair with the wrong source block (silently applying a sibling's Copy value). Decide per block *type*, as the examples below do — never per individual occurrence.
+
+#### Disabling / opting out
+
+**Per project** — the simplest opt-out is to not call `register()` from the theme. To force it off at runtime even where `register()` already ran (e.g. a shared bootstrap), veto every block:
+
+```php
+add_filter( 'timber_kit/wpml_block_override/should_override', '__return_false' );
+```
+
+**Per block** — skip specific block types via `should_override` (full `acf/` name here):
+
+```php
+add_filter( 'timber_kit/wpml_block_override/should_override', function ( $enabled, $block ) {
+    $off = [ 'acf/hero-text', 'acf/booking-form' ];
+    return in_array( $block['blockName'] ?? '', $off, true ) ? false : $enabled;
+}, 10, 2 );
+```
+
+**Per field** — keep the block syncing but drop one field from the Copy set via `copy_fields` (short block name here; the returned list is re-normalized, so re-indexing isn't required):
+
+```php
+add_filter( 'timber_kit/wpml_block_override/copy_fields', function ( $copy_fields, $block_name ) {
+    if ( $block_name !== 'jumbotron-video' ) {
+        return $copy_fields;
+    }
+    return array_values( array_filter(
+        $copy_fields,
+        fn ( $entry ) => $entry['field']['name'] !== 'background_image'
+    ) );
+}, 10, 2 );
+```
+
+#### Not supported (this iteration)
+
+- `flexible_content` sub-fields — per-layout `sub_fields` require layout-name awareness
+- REST API output — `render_block_data` doesn't fire for raw REST responses; out of scope for server-rendered themes
+
+#### Known limitations
+
+**Stale cache on programmatic field registration.** Cache invalidation hooks (`acf/update_field_group` + `save_post_acf-field-group`) do **not** fire for programmatic field registration via `acf_add_local_field_group()`. Code-only changes to `wpml_cf_preferences` will serve stale cache for up to 24 hours on production. Under `WP_DEBUG` the persistent transient is bypassed entirely so dev iteration is unaffected. Production workaround: `wp transient delete timber_kit_wpml_copy_fields_index` in the deploy script, or include a theme-version constant in the cache key.
+
+**Reordered duplicate blocks / rows.** Both same-named blocks and a repeater's rows within a matched block are paired by position, relying on source and translation sharing the same order and count. Add/remove is guarded at **both** levels — if the counts of a block name differ, that name is skipped; if a repeater's row count differs between source and translation, that nested field is skipped (no-op). The one unguarded case is an *equal-count manual swap*: a translation edited independently (not through ATE, which rebuilds from the source and preserves order) where two same-named blocks — or two rows of the same repeater — are reordered without changing the count. Positional matching would then apply one instance's Copy value to the other. There is no stable per-instance id in `post_content` to detect this, and the blast radius is bounded — a Copy value from a sibling of the *same type*, read-time only (no DB writes). If you reorder duplicate blocks or rows in a translation independently, re-run it through the WPML translation editor to restore source order.
 
 ## Usage
 

@@ -1,0 +1,22 @@
+{
+	"blockName": "acf/how-it-works",
+	"attrs": {
+		"name": "acf/how-it-works",
+		"data": {
+			"steps_0_image": 2486,
+			"steps_0_title": "Step One Title",
+			"steps_0_perex": "Step one description text.",
+			"steps_1_image": 2487,
+			"steps_1_title": "Step Two Title",
+			"steps_1_perex": "Step two description text.",
+			"steps_2_image": 2488,
+			"steps_2_title": "Step Three Title",
+			"steps_2_perex": "Step three description text.",
+			"steps_3_image": 2489,
+			"steps_3_title": "Step Four Title",
+			"steps_3_perex": "Step four description text.",
+			"steps": 4
+		}
+	},
+	"innerBlocks": []
+}

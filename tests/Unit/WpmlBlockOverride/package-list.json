@@ -1,0 +1,25 @@
+{
+	"blockName": "acf/package-list",
+	"attrs": {
+		"name": "acf/package-list",
+		"data": {
+			"items_0_category": "Basic",
+			"items_0_title": "Starter Package",
+			"items_0_price": "99",
+			"items_0_button_url": "https://example.com/starter",
+			"items_0_button_label": "Get Started",
+			"items_1_category": "Professional",
+			"items_1_title": "Pro Package",
+			"items_1_price": "299",
+			"items_1_button_url": "https://example.com/pro",
+			"items_1_button_label": "Go Pro",
+			"items_2_category": "Enterprise",
+			"items_2_title": "Enterprise Package",
+			"items_2_price": "999",
+			"items_2_button_url": "https://example.com/enterprise",
+			"items_2_button_label": "Contact Us",
+			"items": 3
+		}
+	},
+	"innerBlocks": []
+}

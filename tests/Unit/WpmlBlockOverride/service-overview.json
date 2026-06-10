@@ -1,0 +1,21 @@
+{
+	"blockName": "acf/service-overview",
+	"attrs": {
+		"name": "acf/service-overview",
+		"data": {
+			"headline": "Our Services",
+			"intro_text": "We offer a wide range of services.",
+			"hero_image": 3001,
+			"contact_email": "info@example.com",
+			"contact_phone": "+1 234 567 890",
+			"services_0_title": "Web Design",
+			"services_0_description": "Custom web design solutions.",
+			"services_0_icon": 3010,
+			"services_1_title": "Development",
+			"services_1_description": "Full-stack development services.",
+			"services_1_icon": 3011,
+			"services": 2
+		}
+	},
+	"innerBlocks": []
+}

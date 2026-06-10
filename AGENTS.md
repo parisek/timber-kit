@@ -51,6 +51,14 @@ Always work test-first. The discipline, not just the coverage:
 - **Squash-merge PRs** into `main` so the merge commit subject ends with `(#N)`. The auto-release workflow scrapes `(#N)` suffixes from `git log <prev_tag>..<tag>` to assemble the release's Pull Requests section. Merge commits without the suffix won't show up.
 - **Stacked PRs**: when a PR depends on another, target the parent branch (not main). After the parent merges, GitHub auto-retargets — but if `--delete-branch` runs on the parent merge, the child PR auto-closes (chicken-and-egg, recovery requires recreating the deleted branch). Either skip `--delete-branch` until the whole stack lands, or retarget the child to `main` *before* merging the parent.
 
+## Feature flags & breaking changes
+
+New behavior that changes rendered output, admin behavior, or anything a consumer could be surprised by ships **behind a `StarterBase` flag, default off** — never on by default. The library stays backwards-compatible; projects opt in.
+
+- **Pattern.** Declare `protected bool $feature_name = false;` on `StarterBase` (grouped with related flags, docblock stating *what it changes* and *why it's opt-in*), then gate the wiring inside the relevant `registerXxxHooks()` method: `if ( $this->feature_name ) { add_action( … ); }`. Cover both branches (off → not wired, on → wired) in the matching `RegisterXxxHooksTest`. Examples: `$security_headers`, `$wpml_block_override`.
+- **Breaking changes are allowed — but only this way.** A breaking or behavior-changing change may land *provided* it's behind such a flag and defaults to off, so existing consumers are unaffected until they flip it. No silent behavior changes on upgrade.
+- **Opinionated defaults live downstream.** The `wordpress-base` project template enables these flags (`true`) in its own `Base` — that's where Porta Design's best-practice config is expressed, not in the library defaults.
+
 ## Architecture decisions (ADRs)
 
 Significant decisions live in `docs/adr/` — the only tracked subtree under the
