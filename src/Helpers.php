@@ -1298,15 +1298,15 @@ class Helpers {
 	 * @param string               $target_lang WPML language code to remap into.
 	 * @return mixed The remapped id(s), or `$value` unchanged when not a reference.
 	 */
-	public static function remapReference( $value, array $field, string $target_lang ) {
+	public static function remapWpmlReference( $value, array $field, string $target_lang ) {
 		$type = $field['type'] ?? '';
 
 		if ( in_array( $type, [ 'image', 'file', 'gallery' ], true ) ) {
-			return self::remapObjectIds( $value, $target_lang, static fn( int $id ): string => 'attachment' );
+			return self::remapWpmlObjectIds( $value, $target_lang, static fn( int $id ): string => 'attachment' );
 		}
 
 		if ( in_array( $type, [ 'post_object', 'relationship', 'page_link' ], true ) ) {
-			return self::remapObjectIds( $value, $target_lang, static fn( int $id ): string => get_post_type( $id ) ?: 'post' );
+			return self::remapWpmlObjectIds( $value, $target_lang, static fn( int $id ): string => get_post_type( $id ) ?: 'post' );
 		}
 
 		if ( $type === 'taxonomy' ) {
@@ -1314,7 +1314,7 @@ class Helpers {
 			if ( $taxonomy === '' ) {
 				return $value;
 			}
-			return self::remapObjectIds( $value, $target_lang, static fn( int $id ): string => $taxonomy );
+			return self::remapWpmlObjectIds( $value, $target_lang, static fn( int $id ): string => $taxonomy );
 		}
 
 		return $value;
@@ -1329,14 +1329,14 @@ class Helpers {
 	 * @param callable(int):string $element_type_for
 	 * @return mixed
 	 */
-	private static function remapObjectIds( $value, string $target_lang, callable $element_type_for ) {
+	private static function remapWpmlObjectIds( $value, string $target_lang, callable $element_type_for ) {
 		if ( is_array( $value ) ) {
 			return array_map(
-				static fn( $id ) => self::remapObjectId( $id, $target_lang, $element_type_for ),
+				static fn( $id ) => self::remapWpmlObjectId( $id, $target_lang, $element_type_for ),
 				$value
 			);
 		}
-		return self::remapObjectId( $value, $target_lang, $element_type_for );
+		return self::remapWpmlObjectId( $value, $target_lang, $element_type_for );
 	}
 
 	/**
@@ -1347,7 +1347,7 @@ class Helpers {
 	 * @param callable(int):string $element_type_for
 	 * @return mixed
 	 */
-	private static function remapObjectId( $value, string $target_lang, callable $element_type_for ) {
+	private static function remapWpmlObjectId( $value, string $target_lang, callable $element_type_for ) {
 		if ( ! is_numeric( $value ) ) {
 			return $value;
 		}

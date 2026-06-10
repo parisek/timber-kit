@@ -9,7 +9,7 @@ use Parisek\TimberKit\Helpers;
 use Tests\Unit\HelpersTestCase;
 
 /**
- * Covers Helpers::remapReference(): which ACF field types get their reference
+ * Covers Helpers::remapWpmlReference(): which ACF field types get their reference
  * id(s) remapped to the target language, and with which WPML element type.
  *
  * This is the shared, formatting-layer home for reference remapping — the same
@@ -19,7 +19,7 @@ use Tests\Unit\HelpersTestCase;
  * wpml_object_id is mocked to echo "id:element_type:lang" so assertions can
  * verify both that a remap happened and that the correct element type was used.
  */
-class RemapReferenceTest extends HelpersTestCase {
+class RemapWpmlReferenceTest extends HelpersTestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -36,7 +36,7 @@ class RemapReferenceTest extends HelpersTestCase {
 	}
 
 	private static function remap( mixed $value, array $field, string $lang = 'en' ): mixed {
-		return Helpers::remapReference( $value, $field, $lang );
+		return Helpers::remapWpmlReference( $value, $field, $lang );
 	}
 
 	// ── attachment-backed ────────────────────────────────────

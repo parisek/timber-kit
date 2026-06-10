@@ -11,7 +11,7 @@ declare(strict_types=1);
  * ACF blocks rendered in a non-default language, overrides `attrs.data.<field>`
  * for fields marked `wpml_cf_preferences = 1` (Copy) with the source-language
  * post's value. Reference ids are remapped to their target-language equivalents
- * via the shared `Helpers::remapReference()` primitive (so this and the field
+ * via the shared `Helpers::remapWpmlReference()` primitive (so this and the field
  * formatters resolve translated entities the same way): image/file/gallery →
  * attachments, post_object/relationship/page_link → posts, taxonomy → terms.
  * Nested fields inside repeater/group containers are supported through
@@ -570,8 +570,8 @@ final class WpmlBlockOverride {
 		$old = $block['attrs']['data'][ $key ] ?? null;
 		// Reference remapping lives in the shared formatting layer (Helpers), so
 		// Copy-field sync and field formatters resolve translated entities the
-		// same way. See Helpers::remapReference().
-		$new = Helpers::remapReference( $source_data[ $key ], $field, $current_lang );
+		// same way. See Helpers::remapWpmlReference().
+		$new = Helpers::remapWpmlReference( $source_data[ $key ], $field, $current_lang );
 
 		if ( $old === $new ) return $block;
 
