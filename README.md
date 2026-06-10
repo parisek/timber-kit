@@ -21,6 +21,7 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
 - `formatImage()`, `formatFile()`, `formatVideo()` — media formatting
 - `formatFields()`, `fieldFormatter()` — ACF field processing
 - `formatLink()` — link/button formatting
+- `remapWpmlReference( $value, array $field, string $target_lang )` — remaps an ACF reference field's id(s) to a target WPML language via `wpml_object_id`, with the element type resolved per ACF field type (`image`/`file`/`gallery` → attachment, `post_object`/`relationship`/`page_link` → post, `taxonomy` → term; non-reference and non-numeric values pass through). Shared formatting-layer primitive that `WpmlBlockOverride` delegates to, reusable by any field formatter
 - `formatMenu()` — navigation menus
 - `formatTerms()` — taxonomy terms
 - `formatLanguageSwitcher()` — WPML language switcher
@@ -167,7 +168,7 @@ Requirements (verified at `register()`):
 - Bypasses non-ACF blocks, admin context, REST requests, and the default language
 - Walks ACF field definitions recursively to find every leaf marked `wpml_cf_preferences = 1` — top-level, plus nested inside repeater / group containers at arbitrary depth
 - Generates ACF's flattened block-data key pattern for each Copy field (`items_N_image`, `faq_sections_N_items_M_title`, …) and overrides each from source
-- Remaps reference ids to their target-language equivalents via `wpml_object_id`, so a translated page points at translated entities — not the source-language ones:
+- Remaps reference ids to their target-language equivalents via the shared `Helpers::remapWpmlReference()` primitive (so this and the field formatters resolve translated entities the same way), so a translated page points at translated entities — not the source-language ones:
 
   | ACF field type | Remapped as | Notes |
   |---|---|---|
