@@ -2,19 +2,24 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\WpmlBlockOverride;
+namespace Tests\Unit\Helpers;
 
 use Brain\Monkey\Functions;
-use Tests\Unit\WpmlBlockOverrideTestCase;
+use Parisek\TimberKit\Helpers;
+use Tests\Unit\HelpersTestCase;
 
 /**
- * Covers remapReference(): which ACF field types get their reference id(s)
- * remapped to the target language, and with which WPML element type.
+ * Covers Helpers::remapReference(): which ACF field types get their reference
+ * id(s) remapped to the target language, and with which WPML element type.
+ *
+ * This is the shared, formatting-layer home for reference remapping — the same
+ * primitive WpmlBlockOverride delegates to for Copy-field sync, and that any
+ * field formatter can reuse instead of re-implementing wpml_object_id-per-type.
  *
  * wpml_object_id is mocked to echo "id:element_type:lang" so assertions can
  * verify both that a remap happened and that the correct element type was used.
  */
-class RemapReferenceTest extends WpmlBlockOverrideTestCase {
+class RemapReferenceTest extends HelpersTestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -31,13 +36,17 @@ class RemapReferenceTest extends WpmlBlockOverrideTestCase {
 	}
 
 	private static function remap( mixed $value, array $field, string $lang = 'en' ): mixed {
-		return self::callPrivate( 'remapReference', [ $value, $field, $lang ] );
+		return Helpers::remapReference( $value, $field, $lang );
 	}
 
 	// ── attachment-backed ────────────────────────────────────
 
 	public function test_image_remapped_as_attachment(): void {
 		$this->assertSame( '999:attachment:en', self::remap( 999, [ 'type' => 'image' ] ) );
+	}
+
+	public function test_file_remapped_as_attachment(): void {
+		$this->assertSame( '7:attachment:en', self::remap( 7, [ 'type' => 'file' ] ) );
 	}
 
 	public function test_gallery_remaps_each_id_as_attachment(): void {
@@ -109,6 +118,10 @@ class RemapReferenceTest extends WpmlBlockOverrideTestCase {
 
 	public function test_text_field_passes_through(): void {
 		$this->assertSame( 'hello', self::remap( 'hello', [ 'type' => 'text' ] ) );
+	}
+
+	public function test_missing_type_passes_through(): void {
+		$this->assertSame( 5, self::remap( 5, [] ) );
 	}
 
 	// ── edge values ──────────────────────────────────────────

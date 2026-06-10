@@ -1271,6 +1271,91 @@ class Helpers {
 	}
 
 	/**
+	 * Remap an ACF reference field's id(s) to the target language so a translated
+	 * context points at the translated entity, not the source-language one.
+	 *
+	 * The WPML element type passed to `wpml_object_id` depends on the ACF field
+	 * type:
+	 *   - image / file / gallery → 'attachment'
+	 *   - post_object / relationship / page_link → the referenced post's own post
+	 *     type (post_object can target mixed types, so it's resolved per id)
+	 *   - taxonomy → the field's `taxonomy` setting
+	 *
+	 * Other types (text, user, link, …) are returned unchanged — `user` because
+	 * WPML doesn't translate users, `link` because it stores a URL structure that
+	 * {@see formatLink()} handles through its own translation path. Non-numeric
+	 * entries (e.g. a `page_link` holding a raw URL) also pass through untouched.
+	 *
+	 * Shared formatting-layer primitive: {@see \Parisek\TimberKit\WpmlBlockOverride}
+	 * delegates here for Copy-field sync, and any field formatter can reuse it
+	 * instead of re-implementing wpml_object_id-per-type.
+	 *
+	 * @param mixed                $value       A single id, a list of ids, or any
+	 *                                          non-reference value (passed through).
+	 * @param array<string, mixed> $field       ACF field array; `type` (and
+	 *                                          `taxonomy` for taxonomy fields) drive
+	 *                                          element-type resolution.
+	 * @param string               $target_lang WPML language code to remap into.
+	 * @return mixed The remapped id(s), or `$value` unchanged when not a reference.
+	 */
+	public static function remapReference( $value, array $field, string $target_lang ) {
+		$type = $field['type'] ?? '';
+
+		if ( in_array( $type, [ 'image', 'file', 'gallery' ], true ) ) {
+			return self::remapIds( $value, $target_lang, static fn( int $id ): string => 'attachment' );
+		}
+
+		if ( in_array( $type, [ 'post_object', 'relationship', 'page_link' ], true ) ) {
+			return self::remapIds( $value, $target_lang, static fn( int $id ): string => get_post_type( $id ) ?: 'post' );
+		}
+
+		if ( $type === 'taxonomy' ) {
+			$taxonomy = $field['taxonomy'] ?? '';
+			if ( $taxonomy === '' ) {
+				return $value;
+			}
+			return self::remapIds( $value, $target_lang, static fn( int $id ): string => $taxonomy );
+		}
+
+		return $value;
+	}
+
+	/**
+	 * Apply `wpml_object_id` to a single id or a list of ids. `$element_type_for`
+	 * resolves the WPML element type for each id. Non-numeric / non-positive
+	 * values pass through unchanged.
+	 *
+	 * @param mixed                $value
+	 * @param callable(int):string $element_type_for
+	 * @return mixed
+	 */
+	private static function remapIds( $value, string $target_lang, callable $element_type_for ) {
+		if ( is_array( $value ) ) {
+			return array_map(
+				static fn( $id ) => self::remapId( $id, $target_lang, $element_type_for ),
+				$value
+			);
+		}
+		return self::remapId( $value, $target_lang, $element_type_for );
+	}
+
+	/**
+	 * @param mixed                $value
+	 * @param callable(int):string $element_type_for
+	 * @return mixed
+	 */
+	private static function remapId( $value, string $target_lang, callable $element_type_for ) {
+		if ( ! is_numeric( $value ) ) {
+			return $value;
+		}
+		$id = (int) $value;
+		if ( $id <= 0 ) {
+			return $value;
+		}
+		return apply_filters( 'wpml_object_id', $id, $element_type_for( $id ), true, $target_lang );
+	}
+
+	/**
 	 * Convert a Timber menu (or menu name) into a nested flat array structure.
 	 *
 	 * Recursively processes menu items and their children.  WordPress default

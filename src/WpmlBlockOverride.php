@@ -11,10 +11,11 @@ declare(strict_types=1);
  * ACF blocks rendered in a non-default language, overrides `attrs.data.<field>`
  * for fields marked `wpml_cf_preferences = 1` (Copy) with the source-language
  * post's value. Reference ids are remapped to their target-language equivalents
- * via `wpml_object_id` so a translated page points at translated entities:
- * image/file/gallery → attachments, post_object/relationship/page_link → posts,
- * taxonomy → terms. Nested fields inside repeater/group containers are supported
- * through path-aware key generation.
+ * via the shared `Helpers::remapReference()` primitive (so this and the field
+ * formatters resolve translated entities the same way): image/file/gallery →
+ * attachments, post_object/relationship/page_link → posts, taxonomy → terms.
+ * Nested fields inside repeater/group containers are supported through
+ * path-aware key generation.
  *
  * A translation block is matched to its source counterpart by position — the Nth
  * occurrence of a block name in the translation pairs with the Nth in the source.
@@ -513,75 +514,16 @@ final class WpmlBlockOverride {
 		if ( ! \array_key_exists( $key, $source_data ) ) return $block;
 
 		$old = $block['attrs']['data'][ $key ] ?? null;
-		$new = self::remapReference( $source_data[ $key ], $field, $current_lang );
+		// Reference remapping lives in the shared formatting layer (Helpers), so
+		// Copy-field sync and field formatters resolve translated entities the
+		// same way. See Helpers::remapReference().
+		$new = Helpers::remapReference( $source_data[ $key ], $field, $current_lang );
 
 		if ( $old === $new ) return $block;
 
 		$block['attrs']['data'][ $key ] = $new;
 		self::logOverride( $field['name'], $old, $new, $block['blockName'], $source_post_id );
 		return $block;
-	}
-
-	/**
-	 * Remap a Copy field's reference id(s) to the target language so a translated
-	 * page points at the translated entity, not the source-language one.
-	 *
-	 * Element type passed to `wpml_object_id` depends on the ACF field type:
-	 *   - image / file / gallery → 'attachment'
-	 *   - post_object / relationship / page_link → the referenced post's own post
-	 *     type (post_object can target mixed types, so it's resolved per id)
-	 *   - taxonomy → the field's taxonomy slug
-	 *
-	 * Other types (text, user, link, …) are returned unchanged — `user` because
-	 * WPML doesn't translate users, `link` because it stores a URL structure WPML
-	 * converts through its own link handling. Non-numeric entries (e.g. a
-	 * `page_link` holding a raw URL) also pass through untouched.
-	 */
-	private static function remapReference( mixed $value, array $field, string $target_lang ): mixed {
-		$type = $field['type'] ?? '';
-
-		if ( \in_array( $type, [ 'image', 'file', 'gallery' ], true ) ) {
-			return self::remapIds( $value, $target_lang, static fn( int $id ): string => 'attachment' );
-		}
-
-		if ( \in_array( $type, [ 'post_object', 'relationship', 'page_link' ], true ) ) {
-			return self::remapIds( $value, $target_lang, static fn( int $id ): string => \get_post_type( $id ) ?: 'post' );
-		}
-
-		if ( $type === 'taxonomy' ) {
-			$taxonomy = $field['taxonomy'] ?? '';
-			if ( $taxonomy === '' ) return $value;
-			return self::remapIds( $value, $target_lang, static fn( int $id ): string => $taxonomy );
-		}
-
-		return $value;
-	}
-
-	/**
-	 * Apply `wpml_object_id` to a single id or a list of ids. `$element_type_for`
-	 * resolves the WPML element type for each id. Non-numeric / non-positive
-	 * values pass through unchanged.
-	 *
-	 * @param callable(int):string $element_type_for
-	 */
-	private static function remapIds( mixed $value, string $target_lang, callable $element_type_for ): mixed {
-		if ( \is_array( $value ) ) {
-			return \array_map(
-				static fn( $id ) => self::remapId( $id, $target_lang, $element_type_for ),
-				$value
-			);
-		}
-		return self::remapId( $value, $target_lang, $element_type_for );
-	}
-
-	/**
-	 * @param callable(int):string $element_type_for
-	 */
-	private static function remapId( mixed $value, string $target_lang, callable $element_type_for ): mixed {
-		if ( ! \is_numeric( $value ) ) return $value;
-		$id = (int) $value;
-		if ( $id <= 0 ) return $value;
-		return \apply_filters( 'wpml_object_id', $id, $element_type_for( $id ), true, $target_lang );
 	}
 
 	private static function logOverride(
