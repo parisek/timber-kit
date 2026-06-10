@@ -57,6 +57,28 @@ class Resizer {
 	private const bool FORCE_REGENERATE = false;
 
 	/**
+	 * Raster input formats the resizer is willing to process, as a MIME → backend
+	 * format-tag map. The *desired* superset; the actual allow-list is this map
+	 * intersected with what the active image backend (Imagick or GD) can decode
+	 * at runtime (see `decodableFormats()`). jpeg/png/gif are the universal
+	 * baseline; the rest are gated by backend capability. SVG is intentionally
+	 * absent (vector — not raster-resizable); so are heic/heif *sequences* and ico.
+	 *
+	 * @var array<string, string>
+	 */
+	private const array DESIRED_INPUT_FORMATS = [
+		'image/jpeg' => 'JPEG',
+		'image/png'  => 'PNG',
+		'image/gif'  => 'GIF',
+		'image/webp' => 'WEBP',
+		'image/bmp'  => 'BMP',
+		'image/avif' => 'AVIF',
+		'image/tiff' => 'TIFF',
+		'image/heic' => 'HEIC',
+		'image/heif' => 'HEIC', // libheif handles both; Imagick reports the family as HEIC.
+	];
+
+	/**
 	 * Target image format
 	 *
 	 * @var string
@@ -85,6 +107,13 @@ class Resizer {
 	private bool $force_regenerate;
 
 	/**
+	 * Memoized allow-list of decodable input MIME types (per request).
+	 *
+	 * @var array<int, string>|null
+	 */
+	private ?array $decodable_cache = null;
+
+	/**
 	 * Initialize resizer settings, each of which can be overridden via a WordPress filter.
 	 *
 	 * Filters available:
@@ -107,25 +136,113 @@ class Resizer {
 	 * @return bool True if allowed, false otherwise.
 	 */
 	private function isAllowedImageType( string $file_path ): bool {
-		$allowed_types = [
-			'image/jpeg',
-			'image/png',
-			'image/gif',
-			'image/webp',
-			'image/bmp',
-			// Modern raster formats WordPress accepts as uploads (avif since WP 6.5,
-			// heic/heif since 6.7) and that Imagick/GD can decode. Included even though
-			// the resizer's *target* format is also avif: the resizer crops AND
-			// downscales, so an already-avif source still needs processing — skipping it
-			// (the old behaviour) shipped the full-size, un-cropped original. tiff/heic/
-			// heif had the same passthrough problem.
-			'image/avif',
-			'image/tiff',
-			'image/heic',
-			'image/heif',
-		];
 		$filetype = wp_check_filetype( $file_path );
-		return in_array( $filetype['type'], $allowed_types, true );
+		return $this->canDecode( (string) ( $filetype['type'] ?? '' ) );
+	}
+
+	/**
+	 * Capability matrix of every input format the resizer is willing to handle,
+	 * keyed by MIME type, with a boolean for whether the active image backend can
+	 * actually decode it on this server.
+	 *
+	 * Callable for diagnostics, conditional UI, or pre-flight checks before
+	 * pointing editors at a particular upload format.
+	 *
+	 * @return array<string, bool> e.g. `['image/jpeg' => true, 'image/heic' => false, …]`.
+	 */
+	public function supportedInputFormats(): array {
+		$decodable = $this->decodableFormats();
+		$matrix = [];
+		foreach ( array_keys( self::DESIRED_INPUT_FORMATS ) as $mime ) {
+			$matrix[ $mime ] = in_array( $mime, $decodable, true );
+		}
+		return $matrix;
+	}
+
+	/**
+	 * Whether the active image backend can decode the given image MIME type.
+	 *
+	 * @param string $mime Image MIME type, e.g. `image/avif`.
+	 * @return bool
+	 */
+	public function canDecode( string $mime ): bool {
+		return in_array( $mime, $this->decodableFormats(), true );
+	}
+
+	/**
+	 * The allow-list of input MIME types: the desired superset intersected with what
+	 * the active backend can decode. Memoized per request.
+	 *
+	 * Filterable via `timber_kit_resizer_allowed_types` ( `array<int,string> $mimes,
+	 * array<int,string> $backend_formats` ) for projects that need to force a format
+	 * on or off regardless of the probe.
+	 *
+	 * @return array<int, string>
+	 */
+	private function decodableFormats(): array {
+		if ( null !== $this->decodable_cache ) {
+			return $this->decodable_cache;
+		}
+
+		$backend = $this->probeBackendFormats();
+		$allowed = [];
+		foreach ( self::DESIRED_INPUT_FORMATS as $mime => $format_tag ) {
+			if ( in_array( $format_tag, $backend, true ) ) {
+				$allowed[] = $mime;
+			}
+		}
+
+		/**
+		 * Filter the resizer's capability-gated input allow-list.
+		 *
+		 * @param array<int, string> $allowed Decodable input MIME types.
+		 * @param array<int, string> $backend Backend format tags reported by the active driver.
+		 */
+		$allowed = apply_filters( 'timber_kit_resizer_allowed_types', $allowed, $backend );
+
+		$this->decodable_cache = array_values( array_unique( $allowed ) );
+		return $this->decodable_cache;
+	}
+
+	/**
+	 * Probe the active image backend for the format tags it can decode.
+	 *
+	 * Mirrors Spatie/Image's own driver selection — Imagick when the extension is
+	 * loaded, GD otherwise — so the reported capability matches what actually
+	 * decodes the source. Returns Imagick-style upper-case tags (`JPEG`, `AVIF`,
+	 * `HEIC`, `TIFF`, …) for uniform matching against DESIRED_INPUT_FORMATS.
+	 *
+	 * Extracted as a `protected` seam so tests can stub backend capability without
+	 * a live Imagick/GD build.
+	 *
+	 * @return array<int, string>
+	 */
+	protected function probeBackendFormats(): array {
+		if ( extension_loaded( 'imagick' ) && class_exists( '\Imagick' ) ) {
+			try {
+				$formats = ( new \Imagick() )->queryFormats();
+				if ( ! empty( $formats ) ) {
+					return $formats;
+				}
+			} catch ( \Throwable $e ) {
+				// Fall through to GD probing below.
+			}
+		}
+
+		// GD baseline (always decodable) plus build-dependent extras. GD has no
+		// TIFF / HEIC / HEIF decode path at all, so those stay excluded here.
+		$formats = [ 'JPEG', 'PNG', 'GIF' ];
+		$info = function_exists( 'gd_info' ) ? gd_info() : [];
+		if ( ! empty( $info['WebP Support'] ) ) {
+			$formats[] = 'WEBP';
+		}
+		if ( ! empty( $info['AVIF Support'] ) ) {
+			$formats[] = 'AVIF';
+		}
+		if ( function_exists( 'imagecreatefrombmp' ) ) {
+			$formats[] = 'BMP';
+		}
+		return $formats;
 	}
 
 	/**
