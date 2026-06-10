@@ -66,10 +66,10 @@ final class WpmlBlockOverride {
 	// self-contained for unit tests and any non-WP load context.
 	private const CACHE_TTL = 86400;
 
-	/** @var array<int, array<int, array>> per-request memo: source_post_id → flat blocks */
+	/** @var array<int, array<int, array<string, mixed>>> per-request memo: source_post_id → flat blocks */
 	private static array $sourceBlocksMemo = [];
 
-	/** @var array<string, array>|null per-request memo of full copy-fields index */
+	/** @var array<string, array<int, array<string, mixed>>>|null per-request memo of full copy-fields index */
 	private static ?array $copyFieldsIndex = null;
 
 	/** @var array<int, array<string, int>> per-render-pass positional counter: source_post_id → block_name → next ordinal */
@@ -109,6 +109,11 @@ final class WpmlBlockOverride {
 		return $content;
 	}
 
+	/**
+	 * @param array<string, mixed> $block        Parsed block WP is about to render.
+	 * @param array<string, mixed> $source_block  WP core hook arg (pre-filter copy), unused here.
+	 * @return array<string, mixed>
+	 */
 	public static function filter( array $block, array $source_block ): array {
 		// $source_block is the pre-filter copy (WP core hook arg) — NOT the source-lang block.
 		// Source-language block resolution happens below via getSourceBlocks().
@@ -151,6 +156,9 @@ final class WpmlBlockOverride {
 		);
 	}
 
+	/**
+	 * @param array<string, mixed> $block
+	 */
 	private static function shouldOverride( array $block ): bool {
 		if ( ! \str_starts_with( $block['blockName'] ?? '', 'acf/' ) ) return false;
 		if ( \is_admin() ) return false;
@@ -181,6 +189,9 @@ final class WpmlBlockOverride {
 		return (int) $source;
 	}
 
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
 	private static function getSourceBlocks( int $source_post_id ): array {
 		if ( isset( self::$sourceBlocksMemo[ $source_post_id ] ) ) {
 			return self::$sourceBlocksMemo[ $source_post_id ];
@@ -193,6 +204,10 @@ final class WpmlBlockOverride {
 		return $flat;
 	}
 
+	/**
+	 * @param array<array-key, array<string, mixed>> $blocks
+	 * @return array<int, array<string, mixed>>
+	 */
 	private static function flattenBlocks( array $blocks ): array {
 		$result = [];
 		foreach ( $blocks as $block ) {
@@ -223,6 +238,10 @@ final class WpmlBlockOverride {
 	 * `filter()` runs `blockCountsMatch()` upstream, so by the time we get here the
 	 * counts agree and every ordinal has a counterpart. The null-on-overflow return
 	 * below is kept as defense-in-depth (and for direct unit testing).
+	 *
+	 * @param array<string, mixed>             $block
+	 * @param array<int, array<string, mixed>> $source_blocks
+	 * @return array<string, mixed>|null
 	 */
 	private static function findSourceBlock( array $block, array $source_blocks, int $source_post_id ): ?array {
 		$block_name = $block['blockName'] ?? '';
@@ -253,12 +272,18 @@ final class WpmlBlockOverride {
 	 * per-instance id in post_content to detect it, and the blast radius is bounded
 	 * to a same-type sibling's Copy value, read-time only. See README
 	 * "Known limitations".
+	 *
+	 * @param array<int, array<string, mixed>> $source_blocks
+	 * @param array<int, array<string, mixed>> $translation_blocks
 	 */
 	private static function blockCountsMatch( string $block_name, array $source_blocks, array $translation_blocks ): bool {
 		if ( $block_name === '' ) return false;
 		return self::countByName( $source_blocks, $block_name ) === self::countByName( $translation_blocks, $block_name );
 	}
 
+	/**
+	 * @param array<int, array<string, mixed>> $blocks
+	 */
 	private static function countByName( array $blocks, string $block_name ): int {
 		$count = 0;
 		foreach ( $blocks as $b ) {
@@ -267,6 +292,9 @@ final class WpmlBlockOverride {
 		return $count;
 	}
 
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
 	private static function getCopyFields( string $block_name ): array {
 		$index = self::getCopyFieldsIndex();
 		return $index[ $block_name ] ?? [];
@@ -285,6 +313,8 @@ final class WpmlBlockOverride {
 	 * Under WP_DEBUG the persistent transient is bypassed entirely — see the
 	 * class-level docblock for the rationale (programmatic field group
 	 * registration gap).
+	 *
+	 * @return array<string, array<int, array<string, mixed>>>
 	 */
 	private static function getCopyFieldsIndex(): array {
 		if ( self::$copyFieldsIndex !== null ) {
@@ -349,6 +379,10 @@ final class WpmlBlockOverride {
 	 *
 	 * flexible_content is intentionally skipped — its per-layout sub_fields
 	 * require layout-name awareness and aren't supported in this iteration.
+	 *
+	 * @param array<int, array<string, mixed>> $fields
+	 * @param array<int, array<string, mixed>> $parent_path
+	 * @return array<int, array<string, mixed>>
 	 */
 	private static function walkFields( array $fields, array $parent_path ): array {
 		$copy_fields = [];
@@ -381,6 +415,9 @@ final class WpmlBlockOverride {
 	 * pipeline by returning garbage.
 	 *
 	 * Required shape per entry: `['field' => ['name' => non-empty-string, ...], 'path' => array]`.
+	 *
+	 * @param array<array-key, mixed> $entries
+	 * @return array<int, array<string, mixed>>
 	 */
 	private static function normalizeCopyFields( array $entries ): array {
 		$result = [];
@@ -418,6 +455,12 @@ final class WpmlBlockOverride {
 		\delete_transient( self::CACHE_KEY );
 	}
 
+	/**
+	 * @param array<string, mixed>             $block
+	 * @param array<string, mixed>             $source_block
+	 * @param array<int, array<string, mixed>> $copy_fields
+	 * @return array<string, mixed>
+	 */
 	private static function applyCopyFields(
 		array $block,
 		array $source_block,
@@ -458,6 +501,12 @@ final class WpmlBlockOverride {
 	/**
 	 * Iterate container path, expanding repeater rows and group prefixes,
 	 * then call overrideKey() for each generated flat key.
+	 *
+	 * @param array<string, mixed>             $block
+	 * @param array<string, mixed>             $source_data
+	 * @param array<int, array<string, mixed>> $remaining_path
+	 * @param array<string, mixed>             $field
+	 * @return array<string, mixed>
 	 */
 	private static function overrideNestedPaths(
 		array $block,
@@ -502,6 +551,11 @@ final class WpmlBlockOverride {
 	/**
 	 * Apply Copy override to a single flat key. No-op if source key is absent
 	 * or new value equals current.
+	 *
+	 * @param array<string, mixed> $block
+	 * @param array<string, mixed> $source_data
+	 * @param array<string, mixed> $field
+	 * @return array<string, mixed>
 	 */
 	private static function overrideKey(
 		array $block,
@@ -537,6 +591,9 @@ final class WpmlBlockOverride {
 		) );
 	}
 
+	/**
+	 * @param array<string, mixed> $block
+	 */
 	private static function logMissingMatch( array $block, int $source_post_id ): void {
 		if ( ! \defined( 'WP_DEBUG' ) || ! WP_DEBUG ) return;
 		// A miss now means structural drift: the source post has fewer same-named
@@ -552,6 +609,9 @@ final class WpmlBlockOverride {
 		) );
 	}
 
+	/**
+	 * @param array<string, mixed> $block
+	 */
 	private static function logStructuralMismatch( array $block, int $source_post_id ): void {
 		if ( ! \defined( 'WP_DEBUG' ) || ! WP_DEBUG ) return;
 		\error_log( \sprintf(
