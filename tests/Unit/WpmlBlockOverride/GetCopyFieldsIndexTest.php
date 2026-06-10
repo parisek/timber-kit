@@ -46,6 +46,17 @@ class GetCopyFieldsIndexTest extends WpmlBlockOverrideTestCase {
 		);
 	}
 
+	/**
+	 * These tests assert the persistent-transient path, which production skips
+	 * under WP_DEBUG. Guard the assumption so a future WP_DEBUG=true profile can't
+	 * silently run them against the bypass branch.
+	 */
+	private function skipIfWpDebug(): void {
+		if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
+			$this->markTestSkipped( 'Covers the WP_DEBUG=false transient path; bypassed under WP_DEBUG=true.' );
+		}
+	}
+
 	public function test_index_is_memoized_per_request(): void {
 		// Arrange: cold cache — transient miss, ACF functions return synthetic data.
 		Functions\when( 'get_transient' )->justReturn( false );
@@ -76,6 +87,7 @@ class GetCopyFieldsIndexTest extends WpmlBlockOverrideTestCase {
 	}
 
 	public function test_warm_transient_is_returned_without_rebuilding(): void {
+		$this->skipIfWpDebug();
 		// Warm cache (WP_DEBUG off): a cached index short-circuits the ACF walk.
 		$cached = [ 'hero' => [ [ 'field' => [ 'name' => 'bg_image', 'type' => 'image' ], 'path' => [] ] ] ];
 		Functions\when( 'get_transient' )->justReturn( $cached );
@@ -88,6 +100,7 @@ class GetCopyFieldsIndexTest extends WpmlBlockOverrideTestCase {
 	}
 
 	public function test_cold_cache_writes_the_built_index_to_the_transient(): void {
+		$this->skipIfWpDebug();
 		// Cold cache (WP_DEBUG off): miss → walk ACF → persist the built index.
 		Functions\when( 'get_transient' )->justReturn( false );
 		Functions\when( 'acf_get_block_types' )->justReturn( $this->syntheticBlockTypes() );

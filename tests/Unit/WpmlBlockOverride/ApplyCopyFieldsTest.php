@@ -207,6 +207,41 @@ class ApplyCopyFieldsTest extends WpmlBlockOverrideTestCase {
 		$this->assertArrayNotHasKey( 'rows_1_img', $result['attrs']['data'], 'no phantom row written past the translation row count' );
 	}
 
+	public function test_inner_repeater_count_mismatch_skips_only_that_branch(): void {
+		// repeater-in-repeater: outer counts agree (1 == 1) so traversal descends,
+		// but the inner repeater's row count drifts (source 2 vs translation 1).
+		// The gate must skip the inner branch — stale value kept, no phantom row —
+		// while the matched outer level is still walked.
+		$source = [
+			'blockName' => 'acf/foo',
+			'attrs'     => [ 'data' => [
+				'outer'              => 1,
+				'outer_0_inner'      => 2,
+				'outer_0_inner_0_val' => 'S0',
+				'outer_0_inner_1_val' => 'S1',
+			] ],
+		];
+		$translation = [
+			'blockName' => 'acf/foo',
+			'attrs'     => [ 'data' => [
+				'outer'              => 1,
+				'outer_0_inner'      => 1,
+				'outer_0_inner_0_val' => 'T0',
+			] ],
+		];
+		$copy_fields = [
+			[
+				'field' => [ 'name' => 'val', 'type' => 'text' ],
+				'path'  => [ [ 'name' => 'outer', 'type' => 'repeater' ], [ 'name' => 'inner', 'type' => 'repeater' ] ],
+			],
+		];
+
+		$result = self::callPrivate( 'applyCopyFields', [ $translation, $source, $copy_fields, 1, 'en' ] );
+
+		$this->assertSame( 'T0', $result['attrs']['data']['outer_0_inner_0_val'], 'inner-count drift leaves the value stale' );
+		$this->assertArrayNotHasKey( 'outer_0_inner_1_val', $result['attrs']['data'], 'no phantom inner row written' );
+	}
+
 	public function test_nested_repeater_with_zero_count_skips_rows(): void {
 		// faq-group section 1 has items: 0 (zero rows). Verify no error, no fictional keys created.
 		$source_full = Fixtures::load( 'faq-group-nested' );
