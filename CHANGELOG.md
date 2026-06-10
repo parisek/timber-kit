@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`Resizer` input allow-list is now capability-gated against the active image backend, with a public availability API and Site Health reporting.** Instead of a hardcoded five-format list, the resizer builds its allowed-input set at runtime by intersecting a desired superset (`jpeg`/`png`/`gif`/`webp`/`bmp`/`avif`/`tiff`/`heic`/`heif`) with what the active backend can actually decode — mirroring Spatie/Image's own driver pick (Imagick when loaded, else GD). On an Imagick + libheif/libavif server all formats are processed; on a GD-only server the modern formats are excluded automatically rather than failing or silently shipping the full-size original.
+  - **Public API on `Resizer`:** `supportedInputFormats(): array` returns the full `[mime => bool]` capability matrix; `canDecode(string $mime): bool` checks a single format. Memoized per request. The gated list is filterable via `timber_kit_resizer_allowed_types` (`array $mimes, array $backend_formats`) to force a format on/off regardless of the probe.
+  - **Site Health (`StarterBase`, flag `$resizer_format_health`, default `true`):** a Status test (`good` / `recommended`) flags any image format WordPress accepts as an upload that the backend can't decode — those uploads silently fall back to the full-size original, so the test names them and points at the missing Imagick delegate. An Info-tab section lists the full decodable-format matrix for support.
+
+### Fixed
+
+- **`Resizer` no longer ships `avif` / `tiff` / `heic` / `heif` sources at full size.** The previous five-format allow-list (`jpeg`/`png`/`gif`/`webp`/`bmp`) let any other type fall through `prepareDefaultImage()` and return the **original** image untouched — no crop, no downscale, no `<source>` variants. AVIF was excluded *deliberately* ("it's already the target format"), but that ignored that the resizer also **crops and downscales** — so an already-`avif` upload still needs processing. Discovered in `proficiohub`: partner logos uploaded as 1800×1050 / 2560×1707 AVIF rendered as full-size originals into a ~258 px orbit sphere (`<picture>` emitted a bare `<img src=…/uploads/…avif>` with zero `<source>` children; `cache/image/900x530-crop/…avif` 404'd). The capability gate above is the fix: decode-able modern formats (`avif` since WP 6.5, `heic`/`heif` since 6.7) are now processed. SVG stays excluded (vector — not raster-resizable); `heic-sequence` / `heif-sequence` and `ico` are out of scope. Re-encoding an AVIF source to a smaller AVIF variant costs one-time CPU per cached variant, far outweighed by serving a correctly cropped, display-sized image. The two tests that asserted `avif` / `tiff` were *not* allowed are reframed against the capability gate; `heic` / `heif` and Site Health coverage added.
+
 ## [1.8.0] - 2026-06-09
 
 ### Added

@@ -58,7 +58,9 @@ class RegisterPerformanceHooksTest extends StarterBaseTestCase {
 		$this->assertContains( 'wp_speculation_rules_configuration', $filters );
 	}
 
-	public function test_site_health_filter_skipped_when_warning_disabled(): void {
+	public function test_site_health_filter_skipped_when_both_warnings_disabled(): void {
+		// Both site-health features register the same `site_status_tests` hook, so the
+		// hook is only absent when BOTH are off.
 		$filters = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
 			$filters[] = $hook;
@@ -67,10 +69,57 @@ class RegisterPerformanceHooksTest extends StarterBaseTestCase {
 		$instance = $this->bareInstance();
 		$this->setProperty( $instance, 'speculation_rules', null );
 		$this->setProperty( $instance, 'warn_speculation_rules_plugin_redundant', false );
+		$this->setProperty( $instance, 'resizer_format_health', false );
 
 		$this->invokeRegisterPerformanceHooks( $instance );
 
 		$this->assertNotContains( 'site_status_tests', $filters );
+		$this->assertNotContains( 'debug_information', $filters );
+	}
+
+	public function test_resizer_format_health_registers_hooks_by_default(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$instance = $this->bareInstance();
+		// Isolate the resizer feature from the speculation one.
+		$this->setProperty( $instance, 'speculation_rules', null );
+		$this->setProperty( $instance, 'warn_speculation_rules_plugin_redundant', false );
+
+		$this->invokeRegisterPerformanceHooks( $instance );
+
+		$this->assertContains( 'site_status_tests', $filters );
+		$this->assertContains( 'debug_information', $filters );
+	}
+
+	public function test_resizer_format_health_debug_hook_skipped_when_disabled(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'resizer_format_health', false );
+
+		$this->invokeRegisterPerformanceHooks( $instance );
+
+		// debug_information is unique to the resizer feature, so it must be gone.
+		$this->assertNotContains( 'debug_information', $filters );
+	}
+
+	public function test_site_health_register_resizer_formats_test_adds_direct_entry(): void {
+		$instance = $this->bareInstance();
+		Functions\when( '__' )->returnArg( 1 );
+
+		$tests = $instance->site_health_register_resizer_formats_test( [] );
+
+		$this->assertArrayHasKey( 'timber_kit_resizer_formats', $tests['direct'] );
+		$this->assertSame(
+			[ $instance, 'site_health_test_resizer_formats' ],
+			$tests['direct']['timber_kit_resizer_formats']['test']
+		);
 	}
 
 	public function test_site_health_filter_registered_by_default(): void {

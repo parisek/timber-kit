@@ -234,6 +234,9 @@ class StarterBase extends Site {
 	/** @var bool Surface a Site Health warning when the redundant standalone Speculation Rules plugin is also active. */
 	protected bool $warn_speculation_rules_plugin_redundant = true;
 
+	/** @var bool Surface a Site Health test + debug info reporting which uploadable image formats the resizer backend can actually decode. */
+	protected bool $resizer_format_health = true;
+
 	/**
 	 * Slim orchestrator — resolves theme identity, delegates hook registration
 	 * to concern-focused private methods, then hands off to Timber\Site.
@@ -538,6 +541,10 @@ class StarterBase extends Site {
 		}
 		if ( $this->warn_speculation_rules_plugin_redundant ) {
 			add_filter( 'site_status_tests', array( $this, 'site_health_register_speculation_rules_test' ) );
+		}
+		if ( $this->resizer_format_health ) {
+			add_filter( 'site_status_tests', array( $this, 'site_health_register_resizer_formats_test' ) );
+			add_filter( 'debug_information', array( $this, 'site_health_resizer_formats_debug' ) );
 		}
 	}
 
@@ -2946,6 +2953,124 @@ class StarterBase extends Site {
 			),
 			'test'        => 'timber_kit_speculation_rules_redundant',
 		);
+	}
+
+	/**
+	 * Register a Site Health test reporting whether the resizer's image backend
+	 * can decode every image format WordPress accepts as an upload.
+	 *
+	 * @param array<string, array<string, array<string, mixed>>> $tests The current Site Health tests registry.
+	 * @return array<string, array<string, array<string, mixed>>>
+	 */
+	public function site_health_register_resizer_formats_test( $tests ): array {
+		if ( ! is_array( $tests ) ) {
+			$tests = array( 'direct' => array(), 'async' => array() );
+		}
+		$tests['direct']['timber_kit_resizer_formats'] = array(
+			'label' => __( 'Image resizer format support', 'timber-kit' ),
+			'test'  => array( $this, 'site_health_test_resizer_formats' ),
+		);
+		return $tests;
+	}
+
+	/**
+	 * Site Health test callback. `good` when the resizer backend decodes every
+	 * uploadable image format; `recommended` (with the specific gaps + remedy)
+	 * when a format WordPress lets editors upload can't be resized — those uploads
+	 * silently fall back to the full-size original instead of being optimized.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function site_health_test_resizer_formats(): array {
+		$gaps = $this->resizer_format_gaps();
+
+		if ( empty( $gaps ) ) {
+			return array(
+				'label'       => __( 'The image resizer can decode every uploadable format', 'timber-kit' ),
+				'status'      => 'good',
+				'badge'       => array(
+					'label' => __( 'Performance', 'timber-kit' ),
+					'color' => 'blue',
+				),
+				'description' => '<p>' . esc_html__( 'Every image format WordPress accepts as an upload can be decoded by the active image backend, so uploads are cropped and downscaled rather than served at full size.', 'timber-kit' ) . '</p>',
+				'test'        => 'timber_kit_resizer_formats',
+			);
+		}
+
+		$gap_list = implode( ', ', array_map( static fn ( string $mime ): string => esc_html( $mime ), $gaps ) );
+
+		return array(
+			'label'       => __( 'Some uploadable image formats cannot be resized', 'timber-kit' ),
+			'status'      => 'recommended',
+			'badge'       => array(
+				'label' => __( 'Performance', 'timber-kit' ),
+				'color' => 'orange',
+			),
+			'description' => '<p>' . sprintf(
+				/* translators: %s: comma-separated list of image MIME types. */
+				esc_html__( 'WordPress accepts uploads in these formats, but the active image backend (Imagick or GD) cannot decode them: %s. Images uploaded in these formats are served at their original size — not cropped or downscaled. Install or enable the matching Imagick delegate (e.g. libheif for HEIC/HEIF, libavif for AVIF), or restrict editors to formats the backend supports.', 'timber-kit' ),
+				$gap_list
+			) . '</p>',
+			'test'        => 'timber_kit_resizer_formats',
+		);
+	}
+
+	/**
+	 * Add the resizer's input-format capability matrix to the Site Health
+	 * "Info" tab (Tools → Site Health → Info), for support / debugging.
+	 *
+	 * @param array<string, mixed> $info The current debug information registry.
+	 * @return array<string, mixed>
+	 */
+	public function site_health_resizer_formats_debug( $info ): array {
+		if ( ! is_array( $info ) ) {
+			return $info;
+		}
+
+		$fields = array();
+		foreach ( ( new Resizer() )->supportedInputFormats() as $mime => $decodable ) {
+			$fields[ $mime ] = array(
+				'label' => $mime,
+				'value' => $decodable
+					? __( 'decodable', 'timber-kit' )
+					: __( 'not decodable', 'timber-kit' ),
+				'debug' => $decodable ? 'yes' : 'no',
+			);
+		}
+
+		$info['timber_kit_resizer'] = array(
+			'label'       => __( 'Timber Kit — image resizer', 'timber-kit' ),
+			'description' => __( 'Input image formats the resizer backend can decode on this server. Formats reported as "not decodable" are served at their original size.', 'timber-kit' ),
+			'fields'      => $fields,
+		);
+		return $info;
+	}
+
+	/**
+	 * Image MIME types WordPress accepts as uploads that the resizer *wants* to
+	 * process but the active backend cannot decode — the silent full-size-fallback
+	 * gaps. Returns an empty array when there are none.
+	 *
+	 * @return array<int, string>
+	 */
+	private function resizer_format_gaps(): array {
+		$supported = ( new Resizer() )->supportedInputFormats();
+
+		$uploadable = array_filter(
+			(array) get_allowed_mime_types(),
+			static fn ( string $mime ): bool => str_starts_with( $mime, 'image/' )
+		);
+
+		$gaps = array();
+		foreach ( $uploadable as $mime ) {
+			// Only formats the resizer actually targets (present in the matrix) and
+			// that the backend can't decode count as a gap. SVG / ico / sequence
+			// types aren't in the matrix — they're out of the resizer's scope, not gaps.
+			if ( array_key_exists( $mime, $supported ) && false === $supported[ $mime ] ) {
+				$gaps[] = $mime;
+			}
+		}
+		return array_values( array_unique( $gaps ) );
 	}
 
 	// =========================================================================
