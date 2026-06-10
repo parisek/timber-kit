@@ -55,6 +55,42 @@ class RegisterBlockHooksTest extends StarterBaseTestCase {
 		$this->assertContains( 'acf/fields/google_map/api', $hookNames );
 	}
 
+	public function test_does_not_register_wpml_block_override_by_default(): void {
+		$actions = [];
+		Functions\when( 'add_action' )->alias( function ( $hook, $callback, ...$rest ) use ( &$actions ) {
+			$actions[] = [ 'hook' => $hook, 'callback' => $callback ];
+		} );
+		Functions\when( 'add_filter' )->justReturn( true );
+
+		$this->invokeRegisterBlockHooks( $this->bareInstance() );
+
+		$wbo = array_filter(
+			$actions,
+			fn( $a ) => is_array( $a['callback'] ) && ( $a['callback'][0] ?? '' ) === \Parisek\TimberKit\WpmlBlockOverride::class
+		);
+		$this->assertEmpty( $wbo, 'WpmlBlockOverride must be opt-in — not registered while the flag is off (default)' );
+	}
+
+	public function test_registers_wpml_block_override_on_init_when_flag_enabled(): void {
+		$actions = [];
+		Functions\when( 'add_action' )->alias( function ( $hook, $callback, ...$rest ) use ( &$actions ) {
+			$actions[] = [ 'hook' => $hook, 'callback' => $callback ];
+		} );
+		Functions\when( 'add_filter' )->justReturn( true );
+
+		$instance = $this->bareInstance();
+		$prop = new \ReflectionProperty( StarterBase::class, 'wpml_block_override' );
+		$prop->setValue( $instance, true );
+
+		$this->invokeRegisterBlockHooks( $instance );
+
+		$wbo = array_filter(
+			$actions,
+			fn( $a ) => $a['hook'] === 'init' && $a['callback'] === [ \Parisek\TimberKit\WpmlBlockOverride::class, 'register' ]
+		);
+		$this->assertNotEmpty( $wbo, 'flag on → WpmlBlockOverride::register() hooked on init' );
+	}
+
 	public function test_registers_clear_cache_on_options_save_at_priority_20(): void {
 		$actions = [];
 		Functions\when( 'add_action' )->alias( function ( $hook, $callback, $priority = 10, ...$rest ) use ( &$actions ) {

@@ -148,7 +148,18 @@ Runtime override of Copy field values in ACF Gutenberg blocks for WPML-multiling
 
 Solves the long-standing WPML problem where changing a Copy field (typically an image) in the source language never propagates to translated `post_content` without a manual ATE re-job. ACF configuration becomes the single source of truth for Copy fields — no DB writes, no admin UI, no drift.
 
-Wire from your theme's `functions.php`:
+Enable it with the `$wpml_block_override` flag on your `Base extends StarterBase` — opt-in (default off) because it changes rendered output. Set it before `parent::__construct()`:
+
+```php
+class Base extends StarterBase {
+    public function __construct() {
+        $this->wpml_block_override = true;
+        parent::__construct();
+    }
+}
+```
+
+StarterBase then hooks `WpmlBlockOverride::register()` on `init` when the flag is on. `register()` self-guards on WPML + ACF Pro, so it no-ops where they're absent. If you don't extend `StarterBase`, call it yourself:
 
 ```php
 add_action( 'init', static function (): void {

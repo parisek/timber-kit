@@ -199,6 +199,17 @@ class StarterBase extends Site {
 	protected bool $gutenberg_disable_core_patterns = true;
 
 	/**
+	 * Render-time Copy-field sync for ACF Gutenberg blocks under WPML/ACFML
+	 * ({@see WpmlBlockOverride}). Opt-in (default off): it changes rendered output
+	 * — a Copy field changed in the source language is mirrored into every
+	 * translation at render time — so projects enable it deliberately. No-ops
+	 * unless WPML + ACF Pro are active (verified inside `register()`).
+	 *
+	 * @var bool
+	 */
+	protected bool $wpml_block_override = false;
+
+	/**
 	 * Performance — replaces the standalone Speculation Rules plugin
 	 * (https://wordpress.org/plugins/speculation-rules/)
 	 */
@@ -345,6 +356,11 @@ class StarterBase extends Site {
 		add_filter( 'render_block_data', array( $this, 'render_block_data' ), 10, 3 );
 		add_filter( 'render_block', array( $this, 'render_block' ), 10, 2 );
 		add_filter( 'block_categories_all', array( $this, 'block_categories_all' ) );
+		if ( $this->wpml_block_override ) {
+			// Opt-in render-time Copy-field sync for ACF blocks under WPML.
+			// register() self-guards on WPML + ACF Pro, so it no-ops otherwise.
+			add_action( 'init', array( WpmlBlockOverride::class, 'register' ) );
+		}
 	}
 
 	/**
