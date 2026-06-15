@@ -1,0 +1,36 @@
+name: Release Please
+
+# Automated release pipeline driven by Conventional Commits.
+#
+# On every push to `main`, release-please inspects the commits since the last
+# release and maintains a standing "release PR" that:
+#   - computes the next SemVer version (feat → minor, fix → patch, `!` /
+#     BREAKING CHANGE → major),
+#   - regenerates the CHANGELOG section from the commit messages,
+#   - bumps `.release-please-manifest.json`.
+# Merging that PR creates the `vX.Y.Z` tag AND the GitHub Release in one step —
+# replacing the former manual `release-stamp.yml` + `release.yml` pair.
+#
+# The owner stays in control: nothing releases until the release PR is merged.
+#
+# Known limitation: the release PR is opened by GITHUB_TOKEN, so `tests.yml`
+# (on: pull_request) does NOT run on it. The PR only edits CHANGELOG + manifest,
+# and `main` was already green when its commits landed. To get CI on the release
+# PR, swap GITHUB_TOKEN for a PAT in the `token:` input.
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
