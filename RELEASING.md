@@ -111,7 +111,6 @@ All commit messages in this repo follow the [Conventional Commits](https://www.c
 | `fix` | **PATCH** | Bug fix in existing public behaviour |
 | `perf` | **PATCH** | Performance improvement, no behaviour change |
 | `refactor` | **PATCH** | Internal-only; if public API changes, use `feat` or `feat!` |
-| `deprecated` | **MINOR** | Marks public API as deprecated (adds new replacement) |
 | `docs` | **PATCH** | Doc-only, no code change |
 | `test` | **PATCH** | Test-only, no production-code change |
 | `chore` | **PATCH** | Build, tooling, CI — no src change |
@@ -120,6 +119,8 @@ All commit messages in this repo follow the [Conventional Commits](https://www.c
 **Breaking-change flag.** A `!` after the type (`feat!:`, `fix!:`) OR a `BREAKING CHANGE:` trailer in the commit footer both signal MAJOR, regardless of the type prefix.
 
 **One commit, one bump.** When a PR contains both a `feat` and a `fix`, the highest bump wins (MINOR in this case). Choose the bump that reflects the PR as a whole.
+
+**Deprecations use `feat`, not a `deprecated` type.** `deprecated` is not a Conventional Commits type and the PR-title lint (`.github/workflows/commitlint.yml`) rejects it. In this package a deprecation always ships alongside its additive replacement, so it is a `feat` (**MINOR**) — record the deprecation under `### Deprecated` in `CHANGELOG.md`. See § [Deprecation lifecycle](#deprecation-lifecycle).
 
 ### Examples
 
@@ -146,10 +147,10 @@ parameter name in their method signature.
 ```
 
 ```
-deprecated(media): $max_upload_width / $max_upload_height
+feat(media): deprecate $max_upload_width / $max_upload_height
 
 Use $big_image_size_threshold instead. Legacy pair still honoured via
-BC shim; will be removed in 2.0.
+BC shim; will be removed in 2.0. Logged under ### Deprecated in CHANGELOG.
 ```
 
 ---
@@ -207,9 +208,9 @@ Deprecated API stays in the package for **at least one MINOR version** before re
 ### Deprecating a property or method
 
 1. Add a `@deprecated since X.Y — use $replacement instead` docblock tag.
-2. If behaviour can be preserved, keep it working and add a `_doing_it_wrong()` or `trigger_error( E_USER_DEPRECATED )` call inside the deprecated code path — so callers see the warning in debug mode.
+2. Keep the old behaviour working (a BC shim). **Deprecation is docblock-only — do NOT add a runtime `trigger_error( E_USER_DEPRECATED )` / `_doing_it_wrong()` call** in any code path that runs during a normal WordPress request. Those paths emit JSON / headers (AJAX, REST, the block-render pipeline), and a stray notice corrupts the response and spams logs in production. A runtime notice is acceptable *only* in a path that is unambiguously CLI- or debug-only. This is doctrine — see [ADR 0004](docs/adr/0004-image-downscaling-via-core-threshold.md); `resize_uploaded_image()` was deprecated exactly this way in 1.11.0.
 3. Document the deprecation in `CHANGELOG.md` under `### Deprecated`.
-4. Release as **MINOR** (the replacement is additive).
+4. Commit as `feat` (see § Conventional Commits) and release as **MINOR** — the replacement is additive.
 
 Example pattern for a deprecated property:
 
