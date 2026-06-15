@@ -176,11 +176,40 @@ class StarterBase extends Site {
 	/** @var bool Sanitize uploaded filenames (remove diacritics, lowercase, normalize). */
 	protected bool $clean_image_filenames = true;
 
-	/** @var int Maximum width in pixels for uploaded images (0 to disable). */
-	protected int $max_upload_width = 2560;
+	/**
+	 * Maximum dimension in pixels for uploaded images, mirroring WordPress core's
+	 * `big_image_size_threshold` filter. When an uploaded image's longer edge
+	 * exceeds this, core downscales it on upload and serves a `-scaled` derivative.
+	 * `0` disables the cap. Default `2560` matches WP core's own default.
+	 *
+	 * This is the single canonical knob — set it instead of the deprecated
+	 * width/height pair below.
+	 *
+	 * @var int
+	 */
+	protected int $big_image_size_threshold = 2560;
 
-	/** @var int Maximum height in pixels for uploaded images (0 to disable). */
-	protected int $max_upload_height = 2560;
+	/**
+	 * Delete the full-resolution original WordPress preserves when it generates a
+	 * `-scaled` derivative, reclaiming disk space (the old imsanity behaviour).
+	 * `false` keeps the original (WP core default — recoverable, more storage).
+	 *
+	 * @var bool
+	 */
+	protected bool $delete_oversized_original = true;
+
+	/**
+	 * @deprecated Use {@see $big_image_size_threshold}. Honoured only when non-null;
+	 *             the larger of width/height becomes the (square) threshold.
+	 * @var int|null
+	 */
+	protected ?int $max_upload_width = null;
+
+	/**
+	 * @deprecated Use {@see $big_image_size_threshold}.
+	 * @var int|null
+	 */
+	protected ?int $max_upload_height = null;
 
 	/**
 	 * Gutenberg enhancements
@@ -444,8 +473,14 @@ class StarterBase extends Site {
 		if ( $this->clean_image_filenames ) {
 			add_filter( 'sanitize_file_name', array( $this, 'clean_uploaded_filename' ), 10, 1 );
 		}
-		if ( $this->max_upload_width > 0 || $this->max_upload_height > 0 ) {
-			add_filter( 'wp_handle_upload', array( $this, 'resize_uploaded_image' ), 10, 1 );
+		// Image downscaling — drive WordPress core's native big_image_size_threshold
+		// instead of resizing on wp_handle_upload (which fought core's own 2560 cap
+		// and missed non-media-library upload paths). See resize_uploaded_image() note.
+		if ( $this->big_image_size_threshold( 0 ) > 0 ) {
+			add_filter( 'big_image_size_threshold', array( $this, 'big_image_size_threshold' ), 10, 1 );
+			if ( $this->delete_oversized_original ) {
+				add_filter( 'wp_generate_attachment_metadata', array( $this, 'delete_oversized_original' ), 10, 2 );
+			}
 		}
 	}
 
@@ -3154,10 +3189,68 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Downscale uploaded images exceeding max_upload_width or max_upload_height.
+	 * Resolve the upload size cap for WordPress core's `big_image_size_threshold`.
+	 *
+	 * Reads the canonical {@see $big_image_size_threshold} property, falling back
+	 * to the deprecated {@see $max_upload_width} / {@see $max_upload_height} pair
+	 * (larger edge wins) for backward compatibility. Returns the incoming core
+	 * value when the cap is disabled (`0`), so core keeps its own default.
+	 *
+	 * Hooked to `big_image_size_threshold`.
+	 *
+	 * @param int $threshold Incoming threshold from WP core (default 2560).
+	 * @return int Effective threshold in pixels.
+	 */
+	public function big_image_size_threshold( $threshold ) {
+		$legacy = max( (int) $this->max_upload_width, (int) $this->max_upload_height );
+		if ( $legacy > 0 ) {
+			return $legacy;
+		}
+
+		return $this->big_image_size_threshold > 0 ? $this->big_image_size_threshold : $threshold;
+	}
+
+	/**
+	 * Delete the full-resolution original WordPress preserves when it downscales a
+	 * large upload into a `-scaled` derivative, and drop the now-dangling
+	 * `original_image` metadata pointer. Reclaims disk space (imsanity behaviour).
+	 *
+	 * Subsizes are generated from the `-scaled` image before this runs, so removing
+	 * the original is safe — only WP's "restore original image" feature is lost.
+	 *
+	 * Hooked to `wp_generate_attachment_metadata`.
+	 *
+	 * @param array<string, mixed> $metadata      Attachment metadata.
+	 * @param int                  $attachment_id Attachment ID (unused; required by filter signature).
+	 * @return array<string, mixed> Metadata with `original_image` removed when the original was deleted.
+	 */
+	public function delete_oversized_original( $metadata, $attachment_id ) {
+		if ( ! is_array( $metadata ) || empty( $metadata['original_image'] ) || empty( $metadata['file'] ) ) {
+			return $metadata;
+		}
+
+		$uploads = wp_get_upload_dir();
+		if ( empty( $uploads['basedir'] ) ) {
+			return $metadata;
+		}
+
+		$dir = trailingslashit( $uploads['basedir'] ) . trailingslashit( dirname( $metadata['file'] ) );
+		wp_delete_file( $dir . $metadata['original_image'] );
+		unset( $metadata['original_image'] );
+
+		return $metadata;
+	}
+
+	/**
+	 * Downscale uploaded images exceeding the configured maximum dimensions.
+	 *
+	 * @deprecated Image downscaling now drives WordPress core's native
+	 *             `big_image_size_threshold` (see {@see big_image_size_threshold()}),
+	 *             which avoids fighting core's own 2560 cap and covers every upload
+	 *             path. This method is no longer hooked and is kept only for
+	 *             backward compatibility with code that called it directly.
 	 *
 	 * Supports JPEG, PNG, GIF, and WebP. Replaces the imsanity plugin.
-	 * Hooked to `wp_handle_upload`.
 	 *
 	 * @param array $upload Upload data with 'file', 'url', and 'type' keys.
 	 * @return array Unmodified upload data (image is resized in place).
@@ -3179,7 +3272,13 @@ class StarterBase extends Site {
 
 		list( $width, $height ) = $image_size;
 
-		if ( $width <= $this->max_upload_width && $height <= $this->max_upload_height ) {
+		$max_width  = (int) $this->max_upload_width;
+		$max_height = (int) $this->max_upload_height;
+		if ( $max_width <= 0 && $max_height <= 0 ) {
+			return $upload;
+		}
+
+		if ( $width <= $max_width && $height <= $max_height ) {
 			return $upload;
 		}
 
@@ -3188,7 +3287,7 @@ class StarterBase extends Site {
 			return $upload;
 		}
 
-		$resized = $editor->resize( $this->max_upload_width, $this->max_upload_height );
+		$resized = $editor->resize( $max_width, $max_height );
 		if ( ! is_wp_error( $resized ) ) {
 			$editor->save( $upload['file'] );
 		}

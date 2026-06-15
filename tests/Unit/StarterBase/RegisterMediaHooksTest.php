@@ -83,7 +83,7 @@ class RegisterMediaHooksTest extends StarterBaseTestCase {
 		$this->assertNotContains( 'sanitize_file_name', $filters );
 	}
 
-	public function test_registers_wp_handle_upload_when_max_dimensions_set(): void {
+	public function test_registers_big_image_size_threshold_when_size_set(): void {
 		$filters = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
 			$filters[] = $hook;
@@ -92,15 +92,16 @@ class RegisterMediaHooksTest extends StarterBaseTestCase {
 
 		$instance = $this->bareInstance();
 		$this->setProperty( $instance, 'clean_image_filenames', false );
-		$this->setProperty( $instance, 'max_upload_width', 2560 );
-		$this->setProperty( $instance, 'max_upload_height', 2560 );
+		$this->setProperty( $instance, 'max_upload_width', null );
+		$this->setProperty( $instance, 'max_upload_height', null );
+		$this->setProperty( $instance, 'big_image_size_threshold', 2560 );
 
 		$this->invokeRegisterMediaHooks( $instance );
 
-		$this->assertContains( 'wp_handle_upload', $filters );
+		$this->assertContains( 'big_image_size_threshold', $filters );
 	}
 
-	public function test_skips_wp_handle_upload_when_max_dimensions_are_zero(): void {
+	public function test_registers_big_image_size_threshold_when_legacy_dimensions_set(): void {
 		$filters = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
 			$filters[] = $hook;
@@ -109,12 +110,67 @@ class RegisterMediaHooksTest extends StarterBaseTestCase {
 
 		$instance = $this->bareInstance();
 		$this->setProperty( $instance, 'clean_image_filenames', false );
-		$this->setProperty( $instance, 'max_upload_width', 0 );
-		$this->setProperty( $instance, 'max_upload_height', 0 );
+		$this->setProperty( $instance, 'max_upload_width', 4000 );
+		$this->setProperty( $instance, 'max_upload_height', 4000 );
+		$this->setProperty( $instance, 'big_image_size_threshold', 0 );
 
 		$this->invokeRegisterMediaHooks( $instance );
 
-		$this->assertNotContains( 'wp_handle_upload', $filters );
+		$this->assertContains( 'big_image_size_threshold', $filters );
+	}
+
+	public function test_skips_threshold_filter_when_size_is_zero(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'clean_image_filenames', false );
+		$this->setProperty( $instance, 'max_upload_width', null );
+		$this->setProperty( $instance, 'max_upload_height', null );
+		$this->setProperty( $instance, 'big_image_size_threshold', 0 );
+
+		$this->invokeRegisterMediaHooks( $instance );
+
+		$this->assertNotContains( 'big_image_size_threshold', $filters );
+		$this->assertNotContains( 'wp_generate_attachment_metadata', $filters );
+	}
+
+	public function test_registers_metadata_cleanup_when_delete_original_enabled(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'clean_image_filenames', false );
+		$this->setProperty( $instance, 'big_image_size_threshold', 2560 );
+		$this->setProperty( $instance, 'delete_oversized_original', true );
+
+		$this->invokeRegisterMediaHooks( $instance );
+
+		$this->assertContains( 'wp_generate_attachment_metadata', $filters );
+	}
+
+	public function test_skips_metadata_cleanup_when_delete_original_disabled(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'clean_image_filenames', false );
+		$this->setProperty( $instance, 'big_image_size_threshold', 2560 );
+		$this->setProperty( $instance, 'delete_oversized_original', false );
+
+		$this->invokeRegisterMediaHooks( $instance );
+
+		$this->assertContains( 'big_image_size_threshold', $filters );
+		$this->assertNotContains( 'wp_generate_attachment_metadata', $filters );
 	}
 
 	/**

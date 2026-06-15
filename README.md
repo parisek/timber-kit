@@ -312,8 +312,12 @@ Override these properties in your child constructor before calling `parent::__co
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `$clean_image_filenames` | bool | `true` | Sanitize uploaded filenames |
-| `$max_upload_width` | int | `2560` | Max upload image width (px) |
-| `$max_upload_height` | int | `2560` | Max upload image height (px) |
+| `$big_image_size_threshold` | int | `2560` | Max image dimension (px) for uploads. Drives WordPress core's native `big_image_size_threshold` filter — images whose longer edge exceeds it are downscaled by core on upload and served as a `-scaled` derivative. `0` disables. **This is the single canonical knob.** |
+| `$delete_oversized_original` | bool | `true` | Delete the full-resolution original WordPress preserves alongside the `-scaled` derivative, reclaiming disk space (the old imsanity behaviour). `false` keeps the original — WP core default, recoverable, more storage. |
+| `$max_upload_width` | ?int | `null` | **Deprecated** — use `$big_image_size_threshold`. Honoured only when non-null; the larger of width/height becomes the (square) threshold. |
+| `$max_upload_height` | ?int | `null` | **Deprecated** — use `$big_image_size_threshold`. |
+
+> **Why a single dimension, not width × height?** WordPress core's `big_image_size_threshold` is one number — it caps the longer edge and fits the image inside a square box (`resize($n, $n)`), exactly as the old in-theme resize did. Mirroring it with one property keeps the kit honest and lets downscaling run through core's pipeline, which (unlike the previous `wp_handle_upload` hook) doesn't fight core's own 2560 cap and covers **every** upload path (REST, WP-CLI, programmatic), not just the media library. The deprecated width/height pair is read for backward compatibility (larger edge wins) until removed in 2.0.
 
 ### Dev Media Proxy
 
