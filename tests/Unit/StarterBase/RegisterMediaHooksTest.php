@@ -83,7 +83,7 @@ class RegisterMediaHooksTest extends StarterBaseTestCase {
 		$this->assertNotContains( 'sanitize_file_name', $filters );
 	}
 
-	public function test_registers_big_image_size_threshold_when_size_set(): void {
+	public function test_registers_big_image_size_threshold_unconditionally(): void {
 		$filters = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
 			$filters[] = $hook;
@@ -98,47 +98,14 @@ class RegisterMediaHooksTest extends StarterBaseTestCase {
 
 		$this->invokeRegisterMediaHooks( $instance );
 
+		// Registered always — timber-kit is authoritative over the threshold; the
+		// callback returns 0 to disable scaling rather than the hook being skipped.
 		$this->assertContains( 'big_image_size_threshold', $filters );
 	}
 
-	public function test_registers_big_image_size_threshold_when_legacy_dimensions_set(): void {
-		$filters = [];
-		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
-			$filters[] = $hook;
-		} );
-		Functions\when( 'add_action' )->justReturn( true );
-
-		$instance = $this->bareInstance();
-		$this->setProperty( $instance, 'clean_image_filenames', false );
-		$this->setProperty( $instance, 'max_upload_width', 4000 );
-		$this->setProperty( $instance, 'max_upload_height', 4000 );
-		$this->setProperty( $instance, 'big_image_size_threshold', 0 );
-
-		$this->invokeRegisterMediaHooks( $instance );
-
-		$this->assertContains( 'big_image_size_threshold', $filters );
-	}
-
-	public function test_skips_threshold_filter_when_size_is_zero(): void {
-		$filters = [];
-		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
-			$filters[] = $hook;
-		} );
-		Functions\when( 'add_action' )->justReturn( true );
-
-		$instance = $this->bareInstance();
-		$this->setProperty( $instance, 'clean_image_filenames', false );
-		$this->setProperty( $instance, 'max_upload_width', null );
-		$this->setProperty( $instance, 'max_upload_height', null );
-		$this->setProperty( $instance, 'big_image_size_threshold', 0 );
-
-		$this->invokeRegisterMediaHooks( $instance );
-
-		$this->assertNotContains( 'big_image_size_threshold', $filters );
-		$this->assertNotContains( 'wp_generate_attachment_metadata', $filters );
-	}
-
-	public function test_registers_metadata_cleanup_when_delete_original_enabled(): void {
+	public function test_never_registers_on_upload_metadata_deletion(): void {
+		// Original deletion is a deferred WP-CLI sweep, never an on-upload hook —
+		// deleting on upload would degrade later thumbnail regeneration.
 		$filters = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
 			$filters[] = $hook;
@@ -148,28 +115,9 @@ class RegisterMediaHooksTest extends StarterBaseTestCase {
 		$instance = $this->bareInstance();
 		$this->setProperty( $instance, 'clean_image_filenames', false );
 		$this->setProperty( $instance, 'big_image_size_threshold', 2560 );
-		$this->setProperty( $instance, 'delete_oversized_original', true );
 
 		$this->invokeRegisterMediaHooks( $instance );
 
-		$this->assertContains( 'wp_generate_attachment_metadata', $filters );
-	}
-
-	public function test_skips_metadata_cleanup_when_delete_original_disabled(): void {
-		$filters = [];
-		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
-			$filters[] = $hook;
-		} );
-		Functions\when( 'add_action' )->justReturn( true );
-
-		$instance = $this->bareInstance();
-		$this->setProperty( $instance, 'clean_image_filenames', false );
-		$this->setProperty( $instance, 'big_image_size_threshold', 2560 );
-		$this->setProperty( $instance, 'delete_oversized_original', false );
-
-		$this->invokeRegisterMediaHooks( $instance );
-
-		$this->assertContains( 'big_image_size_threshold', $filters );
 		$this->assertNotContains( 'wp_generate_attachment_metadata', $filters );
 	}
 

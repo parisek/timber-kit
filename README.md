@@ -312,12 +312,25 @@ Override these properties in your child constructor before calling `parent::__co
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `$clean_image_filenames` | bool | `true` | Sanitize uploaded filenames |
-| `$big_image_size_threshold` | int | `2560` | Max image dimension (px) for uploads. Drives WordPress core's native `big_image_size_threshold` filter — images whose longer edge exceeds it are downscaled by core on upload and served as a `-scaled` derivative. `0` disables. **This is the single canonical knob.** |
-| `$delete_oversized_original` | bool | `true` | Delete the full-resolution original WordPress preserves alongside the `-scaled` derivative, reclaiming disk space (the old imsanity behaviour). `false` keeps the original — WP core default, recoverable, more storage. |
-| `$max_upload_width` | ?int | `null` | **Deprecated** — use `$big_image_size_threshold`. Honoured only when non-null; the larger of width/height becomes the (square) threshold. |
+| `$big_image_size_threshold` | int | `2560` | Max image dimension (px) for uploads. Drives WordPress core's native `big_image_size_threshold` filter — images whose longer edge exceeds it are downscaled by core on upload and served as a `-scaled` derivative. `0` disables scaling entirely. **This is the single canonical knob.** |
+| `$max_upload_width` | ?int | `null` | **Deprecated** — use `$big_image_size_threshold`. Honoured only when non-null; the larger of width/height becomes the (square) threshold (explicit `0` disables, preserving the legacy contract). |
 | `$max_upload_height` | ?int | `null` | **Deprecated** — use `$big_image_size_threshold`. |
 
-> **Why a single dimension, not width × height?** WordPress core's `big_image_size_threshold` is one number — it caps the longer edge and fits the image inside a square box (`resize($n, $n)`), exactly as the old in-theme resize did. Mirroring it with one property keeps the kit honest and lets downscaling run through core's pipeline, which (unlike the previous `wp_handle_upload` hook) doesn't fight core's own 2560 cap and covers **every** upload path (REST, WP-CLI, programmatic), not just the media library. The deprecated width/height pair is read for backward compatibility (larger edge wins) until removed in 2.0.
+> **Why a single dimension, not width × height?** WordPress core's `big_image_size_threshold` is one number — it caps the longer edge and fits the image inside a square box (`resize($n, $n)`), exactly as the old in-theme resize did. Mirroring it with one property keeps the kit honest and lets downscaling run through core's pipeline, which (unlike the previous `wp_handle_upload` hook) doesn't fight core's own 2560 cap and covers **every** upload path (REST, WP-CLI, programmatic), not just the media library. The filter is registered **unconditionally and is authoritative** — timber-kit owns the threshold across the fleet, overriding any other plugin's `big_image_size_threshold` filter. The deprecated width/height pair is read for backward compatibility (larger edge wins) until removed in 2.0.
+
+#### Reclaiming disk space from preserved originals
+
+When core downscales an upload it **keeps the full-resolution original** on disk (the `original_image` / "Restore original image" mechanism). timber-kit deliberately does **not** delete it on upload: WordPress regenerates every thumbnail sub-size from the *original* (for best quality), so deleting it on upload would silently degrade any later regeneration — a new crop size, retina variant, or `wp media regenerate` — to double-compressed output sourced from the `-scaled` file.
+
+Instead, reclaim space with a deliberate, opt-in sweep once the redesign window (when new crop sizes are likely added) has passed:
+
+```bash
+wp timber-kit prune-originals --dry-run            # report reclaimable space, delete nothing
+wp timber-kit prune-originals --older-than=30      # prune originals of uploads older than 30 days
+wp timber-kit prune-originals --limit=500          # cap the batch
+```
+
+The command only prunes genuine size-driven `-scaled` downscales — it leaves originals preserved for EXIF rotation or format conversion untouched, and never strips the `original_image` pointer unless the file was actually deleted. The trade-off it makes permanent: future regeneration of those images falls back to the `-scaled` file. See `\Parisek\TimberKit\OriginalImagePruner`.
 
 ### Dev Media Proxy
 

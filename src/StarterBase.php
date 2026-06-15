@@ -190,15 +190,6 @@ class StarterBase extends Site {
 	protected int $big_image_size_threshold = 2560;
 
 	/**
-	 * Delete the full-resolution original WordPress preserves when it generates a
-	 * `-scaled` derivative, reclaiming disk space (the old imsanity behaviour).
-	 * `false` keeps the original (WP core default — recoverable, more storage).
-	 *
-	 * @var bool
-	 */
-	protected bool $delete_oversized_original = true;
-
-	/**
 	 * @deprecated Use {@see $big_image_size_threshold}. Honoured only when non-null;
 	 *             the larger of width/height becomes the (square) threshold.
 	 * @var int|null
@@ -324,6 +315,7 @@ class StarterBase extends Site {
 
 		$this->setup_dev_media_proxy();
 		$this->setup_wpforms_config_bridge();
+		$this->registerCliCommands();
 
 		parent::__construct();
 	}
@@ -344,6 +336,23 @@ class StarterBase extends Site {
 	private function resolveThemeName(): string {
 		$theme = wp_get_theme();
 		return $theme->get( 'TextDomain' );
+	}
+
+	/**
+	 * Register WP-CLI commands (no-op outside a WP-CLI context).
+	 *
+	 * `timber-kit prune-originals` reclaims disk space from preserved `-scaled`
+	 * originals — a deliberate opt-in sweep, never an on-upload hook. See
+	 * {@see \Parisek\TimberKit\OriginalImagePruner}.
+	 *
+	 * @return void
+	 */
+	private function registerCliCommands(): void {
+		if ( ! class_exists( '\WP_CLI' ) ) {
+			return;
+		}
+
+		\WP_CLI::add_command( 'timber-kit prune-originals', \Parisek\TimberKit\Cli\PruneOriginalsCommand::class );
 	}
 
 	/**
@@ -475,13 +484,10 @@ class StarterBase extends Site {
 		}
 		// Image downscaling — drive WordPress core's native big_image_size_threshold
 		// instead of resizing on wp_handle_upload (which fought core's own 2560 cap
-		// and missed non-media-library upload paths). See resize_uploaded_image() note.
-		if ( $this->big_image_size_threshold( 0 ) > 0 ) {
-			add_filter( 'big_image_size_threshold', array( $this, 'big_image_size_threshold' ), 10, 1 );
-			if ( $this->delete_oversized_original ) {
-				add_filter( 'wp_generate_attachment_metadata', array( $this, 'delete_oversized_original' ), 10, 2 );
-			}
-		}
+		// and missed non-media-library upload paths). Registered unconditionally:
+		// timber-kit is authoritative over the threshold across the fleet, and the
+		// callback returns 0 to disable core scaling entirely. See the callback note.
+		add_filter( 'big_image_size_threshold', array( $this, 'big_image_size_threshold' ), 10, 1 );
 	}
 
 	/**
@@ -3196,49 +3202,24 @@ class StarterBase extends Site {
 	 * (larger edge wins) for backward compatibility. Returns the incoming core
 	 * value when the cap is disabled (`0`), so core keeps its own default.
 	 *
+	 * Returning `0` disables core scaling entirely (no `-scaled` derivative, no
+	 * separately-preserved original). This is **authoritative** — registered
+	 * unconditionally, so it overrides any other plugin's `big_image_size_threshold`
+	 * filter. That is deliberate: timber-kit owns the threshold across the fleet.
+	 *
 	 * Hooked to `big_image_size_threshold`.
 	 *
-	 * @param int $threshold Incoming threshold from WP core (default 2560).
-	 * @return int Effective threshold in pixels.
+	 * @param int $threshold Incoming threshold from WP core / earlier filters (ignored — see note).
+	 * @return int Effective threshold in pixels; `0` disables scaling.
 	 */
 	public function big_image_size_threshold( $threshold ) {
-		$legacy = max( (int) $this->max_upload_width, (int) $this->max_upload_height );
-		if ( $legacy > 0 ) {
-			return $legacy;
+		// Deprecated width/height pair wins when EITHER is explicitly set (non-null),
+		// including 0 — which preserves the legacy "both 0 disables resizing" contract.
+		if ( null !== $this->max_upload_width || null !== $this->max_upload_height ) {
+			return max( (int) $this->max_upload_width, (int) $this->max_upload_height );
 		}
 
-		return $this->big_image_size_threshold > 0 ? $this->big_image_size_threshold : $threshold;
-	}
-
-	/**
-	 * Delete the full-resolution original WordPress preserves when it downscales a
-	 * large upload into a `-scaled` derivative, and drop the now-dangling
-	 * `original_image` metadata pointer. Reclaims disk space (imsanity behaviour).
-	 *
-	 * Subsizes are generated from the `-scaled` image before this runs, so removing
-	 * the original is safe — only WP's "restore original image" feature is lost.
-	 *
-	 * Hooked to `wp_generate_attachment_metadata`.
-	 *
-	 * @param array<string, mixed> $metadata      Attachment metadata.
-	 * @param int                  $attachment_id Attachment ID (unused; required by filter signature).
-	 * @return array<string, mixed> Metadata with `original_image` removed when the original was deleted.
-	 */
-	public function delete_oversized_original( $metadata, $attachment_id ) {
-		if ( ! is_array( $metadata ) || empty( $metadata['original_image'] ) || empty( $metadata['file'] ) ) {
-			return $metadata;
-		}
-
-		$uploads = wp_get_upload_dir();
-		if ( empty( $uploads['basedir'] ) ) {
-			return $metadata;
-		}
-
-		$dir = trailingslashit( $uploads['basedir'] ) . trailingslashit( dirname( $metadata['file'] ) );
-		wp_delete_file( $dir . $metadata['original_image'] );
-		unset( $metadata['original_image'] );
-
-		return $metadata;
+		return $this->big_image_size_threshold;
 	}
 
 	/**
