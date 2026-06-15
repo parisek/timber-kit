@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`StarterBase::$big_image_size_threshold` property (int, default `2560`)** — the single canonical max-dimension knob for upload downscaling, registered **unconditionally** on WordPress core's native `big_image_size_threshold` filter. `0` disables scaling entirely; any positive value is the longer-edge threshold core fits the image inside. Default matches WP core's own default, so projects that set nothing see no change. The filter is **authoritative** — it overrides any other plugin's `big_image_size_threshold` filter (deliberate: timber-kit owns the threshold across the fleet).
+- **`Parisek\TimberKit\OriginalImagePruner` + `wp timber-kit prune-originals` WP-CLI command** — opt-in, deliberate sweep to reclaim disk space from the full-resolution originals WordPress preserves alongside `-scaled` derivatives. Supports `--dry-run`, `--older-than=<days>`, `--limit=<n>`. Crucially it is **not** an on-upload hook: WordPress regenerates thumbnail sub-sizes from the *original* (for best quality — `wp_create_image_subsizes()`), so on-upload deletion would silently degrade any later regeneration (new crop size, retina, `wp media regenerate`) to double-compressed output. The deferred sweep leaves a window for high-quality regeneration and is run per-site on purpose. The pruner guards on the `-scaled` suffix — the only deterministic signal of a *size-driven* downscale — so it never deletes originals WordPress preserved for EXIF rotation (`-rotated`) or format conversion, and never strips the `original_image` metadata pointer unless the file was actually deleted. (Research-backed: WP-core docs + Trac #47873 confirm subsizes regenerate from the original.)
+
+### Changed
+
+- **Image downscaling now drives WordPress core's native `big_image_size_threshold` instead of resizing on `wp_handle_upload`.** The previous in-theme resize (`resize_uploaded_image()` hooked to `wp_handle_upload`) shrank the original file in place — but ran *before* core's `wp_create_image_subsizes()`, so core's own `big_image_size_threshold` (default **2560**) then re-capped the served `-scaled` derivative. The net effect: a downstream `Base` setting `max_upload_width/height = 4000` saw uploads silently capped at 2560 on the front end, and any upload path that bypasses `wp_handle_upload` (REST, WP-CLI, programmatic `media_handle_sideload`) was never downscaled at all. `StarterBase` now registers `big_image_size_threshold()` on the core filter of the same name, so core performs the single, authoritative downscale across **every** upload path. Found in `pm-a` (client reported `4000` not honoured in production).
+
+### Deprecated
+
+- **`StarterBase::$max_upload_width` / `$max_upload_height`** — superseded by the single `$big_image_size_threshold`, mirroring the fact that WP core's threshold is one number (a square box), not an independent width × height. Both retyped to `?int` (default `null` = unset); when either is non-null it is still honoured for backward compatibility (the larger of the two becomes the threshold; explicit `0` disables, preserving the legacy "both 0 = off" contract), so existing downstream `Base` classes keep working unchanged. Scheduled for removal in 2.0.
+- **`StarterBase::resize_uploaded_image()`** — no longer hooked (core handles downscaling now). Kept and made null-safe for any code that called it directly; will be removed in 2.0. Deprecation is docblock-only — no runtime `trigger_error`, which in a WP request would spam logs and corrupt AJAX/REST responses.
+
 ## [1.10.0] - 2026-06-10
 
 ### Added

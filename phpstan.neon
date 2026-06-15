@@ -14,6 +14,13 @@ parameters:
         - '#Offset .relative. does not exist on array#'
         - '#Access to an undefined property Timber\\Term::#'
         - '#Call to static method .* on an unknown class Timber#'
+        # WP-CLI is a separate package, not in the WordPress stubs (cf. Timber above).
+        - '#Call to static method .* on an unknown class WP_CLI#'
+        # wp_get_attachment_metadata stub shape omits original_image; presence is
+        # guarded by `! empty( $metadata['original_image'] )` before the unset.
+        -
+            message: '#Cannot unset offset .original_image.#'
+            path: src/OriginalImagePruner.php
         - '#expects (GdImage|resource), (resource|GdImage|\(GdImage\|false\)) given#'
         - '#should return resource but returns#'
         - '#Function icl_\w+ not found#'

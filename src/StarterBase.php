@@ -176,11 +176,31 @@ class StarterBase extends Site {
 	/** @var bool Sanitize uploaded filenames (remove diacritics, lowercase, normalize). */
 	protected bool $clean_image_filenames = true;
 
-	/** @var int Maximum width in pixels for uploaded images (0 to disable). */
-	protected int $max_upload_width = 2560;
+	/**
+	 * Maximum dimension in pixels for uploaded images, mirroring WordPress core's
+	 * `big_image_size_threshold` filter. When an uploaded image's longer edge
+	 * exceeds this, core downscales it on upload and serves a `-scaled` derivative.
+	 * `0` disables the cap. Default `2560` matches WP core's own default.
+	 *
+	 * This is the single canonical knob — set it instead of the deprecated
+	 * width/height pair below.
+	 *
+	 * @var int
+	 */
+	protected int $big_image_size_threshold = 2560;
 
-	/** @var int Maximum height in pixels for uploaded images (0 to disable). */
-	protected int $max_upload_height = 2560;
+	/**
+	 * @deprecated Use {@see $big_image_size_threshold}. Honoured only when non-null;
+	 *             the larger of width/height becomes the (square) threshold.
+	 * @var int|null
+	 */
+	protected ?int $max_upload_width = null;
+
+	/**
+	 * @deprecated Use {@see $big_image_size_threshold}.
+	 * @var int|null
+	 */
+	protected ?int $max_upload_height = null;
 
 	/**
 	 * Gutenberg enhancements
@@ -295,6 +315,7 @@ class StarterBase extends Site {
 
 		$this->setup_dev_media_proxy();
 		$this->setup_wpforms_config_bridge();
+		$this->registerCliCommands();
 
 		parent::__construct();
 	}
@@ -315,6 +336,23 @@ class StarterBase extends Site {
 	private function resolveThemeName(): string {
 		$theme = wp_get_theme();
 		return $theme->get( 'TextDomain' );
+	}
+
+	/**
+	 * Register WP-CLI commands (no-op outside a WP-CLI context).
+	 *
+	 * `timber-kit prune-originals` reclaims disk space from preserved `-scaled`
+	 * originals — a deliberate opt-in sweep, never an on-upload hook. See
+	 * {@see \Parisek\TimberKit\OriginalImagePruner}.
+	 *
+	 * @return void
+	 */
+	private function registerCliCommands(): void {
+		if ( ! class_exists( '\WP_CLI' ) ) {
+			return;
+		}
+
+		\WP_CLI::add_command( 'timber-kit prune-originals', \Parisek\TimberKit\Cli\PruneOriginalsCommand::class );
 	}
 
 	/**
@@ -444,9 +482,12 @@ class StarterBase extends Site {
 		if ( $this->clean_image_filenames ) {
 			add_filter( 'sanitize_file_name', array( $this, 'clean_uploaded_filename' ), 10, 1 );
 		}
-		if ( $this->max_upload_width > 0 || $this->max_upload_height > 0 ) {
-			add_filter( 'wp_handle_upload', array( $this, 'resize_uploaded_image' ), 10, 1 );
-		}
+		// Image downscaling — drive WordPress core's native big_image_size_threshold
+		// instead of resizing on wp_handle_upload (which fought core's own 2560 cap
+		// and missed non-media-library upload paths). Registered unconditionally:
+		// timber-kit is authoritative over the threshold across the fleet, and the
+		// callback returns 0 to disable core scaling entirely. See the callback note.
+		add_filter( 'big_image_size_threshold', array( $this, 'big_image_size_threshold' ), 10, 1 );
 	}
 
 	/**
@@ -3154,10 +3195,43 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Downscale uploaded images exceeding max_upload_width or max_upload_height.
+	 * Resolve the upload size cap for WordPress core's `big_image_size_threshold`.
+	 *
+	 * Reads the canonical {@see $big_image_size_threshold} property, falling back
+	 * to the deprecated {@see $max_upload_width} / {@see $max_upload_height} pair
+	 * (larger edge wins) for backward compatibility. The incoming `$threshold`
+	 * argument is intentionally ignored — see the authoritative note below.
+	 *
+	 * Returning `0` disables core scaling entirely (no `-scaled` derivative, no
+	 * separately-preserved original). This is **authoritative** — registered
+	 * unconditionally, so it overrides any other plugin's `big_image_size_threshold`
+	 * filter. That is deliberate: timber-kit owns the threshold across the fleet.
+	 *
+	 * Hooked to `big_image_size_threshold`.
+	 *
+	 * @param int $threshold Incoming threshold from WP core / earlier filters (ignored — see note).
+	 * @return int Effective threshold in pixels; `0` disables scaling.
+	 */
+	public function big_image_size_threshold( $threshold ) {
+		// Deprecated width/height pair wins when EITHER is explicitly set (non-null),
+		// including 0 — which preserves the legacy "both 0 disables resizing" contract.
+		if ( null !== $this->max_upload_width || null !== $this->max_upload_height ) {
+			return max( (int) $this->max_upload_width, (int) $this->max_upload_height );
+		}
+
+		return $this->big_image_size_threshold;
+	}
+
+	/**
+	 * Downscale uploaded images exceeding the configured maximum dimensions.
+	 *
+	 * @deprecated Image downscaling now drives WordPress core's native
+	 *             `big_image_size_threshold` (see {@see big_image_size_threshold()}),
+	 *             which avoids fighting core's own 2560 cap and covers every upload
+	 *             path. This method is no longer hooked and is kept only for
+	 *             backward compatibility with code that called it directly.
 	 *
 	 * Supports JPEG, PNG, GIF, and WebP. Replaces the imsanity plugin.
-	 * Hooked to `wp_handle_upload`.
 	 *
 	 * @param array $upload Upload data with 'file', 'url', and 'type' keys.
 	 * @return array Unmodified upload data (image is resized in place).
@@ -3179,7 +3253,13 @@ class StarterBase extends Site {
 
 		list( $width, $height ) = $image_size;
 
-		if ( $width <= $this->max_upload_width && $height <= $this->max_upload_height ) {
+		$max_width  = (int) $this->max_upload_width;
+		$max_height = (int) $this->max_upload_height;
+		if ( $max_width <= 0 && $max_height <= 0 ) {
+			return $upload;
+		}
+
+		if ( $width <= $max_width && $height <= $max_height ) {
 			return $upload;
 		}
 
@@ -3188,7 +3268,7 @@ class StarterBase extends Site {
 			return $upload;
 		}
 
-		$resized = $editor->resize( $this->max_upload_width, $this->max_upload_height );
+		$resized = $editor->resize( $max_width, $max_height );
 		if ( ! is_wp_error( $resized ) ) {
 			$editor->save( $upload['file'] );
 		}
