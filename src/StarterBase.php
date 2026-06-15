@@ -3199,8 +3199,8 @@ class StarterBase extends Site {
 	 *
 	 * Reads the canonical {@see $big_image_size_threshold} property, falling back
 	 * to the deprecated {@see $max_upload_width} / {@see $max_upload_height} pair
-	 * (larger edge wins) for backward compatibility. Returns the incoming core
-	 * value when the cap is disabled (`0`), so core keeps its own default.
+	 * (larger edge wins) for backward compatibility. The incoming `$threshold`
+	 * argument is intentionally ignored — see the authoritative note below.
 	 *
 	 * Returning `0` disables core scaling entirely (no `-scaled` derivative, no
 	 * separately-preserved original). This is **authoritative** — registered

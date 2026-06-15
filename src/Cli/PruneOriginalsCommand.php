@@ -38,10 +38,14 @@ class PruneOriginalsCommand {
 	 * [--limit=<n>]
 	 * : Stop after processing this many candidate attachments. Default: all.
 	 *
+	 * [--verbose]
+	 * : Log a per-attachment line (ID + status) for auditing a large run.
+	 *
 	 * ## EXAMPLES
 	 *
 	 *     wp timber-kit prune-originals --dry-run
 	 *     wp timber-kit prune-originals --older-than=30
+	 *     wp timber-kit prune-originals --older-than=30 --verbose
 	 *
 	 * @param array<int, string>    $args       Positional args (unused).
 	 * @param array<string, string> $assoc_args Associative args.
@@ -49,6 +53,7 @@ class PruneOriginalsCommand {
 	 */
 	public function __invoke( $args, $assoc_args ) {
 		$dry_run    = isset( $assoc_args['dry-run'] );
+		$verbose    = isset( $assoc_args['verbose'] );
 		$older_than = isset( $assoc_args['older-than'] ) ? max( 0, (int) $assoc_args['older-than'] ) : 0;
 		$limit      = isset( $assoc_args['limit'] ) ? max( 0, (int) $assoc_args['limit'] ) : 0;
 
@@ -92,6 +97,10 @@ class PruneOriginalsCommand {
 				++$seen;
 
 				$result = $pruner->prune( (int) $id, $dry_run );
+
+				if ( $verbose ) {
+					\WP_CLI::log( sprintf( '#%d: %s (%d bytes)', $id, $result['status'], $result['bytes'] ) );
+				}
 
 				switch ( $result['status'] ) {
 					case 'deleted':
