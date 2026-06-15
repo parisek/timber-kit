@@ -203,6 +203,29 @@ class StarterBase extends Site {
 	protected ?int $max_upload_height = null;
 
 	/**
+	 * Opt-in allowlist of image sub-size slugs to generate on upload.
+	 *
+	 * When `null` (the default), all sizes registered by WordPress core and
+	 * plugins are generated — identical to WP's out-of-the-box behaviour.
+	 *
+	 * When set to a string array, only the listed slugs survive the
+	 * `intermediate_image_sizes_advanced` filter. Every other registered size
+	 * (including WordPress 5.3+ sizes `1536x1536` and `2048x2048`) is silently
+	 * dropped for new uploads.
+	 *
+	 * Built-in WordPress slugs for reference:
+	 *   `thumbnail`, `medium`, `medium_large`, `large`, `1536x1536`, `2048x2048`
+	 *
+	 * Example — keep only the three sizes the project's Twig templates actually use:
+	 * ```php
+	 * $this->enabled_image_sizes = ['thumbnail', 'medium', 'large'];
+	 * ```
+	 *
+	 * @var string[]|null
+	 */
+	protected ?array $enabled_image_sizes = null;
+
+	/**
 	 * Gutenberg enhancements
 	 */
 
@@ -488,6 +511,11 @@ class StarterBase extends Site {
 		// timber-kit is authoritative over the threshold across the fleet, and the
 		// callback returns 0 to disable core scaling entirely. See the callback note.
 		add_filter( 'big_image_size_threshold', array( $this, 'big_image_size_threshold' ), 10, 1 );
+		// Image sub-size allowlist — opt-in. When null (default) all registered sizes
+		// are generated (WP core behaviour). When set, only the listed slugs survive.
+		if ( null !== $this->enabled_image_sizes ) {
+			add_filter( 'intermediate_image_sizes_advanced', array( $this, 'filter_image_sizes' ), 10, 3 );
+		}
 	}
 
 	/**
@@ -3220,6 +3248,32 @@ class StarterBase extends Site {
 		}
 
 		return $this->big_image_size_threshold;
+	}
+
+	/**
+	 * Remove any registered sub-size slugs not present in {@see $enabled_image_sizes}.
+	 *
+	 * When `$enabled_image_sizes` is `null` (the default), this method is never
+	 * hooked and the filter is never called — all registered sizes are generated,
+	 * preserving WordPress's out-of-the-box behaviour.
+	 *
+	 * When an allowlist is set, sizes absent from the list (e.g. WordPress 5.3+
+	 * `1536x1536` and `2048x2048`) are dropped before `wp_create_image_subsizes()`
+	 * generates derivatives for the newly uploaded file.
+	 *
+	 * Hooked to `intermediate_image_sizes_advanced`.
+	 *
+	 * @param array<string, array<string, mixed>> $sizes         Registered sizes keyed by slug.
+	 * @param array<string, mixed>                $image_meta    Full image metadata.
+	 * @param int                                 $attachment_id Attachment post ID.
+	 * @return array<string, array<string, mixed>> Filtered sizes.
+	 */
+	public function filter_image_sizes( array $sizes, array $image_meta, int $attachment_id ): array {
+		if ( null === $this->enabled_image_sizes ) {
+			return $sizes;
+		}
+
+		return array_intersect_key( $sizes, array_flip( $this->enabled_image_sizes ) );
 	}
 
 	/**

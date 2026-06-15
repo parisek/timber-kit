@@ -121,6 +121,40 @@ class RegisterMediaHooksTest extends StarterBaseTestCase {
 		$this->assertNotContains( 'wp_generate_attachment_metadata', $filters );
 	}
 
+	public function test_registers_intermediate_image_sizes_when_allowlist_set(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'clean_image_filenames', false );
+		$this->setProperty( $instance, 'big_image_size_threshold', 2560 );
+		$this->setProperty( $instance, 'enabled_image_sizes', [ 'thumbnail', 'medium', 'large' ] );
+
+		$this->invokeRegisterMediaHooks( $instance );
+
+		$this->assertContains( 'intermediate_image_sizes_advanced', $filters );
+	}
+
+	public function test_skips_intermediate_image_sizes_when_allowlist_is_null(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'clean_image_filenames', false );
+		$this->setProperty( $instance, 'big_image_size_threshold', 2560 );
+		$this->setProperty( $instance, 'enabled_image_sizes', null );
+
+		$this->invokeRegisterMediaHooks( $instance );
+
+		$this->assertNotContains( 'intermediate_image_sizes_advanced', $filters );
+	}
+
 	/**
 	 * Helper to set a protected/private property on a bare instance.
 	 */

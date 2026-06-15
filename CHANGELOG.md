@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`StarterBase::$enabled_image_sizes` property (`string[]|null`, default `null`)** — opt-in allowlist of image sub-size slugs to generate on upload, hooked to `intermediate_image_sizes_advanced`. When `null` (the default) all registered sizes are generated — identical to WordPress's out-of-the-box behaviour. When set, only the listed slugs survive; any other registered size (including WordPress 5.3+ `1536x1536` and `2048x2048`) is silently dropped. Useful for cutting disk usage and upload time on projects whose Twig templates use only a subset of the standard sizes. Built-in WP slugs for reference: `thumbnail`, `medium`, `medium_large`, `large`, `1536x1536`, `2048x2048`. Affects new uploads only — `wp media regenerate` is needed to apply the allowlist to existing images.
+
 ## [1.11.0] - 2026-06-15
 
 ### Added
