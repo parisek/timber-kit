@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-06-15
+
 ### Added
 
 - **`StarterBase::$big_image_size_threshold` property (int, default `2560`)** — the single canonical max-dimension knob for upload downscaling, registered **unconditionally** on WordPress core's native `big_image_size_threshold` filter. `0` disables scaling entirely; any positive value is the longer-edge threshold core fits the image inside. Default matches WP core's own default, so projects that set nothing see no change. The filter is **authoritative** — it overrides any other plugin's `big_image_size_threshold` filter (deliberate: timber-kit owns the threshold across the fleet).
