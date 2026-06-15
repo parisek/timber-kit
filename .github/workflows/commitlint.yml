@@ -1,0 +1,37 @@
+name: Lint PR Title
+
+# Enforces Conventional Commits on the PR title. PRs are squash-merged with the
+# PR title as the commit subject, so the title is what the release scheme
+# (RELEASING.md → bump mapping) actually reads — linting it keeps `feat`/`fix`/
+# `feat!` reliable. Same-repo PRs only, so plain `pull_request` (no secrets) is
+# enough; no untrusted code is checked out.
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  conventional-pr-title:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          # Allowed types — mirror RELEASING.md's bump table.
+          types: |
+            feat
+            fix
+            docs
+            chore
+            refactor
+            perf
+            test
+            ci
+            build
+            revert
+          # Scope is optional (both `feat(media):` and `feat:` are accepted).
+          requireScope: false
