@@ -216,17 +216,27 @@ class StarterBase extends Site {
 	protected bool $gutenberg_editor_styles = true;
 
 	/**
-	 * ACF options page configuration. Override `menu_slug` and/or `page_title` in
-	 * a subclass — the admin-bar "Theme Settings" link uses the same values, so
-	 * they always stay in sync. Each key falls back to the default below when a
-	 * subclass provides only some of them.
+	 * Canonical defaults for the ACF options page. graphql_field_name is kept
+	 * INDEPENDENT of menu_slug: slugs may contain hyphens (invalid in GraphQL
+	 * field names) and the released default has always been 'settings'.
 	 *
 	 * @var array<string, string>
 	 */
-	protected array $options_page = [
-		'menu_slug'  => 'settings',
-		'page_title' => 'Theme Settings',
+	private const OPTIONS_PAGE_DEFAULTS = [
+		'menu_slug'          => 'settings',
+		'page_title'         => 'Theme Settings',
+		'graphql_field_name' => 'settings',
 	];
+
+	/**
+	 * ACF options page overrides. Set any of menu_slug / page_title /
+	 * graphql_field_name in a subclass; unset keys fall back to
+	 * {@see OPTIONS_PAGE_DEFAULTS}. The admin-bar "Theme Settings" link uses the
+	 * same slug + title, so they always stay in sync.
+	 *
+	 * @var array<string, string>
+	 */
+	protected array $options_page = [];
 
 	/**
 	 * Enqueue the resizable Gutenberg editor sidebar (admin/js|css/
@@ -1743,6 +1753,28 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * Options page config = overrides merged over the defaults (so a partial
+	 * override keeps the other defaults).
+	 *
+	 * @return array<string, string>
+	 */
+	private function options_page_config(): array {
+		return array_merge( self::OPTIONS_PAGE_DEFAULTS, $this->options_page );
+	}
+
+	/**
+	 * Options page title. The default literal is wrapped in __() so xgettext/WP
+	 * makepot can extract it; a custom title is returned verbatim (the consumer
+	 * is responsible for translating its own string).
+	 *
+	 * @return string
+	 */
+	private function options_page_title(): string {
+		$title = $this->options_page_config()['page_title'];
+		return 'Theme Settings' === $title ? __( 'Theme Settings', $this->theme_name ) : $title;
+	}
+
+	/**
 	 * Register the ACF "Theme Settings" options page.
 	 *
 	 * Hooked to `acf/init`.
@@ -1752,17 +1784,17 @@ class StarterBase extends Site {
 	public function acf_options_page() {
 		if ( function_exists( 'acf_add_options_page' ) ) {
 
-			$slug  = $this->options_page['menu_slug'] ?? 'settings';
-			$title = __( $this->options_page['page_title'] ?? 'Theme Settings', $this->theme_name );
+			$config = $this->options_page_config();
+			$title  = $this->options_page_title();
 
 			acf_add_options_page( [
 				'page_title' => $title,
 				'menu_title' => $title,
-				'menu_slug' => $slug,
+				'menu_slug' => $config['menu_slug'],
 				'capability' => 'edit_posts',
 				'icon_url' => 'dashicons-admin-generic',
 				'redirect' => false,
-				'graphql_field_name' => $slug,
+				'graphql_field_name' => $config['graphql_field_name'],
 				'show_in_graphql' => false
 			] );
 		}
@@ -1780,9 +1812,9 @@ class StarterBase extends Site {
 	public function admin_bar_menu( $wp_admin_bar ) {
 		$wp_admin_bar->add_node( [
 			'parent' => 'site-name',
-			'id' => 'theme-settings',
-			'title' => __( $this->options_page['page_title'] ?? 'Theme Settings', $this->theme_name ),
-			'href' => admin_url( 'admin.php?page=' . ( $this->options_page['menu_slug'] ?? 'settings' ) ),
+			'id'     => 'theme-settings',
+			'title'  => $this->options_page_title(),
+			'href'   => add_query_arg( 'page', $this->options_page_config()['menu_slug'], admin_url( 'admin.php' ) ),
 		] );
 	}
 
