@@ -215,6 +215,29 @@ class StarterBase extends Site {
 	/** @var bool Enable editor styles and enqueue gutenberg-editor.css. */
 	protected bool $gutenberg_editor_styles = true;
 
+	/**
+	 * Slug of the ACF options page. Used for BOTH the registered options-page
+	 * menu_slug AND the admin-bar "Theme Settings" link, so they always agree.
+	 * Override when the theme registers its options page under a different slug
+	 * (otherwise the admin-bar link 404s).
+	 */
+	protected string $options_page_slug = 'settings';
+
+	/**
+	 * Enqueue the resizable Gutenberg editor sidebar (admin/js|css/
+	 * gutenberg-resizable-sidebar.*). Set false on themes that don't ship those
+	 * files, to skip the enqueue (and the asset-version lookups on missing files).
+	 */
+	protected bool $admin_resizable_sidebar = true;
+
+	/**
+	 * Auto-populate $context['breadcrumb'] with a Parisek\TimberKit\Breadcrumb on
+	 * every request. Set false when the theme builds breadcrumbs itself (or doesn't
+	 * use them) to skip the work. The legacy `! class_exists('\Breadcrumb')` guard
+	 * still applies on top of this flag.
+	 */
+	protected bool $autopopulate_breadcrumb = true;
+
 	/** @var bool Remove core block patterns from the inserter. */
 	protected bool $gutenberg_disable_core_patterns = true;
 
@@ -778,7 +801,7 @@ class StarterBase extends Site {
 		// Skipping when legacy class exists avoids double computation — the
 		// project's Base::timber_context() overrides $context['breadcrumb']
 		// later anyway via its own `new \Breadcrumb()` call.
-		if ( ! class_exists( '\Breadcrumb' ) ) {
+		if ( $this->autopopulate_breadcrumb && ! class_exists( '\Breadcrumb' ) ) {
 			$bc = new Breadcrumb( [
 				'menu_name'             => $this->breadcrumb_menu_name,
 				'list_page_map'         => $this->breadcrumb_list_page_map,
@@ -1338,8 +1361,10 @@ class StarterBase extends Site {
 
 		// Based on https://wordpress.org/plugins/resizable-editor-sidebar/ plugin
 		// But without advertising and with custom styles
-		wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/js/gutenberg-resizable-sidebar.js', [ 'jquery-ui-resizable' ], filemtime( wp_normalize_path( get_template_directory() . '/admin/js/gutenberg-resizable-sidebar.js' ) ), true );
-		wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/css/gutenberg-resizable-sidebar.css', [], filemtime( wp_normalize_path( get_template_directory() . '/admin/css/gutenberg-resizable-sidebar.css' ) ) );
+		if ( $this->admin_resizable_sidebar ) {
+			wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/js/gutenberg-resizable-sidebar.js', [ 'jquery-ui-resizable' ], filemtime( wp_normalize_path( get_template_directory() . '/admin/js/gutenberg-resizable-sidebar.js' ) ), true );
+			wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/css/gutenberg-resizable-sidebar.css', [], filemtime( wp_normalize_path( get_template_directory() . '/admin/css/gutenberg-resizable-sidebar.css' ) ) );
+		}
 	}
 
 	/**
@@ -1725,7 +1750,7 @@ class StarterBase extends Site {
 			acf_add_options_page( [
 				'page_title' => __( 'Theme Settings', $this->theme_name ),
 				'menu_title' => __( 'Theme Settings', $this->theme_name ),
-				'menu_slug' => 'settings',
+				'menu_slug' => $this->options_page_slug,
 				'capability' => 'edit_posts',
 				'icon_url' => 'dashicons-admin-generic',
 				'redirect' => false,
@@ -1749,7 +1774,7 @@ class StarterBase extends Site {
 			'parent' => 'site-name',
 			'id' => 'theme-settings',
 			'title' => __( 'Theme Settings', $this->theme_name ),
-			'href' => admin_url( 'admin.php?page=settings' ),
+			'href' => admin_url( 'admin.php?page=' . $this->options_page_slug ),
 		] );
 	}
 
