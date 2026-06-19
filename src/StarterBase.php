@@ -215,6 +215,15 @@ class StarterBase extends Site {
 	/** @var bool Enable editor styles and enqueue gutenberg-editor.css. */
 	protected bool $gutenberg_editor_styles = true;
 
+	/**
+	 * Enqueue the theme JS as an ES module — correct for a Vite/ESM build (the
+	 * default). Set false for a classic webpack IIFE bundle: loading an IIFE as
+	 * type="module" changes execution mode (deferred + module scope + strict) and
+	 * breaks it. When false the bundle is enqueued as a classic deferred script
+	 * instead (wp_enqueue_script with strategy=defer).
+	 */
+	protected bool $module_scripts = true;
+
 	/** @var bool Remove core block patterns from the inserter. */
 	protected bool $gutenberg_disable_core_patterns = true;
 
@@ -1267,6 +1276,20 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * Cache-busting version for a theme asset: its mtime, or null when the file is
+	 * absent. A not-yet-built or intentionally-unbuilt file then degrades to an
+	 * unversioned enqueue instead of emitting a PHP "No such file or directory"
+	 * warning from the native filemtime call.
+	 *
+	 * @param string $path Absolute filesystem path (already prefixed with get_template_directory()).
+	 * @return int|null
+	 */
+	protected function assetVersion( string $path ): ?int {
+		$normalized = wp_normalize_path( $path );
+		return is_file( $normalized ) ? filemtime( $normalized ) : null;
+	}
+
+	/**
 	 * Enqueue frontend CSS and JS assets, dequeue jQuery, remove WPML block styles.
 	 *
 	 * Hooked to `enqueue_block_assets`.
@@ -1278,17 +1301,23 @@ class StarterBase extends Site {
 		foreach ( $this->font_stylesheets as $name => $path ) {
 			$full_path = get_template_directory() . '/static/' . $path;
 			if ( file_exists( $full_path ) ) {
-				wp_enqueue_style( $this->theme_name . '-' . $name, get_template_directory_uri() . '/static/' . $path, [], filemtime( wp_normalize_path( $full_path ) ) );
+				wp_enqueue_style( $this->theme_name . '-' . $name, get_template_directory_uri() . '/static/' . $path, [], $this->assetVersion( $full_path ) );
 			}
 		}
 
 		if ( ! is_admin() ) {
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.css', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/css/style.css' ) ) );
+				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.css', [], $this->assetVersion( get_template_directory() . '/static/dist/css/style.css' ) );
 			} else {
-				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.min.css', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/css/style.min.css' ) ) );
+				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.min.css', [], $this->assetVersion( get_template_directory() . '/static/dist/css/style.min.css' ) );
 			}
-			wp_enqueue_script_module( $this->theme_name, get_template_directory_uri() . '/static/dist/js/script.js', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/js/script.js' ) ) );
+			$script_url = get_template_directory_uri() . '/static/dist/js/script.js';
+			$script_ver = $this->assetVersion( get_template_directory() . '/static/dist/js/script.js' );
+			if ( $this->module_scripts ) {
+				wp_enqueue_script_module( $this->theme_name, $script_url, [], $script_ver );
+			} else {
+				wp_enqueue_script( $this->theme_name, $script_url, [], $script_ver, [ 'strategy' => 'defer', 'in_footer' => true ] );
+			}
 
 			wp_dequeue_script( 'jquery' );
 
@@ -1338,8 +1367,8 @@ class StarterBase extends Site {
 
 		// Based on https://wordpress.org/plugins/resizable-editor-sidebar/ plugin
 		// But without advertising and with custom styles
-		wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/js/gutenberg-resizable-sidebar.js', [ 'jquery-ui-resizable' ], filemtime( wp_normalize_path( get_template_directory() . '/admin/js/gutenberg-resizable-sidebar.js' ) ), true );
-		wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/css/gutenberg-resizable-sidebar.css', [], filemtime( wp_normalize_path( get_template_directory() . '/admin/css/gutenberg-resizable-sidebar.css' ) ) );
+		wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/js/gutenberg-resizable-sidebar.js', [ 'jquery-ui-resizable' ], $this->assetVersion( get_template_directory() . '/admin/js/gutenberg-resizable-sidebar.js' ), true );
+		wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/css/gutenberg-resizable-sidebar.css', [], $this->assetVersion( get_template_directory() . '/admin/css/gutenberg-resizable-sidebar.css' ) );
 	}
 
 	/**
@@ -1350,8 +1379,14 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	public function enqueue_block_editor_assets() {
-		wp_enqueue_style( $this->theme_name . '-gutenberg-editor', get_template_directory_uri() . '/static/dist/css/gutenberg-editor.css', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/css/gutenberg-editor.css' ) ) );
-		wp_enqueue_script_module( $this->theme_name, get_template_directory_uri() . '/static/dist/js/script.js', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/js/script.js' ) ) );
+		wp_enqueue_style( $this->theme_name . '-gutenberg-editor', get_template_directory_uri() . '/static/dist/css/gutenberg-editor.css', [], $this->assetVersion( get_template_directory() . '/static/dist/css/gutenberg-editor.css' ) );
+		$script_url = get_template_directory_uri() . '/static/dist/js/script.js';
+		$script_ver = $this->assetVersion( get_template_directory() . '/static/dist/js/script.js' );
+		if ( $this->module_scripts ) {
+			wp_enqueue_script_module( $this->theme_name, $script_url, [], $script_ver );
+		} else {
+			wp_enqueue_script( $this->theme_name, $script_url, [], $script_ver, [ 'strategy' => 'defer', 'in_footer' => true ] );
+		}
 	}
 
 	/**
@@ -1393,7 +1428,7 @@ class StarterBase extends Site {
 				// safely composes with any `?…` already present in $path.
 				$url = add_query_arg(
 					'ver',
-					filemtime( wp_normalize_path( $abs_path ) ),
+					$this->assetVersion( $abs_path ),
 					get_template_directory_uri() . '/static/' . $path
 				);
 			}
