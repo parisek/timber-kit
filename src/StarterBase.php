@@ -216,12 +216,17 @@ class StarterBase extends Site {
 	protected bool $gutenberg_editor_styles = true;
 
 	/**
-	 * Slug of the ACF options page. Used for BOTH the registered options-page
-	 * menu_slug AND the admin-bar "Theme Settings" link, so they always agree.
-	 * Override when the theme registers its options page under a different slug
-	 * (otherwise the admin-bar link 404s).
+	 * ACF options page configuration. Override `menu_slug` and/or `page_title` in
+	 * a subclass — the admin-bar "Theme Settings" link uses the same values, so
+	 * they always stay in sync. Each key falls back to the default below when a
+	 * subclass provides only some of them.
+	 *
+	 * @var array<string, string>
 	 */
-	protected string $options_page_slug = 'settings';
+	protected array $options_page = [
+		'menu_slug'  => 'settings',
+		'page_title' => 'Theme Settings',
+	];
 
 	/**
 	 * Enqueue the resizable Gutenberg editor sidebar (admin/js|css/
@@ -1747,14 +1752,17 @@ class StarterBase extends Site {
 	public function acf_options_page() {
 		if ( function_exists( 'acf_add_options_page' ) ) {
 
+			$slug  = $this->options_page['menu_slug'] ?? 'settings';
+			$title = __( $this->options_page['page_title'] ?? 'Theme Settings', $this->theme_name );
+
 			acf_add_options_page( [
-				'page_title' => __( 'Theme Settings', $this->theme_name ),
-				'menu_title' => __( 'Theme Settings', $this->theme_name ),
-				'menu_slug' => $this->options_page_slug,
+				'page_title' => $title,
+				'menu_title' => $title,
+				'menu_slug' => $slug,
 				'capability' => 'edit_posts',
 				'icon_url' => 'dashicons-admin-generic',
 				'redirect' => false,
-				'graphql_field_name' => 'settings',
+				'graphql_field_name' => $slug,
 				'show_in_graphql' => false
 			] );
 		}
@@ -1773,8 +1781,8 @@ class StarterBase extends Site {
 		$wp_admin_bar->add_node( [
 			'parent' => 'site-name',
 			'id' => 'theme-settings',
-			'title' => __( 'Theme Settings', $this->theme_name ),
-			'href' => admin_url( 'admin.php?page=' . $this->options_page_slug ),
+			'title' => __( $this->options_page['page_title'] ?? 'Theme Settings', $this->theme_name ),
+			'href' => admin_url( 'admin.php?page=' . ( $this->options_page['menu_slug'] ?? 'settings' ) ),
 		] );
 	}
 
