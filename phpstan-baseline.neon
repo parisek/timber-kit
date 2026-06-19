@@ -655,24 +655,6 @@ parameters:
 			path: src/StarterBase.php
 
 		-
-			message: '#^Parameter \#1 \$domain of function load_theme_textdomain expects string, string\|false given\.$#'
-			identifier: argument.type
-			count: 1
-			path: src/StarterBase.php
-
-		-
-			message: '#^Parameter \#1 \$handle of function wp_enqueue_style expects string, string\|false given\.$#'
-			identifier: argument.type
-			count: 2
-			path: src/StarterBase.php
-
-		-
-			message: '#^Parameter \#1 \$id of function wp_enqueue_script_module expects string, string\|false given\.$#'
-			identifier: argument.type
-			count: 2
-			path: src/StarterBase.php
-
-		-
 			message: '#^Parameter \#1 \$string of function trim expects string, string\|null given\.$#'
 			identifier: argument.type
 			count: 1
@@ -685,31 +667,7 @@ parameters:
 			path: src/StarterBase.php
 
 		-
-			message: '#^Parameter \#2 \$domain of function __ expects string, string\|false given\.$#'
-			identifier: argument.type
-			count: 9
-			path: src/StarterBase.php
-
-		-
 			message: '#^Parameter \#3 \$subject of function preg_replace expects array\<float\|int\|string\>\|string, string\|null given\.$#'
-			identifier: argument.type
-			count: 2
-			path: src/StarterBase.php
-
-		-
-			message: '#^Parameter \#4 \$ver of function wp_enqueue_script expects bool\|string\|null, int\<0, max\>\|false given\.$#'
-			identifier: argument.type
-			count: 1
-			path: src/StarterBase.php
-
-		-
-			message: '#^Parameter \#4 \$ver of function wp_enqueue_style expects bool\|string\|null, int\<0, max\>\|false given\.$#'
-			identifier: argument.type
-			count: 5
-			path: src/StarterBase.php
-
-		-
-			message: '#^Parameter \#4 \$version of function wp_enqueue_script_module expects string\|false\|null, int\<0, max\>\|false given\.$#'
 			identifier: argument.type
 			count: 2
 			path: src/StarterBase.php

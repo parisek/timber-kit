@@ -34,8 +34,8 @@ use Parisek\TimberKit\BlockRenderer;
  */
 class StarterBase extends Site {
 
-	/** @var string|false Theme text domain, set from wp_get_theme(). */
-	public $theme_name;
+	/** @var string Theme text domain, set from wp_get_theme() (empty string if unset). */
+	public string $theme_name = '';
 
 	/**
 	 * Configurable properties — override in child constructor before calling parent::__construct()
@@ -344,7 +344,8 @@ class StarterBase extends Site {
 	 */
 	private function resolveThemeName(): string {
 		$theme = wp_get_theme();
-		return $theme->get( 'TextDomain' );
+		$name  = $theme->get( 'TextDomain' );
+		return is_string( $name ) ? $name : '';
 	}
 
 	/**
@@ -1281,12 +1282,19 @@ class StarterBase extends Site {
 	 * unversioned enqueue instead of emitting a PHP "No such file or directory"
 	 * warning from the native filemtime call.
 	 *
+	 * Returned as a string (the form WordPress' $ver / $version enqueue arguments
+	 * accept) so a present file versions cleanly and an absent one yields null.
+	 *
 	 * @param string $path Absolute filesystem path (already prefixed with get_template_directory()).
-	 * @return int|null
+	 * @return string|null
 	 */
-	protected function assetVersion( string $path ): ?int {
+	protected function assetVersion( string $path ): ?string {
 		$normalized = wp_normalize_path( $path );
-		return is_file( $normalized ) ? filemtime( $normalized ) : null;
+		if ( ! is_file( $normalized ) ) {
+			return null;
+		}
+		$mtime = filemtime( $normalized );
+		return false !== $mtime ? (string) $mtime : null;
 	}
 
 	/**
