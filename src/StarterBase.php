@@ -35,7 +35,7 @@ use Parisek\TimberKit\BlockRenderer;
 class StarterBase extends Site {
 
 	/** @var string Theme text domain, set from wp_get_theme() (empty string if unset). */
-	public string $theme_name = '';
+	public $theme_name;
 
 	/**
 	 * Configurable properties — override in child constructor before calling parent::__construct()
@@ -216,13 +216,18 @@ class StarterBase extends Site {
 	protected bool $gutenberg_editor_styles = true;
 
 	/**
-	 * Enqueue the theme JS as an ES module — correct for a Vite/ESM build (the
-	 * default). Set false for a classic webpack IIFE bundle: loading an IIFE as
-	 * type="module" changes execution mode (deferred + module scope + strict) and
-	 * breaks it. When false the bundle is enqueued as a classic deferred script
-	 * instead (wp_enqueue_script with strategy=defer).
+	 * How the theme JS bundle (static/dist/js/script.js) is enqueued:
+	 *
+	 * - 'module' (default) — wp_enqueue_script_module(), correct for a Vite/ESM
+	 *   build.
+	 * - 'defer'            — classic wp_enqueue_script() with strategy=defer, for a
+	 *   webpack IIFE bundle (loading an IIFE as type="module" changes execution
+	 *   mode and breaks it).
+	 *
+	 * Subclasses needing finer control (dependencies, async, a different handle)
+	 * can override {@see enqueueThemeScript()} instead.
 	 */
-	protected bool $module_scripts = true;
+	protected string $theme_script_strategy = 'module';
 
 	/** @var bool Remove core block patterns from the inserter. */
 	protected bool $gutenberg_disable_core_patterns = true;
@@ -1298,6 +1303,27 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * Enqueue the theme JS bundle, honouring {@see $theme_script_strategy}.
+	 *
+	 * Single source of truth for the front end (assets()) and the block editor
+	 * (enqueue_block_editor_assets()). Override in a subclass that needs
+	 * dependencies, async, a different handle, or per-context behaviour.
+	 *
+	 * @return void
+	 */
+	protected function enqueueThemeScript(): void {
+		$src = get_template_directory_uri() . '/static/dist/js/script.js';
+		$ver = $this->assetVersion( get_template_directory() . '/static/dist/js/script.js' );
+
+		if ( 'module' === $this->theme_script_strategy ) {
+			wp_enqueue_script_module( $this->theme_name, $src, [], $ver );
+			return;
+		}
+
+		wp_enqueue_script( $this->theme_name, $src, [], $ver, [ 'strategy' => 'defer', 'in_footer' => true ] );
+	}
+
+	/**
 	 * Enqueue frontend CSS and JS assets, dequeue jQuery, remove WPML block styles.
 	 *
 	 * Hooked to `enqueue_block_assets`.
@@ -1319,13 +1345,7 @@ class StarterBase extends Site {
 			} else {
 				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.min.css', [], $this->assetVersion( get_template_directory() . '/static/dist/css/style.min.css' ) );
 			}
-			$script_url = get_template_directory_uri() . '/static/dist/js/script.js';
-			$script_ver = $this->assetVersion( get_template_directory() . '/static/dist/js/script.js' );
-			if ( $this->module_scripts ) {
-				wp_enqueue_script_module( $this->theme_name, $script_url, [], $script_ver );
-			} else {
-				wp_enqueue_script( $this->theme_name, $script_url, [], $script_ver, [ 'strategy' => 'defer', 'in_footer' => true ] );
-			}
+			$this->enqueueThemeScript();
 
 			wp_dequeue_script( 'jquery' );
 
@@ -1388,13 +1408,7 @@ class StarterBase extends Site {
 	 */
 	public function enqueue_block_editor_assets() {
 		wp_enqueue_style( $this->theme_name . '-gutenberg-editor', get_template_directory_uri() . '/static/dist/css/gutenberg-editor.css', [], $this->assetVersion( get_template_directory() . '/static/dist/css/gutenberg-editor.css' ) );
-		$script_url = get_template_directory_uri() . '/static/dist/js/script.js';
-		$script_ver = $this->assetVersion( get_template_directory() . '/static/dist/js/script.js' );
-		if ( $this->module_scripts ) {
-			wp_enqueue_script_module( $this->theme_name, $script_url, [], $script_ver );
-		} else {
-			wp_enqueue_script( $this->theme_name, $script_url, [], $script_ver, [ 'strategy' => 'defer', 'in_footer' => true ] );
-		}
+		$this->enqueueThemeScript();
 	}
 
 	/**
