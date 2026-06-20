@@ -216,6 +216,51 @@ class StarterBase extends Site {
 	protected bool $gutenberg_editor_styles = true;
 
 	/**
+	 * ACF options pages. Each entry must define `menu_slug` and `page_title`
+	 * (required); optional per-entry keys are `parent_slug`, `capability`,
+	 * `icon_url`, and `admin_bar`. An entry with a 'parent_slug' is registered as
+	 * a sub-page (acf_add_options_sub_page) under that parent; otherwise it is a
+	 * top-level page (acf_add_options_page). `icon_url` is only used for top-level
+	 * pages (sub-pages do not take an icon); defaults to `'dashicons-admin-generic'`
+	 * when not set. A 'parent_slug' must reference a top-level page in the same
+	 * list (top-level pages are always registered first, so order within the list
+	 * does not matter). `capability` sets the WordPress capability required to
+	 * access that page; defaults to `edit_posts` when not set. `admin_bar` (bool,
+	 * default off) adds an admin-bar shortcut to this page; set it on any entry —
+	 * including sub-pages — to surface a direct link under the site name. Multiple
+	 * entries may carry `admin_bar => true` and each gets its own node. Override
+	 * the whole list in a subclass, e.g.:
+	 *   $this->options_pages = [
+	 *     ['menu_slug'=>'settings','page_title'=>'Theme Settings','admin_bar'=>true],
+	 *     ['menu_slug'=>'footer','page_title'=>'Footer','parent_slug'=>'settings'],
+	 *     ['menu_slug'=>'dev','page_title'=>'Dev Settings','capability'=>'manage_options'],
+	 *   ];
+	 *
+	 * Set to an empty array (`$this->options_pages = [];`) to register NO options
+	 * pages at all — disables the feature entirely (no ACF page, no admin-bar link).
+	 *
+	 * @var array<int, array<string, mixed>>
+	 */
+	protected array $options_pages = [
+		[ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings', 'admin_bar' => true ],
+	];
+
+	/**
+	 * Enqueue the resizable Gutenberg editor sidebar (admin/js|css/
+	 * gutenberg-resizable-sidebar.*). Set false on themes that don't ship those
+	 * files, to skip the enqueue (and the asset-version lookups on missing files).
+	 */
+	protected bool $admin_resizable_sidebar = true;
+
+	/**
+	 * Auto-populate $context['breadcrumb'] with a Parisek\TimberKit\Breadcrumb on
+	 * every request. Set false when the theme builds breadcrumbs itself (or doesn't
+	 * use them) to skip the work. The legacy `! class_exists('\Breadcrumb')` guard
+	 * still applies on top of this flag.
+	 */
+	protected bool $autopopulate_breadcrumb = true;
+
+	/**
 	 * How the theme JS bundle (static/dist/js/script.js) is enqueued:
 	 *
 	 * - 'module' (default) — wp_enqueue_script_module(), correct for a Vite/ESM
@@ -793,7 +838,7 @@ class StarterBase extends Site {
 		// Skipping when legacy class exists avoids double computation — the
 		// project's Base::timber_context() overrides $context['breadcrumb']
 		// later anyway via its own `new \Breadcrumb()` call.
-		if ( ! class_exists( '\Breadcrumb' ) ) {
+		if ( $this->autopopulate_breadcrumb && ! class_exists( '\Breadcrumb' ) ) {
 			$bc = new Breadcrumb( [
 				'menu_name'             => $this->breadcrumb_menu_name,
 				'list_page_map'         => $this->breadcrumb_list_page_map,
@@ -1395,8 +1440,10 @@ class StarterBase extends Site {
 
 		// Based on https://wordpress.org/plugins/resizable-editor-sidebar/ plugin
 		// But without advertising and with custom styles
-		wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/js/gutenberg-resizable-sidebar.js', [ 'jquery-ui-resizable' ], $this->assetVersion( get_template_directory() . '/admin/js/gutenberg-resizable-sidebar.js' ), true );
-		wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/css/gutenberg-resizable-sidebar.css', [], $this->assetVersion( get_template_directory() . '/admin/css/gutenberg-resizable-sidebar.css' ) );
+		if ( $this->admin_resizable_sidebar ) {
+			wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/js/gutenberg-resizable-sidebar.js', [ 'jquery-ui-resizable' ], $this->assetVersion( get_template_directory() . '/admin/js/gutenberg-resizable-sidebar.js' ), true );
+			wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/css/gutenberg-resizable-sidebar.css', [], $this->assetVersion( get_template_directory() . '/admin/css/gutenberg-resizable-sidebar.css' ) );
+		}
 	}
 
 	/**
@@ -1770,31 +1817,75 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Register the ACF "Theme Settings" options page.
+	 * Options page title: the default literal is wrapped in __() so it stays
+	 * extractable; a custom title is returned verbatim (consumer owns its i18n).
+	 *
+	 * @param string $title
+	 * @return string
+	 */
+	/**
+	 * Register the ACF "Theme Settings" options page(s).
 	 *
 	 * Hooked to `acf/init`.
 	 *
 	 * @return void
 	 */
 	public function acf_options_page() {
-		if ( function_exists( 'acf_add_options_page' ) ) {
+		if ( ! function_exists( 'acf_add_options_page' ) ) {
+			return;
+		}
 
-			acf_add_options_page( [
-				'page_title' => __( 'Theme Settings', $this->theme_name ),
-				'menu_title' => __( 'Theme Settings', $this->theme_name ),
-				'menu_slug' => 'settings',
-				'capability' => 'edit_posts',
-				'icon_url' => 'dashicons-admin-generic',
-				'redirect' => false,
-				'graphql_field_name' => 'settings',
-				'show_in_graphql' => false
-			] );
+		// Register top-level pages first so a sub-page's parent is always present
+		// by the time the child is registered, regardless of list order.
+		foreach ( $this->options_pages as $page ) {
+			if ( ! isset( $page['parent_slug'] ) ) {
+				$this->register_options_page( $page );
+			}
+		}
+
+		if ( function_exists( 'acf_add_options_sub_page' ) ) {
+			foreach ( $this->options_pages as $page ) {
+				if ( isset( $page['parent_slug'] ) ) {
+					$this->register_options_page( $page );
+				}
+			}
 		}
 	}
 
+	/**
+	 * Register a single ACF options page (top-level) or sub-page (when the entry
+	 * carries a parent_slug).
+	 *
+	 * @param array<string, string> $page An entry from $this->options_pages.
+	 * @return void
+	 */
+	private function register_options_page( array $page ): void {
+		// Title used verbatim — translation is the consumer's job (cf. $breadcrumb_labels).
+		$args = [
+			'page_title'      => $page['page_title'],
+			'menu_title'      => $page['page_title'],
+			'menu_slug'       => $page['menu_slug'],
+			'capability'      => $page['capability'] ?? 'edit_posts',
+			'redirect'        => false,
+			'show_in_graphql' => false,
+		];
+
+		if ( isset( $page['parent_slug'] ) ) {
+			$args['parent_slug'] = $page['parent_slug'];
+			acf_add_options_sub_page( $args );
+		} else {
+			$args['icon_url'] = $page['icon_url'] ?? 'dashicons-admin-generic';
+			acf_add_options_page( $args );
+		}
+	}
 
 	/**
-	 * Add "Theme Settings" link under the site name in the admin toolbar.
+	 * Add options-page shortcuts under the site name in the admin toolbar.
+	 *
+	 * Iterates $options_pages and adds one node for every entry whose `admin_bar`
+	 * key is truthy. Works for both top-level and sub-pages (each has its own
+	 * `?page=<slug>` URL). Multiple pages may be marked, each gets a unique node
+	 * id derived from its menu_slug.
 	 *
 	 * Hooked to `admin_bar_menu`.
 	 *
@@ -1802,12 +1893,18 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	public function admin_bar_menu( $wp_admin_bar ) {
-		$wp_admin_bar->add_node( [
-			'parent' => 'site-name',
-			'id' => 'theme-settings',
-			'title' => __( 'Theme Settings', $this->theme_name ),
-			'href' => admin_url( 'admin.php?page=settings' ),
-		] );
+		foreach ( $this->options_pages as $page ) {
+			if ( empty( $page['admin_bar'] ) ) {
+				continue;
+			}
+
+			$wp_admin_bar->add_node( [
+				'parent' => 'site-name',
+				'id'     => 'theme-settings-' . $page['menu_slug'],
+				'title'  => $page['page_title'],
+				'href'   => add_query_arg( 'page', $page['menu_slug'], admin_url( 'admin.php' ) ),
+			] );
+		}
 	}
 
 	/**

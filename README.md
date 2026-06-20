@@ -275,6 +275,25 @@ class Base extends StarterBase {
 
 Override these properties in your child constructor before calling `parent::__construct()`:
 
+### Internationalisation
+
+timber-kit treats configurable labels and titles (e.g. `$breadcrumb_labels`, `$options_pages[*]['page_title']`) as **plain values used verbatim** — it never wraps them in `__()`. Translating them is the consuming theme's responsibility.
+
+**Why not in the library:** these are assigned in the child `__construct()` (before `parent::__construct()`), which runs on `setup_theme` — *before* `init` and before the text domain is loaded. Calling `__()` there is too early: it returns the string untranslated, and WordPress 6.7+ raises a *"Translation loading triggered too early"* `_doing_it_wrong` notice. Wrapping a dynamic config value in `__()` at use time also defeats string extraction — `xgettext`/`makepot` can't read a variable.
+
+**Localise at `init`, with static string literals.** Where a config surface has a dedicated setup hook, override it — e.g. `setup_breadcrumb_labels()` (hooked to `init`):
+
+```php
+public function setup_breadcrumb_labels() {
+    $this->breadcrumb_labels = [
+        'home' => _x( 'Home', 'breadcrumb', 'my-theme' ),
+        // …
+    ];
+}
+```
+
+For an admin label without a dedicated setup hook (e.g. an options-page `page_title`), set the value to your already-localised string, or leave the English default.
+
 ### Theme
 
 | Property | Type | Default | Description |
@@ -401,6 +420,28 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 | `$gutenberg_responsive_embeds` | bool | `true` | Responsive video embeds |
 | `$gutenberg_editor_styles` | bool | `true` | Load editor stylesheet |
 | `$gutenberg_disable_core_patterns` | bool | `true` | Remove core block patterns |
+| `$admin_resizable_sidebar` | bool | `true` | Enqueue the resizable editor sidebar (`admin/*/gutenberg-resizable-sidebar.*`). Set `false` on themes that don't ship those assets |
+
+### Options Pages
+
+`$options_pages` declares the ACF options page(s). Each entry requires `menu_slug` + `page_title`; optional per-entry keys are `parent_slug` (sub-page), `capability` (default `edit_posts`), `icon_url` (top-level pages only, default `dashicons-admin-generic`), and `admin_bar` (bool, default off — add an admin-bar shortcut to this page; any number of entries may carry this key, including sub-pages).
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `$options_pages` | array | one "Theme Settings" page | List of ACF options pages. `parent_slug` => sub-page; `admin_bar => true` => add admin-bar link for this entry; `[]` disables the feature entirely (no page, no admin-bar link). The default "Theme Settings" entry has `admin_bar => true` |
+
+```php
+// one top-level page with an admin-bar shortcut + two sub-pages under it
+$this->options_pages = [
+    [ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings', 'admin_bar' => true ],
+    [ 'menu_slug' => 'footer', 'page_title' => 'Footer', 'parent_slug' => 'settings' ],
+    [ 'menu_slug' => 'social', 'page_title' => 'Social', 'parent_slug' => 'settings' ],
+    [ 'menu_slug' => 'dev', 'page_title' => 'Dev Settings', 'capability' => 'manage_options' ],
+];
+
+// disable completely
+$this->options_pages = [];
+```
 
 ### Breadcrumbs
 
@@ -413,6 +454,7 @@ Breadcrumb data (`$context['breadcrumb']`) is auto-populated by `StarterBase::ti
 | `$breadcrumb_list_page_map` | `array<string, string>` | `[]` | Post type → ACF option key for "listing page" injection between Home and a single post of that type. Example: `['post' => 'article_list']` injects `links.article_list` (from the ACF Global Options Page) as the parent crumb on every single `post`. |
 | `$breadcrumb_menu_trail_post_types` | `?array` | `null` | Post types eligible for menu-trail. `null` = auto-detect via `is_post_type_hierarchical()`. Pass an explicit list to opt-in / opt-out specific CPTs regardless of hierarchy. |
 | `$breadcrumb_include_pagination` | `bool` | `false` | Append a `"Page N"` item on paginated archive views. Off by default — opt in per project. |
+| `$autopopulate_breadcrumb` | bool | `true` | Auto-populate `$context['breadcrumb']`. Set `false` if the theme builds breadcrumbs itself |
 
 #### Localising labels — override `setup_breadcrumb_labels()`, not `__construct()`
 
