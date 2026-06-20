@@ -217,14 +217,16 @@ class StarterBase extends Site {
 
 	/**
 	 * ACF options pages. Each entry must define `menu_slug` and `page_title`
-	 * (required); optional per-entry keys are `parent_slug` and `capability`.
-	 * An entry with a 'parent_slug' is registered as a sub-page
+	 * (required); optional per-entry keys are `parent_slug`, `capability`, and
+	 * `icon_url`. An entry with a 'parent_slug' is registered as a sub-page
 	 * (acf_add_options_sub_page) under that parent; otherwise it is a top-level
-	 * page (acf_add_options_page). A 'parent_slug' must reference a top-level page
-	 * in the same list (top-level pages are always registered first, so order within
-	 * the list does not matter). The first top-level page is the admin-bar "Theme
-	 * Settings" target. `capability` sets the WordPress capability required to access
-	 * that page; defaults to `edit_posts` when not set. Override the whole list in a
+	 * page (acf_add_options_page). `icon_url` is only used for top-level pages
+	 * (sub-pages do not take an icon); defaults to `'dashicons-admin-generic'` when
+	 * not set. A 'parent_slug' must reference a top-level page in the same list
+	 * (top-level pages are always registered first, so order within the list does
+	 * not matter). The first top-level page is the admin-bar "Theme Settings"
+	 * target. `capability` sets the WordPress capability required to access that
+	 * page; defaults to `edit_posts` when not set. Override the whole list in a
 	 * subclass, e.g.:
 	 *   $this->options_pages = [
 	 *     ['menu_slug'=>'settings','page_title'=>'Theme Settings'],
@@ -240,6 +242,12 @@ class StarterBase extends Site {
 	protected array $options_pages = [
 		[ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings' ],
 	];
+
+	/**
+	 * Add a "Theme Settings" shortcut to the WordPress admin bar (under the site
+	 * name) linking to the first top-level options page. Set false to omit it.
+	 */
+	protected bool $admin_bar_options_link = true;
 
 	/**
 	 * Enqueue the resizable Gutenberg editor sidebar (admin/js|css/
@@ -1832,7 +1840,7 @@ class StarterBase extends Site {
 			$args['parent_slug'] = $page['parent_slug'];
 			acf_add_options_sub_page( $args );
 		} else {
-			$args['icon_url'] = 'dashicons-admin-generic';
+			$args['icon_url'] = $page['icon_url'] ?? 'dashicons-admin-generic';
 			acf_add_options_page( $args );
 		}
 	}
@@ -1846,6 +1854,10 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	public function admin_bar_menu( $wp_admin_bar ) {
+		if ( ! $this->admin_bar_options_link ) {
+			return;
+		}
+
 		$primary = $this->primary_options_page();
 		if ( $primary === null ) {
 			return;
