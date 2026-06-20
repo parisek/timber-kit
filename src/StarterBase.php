@@ -1803,7 +1803,10 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	private function register_options_page( array $page ): void {
-		$title = __( $page['page_title'], $this->theme_name );
+		// Title is used verbatim — like $breadcrumb_labels, the page title is
+		// consumer config, not translated by the library (a project sets its own
+		// localised string). Calling __() here on a dynamic value is not extractable.
+		$title = $page['page_title'];
 		$args  = [
 			'page_title'      => $title,
 			'menu_title'      => $title,
@@ -1844,7 +1847,7 @@ class StarterBase extends Site {
 			$wp_admin_bar->add_node( [
 				'parent' => 'site-name',
 				'id'     => 'theme-settings-' . $page['menu_slug'],
-				'title'  => __( $page['page_title'], $this->theme_name ),
+				'title'  => $page['page_title'],
 				'href'   => add_query_arg( 'page', $page['menu_slug'], admin_url( 'admin.php' ) ),
 			] );
 		}
