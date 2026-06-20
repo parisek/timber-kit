@@ -404,17 +404,16 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 
 ### Options Pages
 
-`$options_pages` declares the ACF options page(s). Each entry requires `menu_slug` + `page_title`; optional per-entry keys are `parent_slug` (sub-page), `capability` (default `edit_posts`), and `icon_url` (top-level pages only, default `dashicons-admin-generic`).
+`$options_pages` declares the ACF options page(s). Each entry requires `menu_slug` + `page_title`; optional per-entry keys are `parent_slug` (sub-page), `capability` (default `edit_posts`), `icon_url` (top-level pages only, default `dashicons-admin-generic`), and `admin_bar` (bool, default off — add an admin-bar shortcut to this page; any number of entries may carry this key, including sub-pages).
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `$options_pages` | array | one "Theme Settings" page | List of ACF options pages. `parent_slug` => sub-page; `[]` disables the feature entirely (no page, no admin-bar link). The admin-bar link targets the first top-level page |
-| `$admin_bar_options_link` | bool | `true` | Add a "Theme Settings" admin-bar shortcut to the first top-level options page. Set `false` to omit |
+| `$options_pages` | array | one "Theme Settings" page | List of ACF options pages. `parent_slug` => sub-page; `admin_bar => true` => add admin-bar link for this entry; `[]` disables the feature entirely (no page, no admin-bar link). The default "Theme Settings" entry has `admin_bar => true` |
 
 ```php
-// one top-level page + two sub-pages under it
+// one top-level page with an admin-bar shortcut + two sub-pages under it
 $this->options_pages = [
-    [ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings' ],
+    [ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings', 'admin_bar' => true ],
     [ 'menu_slug' => 'footer', 'page_title' => 'Footer', 'parent_slug' => 'settings' ],
     [ 'menu_slug' => 'social', 'page_title' => 'Social', 'parent_slug' => 'settings' ],
     [ 'menu_slug' => 'dev', 'page_title' => 'Dev Settings', 'capability' => 'manage_options' ],
