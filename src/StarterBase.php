@@ -1373,6 +1373,28 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * Public URL for a file shipped inside this Composer package (e.g. an asset
+	 * under assets/). Maps the package's filesystem path to a URL via
+	 * WP_CONTENT_DIR/content_url(), so it resolves wherever the package is
+	 * installed under wp-content — including the active theme's vendor/ in the
+	 * usual shared-vendor topology.
+	 *
+	 * @param string $relative Path relative to the package root (leading slash).
+	 * @return string
+	 */
+	private function packageUrl( string $relative ): string {
+		$package_dir = wp_normalize_path( dirname( __DIR__ ) );
+		$content_dir = wp_normalize_path( WP_CONTENT_DIR );
+
+		if ( str_starts_with( $package_dir, $content_dir ) ) {
+			return content_url( substr( $package_dir, strlen( $content_dir ) ) ) . $relative;
+		}
+
+		// Fallback: package under the active theme's vendor/.
+		return get_template_directory_uri() . '/vendor/parisek/timber-kit' . $relative;
+	}
+
+	/**
 	 * Enqueue resizable editor sidebar script and styles on block editor screens.
 	 *
 	 * Hooked to `admin_enqueue_scripts`.
@@ -1388,8 +1410,11 @@ class StarterBase extends Site {
 		// Based on https://wordpress.org/plugins/resizable-editor-sidebar/ plugin
 		// But without advertising and with custom styles
 		if ( $this->admin_resizable_sidebar ) {
-			wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/js/gutenberg-resizable-sidebar.js', [ 'jquery-ui-resizable' ], filemtime( wp_normalize_path( get_template_directory() . '/admin/js/gutenberg-resizable-sidebar.js' ) ), true );
-			wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/css/gutenberg-resizable-sidebar.css', [], filemtime( wp_normalize_path( get_template_directory() . '/admin/css/gutenberg-resizable-sidebar.css' ) ) );
+			$js  = '/assets/js/gutenberg-resizable-sidebar.js';
+			$css = '/assets/css/gutenberg-resizable-sidebar.css';
+
+			wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', $this->packageUrl( $js ), [ 'jquery-ui-resizable' ], filemtime( wp_normalize_path( dirname( __DIR__ ) . $js ) ), true );
+			wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', $this->packageUrl( $css ), [], filemtime( wp_normalize_path( dirname( __DIR__ ) . $css ) ) );
 		}
 	}
 

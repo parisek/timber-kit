@@ -12,6 +12,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **`StarterBase::$admin_resizable_sidebar` flag (bool, default `true`)** — gates the resizable Gutenberg editor-sidebar enqueue (`admin/js|css/gutenberg-resizable-sidebar.*`). Set `false` on a theme that doesn't ship those assets to skip the enqueue (and its asset-version lookups on missing files).
 - **`StarterBase::$autopopulate_breadcrumb` flag (bool, default `true`)** — when `false`, `timber_context()` skips auto-populating `$context['breadcrumb']` with a `Parisek\TimberKit\Breadcrumb`, for themes that build breadcrumbs themselves or don't render them. The legacy `! class_exists('\Breadcrumb')` escape hatch still applies on top of the flag.
 
+### Changed
+
+- **The resizable Gutenberg editor sidebar assets now ship inside the package** (`assets/js|css/gutenberg-resizable-sidebar.*`) and are enqueued from the package URL via a new `packageUrl()` resolver, instead of from each theme's `/admin/` directory. Consumer themes no longer need to vendor these identical files; `$admin_resizable_sidebar` (default `true`) still toggles the feature. The URL resolves wherever the package is installed under `wp-content`.
+
 ## [1.11.0] - 2026-06-15
 
 ### Added
