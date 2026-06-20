@@ -34,7 +34,7 @@ use Parisek\TimberKit\BlockRenderer;
  */
 class StarterBase extends Site {
 
-	/** @var string|false Theme text domain, set from wp_get_theme(). */
+	/** @var string Theme text domain, set from wp_get_theme() (empty string if unset). */
 	public $theme_name;
 
 	/**
@@ -215,6 +215,20 @@ class StarterBase extends Site {
 	/** @var bool Enable editor styles and enqueue gutenberg-editor.css. */
 	protected bool $gutenberg_editor_styles = true;
 
+	/**
+	 * How the theme JS bundle (static/dist/js/script.js) is enqueued:
+	 *
+	 * - 'module' (default) — wp_enqueue_script_module(), correct for a Vite/ESM
+	 *   build.
+	 * - 'defer'            — classic wp_enqueue_script() with strategy=defer, for a
+	 *   webpack IIFE bundle (loading an IIFE as type="module" changes execution
+	 *   mode and breaks it).
+	 *
+	 * Subclasses needing finer control (dependencies, async, a different handle)
+	 * can override {@see enqueueThemeScript()} instead.
+	 */
+	protected string $theme_script_strategy = 'module';
+
 	/** @var bool Remove core block patterns from the inserter. */
 	protected bool $gutenberg_disable_core_patterns = true;
 
@@ -335,7 +349,8 @@ class StarterBase extends Site {
 	 */
 	private function resolveThemeName(): string {
 		$theme = wp_get_theme();
-		return $theme->get( 'TextDomain' );
+		$name  = $theme->get( 'TextDomain' );
+		return is_string( $name ) ? $name : '';
 	}
 
 	/**
@@ -1267,6 +1282,48 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * Cache-busting version for a theme asset: its mtime, or null when the file is
+	 * absent. A not-yet-built or intentionally-unbuilt file then degrades to an
+	 * unversioned enqueue instead of emitting a PHP "No such file or directory"
+	 * warning from the native filemtime call.
+	 *
+	 * Returned as a string (the form WordPress' $ver / $version enqueue arguments
+	 * accept) so a present file versions cleanly and an absent one yields null.
+	 *
+	 * @param string $path Absolute filesystem path (already prefixed with get_template_directory()).
+	 * @return string|null
+	 */
+	protected function assetVersion( string $path ): ?string {
+		$normalized = wp_normalize_path( $path );
+		if ( ! is_file( $normalized ) ) {
+			return null;
+		}
+		$mtime = filemtime( $normalized );
+		return false !== $mtime ? (string) $mtime : null;
+	}
+
+	/**
+	 * Enqueue the theme JS bundle, honouring {@see $theme_script_strategy}.
+	 *
+	 * Single source of truth for the front end (assets()) and the block editor
+	 * (enqueue_block_editor_assets()). Override in a subclass that needs
+	 * dependencies, async, a different handle, or per-context behaviour.
+	 *
+	 * @return void
+	 */
+	protected function enqueueThemeScript(): void {
+		$src = get_template_directory_uri() . '/static/dist/js/script.js';
+		$ver = $this->assetVersion( get_template_directory() . '/static/dist/js/script.js' );
+
+		if ( 'module' === $this->theme_script_strategy ) {
+			wp_enqueue_script_module( $this->theme_name, $src, [], $ver );
+			return;
+		}
+
+		wp_enqueue_script( $this->theme_name, $src, [], $ver, [ 'strategy' => 'defer', 'in_footer' => true ] );
+	}
+
+	/**
 	 * Enqueue frontend CSS and JS assets, dequeue jQuery, remove WPML block styles.
 	 *
 	 * Hooked to `enqueue_block_assets`.
@@ -1278,17 +1335,17 @@ class StarterBase extends Site {
 		foreach ( $this->font_stylesheets as $name => $path ) {
 			$full_path = get_template_directory() . '/static/' . $path;
 			if ( file_exists( $full_path ) ) {
-				wp_enqueue_style( $this->theme_name . '-' . $name, get_template_directory_uri() . '/static/' . $path, [], filemtime( wp_normalize_path( $full_path ) ) );
+				wp_enqueue_style( $this->theme_name . '-' . $name, get_template_directory_uri() . '/static/' . $path, [], $this->assetVersion( $full_path ) );
 			}
 		}
 
 		if ( ! is_admin() ) {
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.css', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/css/style.css' ) ) );
+				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.css', [], $this->assetVersion( get_template_directory() . '/static/dist/css/style.css' ) );
 			} else {
-				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.min.css', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/css/style.min.css' ) ) );
+				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.min.css', [], $this->assetVersion( get_template_directory() . '/static/dist/css/style.min.css' ) );
 			}
-			wp_enqueue_script_module( $this->theme_name, get_template_directory_uri() . '/static/dist/js/script.js', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/js/script.js' ) ) );
+			$this->enqueueThemeScript();
 
 			wp_dequeue_script( 'jquery' );
 
@@ -1338,8 +1395,8 @@ class StarterBase extends Site {
 
 		// Based on https://wordpress.org/plugins/resizable-editor-sidebar/ plugin
 		// But without advertising and with custom styles
-		wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/js/gutenberg-resizable-sidebar.js', [ 'jquery-ui-resizable' ], filemtime( wp_normalize_path( get_template_directory() . '/admin/js/gutenberg-resizable-sidebar.js' ) ), true );
-		wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/css/gutenberg-resizable-sidebar.css', [], filemtime( wp_normalize_path( get_template_directory() . '/admin/css/gutenberg-resizable-sidebar.css' ) ) );
+		wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/js/gutenberg-resizable-sidebar.js', [ 'jquery-ui-resizable' ], $this->assetVersion( get_template_directory() . '/admin/js/gutenberg-resizable-sidebar.js' ), true );
+		wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/css/gutenberg-resizable-sidebar.css', [], $this->assetVersion( get_template_directory() . '/admin/css/gutenberg-resizable-sidebar.css' ) );
 	}
 
 	/**
@@ -1350,8 +1407,8 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	public function enqueue_block_editor_assets() {
-		wp_enqueue_style( $this->theme_name . '-gutenberg-editor', get_template_directory_uri() . '/static/dist/css/gutenberg-editor.css', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/css/gutenberg-editor.css' ) ) );
-		wp_enqueue_script_module( $this->theme_name, get_template_directory_uri() . '/static/dist/js/script.js', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/js/script.js' ) ) );
+		wp_enqueue_style( $this->theme_name . '-gutenberg-editor', get_template_directory_uri() . '/static/dist/css/gutenberg-editor.css', [], $this->assetVersion( get_template_directory() . '/static/dist/css/gutenberg-editor.css' ) );
+		$this->enqueueThemeScript();
 	}
 
 	/**
@@ -1393,7 +1450,7 @@ class StarterBase extends Site {
 				// safely composes with any `?…` already present in $path.
 				$url = add_query_arg(
 					'ver',
-					filemtime( wp_normalize_path( $abs_path ) ),
+					$this->assetVersion( $abs_path ),
 					get_template_directory_uri() . '/static/' . $path
 				);
 			}
