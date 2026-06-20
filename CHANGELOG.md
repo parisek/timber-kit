@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`StarterBase::$theme_script_strategy` property (string, default `'module'`)** — selects how the theme JS bundle (`static/dist/js/script.js`) is enqueued. `'module'` uses `wp_enqueue_script_module()` (correct for a Vite/ESM build — the default); `'defer'` uses a classic `wp_enqueue_script()` with `strategy=defer` for a webpack IIFE bundle (loading an IIFE as `type="module"` changes execution mode — deferred + module scope + strict — and breaks it). Both `assets()` and `enqueue_block_editor_assets()` route through a single overridable `enqueueThemeScript()` method, so a subclass needing finer control (dependencies, async, a different handle) overrides one place.
+
+### Changed
+
+- **Asset enqueues no longer emit a PHP warning on a missing build artifact.** A new internal `assetVersion()` helper returns a file's `filemtime` as a cache-busting string, or `null` when the file is absent — so a not-yet-built or intentionally-unbuilt asset (`style.min.css`, `gutenberg-editor.css`, the editor scripts) degrades to an unversioned enqueue instead of a `filemtime(): No such file or directory` warning. `resolveThemeName()` now returns a guaranteed string and `$theme_name`'s docblock is corrected to `@var string`, which let the PHPStan baseline shrink from 152 to 125 entries (the string-vs-string|false noise was resolved at the source, not baselined).
+
 ## [1.11.0] - 2026-06-15
 
 ### Added
