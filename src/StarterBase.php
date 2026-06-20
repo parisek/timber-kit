@@ -217,19 +217,19 @@ class StarterBase extends Site {
 
 	/**
 	 * ACF options pages. Each entry must define `menu_slug` and `page_title`
-	 * (`graphql_field_name` and `parent_slug` are optional). An entry with a
-	 * 'parent_slug' is registered as
-	 * a sub-page (acf_add_options_sub_page) under that parent; otherwise it is a
-	 * top-level page (acf_add_options_page). graphql_field_name defaults to a
-	 * GraphQL-safe form of the slug (all non-alphanumeric characters → underscores)
-	 * unless given. A 'parent_slug' must reference a top-level page in the same list
-	 * (top-level pages are always registered first, so order within the list does not
-	 * matter). The first
-	 * top-level page is the admin-bar "Theme Settings" target. Override the whole
-	 * list in a subclass, e.g.:
+	 * (required); optional per-entry keys are `parent_slug` and `capability`.
+	 * An entry with a 'parent_slug' is registered as a sub-page
+	 * (acf_add_options_sub_page) under that parent; otherwise it is a top-level
+	 * page (acf_add_options_page). A 'parent_slug' must reference a top-level page
+	 * in the same list (top-level pages are always registered first, so order within
+	 * the list does not matter). The first top-level page is the admin-bar "Theme
+	 * Settings" target. `capability` sets the WordPress capability required to access
+	 * that page; defaults to `edit_posts` when not set. Override the whole list in a
+	 * subclass, e.g.:
 	 *   $this->options_pages = [
 	 *     ['menu_slug'=>'settings','page_title'=>'Theme Settings'],
 	 *     ['menu_slug'=>'footer','page_title'=>'Footer','parent_slug'=>'settings'],
+	 *     ['menu_slug'=>'dev','page_title'=>'Dev Settings','capability'=>'manage_options'],
 	 *   ];
 	 *
 	 * Set to an empty array (`$this->options_pages = [];`) to register NO options
@@ -1756,28 +1756,13 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Normalized options pages: each entry merged over the per-page defaults, with
-	 * a derived GraphQL-safe graphql_field_name when not explicitly set.
-	 *
-	 * @return array<int, array<string, string>>
-	 */
-	private function options_pages_config(): array {
-		$pages = [];
-		foreach ( $this->options_pages as $page ) {
-			$page['graphql_field_name'] = $page['graphql_field_name'] ?? (string) preg_replace( '/[^A-Za-z0-9_]/', '_', $page['menu_slug'] );
-			$pages[]                    = $page;
-		}
-		return $pages;
-	}
-
-	/**
 	 * The first top-level (non-sub) page, used as the admin-bar link target, or
 	 * null when every configured page is a sub-page.
 	 *
 	 * @return array<string, string>|null
 	 */
 	private function primary_options_page(): ?array {
-		foreach ( $this->options_pages_config() as $page ) {
+		foreach ( $this->options_pages as $page ) {
 			if ( ! isset( $page['parent_slug'] ) ) {
 				return $page;
 			}
@@ -1808,18 +1793,16 @@ class StarterBase extends Site {
 			return;
 		}
 
-		$pages = $this->options_pages_config();
-
 		// Register top-level pages first so a sub-page's parent is always present
 		// by the time the child is registered, regardless of list order.
-		foreach ( $pages as $page ) {
+		foreach ( $this->options_pages as $page ) {
 			if ( ! isset( $page['parent_slug'] ) ) {
 				$this->register_options_page( $page );
 			}
 		}
 
 		if ( function_exists( 'acf_add_options_sub_page' ) ) {
-			foreach ( $pages as $page ) {
+			foreach ( $this->options_pages as $page ) {
 				if ( isset( $page['parent_slug'] ) ) {
 					$this->register_options_page( $page );
 				}
@@ -1831,19 +1814,18 @@ class StarterBase extends Site {
 	 * Register a single ACF options page (top-level) or sub-page (when the entry
 	 * carries a parent_slug).
 	 *
-	 * @param array<string, string> $page A normalized entry from options_pages_config().
+	 * @param array<string, string> $page An entry from $this->options_pages.
 	 * @return void
 	 */
 	private function register_options_page( array $page ): void {
 		$title = $this->options_page_title( $page['page_title'] );
 		$args  = [
-			'page_title'         => $title,
-			'menu_title'         => $title,
-			'menu_slug'          => $page['menu_slug'],
-			'capability'         => 'edit_posts',
-			'redirect'           => false,
-			'graphql_field_name' => $page['graphql_field_name'],
-			'show_in_graphql'    => false,
+			'page_title'      => $title,
+			'menu_title'      => $title,
+			'menu_slug'       => $page['menu_slug'],
+			'capability'      => $page['capability'] ?? 'edit_posts',
+			'redirect'        => false,
+			'show_in_graphql' => false,
 		];
 
 		if ( isset( $page['parent_slug'] ) ) {
