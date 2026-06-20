@@ -216,18 +216,9 @@ class StarterBase extends Site {
 	protected bool $gutenberg_editor_styles = true;
 
 	/**
-	 * Per-page defaults, merged into each entry of {@see $options_pages}.
-	 *
-	 * @var array<string, string>
-	 */
-	private const OPTIONS_PAGE_DEFAULTS = [
-		'menu_slug'  => 'settings',
-		'page_title' => 'Theme Settings',
-	];
-
-	/**
-	 * ACF options pages. Each entry is one page; missing keys fall back to
-	 * {@see OPTIONS_PAGE_DEFAULTS}. An entry with a 'parent_slug' is registered as
+	 * ACF options pages. Each entry must define `menu_slug` and `page_title`
+	 * (`graphql_field_name` and `parent_slug` are optional). An entry with a
+	 * 'parent_slug' is registered as
 	 * a sub-page (acf_add_options_sub_page) under that parent; otherwise it is a
 	 * top-level page (acf_add_options_page). graphql_field_name defaults to a
 	 * GraphQL-safe form of the slug (all non-alphanumeric characters → underscores)
@@ -1773,7 +1764,6 @@ class StarterBase extends Site {
 	private function options_pages_config(): array {
 		$pages = [];
 		foreach ( $this->options_pages as $page ) {
-			$page                       = array_merge( self::OPTIONS_PAGE_DEFAULTS, $page );
 			$page['graphql_field_name'] = $page['graphql_field_name'] ?? (string) preg_replace( '/[^A-Za-z0-9_]/', '_', $page['menu_slug'] );
 			$pages[]                    = $page;
 		}
