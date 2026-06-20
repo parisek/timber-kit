@@ -523,8 +523,59 @@ class CleanupMethodsTest extends StarterBaseTestCase {
 
 		$this->assertCount( 1, $bar->added );
 		$this->assertSame( 'site-name', $bar->added[0]['parent'] );
-		$this->assertSame( 'theme-settings', $bar->added[0]['id'] );
+		$this->assertSame( 'theme-settings-settings', $bar->added[0]['id'] );
 		$this->assertStringContainsString( 'settings', $bar->added[0]['href'] );
+	}
+
+	public function test_admin_bar_menu_skips_pages_without_flag(): void {
+		Functions\when( '__' )->alias( fn( $s ) => $s );
+		Functions\when( 'admin_url' )->alias( fn( $s ) => 'https://example.com/wp-admin/' . $s );
+		Functions\when( 'add_query_arg' )->alias( fn( $key, $value, $url ) => $url . '?' . $key . '=' . $value );
+
+		$base = $this->createStarterBase( [
+			'options_pages' => [
+				[ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings' ],
+			],
+		] );
+
+		$bar = new class {
+			public array $added = [];
+
+			public function add_node( array $args ): void {
+				$this->added[] = $args;
+			}
+		};
+
+		$base->admin_bar_menu( $bar );
+
+		$this->assertCount( 0, $bar->added );
+	}
+
+	public function test_admin_bar_menu_adds_multiple_nodes(): void {
+		Functions\when( '__' )->alias( fn( $s ) => $s );
+		Functions\when( 'admin_url' )->alias( fn( $s ) => 'https://example.com/wp-admin/' . $s );
+		Functions\when( 'add_query_arg' )->alias( fn( $key, $value, $url ) => $url . '?' . $key . '=' . $value );
+
+		$base = $this->createStarterBase( [
+			'options_pages' => [
+				[ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings', 'admin_bar' => true ],
+				[ 'menu_slug' => 'dev', 'page_title' => 'Dev Settings', 'admin_bar' => true ],
+			],
+		] );
+
+		$bar = new class {
+			public array $added = [];
+
+			public function add_node( array $args ): void {
+				$this->added[] = $args;
+			}
+		};
+
+		$base->admin_bar_menu( $bar );
+
+		$this->assertCount( 2, $bar->added );
+		$this->assertSame( 'theme-settings-settings', $bar->added[0]['id'] );
+		$this->assertSame( 'theme-settings-dev', $bar->added[1]['id'] );
 	}
 
 	// hide_core_update_notifications

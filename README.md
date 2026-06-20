@@ -275,12 +275,32 @@ class Base extends StarterBase {
 
 Override these properties in your child constructor before calling `parent::__construct()`:
 
+### Internationalisation
+
+timber-kit treats configurable labels and titles (e.g. `$breadcrumb_labels`, `$options_pages[*]['page_title']`) as **plain values used verbatim** — it never wraps them in `__()`. Translating them is the consuming theme's responsibility.
+
+**Why not in the library:** these are assigned in the child `__construct()` (before `parent::__construct()`), which runs on `setup_theme` — *before* `init` and before the text domain is loaded. Calling `__()` there is too early: it returns the string untranslated, and WordPress 6.7+ raises a *"Translation loading triggered too early"* `_doing_it_wrong` notice. Wrapping a dynamic config value in `__()` at use time also defeats string extraction — `xgettext`/`makepot` can't read a variable.
+
+**Localise at `init`, with static string literals.** Where a config surface has a dedicated setup hook, override it — e.g. `setup_breadcrumb_labels()` (hooked to `init`):
+
+```php
+public function setup_breadcrumb_labels() {
+    $this->breadcrumb_labels = [
+        'home' => _x( 'Home', 'breadcrumb', 'my-theme' ),
+        // …
+    ];
+}
+```
+
+For an admin label without a dedicated setup hook (e.g. an options-page `page_title`), set the value to your already-localised string, or leave the English default.
+
 ### Theme
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `$menus` | array | `[]` | Registered navigation menus |
 | `$font_stylesheets` | array | `[]` | CSS files to enqueue on the frontend. Also forwarded into the Gutenberg editor canvas (both iframed and non-iframed) via `block_editor_settings_all`, so custom `@font-face` declarations render in the editor without falling back to system fonts. Relative paths are resolved under `static/` and cache-busted with `filemtime`; absolute URLs pass through |
+| `$theme_script_strategy` | string | `'module'` | How `static/dist/js/script.js` is enqueued: `'module'` → `wp_enqueue_script_module()` (Vite/ESM); `'defer'` → classic deferred `wp_enqueue_script()` for a webpack IIFE bundle. Override `enqueueThemeScript()` for finer control |
 | `$preload_fonts` | array | `[]` | Font files to preload |
 | `$search_post_types` | array | `['post']` | Post types for search |
 | `$article_post_types` | array | `['post']` | Post types treated as articles |
@@ -404,18 +424,19 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 
 ### Options Pages
 
-`$options_pages` declares the ACF options page(s). Each entry needs `menu_slug` + `page_title`; add `parent_slug` for a sub-page, or `graphql_field_name` to override the slug-derived default.
+`$options_pages` declares the ACF options page(s). Each entry requires `menu_slug` + `page_title`; optional per-entry keys are `parent_slug` (sub-page), `capability` (default `edit_posts`), `icon_url` (top-level pages only, default `dashicons-admin-generic`), and `admin_bar` (bool, default off — add an admin-bar shortcut to this page; any number of entries may carry this key, including sub-pages).
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `$options_pages` | array | one "Theme Settings" page | List of ACF options pages. `parent_slug` => sub-page; `[]` disables the feature entirely (no page, no admin-bar link). The admin-bar link targets the first top-level page |
+| `$options_pages` | array | one "Theme Settings" page | List of ACF options pages. `parent_slug` => sub-page; `admin_bar => true` => add admin-bar link for this entry; `[]` disables the feature entirely (no page, no admin-bar link). The default "Theme Settings" entry has `admin_bar => true` |
 
 ```php
-// one top-level page + two sub-pages under it
+// one top-level page with an admin-bar shortcut + two sub-pages under it
 $this->options_pages = [
-    [ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings' ],
+    [ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings', 'admin_bar' => true ],
     [ 'menu_slug' => 'footer', 'page_title' => 'Footer', 'parent_slug' => 'settings' ],
     [ 'menu_slug' => 'social', 'page_title' => 'Social', 'parent_slug' => 'settings' ],
+    [ 'menu_slug' => 'dev', 'page_title' => 'Dev Settings', 'capability' => 'manage_options' ],
 ];
 
 // disable completely

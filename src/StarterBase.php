@@ -34,7 +34,7 @@ use Parisek\TimberKit\BlockRenderer;
  */
 class StarterBase extends Site {
 
-	/** @var string|false Theme text domain, set from wp_get_theme(). */
+	/** @var string Theme text domain, set from wp_get_theme() (empty string if unset). */
 	public $theme_name;
 
 	/**
@@ -217,19 +217,21 @@ class StarterBase extends Site {
 
 	/**
 	 * ACF options pages. Each entry must define `menu_slug` and `page_title`
-	 * (required); optional per-entry keys are `parent_slug`, `capability`, and
-	 * `icon_url`. An entry with a 'parent_slug' is registered as a sub-page
-	 * (acf_add_options_sub_page) under that parent; otherwise it is a top-level
-	 * page (acf_add_options_page). `icon_url` is only used for top-level pages
-	 * (sub-pages do not take an icon); defaults to `'dashicons-admin-generic'` when
-	 * not set. A 'parent_slug' must reference a top-level page in the same list
-	 * (top-level pages are always registered first, so order within the list does
-	 * not matter). The first top-level page is the admin-bar "Theme Settings"
-	 * target. `capability` sets the WordPress capability required to access that
-	 * page; defaults to `edit_posts` when not set. Override the whole list in a
-	 * subclass, e.g.:
+	 * (required); optional per-entry keys are `parent_slug`, `capability`,
+	 * `icon_url`, and `admin_bar`. An entry with a 'parent_slug' is registered as
+	 * a sub-page (acf_add_options_sub_page) under that parent; otherwise it is a
+	 * top-level page (acf_add_options_page). `icon_url` is only used for top-level
+	 * pages (sub-pages do not take an icon); defaults to `'dashicons-admin-generic'`
+	 * when not set. A 'parent_slug' must reference a top-level page in the same
+	 * list (top-level pages are always registered first, so order within the list
+	 * does not matter). `capability` sets the WordPress capability required to
+	 * access that page; defaults to `edit_posts` when not set. `admin_bar` (bool,
+	 * default off) adds an admin-bar shortcut to this page; set it on any entry —
+	 * including sub-pages — to surface a direct link under the site name. Multiple
+	 * entries may carry `admin_bar => true` and each gets its own node. Override
+	 * the whole list in a subclass, e.g.:
 	 *   $this->options_pages = [
-	 *     ['menu_slug'=>'settings','page_title'=>'Theme Settings'],
+	 *     ['menu_slug'=>'settings','page_title'=>'Theme Settings','admin_bar'=>true],
 	 *     ['menu_slug'=>'footer','page_title'=>'Footer','parent_slug'=>'settings'],
 	 *     ['menu_slug'=>'dev','page_title'=>'Dev Settings','capability'=>'manage_options'],
 	 *   ];
@@ -237,17 +239,11 @@ class StarterBase extends Site {
 	 * Set to an empty array (`$this->options_pages = [];`) to register NO options
 	 * pages at all — disables the feature entirely (no ACF page, no admin-bar link).
 	 *
-	 * @var array<int, array<string, string>>
+	 * @var array<int, array<string, mixed>>
 	 */
 	protected array $options_pages = [
-		[ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings' ],
+		[ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings', 'admin_bar' => true ],
 	];
-
-	/**
-	 * Add a "Theme Settings" shortcut to the WordPress admin bar (under the site
-	 * name) linking to the first top-level options page. Set false to omit it.
-	 */
-	protected bool $admin_bar_options_link = true;
 
 	/**
 	 * Enqueue the resizable Gutenberg editor sidebar (admin/js|css/
@@ -263,6 +259,20 @@ class StarterBase extends Site {
 	 * still applies on top of this flag.
 	 */
 	protected bool $autopopulate_breadcrumb = true;
+
+	/**
+	 * How the theme JS bundle (static/dist/js/script.js) is enqueued:
+	 *
+	 * - 'module' (default) — wp_enqueue_script_module(), correct for a Vite/ESM
+	 *   build.
+	 * - 'defer'            — classic wp_enqueue_script() with strategy=defer, for a
+	 *   webpack IIFE bundle (loading an IIFE as type="module" changes execution
+	 *   mode and breaks it).
+	 *
+	 * Subclasses needing finer control (dependencies, async, a different handle)
+	 * can override {@see enqueueThemeScript()} instead.
+	 */
+	protected string $theme_script_strategy = 'module';
 
 	/** @var bool Remove core block patterns from the inserter. */
 	protected bool $gutenberg_disable_core_patterns = true;
@@ -384,7 +394,8 @@ class StarterBase extends Site {
 	 */
 	private function resolveThemeName(): string {
 		$theme = wp_get_theme();
-		return $theme->get( 'TextDomain' );
+		$name  = $theme->get( 'TextDomain' );
+		return is_string( $name ) ? $name : '';
 	}
 
 	/**
@@ -1316,6 +1327,48 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * Cache-busting version for a theme asset: its mtime, or null when the file is
+	 * absent. A not-yet-built or intentionally-unbuilt file then degrades to an
+	 * unversioned enqueue instead of emitting a PHP "No such file or directory"
+	 * warning from the native filemtime call.
+	 *
+	 * Returned as a string (the form WordPress' $ver / $version enqueue arguments
+	 * accept) so a present file versions cleanly and an absent one yields null.
+	 *
+	 * @param string $path Absolute filesystem path (already prefixed with get_template_directory()).
+	 * @return string|null
+	 */
+	protected function assetVersion( string $path ): ?string {
+		$normalized = wp_normalize_path( $path );
+		if ( ! is_file( $normalized ) ) {
+			return null;
+		}
+		$mtime = filemtime( $normalized );
+		return false !== $mtime ? (string) $mtime : null;
+	}
+
+	/**
+	 * Enqueue the theme JS bundle, honouring {@see $theme_script_strategy}.
+	 *
+	 * Single source of truth for the front end (assets()) and the block editor
+	 * (enqueue_block_editor_assets()). Override in a subclass that needs
+	 * dependencies, async, a different handle, or per-context behaviour.
+	 *
+	 * @return void
+	 */
+	protected function enqueueThemeScript(): void {
+		$src = get_template_directory_uri() . '/static/dist/js/script.js';
+		$ver = $this->assetVersion( get_template_directory() . '/static/dist/js/script.js' );
+
+		if ( 'module' === $this->theme_script_strategy ) {
+			wp_enqueue_script_module( $this->theme_name, $src, [], $ver );
+			return;
+		}
+
+		wp_enqueue_script( $this->theme_name, $src, [], $ver, [ 'strategy' => 'defer', 'in_footer' => true ] );
+	}
+
+	/**
 	 * Enqueue frontend CSS and JS assets, dequeue jQuery, remove WPML block styles.
 	 *
 	 * Hooked to `enqueue_block_assets`.
@@ -1327,17 +1380,17 @@ class StarterBase extends Site {
 		foreach ( $this->font_stylesheets as $name => $path ) {
 			$full_path = get_template_directory() . '/static/' . $path;
 			if ( file_exists( $full_path ) ) {
-				wp_enqueue_style( $this->theme_name . '-' . $name, get_template_directory_uri() . '/static/' . $path, [], filemtime( wp_normalize_path( $full_path ) ) );
+				wp_enqueue_style( $this->theme_name . '-' . $name, get_template_directory_uri() . '/static/' . $path, [], $this->assetVersion( $full_path ) );
 			}
 		}
 
 		if ( ! is_admin() ) {
 			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.css', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/css/style.css' ) ) );
+				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.css', [], $this->assetVersion( get_template_directory() . '/static/dist/css/style.css' ) );
 			} else {
-				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.min.css', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/css/style.min.css' ) ) );
+				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.min.css', [], $this->assetVersion( get_template_directory() . '/static/dist/css/style.min.css' ) );
 			}
-			wp_enqueue_script_module( $this->theme_name, get_template_directory_uri() . '/static/dist/js/script.js', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/js/script.js' ) ) );
+			$this->enqueueThemeScript();
 
 			wp_dequeue_script( 'jquery' );
 
@@ -1424,8 +1477,8 @@ class StarterBase extends Site {
 				return;
 			}
 
-			wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', $this->packageAssetUrl( $js_rel ), [ 'jquery-ui-resizable' ], filemtime( $js_path ), true );
-			wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', $this->packageAssetUrl( $css_rel ), [], filemtime( $css_path ) );
+			wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', $this->packageAssetUrl( $js_rel ), [ 'jquery-ui-resizable' ], $this->assetVersion( $js_path ), true );
+			wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', $this->packageAssetUrl( $css_rel ), [], $this->assetVersion( $css_path ) );
 		}
 	}
 
@@ -1437,8 +1490,8 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	public function enqueue_block_editor_assets() {
-		wp_enqueue_style( $this->theme_name . '-gutenberg-editor', get_template_directory_uri() . '/static/dist/css/gutenberg-editor.css', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/css/gutenberg-editor.css' ) ) );
-		wp_enqueue_script_module( $this->theme_name, get_template_directory_uri() . '/static/dist/js/script.js', [], filemtime( wp_normalize_path( get_template_directory() . '/static/dist/js/script.js' ) ) );
+		wp_enqueue_style( $this->theme_name . '-gutenberg-editor', get_template_directory_uri() . '/static/dist/css/gutenberg-editor.css', [], $this->assetVersion( get_template_directory() . '/static/dist/css/gutenberg-editor.css' ) );
+		$this->enqueueThemeScript();
 	}
 
 	/**
@@ -1480,7 +1533,7 @@ class StarterBase extends Site {
 				// safely composes with any `?…` already present in $path.
 				$url = add_query_arg(
 					'ver',
-					filemtime( wp_normalize_path( $abs_path ) ),
+					$this->assetVersion( $abs_path ),
 					get_template_directory_uri() . '/static/' . $path
 				);
 			}
@@ -1800,31 +1853,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * The first top-level (non-sub) page, used as the admin-bar link target, or
-	 * null when every configured page is a sub-page.
-	 *
-	 * @return array<string, string>|null
-	 */
-	private function primary_options_page(): ?array {
-		foreach ( $this->options_pages as $page ) {
-			if ( ! isset( $page['parent_slug'] ) ) {
-				return $page;
-			}
-		}
-		return null;
-	}
-
-	/**
 	 * Options page title: the default literal is wrapped in __() so it stays
 	 * extractable; a custom title is returned verbatim (consumer owns its i18n).
 	 *
 	 * @param string $title
 	 * @return string
 	 */
-	private function options_page_title( string $title ): string {
-		return 'Theme Settings' === $title ? __( 'Theme Settings', $this->theme_name ) : $title;
-	}
-
 	/**
 	 * Register the ACF "Theme Settings" options page(s).
 	 *
@@ -1862,10 +1896,10 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	private function register_options_page( array $page ): void {
-		$title = $this->options_page_title( $page['page_title'] );
-		$args  = [
-			'page_title'      => $title,
-			'menu_title'      => $title,
+		// Title used verbatim — translation is the consumer's job (cf. $breadcrumb_labels).
+		$args = [
+			'page_title'      => $page['page_title'],
+			'menu_title'      => $page['page_title'],
 			'menu_slug'       => $page['menu_slug'],
 			'capability'      => $page['capability'] ?? 'edit_posts',
 			'redirect'        => false,
@@ -1882,7 +1916,12 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Add "Theme Settings" link under the site name in the admin toolbar.
+	 * Add options-page shortcuts under the site name in the admin toolbar.
+	 *
+	 * Iterates $options_pages and adds one node for every entry whose `admin_bar`
+	 * key is truthy. Works for both top-level and sub-pages (each has its own
+	 * `?page=<slug>` URL). Multiple pages may be marked, each gets a unique node
+	 * id derived from its menu_slug.
 	 *
 	 * Hooked to `admin_bar_menu`.
 	 *
@@ -1890,20 +1929,18 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	public function admin_bar_menu( $wp_admin_bar ) {
-		if ( ! $this->admin_bar_options_link ) {
-			return;
-		}
+		foreach ( $this->options_pages as $page ) {
+			if ( empty( $page['admin_bar'] ) ) {
+				continue;
+			}
 
-		$primary = $this->primary_options_page();
-		if ( $primary === null ) {
-			return;
+			$wp_admin_bar->add_node( [
+				'parent' => 'site-name',
+				'id'     => 'theme-settings-' . $page['menu_slug'],
+				'title'  => $page['page_title'],
+				'href'   => add_query_arg( 'page', $page['menu_slug'], admin_url( 'admin.php' ) ),
+			] );
 		}
-		$wp_admin_bar->add_node( [
-			'parent' => 'site-name',
-			'id'     => 'theme-settings',
-			'title'  => $this->options_page_title( $primary['page_title'] ),
-			'href'   => add_query_arg( 'page', $primary['menu_slug'], admin_url( 'admin.php' ) ),
-		] );
 	}
 
 	/**
