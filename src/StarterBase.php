@@ -230,7 +230,10 @@ class StarterBase extends Site {
 	 * {@see OPTIONS_PAGE_DEFAULTS}. An entry with a 'parent_slug' is registered as
 	 * a sub-page (acf_add_options_sub_page) under that parent; otherwise it is a
 	 * top-level page (acf_add_options_page). graphql_field_name defaults to a
-	 * GraphQL-safe form of the slug (hyphens → underscores) unless given. The first
+	 * GraphQL-safe form of the slug (all non-alphanumeric characters → underscores)
+	 * unless given. A 'parent_slug' must reference a top-level page in the same list
+	 * (top-level pages are always registered first, so order within the list does not
+	 * matter). The first
 	 * top-level page is the admin-bar "Theme Settings" target. Override the whole
 	 * list in a subclass, e.g.:
 	 *   $this->options_pages = [
@@ -1771,7 +1774,7 @@ class StarterBase extends Site {
 		$pages = [];
 		foreach ( $this->options_pages as $page ) {
 			$page                       = array_merge( self::OPTIONS_PAGE_DEFAULTS, $page );
-			$page['graphql_field_name'] = $page['graphql_field_name'] ?? str_replace( '-', '_', $page['menu_slug'] );
+			$page['graphql_field_name'] = $page['graphql_field_name'] ?? (string) preg_replace( '/[^A-Za-z0-9_]/', '_', $page['menu_slug'] );
 			$pages[]                    = $page;
 		}
 		return $pages;
@@ -1815,25 +1818,50 @@ class StarterBase extends Site {
 			return;
 		}
 
-		foreach ( $this->options_pages_config() as $page ) {
-			$title = $this->options_page_title( $page['page_title'] );
-			$args  = [
-				'page_title'         => $title,
-				'menu_title'         => $title,
-				'menu_slug'          => $page['menu_slug'],
-				'capability'         => 'edit_posts',
-				'redirect'           => false,
-				'graphql_field_name' => $page['graphql_field_name'],
-				'show_in_graphql'    => false,
-			];
+		$pages = $this->options_pages_config();
 
-			if ( isset( $page['parent_slug'] ) ) {
-				$args['parent_slug'] = $page['parent_slug'];
-				acf_add_options_sub_page( $args );
-			} else {
-				$args['icon_url'] = 'dashicons-admin-generic';
-				acf_add_options_page( $args );
+		// Register top-level pages first so a sub-page's parent is always present
+		// by the time the child is registered, regardless of list order.
+		foreach ( $pages as $page ) {
+			if ( ! isset( $page['parent_slug'] ) ) {
+				$this->register_options_page( $page );
 			}
+		}
+
+		if ( function_exists( 'acf_add_options_sub_page' ) ) {
+			foreach ( $pages as $page ) {
+				if ( isset( $page['parent_slug'] ) ) {
+					$this->register_options_page( $page );
+				}
+			}
+		}
+	}
+
+	/**
+	 * Register a single ACF options page (top-level) or sub-page (when the entry
+	 * carries a parent_slug).
+	 *
+	 * @param array<string, string> $page A normalized entry from options_pages_config().
+	 * @return void
+	 */
+	private function register_options_page( array $page ): void {
+		$title = $this->options_page_title( $page['page_title'] );
+		$args  = [
+			'page_title'         => $title,
+			'menu_title'         => $title,
+			'menu_slug'          => $page['menu_slug'],
+			'capability'         => 'edit_posts',
+			'redirect'           => false,
+			'graphql_field_name' => $page['graphql_field_name'],
+			'show_in_graphql'    => false,
+		];
+
+		if ( isset( $page['parent_slug'] ) ) {
+			$args['parent_slug'] = $page['parent_slug'];
+			acf_add_options_sub_page( $args );
+		} else {
+			$args['icon_url'] = 'dashicons-admin-generic';
+			acf_add_options_page( $args );
 		}
 	}
 
