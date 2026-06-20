@@ -1766,10 +1766,6 @@ class StarterBase extends Site {
 	 * @param string $title
 	 * @return string
 	 */
-	private function options_page_title( string $title ): string {
-		return 'Theme Settings' === $title ? __( 'Theme Settings', $this->theme_name ) : $title;
-	}
-
 	/**
 	 * Register the ACF "Theme Settings" options page(s).
 	 *
@@ -1807,7 +1803,7 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	private function register_options_page( array $page ): void {
-		$title = $this->options_page_title( $page['page_title'] );
+		$title = __( $page['page_title'], $this->theme_name );
 		$args  = [
 			'page_title'      => $title,
 			'menu_title'      => $title,
@@ -1848,7 +1844,7 @@ class StarterBase extends Site {
 			$wp_admin_bar->add_node( [
 				'parent' => 'site-name',
 				'id'     => 'theme-settings-' . $page['menu_slug'],
-				'title'  => $this->options_page_title( $page['page_title'] ),
+				'title'  => __( $page['page_title'], $this->theme_name ),
 				'href'   => add_query_arg( 'page', $page['menu_slug'], admin_url( 'admin.php' ) ),
 			] );
 		}
