@@ -1426,6 +1426,33 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * Public URL for a static file shipped inside this Composer package (under
+	 * assets/). Resolves the package's filesystem path to a URL: when the package
+	 * lives under wp-content (the usual theme `vendor/` shared-vendor topology) it
+	 * maps via content_url(); otherwise it falls back to the active theme's
+	 * vendor path. realpath() is applied so a symlinked vendor dir still matches,
+	 * and the wp-content boundary is slash-terminated so `/wp-content-other` is not
+	 * a false match. Override in a subclass for non-standard hosting (e.g. a vendor
+	 * dir outside the web root, where assets must be published elsewhere).
+	 *
+	 * @param string $relative Path relative to the package root (leading slash).
+	 * @return string
+	 */
+	protected function packageAssetUrl( string $relative ): string {
+		$package_dir = dirname( __DIR__ );
+		$package_dir = wp_normalize_path( realpath( $package_dir ) ?: $package_dir );
+		$content_dir = wp_normalize_path( realpath( WP_CONTENT_DIR ) ?: WP_CONTENT_DIR );
+
+		// Slash-terminate both sides so `/a/wp-content-other` doesn't match `/a/wp-content`.
+		if ( str_starts_with( $package_dir . '/', $content_dir . '/' ) ) {
+			return content_url( substr( $package_dir, strlen( $content_dir ) ) ) . $relative;
+		}
+
+		// Fallback: package under the active theme's vendor/.
+		return get_template_directory_uri() . '/vendor/parisek/timber-kit' . $relative;
+	}
+
+	/**
 	 * Enqueue resizable editor sidebar script and styles on block editor screens.
 	 *
 	 * Hooked to `admin_enqueue_scripts`.
@@ -1441,8 +1468,17 @@ class StarterBase extends Site {
 		// Based on https://wordpress.org/plugins/resizable-editor-sidebar/ plugin
 		// But without advertising and with custom styles
 		if ( $this->admin_resizable_sidebar ) {
-			wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/js/gutenberg-resizable-sidebar.js', [ 'jquery-ui-resizable' ], $this->assetVersion( get_template_directory() . '/admin/js/gutenberg-resizable-sidebar.js' ), true );
-			wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', get_template_directory_uri() . '/admin/css/gutenberg-resizable-sidebar.css', [], $this->assetVersion( get_template_directory() . '/admin/css/gutenberg-resizable-sidebar.css' ) );
+			$js_rel  = '/assets/js/gutenberg-resizable-sidebar.js';
+			$css_rel = '/assets/css/gutenberg-resizable-sidebar.css';
+			$js_path  = wp_normalize_path( dirname( __DIR__ ) . $js_rel );
+			$css_path = wp_normalize_path( dirname( __DIR__ ) . $css_rel );
+
+			if ( ! is_file( $js_path ) || ! is_file( $css_path ) ) {
+				return;
+			}
+
+			wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', $this->packageAssetUrl( $js_rel ), [ 'jquery-ui-resizable' ], $this->assetVersion( $js_path ), true );
+			wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', $this->packageAssetUrl( $css_rel ), [], $this->assetVersion( $css_path ) );
 		}
 	}
 
