@@ -400,6 +400,27 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 | `$gutenberg_responsive_embeds` | bool | `true` | Responsive video embeds |
 | `$gutenberg_editor_styles` | bool | `true` | Load editor stylesheet |
 | `$gutenberg_disable_core_patterns` | bool | `true` | Remove core block patterns |
+| `$admin_resizable_sidebar` | bool | `true` | Enqueue the resizable editor sidebar (`admin/*/gutenberg-resizable-sidebar.*`). Set `false` on themes that don't ship those assets |
+
+### Options Pages
+
+`$options_pages` declares the ACF options page(s). Each entry needs `menu_slug` + `page_title`; add `parent_slug` for a sub-page, or `graphql_field_name` to override the slug-derived default.
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `$options_pages` | array | one "Theme Settings" page | List of ACF options pages. `parent_slug` => sub-page; `[]` disables the feature entirely (no page, no admin-bar link). The admin-bar link targets the first top-level page |
+
+```php
+// one top-level page + two sub-pages under it
+$this->options_pages = [
+    [ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings' ],
+    [ 'menu_slug' => 'footer', 'page_title' => 'Footer', 'parent_slug' => 'settings' ],
+    [ 'menu_slug' => 'social', 'page_title' => 'Social', 'parent_slug' => 'settings' ],
+];
+
+// disable completely
+$this->options_pages = [];
+```
 
 ### Breadcrumbs
 
@@ -412,6 +433,7 @@ Breadcrumb data (`$context['breadcrumb']`) is auto-populated by `StarterBase::ti
 | `$breadcrumb_list_page_map` | `array<string, string>` | `[]` | Post type → ACF option key for "listing page" injection between Home and a single post of that type. Example: `['post' => 'article_list']` injects `links.article_list` (from the ACF Global Options Page) as the parent crumb on every single `post`. |
 | `$breadcrumb_menu_trail_post_types` | `?array` | `null` | Post types eligible for menu-trail. `null` = auto-detect via `is_post_type_hierarchical()`. Pass an explicit list to opt-in / opt-out specific CPTs regardless of hierarchy. |
 | `$breadcrumb_include_pagination` | `bool` | `false` | Append a `"Page N"` item on paginated archive views. Off by default — opt in per project. |
+| `$autopopulate_breadcrumb` | bool | `true` | Auto-populate `$context['breadcrumb']`. Set `false` if the theme builds breadcrumbs itself |
 
 #### Localising labels — override `setup_breadcrumb_labels()`, not `__construct()`
 
