@@ -216,27 +216,33 @@ class StarterBase extends Site {
 	protected bool $gutenberg_editor_styles = true;
 
 	/**
-	 * Canonical defaults for the ACF options page. graphql_field_name is kept
-	 * INDEPENDENT of menu_slug: slugs may contain hyphens (invalid in GraphQL
-	 * field names) and the released default has always been 'settings'.
+	 * Per-page defaults, merged into each entry of {@see $options_pages}.
 	 *
 	 * @var array<string, string>
 	 */
 	private const OPTIONS_PAGE_DEFAULTS = [
-		'menu_slug'          => 'settings',
-		'page_title'         => 'Theme Settings',
-		'graphql_field_name' => 'settings',
+		'menu_slug'  => 'settings',
+		'page_title' => 'Theme Settings',
 	];
 
 	/**
-	 * ACF options page overrides. Set any of menu_slug / page_title /
-	 * graphql_field_name in a subclass; unset keys fall back to
-	 * {@see OPTIONS_PAGE_DEFAULTS}. The admin-bar "Theme Settings" link uses the
-	 * same slug + title, so they always stay in sync.
+	 * ACF options pages. Each entry is one page; missing keys fall back to
+	 * {@see OPTIONS_PAGE_DEFAULTS}. An entry with a 'parent_slug' is registered as
+	 * a sub-page (acf_add_options_sub_page) under that parent; otherwise it is a
+	 * top-level page (acf_add_options_page). graphql_field_name defaults to a
+	 * GraphQL-safe form of the slug (hyphens → underscores) unless given. The first
+	 * top-level page is the admin-bar "Theme Settings" target. Override the whole
+	 * list in a subclass, e.g.:
+	 *   $this->options_pages = [
+	 *     ['menu_slug'=>'settings','page_title'=>'Theme Settings'],
+	 *     ['menu_slug'=>'footer','page_title'=>'Footer','parent_slug'=>'settings'],
+	 *   ];
 	 *
-	 * @var array<string, string>
+	 * @var array<int, array<string, string>>
 	 */
-	protected array $options_page = [];
+	protected array $options_pages = [
+		[ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings' ],
+	];
 
 	/**
 	 * Enqueue the resizable Gutenberg editor sidebar (admin/js|css/
@@ -1753,53 +1759,80 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Options page config = overrides merged over the defaults (so a partial
-	 * override keeps the other defaults).
+	 * Normalized options pages: each entry merged over the per-page defaults, with
+	 * a derived GraphQL-safe graphql_field_name when not explicitly set.
 	 *
-	 * @return array<string, string>
+	 * @return array<int, array<string, string>>
 	 */
-	private function options_page_config(): array {
-		return array_merge( self::OPTIONS_PAGE_DEFAULTS, $this->options_page );
+	private function options_pages_config(): array {
+		$pages = [];
+		foreach ( $this->options_pages as $page ) {
+			$page                       = array_merge( self::OPTIONS_PAGE_DEFAULTS, $page );
+			$page['graphql_field_name'] = $page['graphql_field_name'] ?? str_replace( '-', '_', $page['menu_slug'] );
+			$pages[]                    = $page;
+		}
+		return $pages;
 	}
 
 	/**
-	 * Options page title. The default literal is wrapped in __() so xgettext/WP
-	 * makepot can extract it; a custom title is returned verbatim (the consumer
-	 * is responsible for translating its own string).
+	 * The first top-level (non-sub) page, used as the admin-bar link target, or
+	 * null when every configured page is a sub-page.
 	 *
+	 * @return array<string, string>|null
+	 */
+	private function primary_options_page(): ?array {
+		foreach ( $this->options_pages_config() as $page ) {
+			if ( ! isset( $page['parent_slug'] ) ) {
+				return $page;
+			}
+		}
+		return null;
+	}
+
+	/**
+	 * Options page title: the default literal is wrapped in __() so it stays
+	 * extractable; a custom title is returned verbatim (consumer owns its i18n).
+	 *
+	 * @param string $title
 	 * @return string
 	 */
-	private function options_page_title(): string {
-		$title = $this->options_page_config()['page_title'];
+	private function options_page_title( string $title ): string {
 		return 'Theme Settings' === $title ? __( 'Theme Settings', $this->theme_name ) : $title;
 	}
 
 	/**
-	 * Register the ACF "Theme Settings" options page.
+	 * Register the ACF "Theme Settings" options page(s).
 	 *
 	 * Hooked to `acf/init`.
 	 *
 	 * @return void
 	 */
 	public function acf_options_page() {
-		if ( function_exists( 'acf_add_options_page' ) ) {
+		if ( ! function_exists( 'acf_add_options_page' ) ) {
+			return;
+		}
 
-			$config = $this->options_page_config();
-			$title  = $this->options_page_title();
+		foreach ( $this->options_pages_config() as $page ) {
+			$title = $this->options_page_title( $page['page_title'] );
+			$args  = [
+				'page_title'         => $title,
+				'menu_title'         => $title,
+				'menu_slug'          => $page['menu_slug'],
+				'capability'         => 'edit_posts',
+				'redirect'           => false,
+				'graphql_field_name' => $page['graphql_field_name'],
+				'show_in_graphql'    => false,
+			];
 
-			acf_add_options_page( [
-				'page_title' => $title,
-				'menu_title' => $title,
-				'menu_slug' => $config['menu_slug'],
-				'capability' => 'edit_posts',
-				'icon_url' => 'dashicons-admin-generic',
-				'redirect' => false,
-				'graphql_field_name' => $config['graphql_field_name'],
-				'show_in_graphql' => false
-			] );
+			if ( isset( $page['parent_slug'] ) ) {
+				$args['parent_slug'] = $page['parent_slug'];
+				acf_add_options_sub_page( $args );
+			} else {
+				$args['icon_url'] = 'dashicons-admin-generic';
+				acf_add_options_page( $args );
+			}
 		}
 	}
-
 
 	/**
 	 * Add "Theme Settings" link under the site name in the admin toolbar.
@@ -1810,11 +1843,15 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	public function admin_bar_menu( $wp_admin_bar ) {
+		$primary = $this->primary_options_page();
+		if ( $primary === null ) {
+			return;
+		}
 		$wp_admin_bar->add_node( [
 			'parent' => 'site-name',
 			'id'     => 'theme-settings',
-			'title'  => $this->options_page_title(),
-			'href'   => add_query_arg( 'page', $this->options_page_config()['menu_slug'], admin_url( 'admin.php' ) ),
+			'title'  => $this->options_page_title( $primary['page_title'] ),
+			'href'   => add_query_arg( 'page', $primary['menu_slug'], admin_url( 'admin.php' ) ),
 		] );
 	}
 
