@@ -420,7 +420,7 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 | `$gutenberg_responsive_embeds` | bool | `true` | Responsive video embeds |
 | `$gutenberg_editor_styles` | bool | `true` | Load editor stylesheet |
 | `$gutenberg_disable_core_patterns` | bool | `true` | Remove core block patterns |
-| `$admin_resizable_sidebar` | bool | `true` | Enqueue the resizable editor sidebar (`admin/*/gutenberg-resizable-sidebar.*`). Set `false` on themes that don't ship those assets |
+| `$admin_resizable_sidebar` | bool | `true` | Toggle the resizable Gutenberg editor sidebar. The JS/CSS ship inside the package, so it works out of the box; set `false` to disable |
 
 ### Options Pages
 

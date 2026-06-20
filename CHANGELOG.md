@@ -6,10 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-06-20
+
 ### Added
 
 - **`StarterBase::$options_pages` property (array)** — declarative config for the ACF options page(s), replacing the previously hard-coded single "Theme Settings" page. Each entry is one page: `menu_slug` + `page_title` are required; optional per-entry keys are `parent_slug` (registers the entry as a sub-page via `acf_add_options_sub_page`; top-level pages are registered first so list order doesn't matter, and the function is `function_exists`-guarded), `capability` (default `edit_posts`), `icon_url` (top-level pages only, default `dashicons-admin-generic`), and `admin_bar` (bool, default off — mark any page(s) — including multiple — to appear in the admin bar; the default "Theme Settings" page is marked by default). Defaults to a single "Theme Settings" page (no behavioural change). Set `$options_pages = []` to register no options pages at all — completely disables the feature.
-- **`StarterBase::$admin_resizable_sidebar` flag (bool, default `true`)** — gates the resizable Gutenberg editor-sidebar enqueue (`admin/js|css/gutenberg-resizable-sidebar.*`). Set `false` on a theme that doesn't ship those assets to skip the enqueue (and its asset-version lookups on missing files).
+- **`StarterBase::$admin_resizable_sidebar` flag (bool, default `true`)** — toggles the resizable Gutenberg editor-sidebar feature; its JS/CSS ship inside the package (see _Changed_ below), so it works out of the box. Set `false` to disable it.
 - **`StarterBase::$autopopulate_breadcrumb` flag (bool, default `true`)** — when `false`, `timber_context()` skips auto-populating `$context['breadcrumb']` with a `Parisek\TimberKit\Breadcrumb`, for themes that build breadcrumbs themselves or don't render them. The legacy `! class_exists('\Breadcrumb')` escape hatch still applies on top of the flag.
 - **`StarterBase::$theme_script_strategy` property (string, default `'module'`)** — selects how the theme JS bundle (`static/dist/js/script.js`) is enqueued. `'module'` uses `wp_enqueue_script_module()` (correct for a Vite/ESM build — the default); `'defer'` uses a classic `wp_enqueue_script()` with `strategy=defer` for a webpack IIFE bundle (loading an IIFE as `type="module"` changes execution mode — deferred + module scope + strict — and breaks it). Both `assets()` and `enqueue_block_editor_assets()` route through a single overridable `enqueueThemeScript()` method, so a subclass needing finer control (dependencies, async, a different handle) overrides one place.
 
