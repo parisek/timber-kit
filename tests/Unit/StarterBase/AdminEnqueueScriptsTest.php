@@ -9,7 +9,7 @@ use Tests\Unit\StarterBaseTestCase;
 
 /**
  * Verifies that admin_enqueue_scripts() enqueues the resizable-editor-sidebar
- * assets from the package (assets/js|css/) via packageUrl(), and that
+ * assets from the package (assets/js|css/) via packageAssetUrl(), and that
  * $admin_resizable_sidebar = false suppresses the enqueue.
  */
 class AdminEnqueueScriptsTest extends StarterBaseTestCase {
@@ -17,7 +17,7 @@ class AdminEnqueueScriptsTest extends StarterBaseTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 
-		// Common WP function stubs needed by admin_enqueue_scripts() and packageUrl().
+		// Common WP function stubs needed by admin_enqueue_scripts() and packageAssetUrl().
 		Functions\when( 'wp_normalize_path' )->returnArg();
 		Functions\when( 'content_url' )->alias( function ( string $path = '' ): string {
 			return 'https://example.test/wp-content' . $path;

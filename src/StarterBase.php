@@ -1373,20 +1373,25 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Public URL for a file shipped inside this Composer package (e.g. an asset
-	 * under assets/). Maps the package's filesystem path to a URL via
-	 * WP_CONTENT_DIR/content_url(), so it resolves wherever the package is
-	 * installed under wp-content — including the active theme's vendor/ in the
-	 * usual shared-vendor topology.
+	 * Public URL for a static file shipped inside this Composer package (under
+	 * assets/). Resolves the package's filesystem path to a URL: when the package
+	 * lives under wp-content (the usual theme `vendor/` shared-vendor topology) it
+	 * maps via content_url(); otherwise it falls back to the active theme's
+	 * vendor path. realpath() is applied so a symlinked vendor dir still matches,
+	 * and the wp-content boundary is slash-terminated so `/wp-content-other` is not
+	 * a false match. Override in a subclass for non-standard hosting (e.g. a vendor
+	 * dir outside the web root, where assets must be published elsewhere).
 	 *
 	 * @param string $relative Path relative to the package root (leading slash).
 	 * @return string
 	 */
-	private function packageUrl( string $relative ): string {
-		$package_dir = wp_normalize_path( dirname( __DIR__ ) );
-		$content_dir = wp_normalize_path( WP_CONTENT_DIR );
+	protected function packageAssetUrl( string $relative ): string {
+		$package_dir = dirname( __DIR__ );
+		$package_dir = wp_normalize_path( realpath( $package_dir ) ?: $package_dir );
+		$content_dir = wp_normalize_path( realpath( WP_CONTENT_DIR ) ?: WP_CONTENT_DIR );
 
-		if ( str_starts_with( $package_dir, $content_dir ) ) {
+		// Slash-terminate both sides so `/a/wp-content-other` doesn't match `/a/wp-content`.
+		if ( str_starts_with( $package_dir . '/', $content_dir . '/' ) ) {
 			return content_url( substr( $package_dir, strlen( $content_dir ) ) ) . $relative;
 		}
 
@@ -1410,11 +1415,17 @@ class StarterBase extends Site {
 		// Based on https://wordpress.org/plugins/resizable-editor-sidebar/ plugin
 		// But without advertising and with custom styles
 		if ( $this->admin_resizable_sidebar ) {
-			$js  = '/assets/js/gutenberg-resizable-sidebar.js';
-			$css = '/assets/css/gutenberg-resizable-sidebar.css';
+			$js_rel  = '/assets/js/gutenberg-resizable-sidebar.js';
+			$css_rel = '/assets/css/gutenberg-resizable-sidebar.css';
+			$js_path  = wp_normalize_path( dirname( __DIR__ ) . $js_rel );
+			$css_path = wp_normalize_path( dirname( __DIR__ ) . $css_rel );
 
-			wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', $this->packageUrl( $js ), [ 'jquery-ui-resizable' ], filemtime( wp_normalize_path( dirname( __DIR__ ) . $js ) ), true );
-			wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', $this->packageUrl( $css ), [], filemtime( wp_normalize_path( dirname( __DIR__ ) . $css ) ) );
+			if ( ! is_file( $js_path ) || ! is_file( $css_path ) ) {
+				return;
+			}
+
+			wp_enqueue_script( $this->theme_name . '-resizable-editor-sidebar', $this->packageAssetUrl( $js_rel ), [ 'jquery-ui-resizable' ], filemtime( $js_path ), true );
+			wp_enqueue_style( $this->theme_name . '-resizable-editor-sidebar', $this->packageAssetUrl( $css_rel ), [], filemtime( $css_path ) );
 		}
 	}
 

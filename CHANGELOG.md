@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
-- **The resizable Gutenberg editor sidebar assets now ship inside the package** (`assets/js|css/gutenberg-resizable-sidebar.*`) and are enqueued from the package URL via a new `packageUrl()` resolver, instead of from each theme's `/admin/` directory. Consumer themes no longer need to vendor these identical files; `$admin_resizable_sidebar` (default `true`) still toggles the feature. The URL resolves wherever the package is installed under `wp-content`.
+- **The resizable Gutenberg editor sidebar assets now ship inside the package** (`assets/js|css/gutenberg-resizable-sidebar.*`) and are enqueued from the package URL via a new `packageAssetUrl()` resolver, instead of from each theme's `/admin/` directory. Consumer themes no longer need to vendor these identical files; `$admin_resizable_sidebar` (default `true`) still toggles the feature. The URL resolves wherever the package is installed under `wp-content`. The resolver is `protected` so subclasses can override it for non-standard hosting, applies `realpath()` for symlinked vendor dirs, and slash-terminates the wp-content boundary check to avoid false matches against paths like `/wp-content-other`. A `is_file()` guard before the enqueue prevents a PHP warning and a 404 on incomplete installs.
 
 ## [1.11.0] - 2026-06-15
 
