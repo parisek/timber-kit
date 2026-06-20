@@ -238,6 +238,9 @@ class StarterBase extends Site {
 	 *     ['menu_slug'=>'footer','page_title'=>'Footer','parent_slug'=>'settings'],
 	 *   ];
 	 *
+	 * Set to an empty array (`$this->options_pages = [];`) to register NO options
+	 * pages at all — disables the feature entirely (no ACF page, no admin-bar link).
+	 *
 	 * @var array<int, array<string, string>>
 	 */
 	protected array $options_pages = [
