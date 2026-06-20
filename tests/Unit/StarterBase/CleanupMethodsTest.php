@@ -509,6 +509,7 @@ class CleanupMethodsTest extends StarterBaseTestCase {
 	public function test_admin_bar_menu_adds_settings_node(): void {
 		Functions\when( '__' )->alias( fn( $s ) => $s );
 		Functions\when( 'admin_url' )->alias( fn( $s ) => 'https://example.com/wp-admin/' . $s );
+		Functions\when( 'add_query_arg' )->alias( fn( $key, $value, $url ) => $url . '?' . $key . '=' . $value );
 
 		$bar = new class {
 			public array $added = [];
