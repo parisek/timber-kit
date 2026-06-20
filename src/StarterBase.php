@@ -1803,13 +1803,10 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	private function register_options_page( array $page ): void {
-		// Title is used verbatim — like $breadcrumb_labels, the page title is
-		// consumer config, not translated by the library (a project sets its own
-		// localised string). Calling __() here on a dynamic value is not extractable.
-		$title = $page['page_title'];
-		$args  = [
-			'page_title'      => $title,
-			'menu_title'      => $title,
+		// Title used verbatim — translation is the consumer's job (cf. $breadcrumb_labels).
+		$args = [
+			'page_title'      => $page['page_title'],
+			'menu_title'      => $page['page_title'],
 			'menu_slug'       => $page['menu_slug'],
 			'capability'      => $page['capability'] ?? 'edit_posts',
 			'redirect'        => false,

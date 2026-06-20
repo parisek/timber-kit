@@ -275,6 +275,25 @@ class Base extends StarterBase {
 
 Override these properties in your child constructor before calling `parent::__construct()`:
 
+### Internationalisation
+
+timber-kit treats configurable labels and titles (e.g. `$breadcrumb_labels`, `$options_pages[*]['page_title']`) as **plain values used verbatim** — it never wraps them in `__()`. Translating them is the consuming theme's responsibility.
+
+**Why not in the library:** these are assigned in the child `__construct()` (before `parent::__construct()`), which runs on `setup_theme` — *before* `init` and before the text domain is loaded. Calling `__()` there is too early: it returns the string untranslated, and WordPress 6.7+ raises a *"Translation loading triggered too early"* `_doing_it_wrong` notice. Wrapping a dynamic config value in `__()` at use time also defeats string extraction — `xgettext`/`makepot` can't read a variable.
+
+**Localise at `init`, with static string literals.** Where a config surface has a dedicated setup hook, override it — e.g. `setup_breadcrumb_labels()` (hooked to `init`):
+
+```php
+public function setup_breadcrumb_labels() {
+    $this->breadcrumb_labels = [
+        'home' => _x( 'Home', 'breadcrumb', 'my-theme' ),
+        // …
+    ];
+}
+```
+
+For an admin label without a dedicated setup hook (e.g. an options-page `page_title`), set the value to your already-localised string, or leave the English default.
+
 ### Theme
 
 | Property | Type | Default | Description |
