@@ -301,6 +301,7 @@ For an admin label without a dedicated setup hook (e.g. an options-page `page_ti
 | `$menus` | array | `[]` | Registered navigation menus |
 | `$font_stylesheets` | array | `[]` | CSS files to enqueue on the frontend. Also forwarded into the Gutenberg editor canvas (both iframed and non-iframed) via `block_editor_settings_all`, so custom `@font-face` declarations render in the editor without falling back to system fonts. Relative paths are resolved under `static/` and cache-busted with `filemtime`; absolute URLs pass through |
 | `$theme_script_strategy` | string | `'module'` | How `static/dist/js/script.js` is enqueued: `'module'` → `wp_enqueue_script_module()` (Vite/ESM); `'defer'` → classic deferred `wp_enqueue_script()` for a webpack IIFE bundle. Override `enqueueThemeScript()` for finer control |
+| `$minify_style` | bool | `true` | Use `style.min.css` in production. `false` = always `style.css` (build emits no `.min`) |
 | `$preload_fonts` | array | `[]` | Font files to preload |
 | `$search_post_types` | array | `['post']` | Post types for search |
 | `$article_post_types` | array | `['post']` | Post types treated as articles |

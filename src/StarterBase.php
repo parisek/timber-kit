@@ -47,6 +47,15 @@ class StarterBase extends Site {
 	/** @var array<string, string> Font stylesheets to enqueue (handle-suffix => relative path from static/). */
 	protected array $font_stylesheets = [];
 
+	/**
+	 * Use the minified main stylesheet (`static/dist/css/style.min.css`) in
+	 * production. Set false for a build that emits only `style.css` (no `.min`),
+	 * so `assets()` always enqueues `style.css` and the theme needn't override
+	 * `assets()` just for the filename. Under `WP_DEBUG` the unminified `style.css`
+	 * is used regardless.
+	 */
+	protected bool $minify_style = true;
+
 	/** @var string[] Font files to preload (relative paths from static/). */
 	protected array $preload_fonts = [];
 
@@ -1385,11 +1394,8 @@ class StarterBase extends Site {
 		}
 
 		if ( ! is_admin() ) {
-			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.css', [], $this->assetVersion( get_template_directory() . '/static/dist/css/style.css' ) );
-			} else {
-				wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/style.min.css', [], $this->assetVersion( get_template_directory() . '/static/dist/css/style.min.css' ) );
-			}
+			$style_file = ( $this->minify_style && ! ( defined( 'WP_DEBUG' ) && WP_DEBUG ) ) ? 'style.min.css' : 'style.css';
+			wp_enqueue_style( $this->theme_name, get_template_directory_uri() . '/static/dist/css/' . $style_file, [], $this->assetVersion( get_template_directory() . '/static/dist/css/' . $style_file ) );
 			$this->enqueueThemeScript();
 
 			wp_dequeue_script( 'jquery' );

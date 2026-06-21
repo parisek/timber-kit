@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`StarterBase::$minify_style` flag (bool, default `true`)** — use the minified main stylesheet (`style.min.css`) in production. Set `false` for a build that emits only `style.css` (no `.min`), so the native `assets()` enqueues `style.css` and the theme needn't override `assets()` just for the filename. `WP_DEBUG` still forces unminified `style.css` regardless.
+
 ## [1.12.0] - 2026-06-20
 
 ### Added
