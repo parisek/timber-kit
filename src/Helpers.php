@@ -250,9 +250,10 @@ class Helpers {
 	 * string) are given an empty `url`.
 	 *
 	 * @param iterable $terms List of Timber\Term objects.
-	 * @return array<int, array{id: int, title: string, url: string, children: array}>
-	 *               Indexed list of term data arrays, each optionally
-	 *               containing nested `children` in the same format.
+	 * @return array<int, array{id: int, title: string, url: string, count: int, children: array}>
+	 *               Indexed list of term data arrays. `count` is the term's
+	 *               object count (from `WP_Term->count`). Each entry may also
+	 *               contain nested `children` in the same format.
 	 */
 	public static function formatTerms( $terms ) {
 
@@ -275,6 +276,7 @@ class Helpers {
 						'id' => $term->ID,
 						'title' => $term->title,
 						'url' => $link,
+						'count' => (int) $term->count,
 						'children' => Helpers::formatTerms( $children ),
 					];
 				}

@@ -42,6 +42,7 @@ class FormatTermsTest extends HelpersTestCase {
 		$term->ID = 5;
 		$term->title = 'Test Category';
 		$term->taxonomy = 'category';
+		$term->count = 12;
 		$term->children = false;
 
 		$result = Helpers::formatTerms( [ $term ] );
@@ -50,7 +51,25 @@ class FormatTermsTest extends HelpersTestCase {
 		$this->assertSame( 5, $result[0]['id'] );
 		$this->assertSame( 'Test Category', $result[0]['title'] );
 		$this->assertSame( '/category/test', $result[0]['url'] );
+		$this->assertSame( 12, $result[0]['count'] );
 		$this->assertSame( [], $result[0]['children'] );
+	}
+
+	public function test_casts_count_to_int(): void {
+		// WP_Term->count can arrive as a numeric string; the helper must expose
+		// it as an int. The same `(int) $term->count` line formats parent and
+		// recursive child terms, so this covers both code paths.
+		$term = $this->createStub( \Timber\Term::class );
+		$term->method( 'link' )->willReturn( '/category/test' );
+		$term->ID = 5;
+		$term->title = 'Test Category';
+		$term->taxonomy = 'category';
+		$term->count = '7';
+		$term->children = false;
+
+		$result = Helpers::formatTerms( [ $term ] );
+
+		$this->assertSame( 7, $result[0]['count'] );
 	}
 
 	public function test_clears_url_with_taxonomy_query_param(): void {
