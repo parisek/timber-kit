@@ -275,6 +275,7 @@ class Helpers {
 						'id' => $term->ID,
 						'title' => $term->title,
 						'url' => $link,
+						'count' => (int) $term->count,
 						'children' => Helpers::formatTerms( $children ),
 					];
 				}
