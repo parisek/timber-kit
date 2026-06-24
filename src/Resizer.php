@@ -206,6 +206,20 @@ class Resizer {
 	}
 
 	/**
+	 * Whether a MIME type belongs to a container that can carry animation.
+	 *
+	 * Gate for `isAnimated()` — only AVIF / WebP / GIF can be multi-frame, so
+	 * the common case (JPEG / PNG / BMP / TIFF / HEIC still images) skips the
+	 * Imagick probe and the header read entirely: zero added cost per render.
+	 *
+	 * @param string $mime Image MIME type, e.g. `image/png`.
+	 * @return bool
+	 */
+	private function isAnimatableType( string $mime ): bool {
+		return in_array( $mime, [ 'image/avif', 'image/webp', 'image/gif' ], true );
+	}
+
+	/**
 	 * Whether the source image is animated (multi-frame).
 	 *
 	 * Animated AVIF / WebP / GIF must NOT go through the resize pipeline: both
@@ -216,29 +230,37 @@ class Resizer {
 	 *
 	 * Detection is two-layered and OR-ed:
 	 *   1. Imagick frame count (authoritative when the extension is present).
-	 *   2. A backend-independent byte-signature sniff (covers GD-only servers
-	 *      and ImageMagick builds whose AVIF/WebP ping under-reports frames).
+	 *   2. A backend-independent, structurally-parsed byte sniff (covers GD-only
+	 *      servers and ImageMagick builds whose AVIF/WebP ping under-reports
+	 *      frames).
 	 * Either layer saying "animated" wins, because a false negative (animated
 	 * treated as static) is the harmful direction — it reintroduces the flatten
-	 * bug. A false positive merely serves a static file unresized.
+	 * bug. The byte sniff parses container structure (it does not scan for loose
+	 * substrings) so its false-positive rate is negligible.
+	 *
+	 * Callers must gate this behind `isAnimatableType()` — it assumes the source
+	 * is one of the animatable containers and only reads enough to confirm.
 	 *
 	 * @param string $source_path Absolute filesystem path to the source image.
 	 * @return bool True when the source has more than one frame.
 	 */
 	private function isAnimated( string $source_path ): bool {
 		if ( extension_loaded( 'imagick' ) && class_exists( '\Imagick' ) ) {
+			$probe = null;
 			try {
 				$probe = new \Imagick();
 				$probe->pingImage( $source_path );
-				$frames = $probe->getNumberImages();
-				$probe->clear();
-				$probe->destroy();
-				if ( $frames > 1 ) {
+				if ( $probe->getNumberImages() > 1 ) {
 					return true;
 				}
 			} catch ( \Throwable $e ) {
 				// Unreadable by Imagick — fall through to the byte sniff.
 				unset( $e );
+			} finally {
+				if ( $probe instanceof \Imagick ) {
+					$probe->clear();
+					$probe->destroy();
+				}
 			}
 		}
 
@@ -246,21 +268,20 @@ class Resizer {
 	}
 
 	/**
-	 * Backend-independent animation sniff via format-specific byte signatures.
+	 * Backend-independent animation sniff via structural container parsing.
 	 *
-	 * Reads a bounded header window and looks for the animation markers each
-	 * container uses. Deliberately biased toward detecting animation (see
-	 * isAnimated()): a missed marker is the dangerous case.
+	 * Reads a bounded header window and confirms animation from each container's
+	 * actual structure — not loose substring scans, which false-positive on
+	 * compressed payloads. Biased toward detecting animation (see isAnimated()):
+	 * a missed frame is the dangerous case.
 	 *
-	 *   - GIF  — the `NETSCAPE2.0` loop extension, or >1 Graphic Control
-	 *            Extension blocks (`0x21 0xF9`).
-	 *   - WebP — an `ANIM` / `ANMF` chunk in the RIFF/WEBP container.
-	 *   - AVIF — the `avis` (image-sequence) brand in the ISOBMFF `ftyp` box,
-	 *            or a `moov` (timed-sequence) box.
-	 *
-	 * The header window (64 KiB) covers the location of every marker above:
-	 * GIF's NETSCAPE2.0 extension sits before the first frame, WebP's ANIM chunk
-	 * directly after the header, and AVIF brands inside the leading ftyp box.
+	 *   - GIF  — counts Image Descriptors via a block walk (`gifIsAnimated()`),
+	 *            so non-looping GIFs and GIFs without Graphic Control Extensions
+	 *            are still caught.
+	 *   - WebP — reads the VP8X chunk's animation flag (bit 1) at its fixed
+	 *            offset; a file without a VP8X chunk is a single image.
+	 *   - AVIF — looks for the `avis` image-sequence brand strictly inside the
+	 *            ISOBMFF `ftyp` box's brand list.
 	 *
 	 * @param string $source_path Absolute filesystem path to the source image.
 	 * @return bool
@@ -276,25 +297,114 @@ class Resizer {
 			return false;
 		}
 
-		// GIF87a / GIF89a.
+		// GIF87a / GIF89a — count image descriptors structurally.
 		if ( 0 === strncmp( $head, 'GIF8', 4 ) ) {
-			return str_contains( $head, 'NETSCAPE2.0' ) || substr_count( $head, "\x21\xF9" ) > 1;
+			return $this->gifIsAnimated( $head );
 		}
 
-		// RIFF....WEBP.
+		// RIFF/WEBP — animation is declared by a VP8X chunk's animation flag.
+		// Layout: "RIFF"(4) size(4) "WEBP"(4) "VP8X"(4) chunkSize(4) flags(1)…
+		// The animation flag is bit 1 (0x02) of the flags byte at offset 20.
 		if ( 0 === strncmp( $head, 'RIFF', 4 ) && 'WEBP' === substr( $head, 8, 4 ) ) {
-			return str_contains( $head, 'ANIM' ) || str_contains( $head, 'ANMF' );
+			if ( 'VP8X' === substr( $head, 12, 4 ) ) {
+				return 0 !== ( ord( $head[20] ?? "\x00" ) & 0x02 );
+			}
+			return false;
 		}
 
-		// ISOBMFF (AVIF / HEIF): ftyp box at the head of the file.
-		if ( str_contains( substr( $head, 0, 32 ), 'ftyp' ) ) {
-			if ( str_contains( substr( $head, 0, 64 ), 'avis' ) ) {
-				return true;
+		// ISOBMFF (AVIF) — the 'avis' brand inside the leading ftyp box marks an
+		// image sequence. Confine the search to the box's brand list.
+		if ( 'ftyp' === substr( $head, 4, 4 ) ) {
+			$box_size = (int) ( unpack( 'N', substr( $head, 0, 4 ) )[1] ?? 0 );
+			$brands = ( $box_size > 8 && $box_size <= strlen( $head ) )
+				? substr( $head, 8, $box_size - 8 )
+				: substr( $head, 8, 56 );
+			foreach ( str_split( $brands, 4 ) as $brand ) {
+				if ( 'avis' === $brand ) {
+					return true;
+				}
 			}
-			return str_contains( $head, 'moov' );
+			return false;
 		}
 
 		return false;
+	}
+
+	/**
+	 * Count GIF Image Descriptors by walking the block stream; animated when
+	 * more than one frame is found within the buffered window.
+	 *
+	 * Walks the documented GIF89a block structure — skipping the optional Global
+	 * Color Table, then iterating Image Descriptors (`0x2C`, one per frame),
+	 * Extension blocks (`0x21`), and the Trailer (`0x3B`) — and short-circuits
+	 * as soon as a second frame appears. This is the GD-only fallback; Imagick,
+	 * when present, is the authoritative counter.
+	 *
+	 * @param string $buf Buffered file head.
+	 * @return bool
+	 */
+	private function gifIsAnimated( string $buf ): bool {
+		$len = strlen( $buf );
+		// Header (6) + Logical Screen Descriptor (7); packed field at offset 10.
+		if ( $len < 13 ) {
+			return false;
+		}
+		$packed = ord( $buf[10] );
+		$pos = 13;
+		if ( $packed & 0x80 ) { // Global Color Table present.
+			$pos += 3 * ( 1 << ( ( $packed & 0x07 ) + 1 ) );
+		}
+
+		$frames = 0;
+		while ( $pos < $len ) {
+			$block = ord( $buf[ $pos ] );
+			if ( 0x3B === $block ) { // Trailer.
+				break;
+			}
+			if ( 0x2C === $block ) { // Image Descriptor → one frame.
+				if ( ++$frames > 1 ) {
+					return true;
+				}
+				$pos += 10; // Separator + 9 descriptor bytes.
+				if ( $pos > $len ) {
+					break;
+				}
+				$img_packed = ord( $buf[ $pos - 1 ] );
+				if ( $img_packed & 0x80 ) { // Local Color Table.
+					$pos += 3 * ( 1 << ( ( $img_packed & 0x07 ) + 1 ) );
+				}
+				$pos += 1; // LZW minimum code size.
+				$pos = $this->gifSkipSubBlocks( $buf, $pos );
+			} elseif ( 0x21 === $block ) { // Extension.
+				$pos += 2; // Introducer + label.
+				$pos = $this->gifSkipSubBlocks( $buf, $pos );
+			} else {
+				break; // Malformed / unknown — stop walking.
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Advance past a GIF data sub-block sequence (length-prefixed runs ended by
+	 * a zero-length block terminator).
+	 *
+	 * @param string $buf Buffered file head.
+	 * @param int    $pos Position of the first sub-block length byte.
+	 * @return int Position just past the block terminator.
+	 */
+	private function gifSkipSubBlocks( string $buf, int $pos ): int {
+		$len = strlen( $buf );
+		while ( $pos < $len ) {
+			$size = ord( $buf[ $pos ] );
+			$pos += 1;
+			if ( 0 === $size ) { // Block terminator.
+				break;
+			}
+			$pos += $size;
+		}
+		return $pos;
 	}
 
 	/**
@@ -859,11 +969,15 @@ class Resizer {
 		// writeImage() both flatten to frame 0, silently dropping the animation.
 		// Pass the original through untouched, same contract as an unsupported
 		// type; cropping/scaling of an animated source is the consumer's CSS job.
+		// Gated on an animatable container so still JPEG/PNG add zero overhead.
 		//
 		// Opt back into best-effort re-encoding on a backend that can write the
 		// animated target format:
 		//   add_filter( 'timber_kit_resizer_skip_animated', '__return_false' );
-		if ( apply_filters( 'timber_kit_resizer_skip_animated', true, $source_path ) && $this->isAnimated( $source_path ) ) {
+		$source_mime = (string) ( wp_check_filetype( $default_image['src'] )['type'] ?? '' );
+		if ( $this->isAnimatableType( $source_mime )
+			&& apply_filters( 'timber_kit_resizer_skip_animated', true, $source_path )
+			&& $this->isAnimated( $source_path ) ) {
 			return [ $default_image ];
 		}
 
