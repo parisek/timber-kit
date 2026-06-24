@@ -492,11 +492,12 @@ class Resizer {
 	 * Live round-trip self-test: can Imagick actually write a multi-frame file
 	 * for $format on this server?
 	 *
-	 * Never assume from a version string. Build a 2-frame in-memory image, write
-	 * it with `writeImagesFile(..., true)` to a memory stream, read it back, and
-	 * assert `getNumberImages() > 1`. Anything that throws or yields a single
-	 * frame means "cannot animate this format" → the caller falls back to
-	 * passthrough. AVIF (libheif) is the format this actually protects against.
+	 * Never assume from a version string. Build a 2-frame in-memory image,
+	 * serialise all frames into one in-memory blob via `getImagesBlob()`, read
+	 * it back, and assert `getNumberImages() > 1`. Anything that throws or
+	 * yields a single frame means "cannot animate this format" → the caller
+	 * falls back to passthrough. AVIF (libheif) is the format this actually
+	 * protects against.
 	 *
 	 * `protected` so tests can stub capability without a live delegate build.
 	 *
@@ -508,10 +509,15 @@ class Resizer {
 			return false;
 		}
 
+		$query = null;
 		$src = null;
 		$round = null;
 		try {
-			$formats = ( new \Imagick() )->queryFormats( strtoupper( $format ) );
+			$query = new \Imagick();
+			$formats = $query->queryFormats( strtoupper( $format ) );
+			$query->clear();
+			$query->destroy();
+			$query = null;
 			if ( empty( $formats ) ) {
 				return false;
 			}
@@ -524,10 +530,11 @@ class Resizer {
 				$frame->setImageDelay( 10 );
 				$src->addImage( $frame );
 				$frame->clear();
+				$frame->destroy();
 			}
 			$src->setImageFormat( $format );
 
-			$blob = $src->getImagesBlob(); // serialises all frames (adjoined)
+			$blob = $src->getImagesBlob(); // serialises all frames into one in-memory blob
 
 			$round = new \Imagick();
 			$round->readImageBlob( $blob );
@@ -536,7 +543,7 @@ class Resizer {
 			unset( $e );
 			return false;
 		} finally {
-			foreach ( [ $src, $round ] as $img ) {
+			foreach ( [ $query, $src, $round ] as $img ) {
 				if ( $img instanceof \Imagick ) {
 					$img->clear();
 					$img->destroy();
