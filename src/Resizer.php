@@ -726,6 +726,119 @@ class Resizer {
 	}
 
 	/**
+	 * Multi-frame counterpart to `processVariant()` — resizes/crops an animated
+	 * source while preserving animation, via a raw Imagick path (Spatie\Image
+	 * cannot express multi-frame). Only reached after `canEncodeAnimated()` has
+	 * confirmed the backend can write animated output for the target format.
+	 *
+	 * Mirrors `processVariant()`'s cache-path/URL derivation, directory creation,
+	 * force-regenerate gate, and return shape so the two are interchangeable in
+	 * `resizer()`'s output list. Crop styles: scale (one-or-both dims) and
+	 * positional crop (cover-scale then per-frame `cropImage()` at the
+	 * `cropOffset()`); `smart-crop` degrades to centre.
+	 *
+	 * Returns `null` on any failure or when the source's frame count exceeds the
+	 * `timber_kit_resizer_animated_max_frames` filter — the caller then passes the
+	 * original through rather than emitting a broken variant.
+	 *
+	 * @param array  $variant       Normalized variant spec.
+	 * @param string $source_path   Absolute source path.
+	 * @param string $filename      Sanitized filename (no extension).
+	 * @param array  $default_image Default image metadata.
+	 * @return array|null
+	 */
+	private function processAnimatedVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
+		$target_dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
+		$target_dir = $this->image_cache_dir . '/' . $target_dirname;
+		$target_path = $target_dir . '/' . $filename . '.' . $this->target_format;
+
+		$relative_cache_dir = $this->image_cache_dir;
+		if ( defined( 'WP_CONTENT_DIR' ) && strpos( $relative_cache_dir, WP_CONTENT_DIR ) === 0 ) {
+			$relative_cache_dir = substr( $relative_cache_dir, strlen( WP_CONTENT_DIR ) );
+		}
+		$relative_cache_dir = ltrim( (string) $relative_cache_dir, '/\\' );
+		$target_url = content_url( $relative_cache_dir . '/' . $target_dirname . '/' . $filename . '.' . $this->target_format );
+
+		if ( ! file_exists( $target_path ) || $this->force_regenerate ) {
+			if ( ! file_exists( $target_dir ) ) {
+				if ( ! wp_mkdir_p( $target_dir ) ) {
+					error_log( sprintf( 'Resizer: failed to create directory "%s"', $target_dir ) );
+					return null;
+				}
+			}
+
+			$imagick = null;
+			try {
+				$imagick = new \Imagick( $source_path );
+
+				/**
+				 * Optional cap on animated frame count. 0 (default) = unlimited.
+				 * Over the cap → bail to passthrough; an animated re-encode of a
+				 * very long sequence can be prohibitively large/slow.
+				 *
+				 * @param int $max_frames Maximum frames to re-encode (0 = unlimited).
+				 */
+				$max_frames = (int) apply_filters( 'timber_kit_resizer_animated_max_frames', 0 );
+				if ( $max_frames > 0 && $imagick->getNumberImages() > $max_frames ) {
+					error_log( sprintf( 'Resizer: animated source "%s" exceeds max frames (%d) — passthrough', $source_path, $max_frames ) );
+					return null;
+				}
+
+				$imagick = $imagick->coalesceImages();
+
+				$w = (int) $variant['width'];
+				$h = (int) $variant['height'];
+				$is_crop = in_array( $variant['image_style'], [ 'crop', 'center', 'top', 'bottom', 'left', 'right', 'smart-crop' ], true ) && $w > 0 && $h > 0;
+
+				foreach ( $imagick as $frame ) {
+					if ( $is_crop ) {
+						$src_w = $frame->getImageWidth();
+						$src_h = $frame->getImageHeight();
+						// Cover-scale: fill the target box, preserving aspect.
+						$scale = max( $w / $src_w, $h / $src_h );
+						$scaled_w = (int) ceil( $src_w * $scale );
+						$scaled_h = (int) ceil( $src_h * $scale );
+						$frame->scaleImage( $scaled_w, $scaled_h );
+						$offset = $this->cropOffset( $variant['image_style'], $scaled_w, $scaled_h, $w, $h );
+						$frame->cropImage( $w, $h, $offset['x'], $offset['y'] );
+						$frame->setImagePage( $w, $h, 0, 0 );
+					} else {
+						// Scale only: honour one-or-both dimensions (0 = unconstrained).
+						$frame->scaleImage( $w, $h, ( 0 !== $w && 0 !== $h ) ? false : true );
+					}
+					$frame->setImageFormat( $this->target_format );
+					$frame->setImageCompressionQuality( (int) $variant['quality'] );
+				}
+
+				$imagick = $imagick->deconstructImages();
+				$imagick->writeImages( $target_path, true );
+			} catch ( \Throwable $e ) {
+				error_log( sprintf( 'Resizer: failed to process animated "%s" to "%s": %s', $source_path, $target_path, $e->getMessage() ) );
+				return null;
+			} finally {
+				if ( $imagick instanceof \Imagick ) {
+					$imagick->clear();
+					$imagick->destroy();
+				}
+			}
+		}
+
+		$filetype = wp_check_filetype( $target_path );
+		$actual_mime = $filetype['type'] ?? 'image/' . $this->target_format;
+
+		return [
+			'src' => $target_url,
+			'type' => $actual_mime,
+			'width' => $variant['width'],
+			'height' => $variant['height'],
+			'media' => ( ! empty( $variant['media'] ) ) ? '(min-width: ' . $variant['media'] . 'px)' : '',
+			'alt' => $default_image['alt'],
+			'caption' => $default_image['caption'],
+			'description' => $default_image['description'],
+		];
+	}
+
+	/**
 	 * Map crop position from Timber format to Spatie CropPosition enum
 	 *
 	 * @param string $position Crop position string.

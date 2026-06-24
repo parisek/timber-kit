@@ -385,6 +385,24 @@ parameters:
 			path: src/Resizer.php
 
 		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:processAnimatedVariant\(\) has parameter \$default_image with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:processAnimatedVariant\(\) has parameter \$variant with no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
+			message: '#^Method Parisek\\TimberKit\\Resizer\:\:processAnimatedVariant\(\) return type has no value type specified in iterable type array\.$#'
+			identifier: missingType.iterableValue
+			count: 1
+			path: src/Resizer.php
+
+		-
 			message: '#^Method Parisek\\TimberKit\\Resizer\:\:resizer\(\) has parameter \$variants with no value type specified in iterable type array\.$#'
 			identifier: missingType.iterableValue
 			count: 1
