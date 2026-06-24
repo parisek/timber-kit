@@ -651,6 +651,38 @@ class Resizer {
 	}
 
 	/**
+	 * Pixel offset of the crop window for a cover-scaled frame.
+	 *
+	 * The animated path cover-scales each frame so it fills the target box
+	 * (`$scaledW >= $w`, `$scaledH >= $h`), then crops `$w × $h` at the offset
+	 * returned here. Mirrors the positional semantics of `mapCropPosition()` but
+	 * in raw pixel space (Imagick `cropImage()` takes coordinates, not a Spatie
+	 * `CropPosition` enum). `crop` and any unrecognised style centre, matching the
+	 * static path's default.
+	 *
+	 * @param string $style   Crop style (center/top/bottom/left/right/crop/…).
+	 * @param int    $scaledW Cover-scaled frame width.
+	 * @param int    $scaledH Cover-scaled frame height.
+	 * @param int    $w       Target crop width.
+	 * @param int    $h       Target crop height.
+	 * @return array{x: int, y: int} Non-negative crop offset.
+	 */
+	private function cropOffset( string $style, int $scaledW, int $scaledH, int $w, int $h ): array {
+		$overflow_x = max( 0, $scaledW - $w );
+		$overflow_y = max( 0, $scaledH - $h );
+		$center_x = (int) ( $overflow_x / 2 );
+		$center_y = (int) ( $overflow_y / 2 );
+
+		return match ( strtolower( $style ) ) {
+			'top'    => [ 'x' => $center_x, 'y' => 0 ],
+			'bottom' => [ 'x' => $center_x, 'y' => $overflow_y ],
+			'left'   => [ 'x' => 0, 'y' => $center_y ],
+			'right'  => [ 'x' => $overflow_x, 'y' => $center_y ],
+			default  => [ 'x' => $center_x, 'y' => $center_y ],
+		};
+	}
+
+	/**
 	 * Calculate Shannon entropy for a rectangular slice of a GD image.
 	 *
 	 * Builds a 256-bucket grayscale histogram for the slice and computes
