@@ -97,16 +97,37 @@ class SniffAnimatedTest extends ResizerTestCase {
 		$this->assertFalse( $this->sniff( $bytes ) );
 	}
 
+	public function test_webp_vp8x_with_invalid_chunk_size_is_not_detected(): void {
+		// Malformed VP8X chunk size (0, not the canonical 10) → the flags byte at
+		// offset 20 is not trustworthy, so it must not be read as an anim flag.
+		$bytes = 'RIFF' . "\x00\x00\x00\x00" . 'WEBP' . 'VP8X' . "\x00\x00\x00\x00"
+			. "\x02" . str_repeat( "\x00", 9 );
+		$this->assertFalse( $this->sniff( $bytes ) );
+	}
+
 	// ---- AVIF ------------------------------------------------------------
 
-	public function test_animated_avif_avis_brand_is_detected(): void {
+	public function test_animated_avif_avis_major_brand_is_detected(): void {
 		// ftyp box (size 0x14) with 'avis' major brand.
 		$bytes = "\x00\x00\x00\x14" . 'ftyp' . 'avis' . "\x00\x00\x00\x00" . 'avif';
 		$this->assertTrue( $this->sniff( $bytes ) );
 	}
 
+	public function test_animated_avif_avis_compatible_brand_is_detected(): void {
+		// 'avis' as a compatible brand (major is 'avif'); box size 0x18 = 24.
+		$bytes = "\x00\x00\x00\x18" . 'ftyp' . 'avif' . "\x00\x00\x00\x00" . 'mif1' . 'avis';
+		$this->assertTrue( $this->sniff( $bytes ) );
+	}
+
 	public function test_static_avif_is_not_detected(): void {
 		$bytes = "\x00\x00\x00\x14" . 'ftyp' . 'avif' . "\x00\x00\x00\x00" . 'mif1';
+		$this->assertFalse( $this->sniff( $bytes ) );
+	}
+
+	public function test_avif_minor_version_spelling_avis_is_not_detected(): void {
+		// The 4-byte minor_version field (offset 12–15) literally spells 'avis'
+		// but is a version number, not a brand — it must be skipped (box size 0x10).
+		$bytes = "\x00\x00\x00\x10" . 'ftyp' . 'avif' . 'avis';
 		$this->assertFalse( $this->sniff( $bytes ) );
 	}
 

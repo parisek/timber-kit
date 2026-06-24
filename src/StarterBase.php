@@ -352,6 +352,23 @@ class StarterBase extends Site {
 	protected bool $resizer_format_health = true;
 
 	/**
+	 * Pass animated sources (animated AVIF / WebP / GIF) through the resizer
+	 * untouched instead of re-encoding them. The resize pipeline is single-frame
+	 * (Spatie\Image / Imagick writeImage), so re-encoding an animated source
+	 * flattens it to its first frame. With this on, animated sources are served
+	 * at their original size (cropping/scaling becomes the consumer's CSS job)
+	 * and the animation is preserved.
+	 *
+	 * Opt-in (default off): turning it on changes rendered output for any page
+	 * that already serves animated images through `|resizer` (they switch from a
+	 * flattened resized variant to the unresized original), so existing consumers
+	 * are unaffected until they flip it.
+	 *
+	 * @var bool
+	 */
+	protected bool $resizer_skip_animated = false;
+
+	/**
 	 * Slim orchestrator — resolves theme identity, delegates hook registration
 	 * to concern-focused private methods, then hands off to Timber\Site.
 	 *
@@ -693,6 +710,9 @@ class StarterBase extends Site {
 		if ( $this->resizer_format_health ) {
 			add_filter( 'site_status_tests', array( $this, 'site_health_register_resizer_formats_test' ) );
 			add_filter( 'debug_information', array( $this, 'site_health_resizer_formats_debug' ) );
+		}
+		if ( $this->resizer_skip_animated ) {
+			add_filter( 'timber_kit_resizer_skip_animated', '__return_true' );
 		}
 	}
 

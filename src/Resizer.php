@@ -107,6 +107,15 @@ class Resizer {
 	private bool $force_regenerate;
 
 	/**
+	 * Whether to pass animated sources (animated AVIF / WebP / GIF) through
+	 * untouched instead of re-encoding them. Opt-in (default false) — see the
+	 * `timber_kit_resizer_skip_animated` filter and `StarterBase::$resizer_skip_animated`.
+	 *
+	 * @var bool
+	 */
+	private bool $skip_animated;
+
+	/**
 	 * Memoized allow-list of decodable input MIME types (per request).
 	 *
 	 * @var array<int, string>|null
@@ -121,24 +130,14 @@ class Resizer {
 	 *   - `timber_kit_resizer_target_quality`  — output quality 0-100 (default: 100)
 	 *   - `timber_kit_resizer_image_cache_dir` — absolute path to cache directory
 	 *   - `timber_kit_resizer_force_regenerate` — skip cache and always regenerate
-	 *   - `timber_kit_resizer_skip_animated` — pass animated sources through untouched (default: true)
+	 *   - `timber_kit_resizer_skip_animated`   — pass animated sources through untouched (default: false / opt-in)
 	 */
 	public function __construct() {
 		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );
 		$this->target_quality = (int) apply_filters( 'timber_kit_resizer_target_quality', self::DEFAULT_QUALITY );
 		$this->image_cache_dir = apply_filters( 'timber_kit_resizer_image_cache_dir', WP_CONTENT_DIR . self::CACHE_DIR_PATH );
 		$this->force_regenerate = (bool) apply_filters( 'timber_kit_resizer_force_regenerate', self::FORCE_REGENERATE );
-	}
-
-	/**
-	 * Check if file type is allowed for processing
-	 *
-	 * @param string $file_path File path to check.
-	 * @return bool True if allowed, false otherwise.
-	 */
-	private function isAllowedImageType( string $file_path ): bool {
-		$filetype = wp_check_filetype( $file_path );
-		return $this->canDecode( (string) ( $filetype['type'] ?? '' ) );
+		$this->skip_animated = (bool) apply_filters( 'timber_kit_resizer_skip_animated', false );
 	}
 
 	/**
@@ -228,15 +227,16 @@ class Resizer {
 	 * to the first frame, silently destroying the animation. resizer() treats a
 	 * positive result here like an unsupported type and returns the original.
 	 *
-	 * Detection is two-layered and OR-ed:
-	 *   1. Imagick frame count (authoritative when the extension is present).
-	 *   2. A backend-independent, structurally-parsed byte sniff (covers GD-only
-	 *      servers and ImageMagick builds whose AVIF/WebP ping under-reports
-	 *      frames).
-	 * Either layer saying "animated" wins, because a false negative (animated
-	 * treated as static) is the harmful direction — it reintroduces the flatten
-	 * bug. The byte sniff parses container structure (it does not scan for loose
-	 * substrings) so its false-positive rate is negligible.
+	 * Single detection per source, in priority order:
+	 *   1. Imagick frame count — authoritative when the extension is present, and
+	 *      it reads the whole file so it isn't bounded by the byte sniff's window.
+	 *   2. A backend-independent, structurally-parsed byte sniff — the GD-only
+	 *      fallback (and the path when Imagick throws on the source).
+	 * The byte sniff parses container structure (it does not scan for loose
+	 * substrings), so when it has to run its false-positive rate is negligible.
+	 * Note: on GD-only servers the sniff is bounded by its read window, so an
+	 * animated GIF whose first frame exceeds that window can be missed — Imagick,
+	 * when present, has no such limit.
 	 *
 	 * Callers must gate this behind `isAnimatableType()` — it assumes the source
 	 * is one of the animatable containers and only reads enough to confirm.
@@ -250,9 +250,7 @@ class Resizer {
 			try {
 				$probe = new \Imagick();
 				$probe->pingImage( $source_path );
-				if ( $probe->getNumberImages() > 1 ) {
-					return true;
-				}
+				return $probe->getNumberImages() > 1;
 			} catch ( \Throwable $e ) {
 				// Unreadable by Imagick — fall through to the byte sniff.
 				unset( $e );
@@ -303,24 +301,33 @@ class Resizer {
 		}
 
 		// RIFF/WEBP — animation is declared by a VP8X chunk's animation flag.
-		// Layout: "RIFF"(4) size(4) "WEBP"(4) "VP8X"(4) chunkSize(4) flags(1)…
-		// The animation flag is bit 1 (0x02) of the flags byte at offset 20.
+		// Layout: "RIFF"(4) size(4) "WEBP"(4) "VP8X"(4) chunkSize(4, LE, =10) flags(1)…
+		// Validate the VP8X header is structurally intact (present + canonical
+		// 10-byte chunk size + buffer long enough) before reading the flags byte
+		// at offset 20, so a malformed/truncated chunk can't be misread.
 		if ( 0 === strncmp( $head, 'RIFF', 4 ) && 'WEBP' === substr( $head, 8, 4 ) ) {
-			if ( 'VP8X' === substr( $head, 12, 4 ) ) {
-				return 0 !== ( ord( $head[20] ?? "\x00" ) & 0x02 );
+			if ( 'VP8X' === substr( $head, 12, 4 )
+				&& strlen( $head ) >= 21
+				&& 10 === (int) ( unpack( 'V', substr( $head, 16, 4 ) )[1] ?? 0 ) ) {
+				// Animation flag is bit 1 (0x02) of the flags byte at offset 20.
+				return 0 !== ( ord( $head[20] ) & 0x02 );
 			}
 			return false;
 		}
 
-		// ISOBMFF (AVIF) — the 'avis' brand inside the leading ftyp box marks an
-		// image sequence. Confine the search to the box's brand list.
+		// ISOBMFF (AVIF) — the 'avis' brand marks an image sequence. The ftyp box
+		// layout is: size(4) 'ftyp'(4) major_brand(4) minor_version(4) compatible
+		// brands(4·n). 'avis' can be the major brand OR a compatible brand; the
+		// minor_version field (offset 12–15) is a version number, NOT a brand, so
+		// it is skipped to avoid a false positive on version bytes spelling 'avis'.
 		if ( 'ftyp' === substr( $head, 4, 4 ) ) {
 			$box_size = (int) ( unpack( 'N', substr( $head, 0, 4 ) )[1] ?? 0 );
-			$brands = ( $box_size > 8 && $box_size <= strlen( $head ) )
-				? substr( $head, 8, $box_size - 8 )
-				: substr( $head, 8, 56 );
-			foreach ( str_split( $brands, 4 ) as $brand ) {
-				if ( 'avis' === $brand ) {
+			$end = ( $box_size > 8 && $box_size <= strlen( $head ) ) ? $box_size : min( strlen( $head ), 64 );
+			if ( 'avis' === substr( $head, 8, 4 ) ) { // major brand
+				return true;
+			}
+			for ( $i = 16; $i + 4 <= $end; $i += 4 ) { // compatible brands
+				if ( 'avis' === substr( $head, $i, 4 ) ) {
 					return true;
 				}
 			}
@@ -366,7 +373,10 @@ class Resizer {
 					return true;
 				}
 				$pos += 10; // Separator + 9 descriptor bytes.
-				if ( $pos > $len ) {
+				// Need the full descriptor AND at least the following LZW-min byte
+				// within the buffer; otherwise the frame is cut off by the read
+				// window — stop rather than derive sizes from truncated bytes.
+				if ( $pos >= $len ) {
 					break;
 				}
 				$img_packed = ord( $buf[ $pos - 1 ] );
@@ -924,8 +934,12 @@ class Resizer {
 
 		$default_image = $this->prepareDefaultImage( $image );
 
-		// Validate source file is an allowed image type
-		if ( ! $this->isAllowedImageType( $default_image['src'] ) ) {
+		// Resolve the source MIME once and reuse it for both the allow-list gate
+		// and the animated-source gate below.
+		$source_mime = (string) ( wp_check_filetype( $default_image['src'] )['type'] ?? '' );
+
+		// Validate source file is a backend-decodable image type.
+		if ( ! $this->canDecode( $source_mime ) ) {
 			return [ $default_image ];
 		}
 
@@ -967,16 +981,14 @@ class Resizer {
 		// Animated sources (animated AVIF / WebP / GIF) cannot survive the
 		// single-frame re-encode pipeline — Spatie\Image and Imagick's singular
 		// writeImage() both flatten to frame 0, silently dropping the animation.
-		// Pass the original through untouched, same contract as an unsupported
-		// type; cropping/scaling of an animated source is the consumer's CSS job.
-		// Gated on an animatable container so still JPEG/PNG add zero overhead.
-		//
-		// Opt back into best-effort re-encoding on a backend that can write the
-		// animated target format:
-		//   add_filter( 'timber_kit_resizer_skip_animated', '__return_false' );
-		$source_mime = (string) ( wp_check_filetype( $default_image['src'] )['type'] ?? '' );
-		if ( $this->isAnimatableType( $source_mime )
-			&& apply_filters( 'timber_kit_resizer_skip_animated', true, $source_path )
+		// When opted in ($skip_animated), pass the original through untouched —
+		// same contract as an unsupported type; cropping/scaling of an animated
+		// source is then the consumer's CSS job. Off by default so upgrading
+		// changes nothing until a project enables StarterBase::$resizer_skip_animated.
+		// $skip_animated is checked first so the detection cost (Imagick probe /
+		// header read) is only paid by projects that opted in.
+		if ( $this->skip_animated
+			&& $this->isAnimatableType( $source_mime )
 			&& $this->isAnimated( $source_path ) ) {
 			return [ $default_image ];
 		}
