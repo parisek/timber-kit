@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-06-24
+
 ### Added
 
 - **`Helpers::formatTerms()` now returns `count`** — each formatted term carries `'count' => (int) $term->count` (the term's object count) alongside `id` / `title` / `url` / `children`. Additive and backward-compatible: existing consumers reading the previous keys are unaffected. Lets callers that render term lists with a count (e.g. category-filter chips "SEA (18)") use the helper directly instead of querying `Timber::get_terms()` and reading `->count` by hand.
