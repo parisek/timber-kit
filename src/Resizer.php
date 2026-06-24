@@ -225,7 +225,7 @@ class Resizer {
 	 * @param string $mime Image MIME type, e.g. `image/png`.
 	 * @return bool
 	 */
-	private function isAnimatableType( string $mime ): bool {
+	protected function isAnimatableType( string $mime ): bool {
 		return in_array( $mime, [ 'image/avif', 'image/webp', 'image/gif' ], true );
 	}
 
@@ -255,7 +255,7 @@ class Resizer {
 	 * @param string $source_path Absolute filesystem path to the source image.
 	 * @return bool True when the source has more than one frame.
 	 */
-	private function isAnimated( string $source_path ): bool {
+	protected function isAnimated( string $source_path ): bool {
 		if ( extension_loaded( 'imagick' ) && class_exists( '\Imagick' ) ) {
 			$probe = null;
 			try {
@@ -480,7 +480,7 @@ class Resizer {
 	 * @param string $format Target format tag, e.g. `avif`.
 	 * @return bool
 	 */
-	private function canEncodeAnimated( string $format ): bool {
+	protected function canEncodeAnimated( string $format ): bool {
 		$key = strtolower( $format );
 		if ( ! array_key_exists( $key, self::$animated_encode_cache ) ) {
 			self::$animated_encode_cache[ $key ] = $this->probeAnimatedEncode( $key );
@@ -605,7 +605,7 @@ class Resizer {
 	 * @param array  $default_image Default image data for metadata.
 	 * @return array|null Processed image data or null on failure.
 	 */
-	private function processVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
+	protected function processVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
 		$target_dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
 		$target_dir = $this->image_cache_dir . '/' . $target_dirname;
 		$target_path = $target_dir . '/' . $filename . '.' . $this->target_format;
@@ -747,7 +747,7 @@ class Resizer {
 	 * @param array<string, mixed> $default_image Default image metadata.
 	 * @return array<string, mixed>|null
 	 */
-	private function processAnimatedVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
+	protected function processAnimatedVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
 		$target_dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
 		$target_dir = $this->image_cache_dir . '/' . $target_dirname;
 		$target_path = $target_dir . '/' . $filename . '.' . $this->target_format;
@@ -1220,25 +1220,30 @@ class Resizer {
 			return [ $default_image ];
 		}
 
-		// Animated sources (animated AVIF / WebP / GIF) cannot survive the
-		// single-frame re-encode pipeline — Spatie\Image and Imagick's singular
-		// writeImage() both flatten to frame 0, silently dropping the animation.
-		// Pass the original through untouched ($skip_animated, on by default) —
-		// same contract as an unsupported type; cropping/scaling of an animated
-		// source is then the consumer's CSS job. Set StarterBase::$resizer_skip_animated
-		// false to restore the legacy (flattening) re-encode. $skip_animated is
-		// checked first so the detection cost (Imagick probe / header read) is
-		// skipped entirely when the legacy behaviour is selected.
-		if ( $this->skip_animated
-			&& $this->isAnimatableType( $source_mime )
-			&& $this->isAnimated( $source_path ) ) {
-			return [ $default_image ];
+		// Animated AVIF / WebP / GIF cannot survive the single-frame static
+		// pipeline (Spatie\Image / Imagick singular writeImage() flatten to frame
+		// 0). Decide what to do at RUNTIME — never assume:
+		//   - skip_animated on  → always passthrough (the #60 escape hatch).
+		//   - backend can write animated <target_format> → multi-frame resize.
+		//   - backend cannot     → passthrough (never flatten — the core fix).
+		// Detection is gated on isAnimatableType() so still JPEG/PNG pay nothing.
+		$animated = $this->isAnimatableType( $source_mime ) && $this->isAnimated( $source_path );
+		$use_animated_path = false;
+		if ( $animated ) {
+			if ( $this->skip_animated || ! $this->canEncodeAnimated( $this->target_format ) ) {
+				return [ $default_image ];
+			}
+			$use_animated_path = true;
 		}
 
-		// Process each variant
 		$images = [];
 		foreach ( $normalized_variants as $variant ) {
-			$processed = $this->processVariant( $variant, $source_path, $filename, $default_image );
+			$processed = $use_animated_path
+				? $this->processAnimatedVariant( $variant, $source_path, $filename, $default_image )
+				: $this->processVariant( $variant, $source_path, $filename, $default_image );
+			// A null from the animated path (write failure / frame cap) means the
+			// backend couldn't honour this variant — drop the variant; the original
+			// is still appended below as the guaranteed fallback.
 			if ( $processed !== null ) {
 				$images[] = $processed;
 			}
