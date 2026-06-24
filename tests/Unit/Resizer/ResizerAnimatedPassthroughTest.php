@@ -9,11 +9,11 @@ use Parisek\TimberKit\Resizer;
 use Tests\Unit\ResizerTestCase;
 
 /**
- * Integration coverage for the opt-in animated-source passthrough in resizer():
- * when `timber_kit_resizer_skip_animated` is enabled, an animated source returns
+ * Integration coverage for the animated-source passthrough in resizer():
+ * by default (`timber_kit_resizer_skip_animated` on) an animated source returns
  * only the original image (no resized variants), stopping before the re-encode
- * loop that would flatten it. When the flag is off (the default) the property is
- * false and the source flows into the normal resize pipeline.
+ * loop that would flatten it. Setting the filter false restores the legacy
+ * re-encode (the source flows into the normal resize pipeline).
  */
 class ResizerAnimatedPassthroughTest extends ResizerTestCase {
 
@@ -34,11 +34,11 @@ class ResizerAnimatedPassthroughTest extends ResizerTestCase {
 	 * Build a Resizer with the skip-animated feature forced on via the filter,
 	 * leaving every other filter at its default.
 	 */
-	private function resizerSkippingAnimated(): Resizer {
+	private function resizerForcingReencode(): Resizer {
 		Functions\when( 'apply_filters' )->alias(
 			static function ( $filter, $default, ...$args ) {
 				unset( $args );
-				return 'timber_kit_resizer_skip_animated' === $filter ? true : $default;
+				return 'timber_kit_resizer_skip_animated' === $filter ? false : $default;
 			}
 		);
 		return new Resizer();
@@ -52,14 +52,14 @@ class ResizerAnimatedPassthroughTest extends ResizerTestCase {
 	}
 
 	public function test_constructor_reads_skip_animated_filter(): void {
-		// Default (no override) → off; the resize pipeline keeps its behaviour.
-		$this->assertFalse( $this->getPrivateProperty( $this->createResizer(), 'skip_animated' ) );
-		// Filter on → captured at construction.
-		$this->assertTrue( $this->getPrivateProperty( $this->resizerSkippingAnimated(), 'skip_animated' ) );
+		// Default (no override) → on; animated sources are passed through.
+		$this->assertTrue( $this->getPrivateProperty( $this->createResizer(), 'skip_animated' ) );
+		// Filter forced false → captured at construction (legacy re-encode).
+		$this->assertFalse( $this->getPrivateProperty( $this->resizerForcingReencode(), 'skip_animated' ) );
 	}
 
-	public function test_animated_source_returns_original_only_when_enabled(): void {
-		$resizer = $this->resizerSkippingAnimated();
+	public function test_animated_source_returns_original_only_by_default(): void {
+		$resizer = $this->createResizer();
 
 		// Backend must be able to decode GIF for the source to reach the
 		// animated check (it's gated behind canDecode()).

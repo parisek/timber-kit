@@ -108,8 +108,10 @@ class Resizer {
 
 	/**
 	 * Whether to pass animated sources (animated AVIF / WebP / GIF) through
-	 * untouched instead of re-encoding them. Opt-in (default false) — see the
-	 * `timber_kit_resizer_skip_animated` filter and `StarterBase::$resizer_skip_animated`.
+	 * untouched instead of re-encoding them. Default on — re-encoding an animated
+	 * source flattens it to its first frame, so skipping is the safe default. Set
+	 * false (via `StarterBase::$resizer_skip_animated` or the
+	 * `timber_kit_resizer_skip_animated` filter) to restore the legacy re-encode.
 	 *
 	 * @var bool
 	 */
@@ -130,14 +132,14 @@ class Resizer {
 	 *   - `timber_kit_resizer_target_quality`  — output quality 0-100 (default: 100)
 	 *   - `timber_kit_resizer_image_cache_dir` — absolute path to cache directory
 	 *   - `timber_kit_resizer_force_regenerate` — skip cache and always regenerate
-	 *   - `timber_kit_resizer_skip_animated`   — pass animated sources through untouched (default: false / opt-in)
+	 *   - `timber_kit_resizer_skip_animated`   — pass animated sources through untouched (default: true)
 	 */
 	public function __construct() {
 		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );
 		$this->target_quality = (int) apply_filters( 'timber_kit_resizer_target_quality', self::DEFAULT_QUALITY );
 		$this->image_cache_dir = apply_filters( 'timber_kit_resizer_image_cache_dir', WP_CONTENT_DIR . self::CACHE_DIR_PATH );
 		$this->force_regenerate = (bool) apply_filters( 'timber_kit_resizer_force_regenerate', self::FORCE_REGENERATE );
-		$this->skip_animated = (bool) apply_filters( 'timber_kit_resizer_skip_animated', false );
+		$this->skip_animated = (bool) apply_filters( 'timber_kit_resizer_skip_animated', true );
 	}
 
 	/**
@@ -981,12 +983,12 @@ class Resizer {
 		// Animated sources (animated AVIF / WebP / GIF) cannot survive the
 		// single-frame re-encode pipeline — Spatie\Image and Imagick's singular
 		// writeImage() both flatten to frame 0, silently dropping the animation.
-		// When opted in ($skip_animated), pass the original through untouched —
+		// Pass the original through untouched ($skip_animated, on by default) —
 		// same contract as an unsupported type; cropping/scaling of an animated
-		// source is then the consumer's CSS job. Off by default so upgrading
-		// changes nothing until a project enables StarterBase::$resizer_skip_animated.
-		// $skip_animated is checked first so the detection cost (Imagick probe /
-		// header read) is only paid by projects that opted in.
+		// source is then the consumer's CSS job. Set StarterBase::$resizer_skip_animated
+		// false to restore the legacy (flattening) re-encode. $skip_animated is
+		// checked first so the detection cost (Imagick probe / header read) is
+		// skipped entirely when the legacy behaviour is selected.
 		if ( $this->skip_animated
 			&& $this->isAnimatableType( $source_mime )
 			&& $this->isAnimated( $source_path ) ) {
