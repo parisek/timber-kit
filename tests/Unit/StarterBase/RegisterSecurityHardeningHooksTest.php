@@ -176,4 +176,38 @@ class RegisterSecurityHardeningHooksTest extends StarterBaseTestCase {
 
 		$this->assertContains( 'wp_headers', $filters );
 	}
+
+	public function test_security_headers_registers_duplicate_headers_site_health_test_by_default(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstanceWithAllFlagsOff();
+		$this->setProperty( $instance, 'security_headers', true );
+		// $warn_duplicate_security_headers defaults to true.
+
+		$this->invokeRegisterSecurityHardeningHooks( $instance );
+
+		$this->assertContains( 'site_status_tests', $filters );
+	}
+
+	public function test_duplicate_headers_site_health_test_skipped_when_flag_off(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstanceWithAllFlagsOff();
+		$this->setProperty( $instance, 'security_headers', true );
+		$this->setProperty( $instance, 'warn_duplicate_security_headers', false );
+
+		$this->invokeRegisterSecurityHardeningHooks( $instance );
+
+		// wp_headers still registers; the Site Health test does not.
+		$this->assertContains( 'wp_headers', $filters );
+		$this->assertNotContains( 'site_status_tests', $filters );
+	}
 }

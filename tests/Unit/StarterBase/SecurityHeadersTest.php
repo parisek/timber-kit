@@ -87,4 +87,23 @@ class SecurityHeadersTest extends StarterBaseTestCase {
 		$this->assertArrayNotHasKey( 'X-XSS-Protection', $headers );
 		$this->assertSame( 'SAMEORIGIN', $headers['X-Frame-Options'] );
 	}
+
+	public function test_hsts_always_includes_preload_over_tls(): void {
+		Functions\when( 'is_ssl' )->justReturn( true );
+		$headers = $this->createStarterBase()->security_headers( [] );
+
+		$this->assertSame( 'max-age=31536000; includeSubDomains; preload', $headers['Strict-Transport-Security'] );
+	}
+
+	public function test_hsts_preload_value_can_be_overridden_via_config(): void {
+		Functions\when( 'is_ssl' )->justReturn( true );
+		$base = $this->createStarterBase( [
+			'security_headers_config' => [ 'Strict-Transport-Security' => 'max-age=31536000; includeSubDomains' ],
+		] );
+
+		$headers = $base->security_headers( [] );
+
+		// The general config override is the escape hatch for a project that can't preload.
+		$this->assertSame( 'max-age=31536000; includeSubDomains', $headers['Strict-Transport-Security'] );
+	}
 }
