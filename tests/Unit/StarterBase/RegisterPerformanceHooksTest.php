@@ -109,6 +109,43 @@ class RegisterPerformanceHooksTest extends StarterBaseTestCase {
 		$this->assertNotContains( 'debug_information', $filters );
 	}
 
+	public function test_resizer_skip_animated_no_override_by_default(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'speculation_rules', null );
+		$this->setProperty( $instance, 'warn_speculation_rules_plugin_redundant', false );
+		$this->setProperty( $instance, 'resizer_format_health', false );
+		$this->setProperty( $instance, 'resizer_skip_animated', true );
+
+		$this->invokeRegisterPerformanceHooks( $instance );
+
+		// Default on (skip) → the resizer filter already defaults true, so no
+		// override is registered.
+		$this->assertNotContains( 'timber_kit_resizer_skip_animated', $filters );
+	}
+
+	public function test_resizer_skip_animated_override_registered_when_disabled(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'speculation_rules', null );
+		$this->setProperty( $instance, 'warn_speculation_rules_plugin_redundant', false );
+		$this->setProperty( $instance, 'resizer_format_health', false );
+		$this->setProperty( $instance, 'resizer_skip_animated', false );
+
+		$this->invokeRegisterPerformanceHooks( $instance );
+
+		// Opted out → an override is wired to restore the legacy re-encode.
+		$this->assertContains( 'timber_kit_resizer_skip_animated', $filters );
+	}
+
 	public function test_site_health_register_resizer_formats_test_adds_direct_entry(): void {
 		$instance = $this->bareInstance();
 		Functions\when( '__' )->returnArg( 1 );

@@ -352,6 +352,24 @@ class StarterBase extends Site {
 	protected bool $resizer_format_health = true;
 
 	/**
+	 * Pass animated sources (animated AVIF / WebP / GIF) through the resizer
+	 * untouched instead of re-encoding them. The resize pipeline is single-frame
+	 * (Spatie\Image / Imagick writeImage), so re-encoding an animated source
+	 * flattens it to its first frame — every `|resizer` variant becomes a frozen
+	 * still. With this on, animated sources are served at their original size
+	 * (cropping/scaling becomes the consumer's CSS job) and the animation survives.
+	 *
+	 * Default **on**: re-encoding an animated source is always wrong (it destroys
+	 * the animation), so the safe behaviour ships by default — a deliberate
+	 * exception to the usual default-off feature-flag rule, since the legacy
+	 * behaviour is a bug, not a feature. Set false to restore the legacy
+	 * re-encode (e.g. on a backend that can write animated output — see #61).
+	 *
+	 * @var bool
+	 */
+	protected bool $resizer_skip_animated = true;
+
+	/**
 	 * Slim orchestrator — resolves theme identity, delegates hook registration
 	 * to concern-focused private methods, then hands off to Timber\Site.
 	 *
@@ -693,6 +711,11 @@ class StarterBase extends Site {
 		if ( $this->resizer_format_health ) {
 			add_filter( 'site_status_tests', array( $this, 'site_health_register_resizer_formats_test' ) );
 			add_filter( 'debug_information', array( $this, 'site_health_resizer_formats_debug' ) );
+		}
+		if ( ! $this->resizer_skip_animated ) {
+			// Default is on (skip); only register an override to restore the
+			// legacy flattening re-encode when a project explicitly opts out.
+			add_filter( 'timber_kit_resizer_skip_animated', '__return_false' );
 		}
 	}
 

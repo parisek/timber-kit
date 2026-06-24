@@ -107,6 +107,17 @@ class Resizer {
 	private bool $force_regenerate;
 
 	/**
+	 * Whether to pass animated sources (animated AVIF / WebP / GIF) through
+	 * untouched instead of re-encoding them. Default on — re-encoding an animated
+	 * source flattens it to its first frame, so skipping is the safe default. Set
+	 * false (via `StarterBase::$resizer_skip_animated` or the
+	 * `timber_kit_resizer_skip_animated` filter) to restore the legacy re-encode.
+	 *
+	 * @var bool
+	 */
+	private bool $skip_animated;
+
+	/**
 	 * Memoized allow-list of decodable input MIME types (per request).
 	 *
 	 * @var array<int, string>|null
@@ -121,23 +132,14 @@ class Resizer {
 	 *   - `timber_kit_resizer_target_quality`  — output quality 0-100 (default: 100)
 	 *   - `timber_kit_resizer_image_cache_dir` — absolute path to cache directory
 	 *   - `timber_kit_resizer_force_regenerate` — skip cache and always regenerate
+	 *   - `timber_kit_resizer_skip_animated`   — pass animated sources through untouched (default: true)
 	 */
 	public function __construct() {
 		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );
 		$this->target_quality = (int) apply_filters( 'timber_kit_resizer_target_quality', self::DEFAULT_QUALITY );
 		$this->image_cache_dir = apply_filters( 'timber_kit_resizer_image_cache_dir', WP_CONTENT_DIR . self::CACHE_DIR_PATH );
 		$this->force_regenerate = (bool) apply_filters( 'timber_kit_resizer_force_regenerate', self::FORCE_REGENERATE );
-	}
-
-	/**
-	 * Check if file type is allowed for processing
-	 *
-	 * @param string $file_path File path to check.
-	 * @return bool True if allowed, false otherwise.
-	 */
-	private function isAllowedImageType( string $file_path ): bool {
-		$filetype = wp_check_filetype( $file_path );
-		return $this->canDecode( (string) ( $filetype['type'] ?? '' ) );
+		$this->skip_animated = (bool) apply_filters( 'timber_kit_resizer_skip_animated', true );
 	}
 
 	/**
@@ -202,6 +204,219 @@ class Resizer {
 
 		$this->decodable_cache = array_values( array_unique( $allowed ) );
 		return $this->decodable_cache;
+	}
+
+	/**
+	 * Whether a MIME type belongs to a container that can carry animation.
+	 *
+	 * Gate for `isAnimated()` — only AVIF / WebP / GIF can be multi-frame, so
+	 * the common case (JPEG / PNG / BMP / TIFF / HEIC still images) skips the
+	 * Imagick probe and the header read entirely: zero added cost per render.
+	 *
+	 * @param string $mime Image MIME type, e.g. `image/png`.
+	 * @return bool
+	 */
+	private function isAnimatableType( string $mime ): bool {
+		return in_array( $mime, [ 'image/avif', 'image/webp', 'image/gif' ], true );
+	}
+
+	/**
+	 * Whether the source image is animated (multi-frame).
+	 *
+	 * Animated AVIF / WebP / GIF must NOT go through the resize pipeline: both
+	 * backends used by processVariant() — Spatie\Image and Imagick's singular
+	 * writeImage() — operate on a single raster surface and flatten the output
+	 * to the first frame, silently destroying the animation. resizer() treats a
+	 * positive result here like an unsupported type and returns the original.
+	 *
+	 * Single detection per source, in priority order:
+	 *   1. Imagick frame count — authoritative when the extension is present, and
+	 *      it reads the whole file so it isn't bounded by the byte sniff's window.
+	 *   2. A backend-independent, structurally-parsed byte sniff — the GD-only
+	 *      fallback (and the path when Imagick throws on the source).
+	 * The byte sniff parses container structure (it does not scan for loose
+	 * substrings), so when it has to run its false-positive rate is negligible.
+	 * Note: on GD-only servers the sniff is bounded by its read window, so an
+	 * animated GIF whose first frame exceeds that window can be missed — Imagick,
+	 * when present, has no such limit.
+	 *
+	 * Callers must gate this behind `isAnimatableType()` — it assumes the source
+	 * is one of the animatable containers and only reads enough to confirm.
+	 *
+	 * @param string $source_path Absolute filesystem path to the source image.
+	 * @return bool True when the source has more than one frame.
+	 */
+	private function isAnimated( string $source_path ): bool {
+		if ( extension_loaded( 'imagick' ) && class_exists( '\Imagick' ) ) {
+			$probe = null;
+			try {
+				$probe = new \Imagick();
+				$probe->pingImage( $source_path );
+				return $probe->getNumberImages() > 1;
+			} catch ( \Throwable $e ) {
+				// Unreadable by Imagick — fall through to the byte sniff.
+				unset( $e );
+			} finally {
+				if ( $probe instanceof \Imagick ) {
+					$probe->clear();
+					$probe->destroy();
+				}
+			}
+		}
+
+		return $this->sniffAnimated( $source_path );
+	}
+
+	/**
+	 * Backend-independent animation sniff via structural container parsing.
+	 *
+	 * Reads a bounded header window and confirms animation from each container's
+	 * actual structure — not loose substring scans, which false-positive on
+	 * compressed payloads. Biased toward detecting animation (see isAnimated()):
+	 * a missed frame is the dangerous case.
+	 *
+	 *   - GIF  — counts Image Descriptors via a block walk (`gifIsAnimated()`),
+	 *            so non-looping GIFs and GIFs without Graphic Control Extensions
+	 *            are still caught.
+	 *   - WebP — reads the VP8X chunk's animation flag (bit 1) at its fixed
+	 *            offset; a file without a VP8X chunk is a single image.
+	 *   - AVIF — looks for the `avis` image-sequence brand strictly inside the
+	 *            ISOBMFF `ftyp` box's brand list.
+	 *
+	 * @param string $source_path Absolute filesystem path to the source image.
+	 * @return bool
+	 */
+	private function sniffAnimated( string $source_path ): bool {
+		$handle = @fopen( $source_path, 'rb' );
+		if ( false === $handle ) {
+			return false;
+		}
+		$head = (string) fread( $handle, 65536 );
+		fclose( $handle );
+		if ( '' === $head ) {
+			return false;
+		}
+
+		// GIF87a / GIF89a — count image descriptors structurally.
+		if ( 0 === strncmp( $head, 'GIF8', 4 ) ) {
+			return $this->gifIsAnimated( $head );
+		}
+
+		// RIFF/WEBP — animation is declared by a VP8X chunk's animation flag.
+		// Layout: "RIFF"(4) size(4) "WEBP"(4) "VP8X"(4) chunkSize(4, LE, =10) flags(1)…
+		// Validate the VP8X header is structurally intact (present + canonical
+		// 10-byte chunk size + buffer long enough) before reading the flags byte
+		// at offset 20, so a malformed/truncated chunk can't be misread.
+		if ( 0 === strncmp( $head, 'RIFF', 4 ) && 'WEBP' === substr( $head, 8, 4 ) ) {
+			if ( 'VP8X' === substr( $head, 12, 4 )
+				&& strlen( $head ) >= 21
+				&& 10 === (int) ( unpack( 'V', substr( $head, 16, 4 ) )[1] ?? 0 ) ) {
+				// Animation flag is bit 1 (0x02) of the flags byte at offset 20.
+				return 0 !== ( ord( $head[20] ) & 0x02 );
+			}
+			return false;
+		}
+
+		// ISOBMFF (AVIF) — the 'avis' brand marks an image sequence. The ftyp box
+		// layout is: size(4) 'ftyp'(4) major_brand(4) minor_version(4) compatible
+		// brands(4·n). 'avis' can be the major brand OR a compatible brand; the
+		// minor_version field (offset 12–15) is a version number, NOT a brand, so
+		// it is skipped to avoid a false positive on version bytes spelling 'avis'.
+		if ( 'ftyp' === substr( $head, 4, 4 ) ) {
+			$box_size = (int) ( unpack( 'N', substr( $head, 0, 4 ) )[1] ?? 0 );
+			$end = ( $box_size > 8 && $box_size <= strlen( $head ) ) ? $box_size : min( strlen( $head ), 64 );
+			if ( 'avis' === substr( $head, 8, 4 ) ) { // major brand
+				return true;
+			}
+			for ( $i = 16; $i + 4 <= $end; $i += 4 ) { // compatible brands
+				if ( 'avis' === substr( $head, $i, 4 ) ) {
+					return true;
+				}
+			}
+			return false;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Count GIF Image Descriptors by walking the block stream; animated when
+	 * more than one frame is found within the buffered window.
+	 *
+	 * Walks the documented GIF89a block structure — skipping the optional Global
+	 * Color Table, then iterating Image Descriptors (`0x2C`, one per frame),
+	 * Extension blocks (`0x21`), and the Trailer (`0x3B`) — and short-circuits
+	 * as soon as a second frame appears. This is the GD-only fallback; Imagick,
+	 * when present, is the authoritative counter.
+	 *
+	 * @param string $buf Buffered file head.
+	 * @return bool
+	 */
+	private function gifIsAnimated( string $buf ): bool {
+		$len = strlen( $buf );
+		// Header (6) + Logical Screen Descriptor (7); packed field at offset 10.
+		if ( $len < 13 ) {
+			return false;
+		}
+		$packed = ord( $buf[10] );
+		$pos = 13;
+		if ( $packed & 0x80 ) { // Global Color Table present.
+			$pos += 3 * ( 1 << ( ( $packed & 0x07 ) + 1 ) );
+		}
+
+		$frames = 0;
+		while ( $pos < $len ) {
+			$block = ord( $buf[ $pos ] );
+			if ( 0x3B === $block ) { // Trailer.
+				break;
+			}
+			if ( 0x2C === $block ) { // Image Descriptor → one frame.
+				if ( ++$frames > 1 ) {
+					return true;
+				}
+				$pos += 10; // Separator + 9 descriptor bytes.
+				// Need the full descriptor AND at least the following LZW-min byte
+				// within the buffer; otherwise the frame is cut off by the read
+				// window — stop rather than derive sizes from truncated bytes.
+				if ( $pos >= $len ) {
+					break;
+				}
+				$img_packed = ord( $buf[ $pos - 1 ] );
+				if ( $img_packed & 0x80 ) { // Local Color Table.
+					$pos += 3 * ( 1 << ( ( $img_packed & 0x07 ) + 1 ) );
+				}
+				$pos += 1; // LZW minimum code size.
+				$pos = $this->gifSkipSubBlocks( $buf, $pos );
+			} elseif ( 0x21 === $block ) { // Extension.
+				$pos += 2; // Introducer + label.
+				$pos = $this->gifSkipSubBlocks( $buf, $pos );
+			} else {
+				break; // Malformed / unknown — stop walking.
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Advance past a GIF data sub-block sequence (length-prefixed runs ended by
+	 * a zero-length block terminator).
+	 *
+	 * @param string $buf Buffered file head.
+	 * @param int    $pos Position of the first sub-block length byte.
+	 * @return int Position just past the block terminator.
+	 */
+	private function gifSkipSubBlocks( string $buf, int $pos ): int {
+		$len = strlen( $buf );
+		while ( $pos < $len ) {
+			$size = ord( $buf[ $pos ] );
+			$pos += 1;
+			if ( 0 === $size ) { // Block terminator.
+				break;
+			}
+			$pos += $size;
+		}
+		return $pos;
 	}
 
 	/**
@@ -721,8 +936,12 @@ class Resizer {
 
 		$default_image = $this->prepareDefaultImage( $image );
 
-		// Validate source file is an allowed image type
-		if ( ! $this->isAllowedImageType( $default_image['src'] ) ) {
+		// Resolve the source MIME once and reuse it for both the allow-list gate
+		// and the animated-source gate below.
+		$source_mime = (string) ( wp_check_filetype( $default_image['src'] )['type'] ?? '' );
+
+		// Validate source file is a backend-decodable image type.
+		if ( ! $this->canDecode( $source_mime ) ) {
 			return [ $default_image ];
 		}
 
@@ -758,6 +977,21 @@ class Resizer {
 				return $images;
 			}
 
+			return [ $default_image ];
+		}
+
+		// Animated sources (animated AVIF / WebP / GIF) cannot survive the
+		// single-frame re-encode pipeline — Spatie\Image and Imagick's singular
+		// writeImage() both flatten to frame 0, silently dropping the animation.
+		// Pass the original through untouched ($skip_animated, on by default) —
+		// same contract as an unsupported type; cropping/scaling of an animated
+		// source is then the consumer's CSS job. Set StarterBase::$resizer_skip_animated
+		// false to restore the legacy (flattening) re-encode. $skip_animated is
+		// checked first so the detection cost (Imagick probe / header read) is
+		// skipped entirely when the legacy behaviour is selected.
+		if ( $this->skip_animated
+			&& $this->isAnimatableType( $source_mime )
+			&& $this->isAnimated( $source_path ) ) {
 			return [ $default_image ];
 		}
 

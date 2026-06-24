@@ -9,8 +9,9 @@ use Parisek\TimberKit\Resizer;
 use Tests\Unit\ResizerTestCase;
 
 /**
- * Covers the capability-gated input allow-list: `isAllowedImageType()`,
- * `canDecode()`, and `supportedInputFormats()`.
+ * Covers the capability-gated input allow-list: `canDecode()` and
+ * `supportedInputFormats()` — the backend gate `resizer()` uses to decide
+ * whether a source can be processed at all.
  *
  * The allow-list is the desired format superset intersected with what the active
  * backend can decode. To keep these unit tests deterministic (independent of the
@@ -36,46 +37,37 @@ class IsAllowedImageTypeTest extends ResizerTestCase {
 		return new Resizer();
 	}
 
-	private function isAllowed( Resizer $resizer, string $path ): bool {
-		// isAllowedImageType is private on Resizer — invoke via the declaring class.
-		$ref = new \ReflectionMethod( Resizer::class, 'isAllowedImageType' );
-		return (bool) $ref->invoke( $resizer, $path );
-	}
-
 	public function test_jpeg_allowed(): void {
 		$resizer = $this->resizerAllowing( [ 'image/jpeg', 'image/png' ] );
-		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/jpeg', 'ext' => 'jpg' ] );
-		$this->assertTrue( $this->isAllowed( $resizer, 'photo.jpg' ) );
+		$this->assertTrue( $resizer->canDecode( 'image/jpeg' ) );
 	}
 
 	public function test_avif_allowed_when_backend_decodes_it(): void {
 		// AVIF is also the *target* format, but an avif source still needs cropping +
 		// downscaling — so when the backend can decode it, it must be processed.
 		$resizer = $this->resizerAllowing( [ 'image/jpeg', 'image/avif' ] );
-		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/avif', 'ext' => 'avif' ] );
-		$this->assertTrue( $this->isAllowed( $resizer, 'photo.avif' ) );
+		$this->assertTrue( $resizer->canDecode( 'image/avif' ) );
 	}
 
 	public function test_heic_not_allowed_when_backend_cannot_decode_it(): void {
 		// GD-only backend: heic is desired but un-decodable, so it must be excluded
 		// rather than passed through at full size.
 		$resizer = $this->resizerAllowing( [ 'image/jpeg', 'image/png', 'image/gif' ] );
-		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/heic', 'ext' => 'heic' ] );
-		$this->assertFalse( $this->isAllowed( $resizer, 'iphone.heic' ) );
+		$this->assertFalse( $resizer->canDecode( 'image/heic' ) );
 	}
 
 	public function test_svg_never_allowed(): void {
 		// Vector — not raster-resizable. Never in the desired set, so never allowed
 		// regardless of backend.
 		$resizer = $this->resizerAllowing( [ 'image/jpeg', 'image/avif', 'image/heic' ] );
-		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/svg+xml', 'ext' => 'svg' ] );
-		$this->assertFalse( $this->isAllowed( $resizer, 'logo.svg' ) );
+		$this->assertFalse( $resizer->canDecode( 'image/svg+xml' ) );
 	}
 
 	public function test_unknown_type_not_allowed(): void {
+		// resizer() coerces a missing/false wp_check_filetype type to '' before the
+		// gate, so canDecode('') must be false (unknown files are passed through).
 		$resizer = $this->resizerAllowing( [ 'image/jpeg', 'image/png' ] );
-		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => false, 'ext' => false ] );
-		$this->assertFalse( $this->isAllowed( $resizer, 'document.xyz' ) );
+		$this->assertFalse( $resizer->canDecode( '' ) );
 	}
 
 	public function test_can_decode_reflects_allow_list(): void {
