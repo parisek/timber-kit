@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`StarterBase::$hsts_preload` flag (bool, default `false`)** — appends `; preload` to the `Strict-Transport-Security` header (only when `$security_headers` is on and the request is over TLS), so projects can opt into the HSTS preload list without hand-writing the full header string via `$security_headers_config`. Kept **off by default on purpose**: `preload` is a hard-to-reverse commitment — it hardcodes the domain (and every subdomain) into browsers' built-in HSTS preload list and requires a separate submission at [hstspreload.org](https://hstspreload.org). Opt in per project (`protected bool $hsts_preload = true;`) only once the domain is permanently HTTPS-only.
+- **`StarterBase::$warn_duplicate_security_headers` flag (bool, default `true`)** + a Site Health test (**Tools → Site Health**) that warns when the live response carries a managed security header **more than once** — the signature of a second, server-level source (an Apache `.htaccess` `mod_headers` block, an nginx `add_header` directive, or a security plugin) emitting the same headers `security_headers()` already sends. Only registered when `$security_headers` is on. Mirrors the existing redundant-plugin Site Health pattern.
+
+  **Why a Site Health check and not an inline guard:** the theme's PHP layer *cannot* see — let alone de-duplicate — a header added by the web server, because `mod_headers` / `add_header` run **after** PHP has returned the response (`headers_list()` only reports PHP-set headers). The duplicate is therefore invisible during the request and can only be detected out-of-band, by inspecting the fully-assembled response. The test does one cache-bypassing loopback request to the home URL, counts occurrences of each comma-free managed header (HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, X-XSS-Protection — comma-bearing CSP / Permissions-Policy are excluded so a single header is never mis-split into a false duplicate), and caches the result in a 10-minute transient so neither repeated Site Health views nor the weekly scheduled check refetch on every run. Zero front-end overhead — the loopback runs only in the admin / weekly cron. Surfaced from a downstream project (`pm-a`) where a legacy `.htaccess` security block emitted `Strict-Transport-Security`, `X-Frame-Options`, etc. alongside the theme's `$security_headers`, producing duplicate/conflicting response headers (`Multiple HSTS headers`) that broke an HSTS-preload scanner.
+
 ## [1.13.0] - 2026-06-24
 
 ### Added

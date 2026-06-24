@@ -169,6 +169,9 @@ class StarterBase extends Site {
 	/** @var array<string,string|null> Override, extend, or (with a null value) drop individual security headers, keyed by header name. Applied on top of the defaults. */
 	protected array $security_headers_config = [];
 
+	/** @var bool Append `; preload` to the HSTS header (only when $security_headers is on and the request is over TLS). Off by default — preload is a hard-to-reverse commitment: it hardcodes the domain into browsers' built-in HSTS preload list and requires a separate submission at https://hstspreload.org. Opt in per project once the domain (and every subdomain) is permanently HTTPS-only. */
+	protected bool $hsts_preload = false;
+
 	/**
 	 * Media processing — replaces clean-image-filenames + imsanity plugins
 	 */
@@ -350,6 +353,9 @@ class StarterBase extends Site {
 
 	/** @var bool Surface a Site Health test + debug info reporting which uploadable image formats the resizer backend can actually decode. */
 	protected bool $resizer_format_health = true;
+
+	/** @var bool Surface a Site Health warning when the live response carries a managed security header more than once — the signature of a second, server-level source (Apache .htaccess mod_headers, nginx add_header, a security plugin) emitting the same headers $security_headers already sends. Only registered when $security_headers is on. */
+	protected bool $warn_duplicate_security_headers = true;
 
 	/**
 	 * Pass animated sources (animated AVIF / WebP / GIF) through the resizer
@@ -650,6 +656,12 @@ class StarterBase extends Site {
 		if ( $this->security_headers ) {
 			// wp_headers (same point as the X-Pingback removal) → filterable array, not raw header() calls.
 			add_filter( 'wp_headers', array( $this, 'security_headers' ) );
+
+			if ( $this->warn_duplicate_security_headers ) {
+				// Catches a second, server-level source (e.g. an .htaccess mod_headers block)
+				// duplicating these headers — which PHP cannot see or de-duplicate inline.
+				add_filter( 'site_status_tests', array( $this, 'site_health_register_duplicate_security_headers_test' ) );
+			}
 		}
 	}
 
@@ -3117,7 +3129,13 @@ class StarterBase extends Site {
 		);
 
 		if ( $this->request_is_https() ) {
-			$defaults['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains';
+			$hsts = 'max-age=31536000; includeSubDomains';
+			if ( $this->hsts_preload ) {
+				// `preload` is opt-in: it commits the domain to the browsers' built-in HSTS
+				// preload list (separate submission at hstspreload.org) and is hard to reverse.
+				$hsts .= '; preload';
+			}
+			$defaults['Strict-Transport-Security'] = $hsts;
 		}
 
 		$merged = array_merge( $headers, $defaults, $this->security_headers_config );
@@ -3345,6 +3363,133 @@ class StarterBase extends Site {
 			'fields'      => $fields,
 		);
 		return $info;
+	}
+
+	/**
+	 * Register a Site Health test that warns when the live response carries a
+	 * managed security header more than once — the signature of a second,
+	 * server-level source (Apache `.htaccess` `mod_headers`, an nginx
+	 * `add_header`, or a security plugin) emitting the same headers
+	 * `security_headers()` already sends.
+	 *
+	 * Why this has to be a Site Health (out-of-band) check rather than an inline
+	 * guard: the theme's PHP layer cannot see — let alone de-duplicate — a header
+	 * added by the web server, because `mod_headers` / `add_header` run *after*
+	 * PHP has handed back the response. `headers_list()` only reports PHP-set
+	 * headers, so the duplicate is invisible during the request and can only be
+	 * detected by inspecting the fully-assembled response over a loopback request.
+	 *
+	 * @param array<string, array<string, array<string, mixed>>> $tests The current Site Health tests registry.
+	 * @return array<string, array<string, array<string, mixed>>>
+	 */
+	public function site_health_register_duplicate_security_headers_test( $tests ): array {
+		if ( ! is_array( $tests ) ) {
+			$tests = array( 'direct' => array(), 'async' => array() );
+		}
+		$tests['direct']['timber_kit_duplicate_security_headers'] = array(
+			'label' => __( 'Duplicate security headers', 'timber-kit' ),
+			'test'  => array( $this, 'site_health_test_duplicate_security_headers' ),
+		);
+		return $tests;
+	}
+
+	/**
+	 * Site Health test callback. Returns a `good` result when every managed
+	 * security header is sent exactly once, or a `recommended` result naming the
+	 * duplicated headers and how to remove the redundant source.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function site_health_test_duplicate_security_headers(): array {
+		$duplicated = $this->duplicate_security_headers();
+
+		if ( empty( $duplicated ) ) {
+			return array(
+				'label'       => __( 'Security headers are sent exactly once', 'timber-kit' ),
+				'status'      => 'good',
+				'badge'       => array(
+					'label' => __( 'Security', 'timber-kit' ),
+					'color' => 'blue',
+				),
+				'description' => '<p>' . esc_html__( 'No managed security response header is sent more than once. The theme is the single source for these headers.', 'timber-kit' ) . '</p>',
+				'test'        => 'timber_kit_duplicate_security_headers',
+			);
+		}
+
+		$dup_list = implode( ', ', array_map( static fn ( string $name ): string => esc_html( $name ), $duplicated ) );
+
+		return array(
+			'label'       => __( 'Some security headers are sent more than once', 'timber-kit' ),
+			'status'      => 'recommended',
+			'badge'       => array(
+				'label' => __( 'Security', 'timber-kit' ),
+				'color' => 'orange',
+			),
+			'description' => '<p>' . sprintf(
+				/* translators: %s: comma-separated list of HTTP header names. */
+				esc_html__( 'These security headers appear more than once in the live response: %s. parisek/timber-kit already emits them via $security_headers, so a second source — typically an Apache .htaccess mod_headers block, an nginx add_header directive, or a security plugin — is duplicating them. Browsers then receive conflicting values (e.g. two Strict-Transport-Security headers), which breaks HSTS preload submission. Remove the server-level / plugin source and keep the theme as the single source, or set $security_headers = false to defer entirely to the server block.', 'timber-kit' ),
+				$dup_list
+			) . '</p>',
+			'test'        => 'timber_kit_duplicate_security_headers',
+		);
+	}
+
+	/**
+	 * Names of the managed security headers that appear more than once in the
+	 * live front-end response. Result is cached in a 10-minute transient so that
+	 * neither repeated Site Health views nor the weekly scheduled check issue a
+	 * loopback request on every run. Returns an empty array when the loopback
+	 * fails (detection is skipped rather than alarming) or nothing is duplicated.
+	 *
+	 * Only headers whose value never legitimately contains a comma are counted,
+	 * so a single header carrying an internal comma (CSP, Permissions-Policy) is
+	 * never mis-split into a false duplicate. A duplicate of any one of these
+	 * already proves a second source is active.
+	 *
+	 * @return array<int, string>
+	 */
+	private function duplicate_security_headers(): array {
+		$cached = get_transient( 'timber_kit_duplicate_security_headers' );
+		if ( is_array( $cached ) ) {
+			return $cached;
+		}
+
+		$managed = array(
+			'strict-transport-security',
+			'x-frame-options',
+			'x-content-type-options',
+			'referrer-policy',
+			'x-xss-protection',
+		);
+
+		$duplicated = array();
+
+		// A throwaway query arg bypasses page caches (which key on the full URL),
+		// so the loopback observes the origin's real headers rather than a cached copy.
+		$response = wp_remote_get(
+			add_query_arg( 'timber-kit-health', '1', home_url( '/' ) ),
+			array(
+				'timeout'     => 5,
+				'redirection' => 0,
+				'sslverify'   => false,
+			)
+		);
+
+		if ( ! is_wp_error( $response ) ) {
+			$headers = wp_remote_retrieve_headers( $response );
+			if ( is_object( $headers ) && method_exists( $headers, 'getValues' ) ) {
+				foreach ( $managed as $name ) {
+					$values = $headers->getValues( $name );
+					if ( is_array( $values ) && count( $values ) > 1 ) {
+						$duplicated[] = $name;
+					}
+				}
+			}
+		}
+
+		set_transient( 'timber_kit_duplicate_security_headers', $duplicated, 10 * MINUTE_IN_SECONDS );
+
+		return $duplicated;
 	}
 
 	/**
