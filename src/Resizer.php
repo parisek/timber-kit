@@ -121,6 +121,7 @@ class Resizer {
 	 *   - `timber_kit_resizer_target_quality`  — output quality 0-100 (default: 100)
 	 *   - `timber_kit_resizer_image_cache_dir` — absolute path to cache directory
 	 *   - `timber_kit_resizer_force_regenerate` — skip cache and always regenerate
+	 *   - `timber_kit_resizer_skip_animated` — pass animated sources through untouched (default: true)
 	 */
 	public function __construct() {
 		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );
@@ -202,6 +203,98 @@ class Resizer {
 
 		$this->decodable_cache = array_values( array_unique( $allowed ) );
 		return $this->decodable_cache;
+	}
+
+	/**
+	 * Whether the source image is animated (multi-frame).
+	 *
+	 * Animated AVIF / WebP / GIF must NOT go through the resize pipeline: both
+	 * backends used by processVariant() — Spatie\Image and Imagick's singular
+	 * writeImage() — operate on a single raster surface and flatten the output
+	 * to the first frame, silently destroying the animation. resizer() treats a
+	 * positive result here like an unsupported type and returns the original.
+	 *
+	 * Detection is two-layered and OR-ed:
+	 *   1. Imagick frame count (authoritative when the extension is present).
+	 *   2. A backend-independent byte-signature sniff (covers GD-only servers
+	 *      and ImageMagick builds whose AVIF/WebP ping under-reports frames).
+	 * Either layer saying "animated" wins, because a false negative (animated
+	 * treated as static) is the harmful direction — it reintroduces the flatten
+	 * bug. A false positive merely serves a static file unresized.
+	 *
+	 * @param string $source_path Absolute filesystem path to the source image.
+	 * @return bool True when the source has more than one frame.
+	 */
+	private function isAnimated( string $source_path ): bool {
+		if ( extension_loaded( 'imagick' ) && class_exists( '\Imagick' ) ) {
+			try {
+				$probe = new \Imagick();
+				$probe->pingImage( $source_path );
+				$frames = $probe->getNumberImages();
+				$probe->clear();
+				$probe->destroy();
+				if ( $frames > 1 ) {
+					return true;
+				}
+			} catch ( \Throwable $e ) {
+				// Unreadable by Imagick — fall through to the byte sniff.
+				unset( $e );
+			}
+		}
+
+		return $this->sniffAnimated( $source_path );
+	}
+
+	/**
+	 * Backend-independent animation sniff via format-specific byte signatures.
+	 *
+	 * Reads a bounded header window and looks for the animation markers each
+	 * container uses. Deliberately biased toward detecting animation (see
+	 * isAnimated()): a missed marker is the dangerous case.
+	 *
+	 *   - GIF  — the `NETSCAPE2.0` loop extension, or >1 Graphic Control
+	 *            Extension blocks (`0x21 0xF9`).
+	 *   - WebP — an `ANIM` / `ANMF` chunk in the RIFF/WEBP container.
+	 *   - AVIF — the `avis` (image-sequence) brand in the ISOBMFF `ftyp` box,
+	 *            or a `moov` (timed-sequence) box.
+	 *
+	 * The header window (64 KiB) covers the location of every marker above:
+	 * GIF's NETSCAPE2.0 extension sits before the first frame, WebP's ANIM chunk
+	 * directly after the header, and AVIF brands inside the leading ftyp box.
+	 *
+	 * @param string $source_path Absolute filesystem path to the source image.
+	 * @return bool
+	 */
+	private function sniffAnimated( string $source_path ): bool {
+		$handle = @fopen( $source_path, 'rb' );
+		if ( false === $handle ) {
+			return false;
+		}
+		$head = (string) fread( $handle, 65536 );
+		fclose( $handle );
+		if ( '' === $head ) {
+			return false;
+		}
+
+		// GIF87a / GIF89a.
+		if ( 0 === strncmp( $head, 'GIF8', 4 ) ) {
+			return str_contains( $head, 'NETSCAPE2.0' ) || substr_count( $head, "\x21\xF9" ) > 1;
+		}
+
+		// RIFF....WEBP.
+		if ( 0 === strncmp( $head, 'RIFF', 4 ) && 'WEBP' === substr( $head, 8, 4 ) ) {
+			return str_contains( $head, 'ANIM' ) || str_contains( $head, 'ANMF' );
+		}
+
+		// ISOBMFF (AVIF / HEIF): ftyp box at the head of the file.
+		if ( str_contains( substr( $head, 0, 32 ), 'ftyp' ) ) {
+			if ( str_contains( substr( $head, 0, 64 ), 'avis' ) ) {
+				return true;
+			}
+			return str_contains( $head, 'moov' );
+		}
+
+		return false;
 	}
 
 	/**
@@ -758,6 +851,19 @@ class Resizer {
 				return $images;
 			}
 
+			return [ $default_image ];
+		}
+
+		// Animated sources (animated AVIF / WebP / GIF) cannot survive the
+		// single-frame re-encode pipeline — Spatie\Image and Imagick's singular
+		// writeImage() both flatten to frame 0, silently dropping the animation.
+		// Pass the original through untouched, same contract as an unsupported
+		// type; cropping/scaling of an animated source is the consumer's CSS job.
+		//
+		// Opt back into best-effort re-encoding on a backend that can write the
+		// animated target format:
+		//   add_filter( 'timber_kit_resizer_skip_animated', '__return_false' );
+		if ( apply_filters( 'timber_kit_resizer_skip_animated', true, $source_path ) && $this->isAnimated( $source_path ) ) {
 			return [ $default_image ];
 		}
 

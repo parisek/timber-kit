@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - **`Helpers::formatTerms()` now returns `count`** — each formatted term carries `'count' => (int) $term->count` (the term's object count) alongside `id` / `title` / `url` / `children`. Additive and backward-compatible: existing consumers reading the previous keys are unaffected. Lets callers that render term lists with a count (e.g. category-filter chips "SEA (18)") use the helper directly instead of querying `Timber::get_terms()` and reading `->count` by hand.
 
+### Fixed
+
+- **`Resizer` no longer flattens animated images to a single frame.** Animated AVIF / WebP / GIF sources were re-encoded through the single-frame pipeline (Spatie\Image / Imagick `writeImage()`), silently dropping the animation — every output variant was a frozen first frame. `resizer()` now detects multi-frame sources and passes the original through untouched (same contract as an unsupported input type), so animation is preserved; static images of the same formats are still optimized as before. Detection is two-layered: an Imagick frame-count probe plus a backend-independent byte-signature sniff (covers GD-only servers and ImageMagick builds whose ping under-reports frames), OR-ed so a false negative — the harmful direction — can't reintroduce the bug. Opt back into best-effort re-encoding (e.g. a libheif/libaom ImageMagick build that can write animated AVIF) via `add_filter( 'timber_kit_resizer_skip_animated', '__return_false' )`. This surfaced downstream when a theme migrated from a local resizer that excluded AVIF from its input allow-list (passing animated AVIF through by accident) to this package's resizer, which decodes AVIF and therefore re-encoded it.
+
 ## [1.12.0] - 2026-06-20
 
 ### Added
