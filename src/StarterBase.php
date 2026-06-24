@@ -169,9 +169,6 @@ class StarterBase extends Site {
 	/** @var array<string,string|null> Override, extend, or (with a null value) drop individual security headers, keyed by header name. Applied on top of the defaults. */
 	protected array $security_headers_config = [];
 
-	/** @var bool Append `; preload` to the HSTS header (only when $security_headers is on and the request is over TLS). Off by default — preload is a hard-to-reverse commitment: it hardcodes the domain into browsers' built-in HSTS preload list and requires a separate submission at https://hstspreload.org. Opt in per project once the domain (and every subdomain) is permanently HTTPS-only. */
-	protected bool $hsts_preload = false;
-
 	/**
 	 * Media processing — replaces clean-image-filenames + imsanity plugins
 	 */
@@ -3129,13 +3126,12 @@ class StarterBase extends Site {
 		);
 
 		if ( $this->request_is_https() ) {
-			$hsts = 'max-age=31536000; includeSubDomains';
-			if ( $this->hsts_preload ) {
-				// `preload` is opt-in: it commits the domain to the browsers' built-in HSTS
-				// preload list (separate submission at hstspreload.org) and is hard to reverse.
-				$hsts .= '; preload';
-			}
-			$defaults['Strict-Transport-Security'] = $hsts;
+			// `preload` is always included — this package targets an HTTPS-only fleet. It
+			// advertises the domain (and every subdomain) for browsers' built-in HSTS
+			// preload list (separate submission at https://hstspreload.org). On the rare
+			// project that can't commit every subdomain to HTTPS, override the value via
+			// $security_headers_config['Strict-Transport-Security'].
+			$defaults['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains; preload';
 		}
 
 		$merged = array_merge( $headers, $defaults, $this->security_headers_config );

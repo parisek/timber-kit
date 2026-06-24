@@ -88,30 +88,22 @@ class SecurityHeadersTest extends StarterBaseTestCase {
 		$this->assertSame( 'SAMEORIGIN', $headers['X-Frame-Options'] );
 	}
 
-	public function test_hsts_omits_preload_by_default(): void {
+	public function test_hsts_always_includes_preload_over_tls(): void {
 		Functions\when( 'is_ssl' )->justReturn( true );
 		$headers = $this->createStarterBase()->security_headers( [] );
 
-		$this->assertStringNotContainsString( 'preload', $headers['Strict-Transport-Security'] );
-	}
-
-	public function test_hsts_appends_preload_when_enabled(): void {
-		Functions\when( 'is_ssl' )->justReturn( true );
-		$base = $this->createStarterBase( [ 'hsts_preload' => true ] );
-
-		$headers = $base->security_headers( [] );
-
-		$this->assertStringContainsString( '; preload', $headers['Strict-Transport-Security'] );
 		$this->assertSame( 'max-age=31536000; includeSubDomains; preload', $headers['Strict-Transport-Security'] );
 	}
 
-	public function test_hsts_preload_does_not_apply_on_plain_http(): void {
-		Functions\when( 'is_ssl' )->justReturn( false );
-		$base = $this->createStarterBase( [ 'hsts_preload' => true ] );
+	public function test_hsts_preload_value_can_be_overridden_via_config(): void {
+		Functions\when( 'is_ssl' )->justReturn( true );
+		$base = $this->createStarterBase( [
+			'security_headers_config' => [ 'Strict-Transport-Security' => 'max-age=31536000; includeSubDomains' ],
+		] );
 
 		$headers = $base->security_headers( [] );
 
-		// preload rides on HSTS, which is only emitted over TLS — so no HSTS, no preload.
-		$this->assertArrayNotHasKey( 'Strict-Transport-Security', $headers );
+		// The general config override is the escape hatch for a project that can't preload.
+		$this->assertSame( 'max-age=31536000; includeSubDomains', $headers['Strict-Transport-Security'] );
 	}
 }
