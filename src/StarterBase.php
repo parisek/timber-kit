@@ -3390,14 +3390,31 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Site Health test callback. Returns a `good` result when every managed
-	 * security header is sent exactly once, or a `recommended` result naming the
-	 * duplicated headers and how to remove the redundant source.
+	 * Site Health test callback. Three outcomes: `good` when every managed
+	 * security header is sent exactly once; `recommended` (naming the headers)
+	 * when one is sent more than once; and a neutral "could not verify" `good`
+	 * result when the loopback request failed — so an unreachable loopback is
+	 * never mis-reported as a verified-clean response.
 	 *
 	 * @return array<string, mixed>
 	 */
 	public function site_health_test_duplicate_security_headers(): array {
 		$duplicated = $this->duplicate_security_headers();
+
+		if ( null === $duplicated ) {
+			// Loopback failed / inconclusive — report honestly rather than as "clean".
+			return array(
+				'label'       => __( 'Duplicate security headers could not be verified', 'timber-kit' ),
+				'status'      => 'good',
+				'badge'       => array(
+					'label' => __( 'Security', 'timber-kit' ),
+					'color' => 'blue',
+				),
+				'description' => '<p>' . esc_html__( 'A loopback request to the home page could not be completed, so this check was skipped this run. It retries on the next Site Health view or scheduled check.', 'timber-kit' ) . '</p>',
+				'actions'     => '',
+				'test'        => 'timber_kit_duplicate_security_headers',
+			);
+		}
 
 		if ( empty( $duplicated ) ) {
 			return array(
@@ -3408,6 +3425,7 @@ class StarterBase extends Site {
 					'color' => 'blue',
 				),
 				'description' => '<p>' . esc_html__( 'No managed security response header is sent more than once. The theme is the single source for these headers.', 'timber-kit' ) . '</p>',
+				'actions'     => '',
 				'test'        => 'timber_kit_duplicate_security_headers',
 			);
 		}
@@ -3426,28 +3444,61 @@ class StarterBase extends Site {
 				esc_html__( 'These security headers appear more than once in the live response: %s. parisek/timber-kit already emits them via $security_headers, so a second source — typically an Apache .htaccess mod_headers block, an nginx add_header directive, or a security plugin — is duplicating them. Browsers then receive conflicting values (e.g. two Strict-Transport-Security headers), which breaks HSTS preload submission. Remove the server-level / plugin source and keep the theme as the single source, or set $security_headers = false to defer entirely to the server block.', 'timber-kit' ),
 				$dup_list
 			) . '</p>',
+			'actions'     => '',
 			'test'        => 'timber_kit_duplicate_security_headers',
 		);
 	}
 
 	/**
-	 * Names of the managed security headers that appear more than once in the
-	 * live front-end response. Result is cached in a 10-minute transient so that
-	 * neither repeated Site Health views nor the weekly scheduled check issue a
-	 * loopback request on every run. Returns an empty array when the loopback
-	 * fails (detection is skipped rather than alarming) or nothing is duplicated.
+	 * Managed security headers that appear more than once in the live front-end
+	 * response. Returns:
+	 *   - `array<int,string>` — the duplicated header names (empty = none),
+	 *     cached in a 10-minute transient so neither repeated Site Health views nor
+	 *     the weekly scheduled check refetch on every run;
+	 *   - `null` — the loopback could not be completed (WP_Error, non-2xx, or an
+	 *     unusable headers object). NOT cached and NOT treated as "clean", so a
+	 *     transient/blocked loopback is reported honestly and retried next run.
 	 *
-	 * Only headers whose value never legitimately contains a comma are counted,
-	 * so a single header carrying an internal comma (CSP, Permissions-Policy) is
-	 * never mis-split into a false duplicate. A duplicate of any one of these
-	 * already proves a second source is active.
+	 * Only headers whose value never legitimately contains a comma are counted, so
+	 * a single header carrying an internal comma (CSP, Permissions-Policy) is never
+	 * mis-split into a false duplicate. A duplicate of any one of these already
+	 * proves a second source is active.
 	 *
-	 * @return array<int, string>
+	 * @return array<int, string>|null
 	 */
-	private function duplicate_security_headers(): array {
+	private function duplicate_security_headers(): ?array {
 		$cached = get_transient( 'timber_kit_duplicate_security_headers' );
 		if ( is_array( $cached ) ) {
 			return $cached;
+		}
+
+		// Constant cache-buster: page caches bypass on the presence of any query
+		// string, so the loopback reaches the origin's real headers. (A cache
+		// explicitly configured to ignore query strings would serve a cached copy —
+		// acceptable, since that copy carries the same duplication.)
+		$response = wp_remote_get(
+			add_query_arg( 'timber-kit-health', '1', home_url( '/' ) ),
+			array(
+				'timeout'     => 5,
+				'redirection' => 0,
+				'sslverify'   => false,
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return null;
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		if ( $code < 200 || $code > 299 ) {
+			// A redirect (redirection => 0 keeps 3xx) or error page carries no
+			// reliable header set to judge — inconclusive, not "clean".
+			return null;
+		}
+
+		$headers = wp_remote_retrieve_headers( $response );
+		if ( ! is_object( $headers ) || ! method_exists( $headers, 'getValues' ) ) {
+			return null;
 		}
 
 		$managed = array(
@@ -3459,27 +3510,10 @@ class StarterBase extends Site {
 		);
 
 		$duplicated = array();
-
-		// A throwaway query arg bypasses page caches (which key on the full URL),
-		// so the loopback observes the origin's real headers rather than a cached copy.
-		$response = wp_remote_get(
-			add_query_arg( 'timber-kit-health', '1', home_url( '/' ) ),
-			array(
-				'timeout'     => 5,
-				'redirection' => 0,
-				'sslverify'   => false,
-			)
-		);
-
-		if ( ! is_wp_error( $response ) ) {
-			$headers = wp_remote_retrieve_headers( $response );
-			if ( is_object( $headers ) && method_exists( $headers, 'getValues' ) ) {
-				foreach ( $managed as $name ) {
-					$values = $headers->getValues( $name );
-					if ( is_array( $values ) && count( $values ) > 1 ) {
-						$duplicated[] = $name;
-					}
-				}
+		foreach ( $managed as $name ) {
+			$values = $headers->getValues( $name );
+			if ( is_array( $values ) && count( $values ) > 1 ) {
+				$duplicated[] = $name;
 			}
 		}
 
