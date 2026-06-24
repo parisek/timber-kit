@@ -6,6 +6,7 @@
 		"html_entity_decode",
 		"filter_var",
 		"file_exists",
-		"getimagesize"
+		"getimagesize",
+		"error_log"
 	]
 }

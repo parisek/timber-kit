@@ -817,8 +817,13 @@ class Resizer {
 						$frame->cropImage( $w, $h, $offset['x'], $offset['y'] );
 						$frame->setImagePage( $w, $h, 0, 0 );
 					} else {
-						// Scale only: honour one-or-both dimensions (0 = unconstrained).
-						$frame->scaleImage( $w, $h, ( 0 !== $w && 0 !== $h ) ? false : true );
+						// Scale only: honour one-or-both dimensions. With bestfit off,
+						// Imagick treats a 0 dimension as "derive from aspect ratio", so
+						// a single-dimension variant scales proportionally and a two-
+						// dimension one resizes to the exact box (mirrors processVariant's
+						// width()/height()). bestfit MUST stay off — bestfit with a 0
+						// dimension throws "Invalid image geometry".
+						$frame->scaleImage( $w, $h, false );
 					}
 					$frame->setImageFormat( $this->target_format );
 					$frame->setImageCompressionQuality( (int) $variant['quality'] );

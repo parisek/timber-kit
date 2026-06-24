@@ -18,19 +18,30 @@ class ProcessAnimatedVariantTest extends ResizerTestCase {
 	/** @var array<int,string> */
 	private array $tmp = [];
 
+	/** @var array<int,string> */
+	private array $tmp_dirs = [];
+
+	private string $cache_dir;
+
 	protected function tearDown(): void {
 		foreach ( $this->tmp as $f ) {
 			if ( is_file( $f ) ) {
 				unlink( $f );
 			}
 		}
+		foreach ( array_reverse( $this->tmp_dirs ) as $dir ) {
+			if ( is_dir( $dir ) ) {
+				rmdir( $dir );
+			}
+		}
 		$this->tmp = [];
+		$this->tmp_dirs = [];
 		parent::tearDown();
 	}
 
 	/** Minimal animated 2-frame GIF (89a, two image descriptors). */
 	private function animatedGif(): string {
-		$path = tempnam( sys_get_temp_dir(), 'agif' ) . '.gif';
+		$path = sys_get_temp_dir() . '/tk-animated-' . uniqid( '', true ) . '.gif';
 		$this->tmp[] = $path;
 		$ani = new \Imagick();
 		foreach ( [ 'red', 'blue' ] as $c ) {
@@ -45,22 +56,56 @@ class ProcessAnimatedVariantTest extends ResizerTestCase {
 		$ani->setImageFormat( 'gif' );
 		$ani->writeImages( $path, true );
 		$ani->clear();
+		$ani->destroy();
 		return $path;
 	}
 
 	private function resizerWritingGif(): Resizer {
+		$this->cache_dir = sys_get_temp_dir() . '/tk-resizer-' . uniqid( '', true );
+		mkdir( $this->cache_dir, 0777, true );
+		$this->tmp_dirs[] = $this->cache_dir;
+
 		Functions\when( 'apply_filters' )->alias(
 			function ( $filter, $default ) {
 				if ( 'timber_kit_resizer_target_format' === $filter ) {
 					return 'gif';
 				}
+				if ( 'timber_kit_resizer_image_cache_dir' === $filter ) {
+					return $this->cache_dir;
+				}
 				return $default;
 			}
 		);
-		Functions\when( 'wp_mkdir_p' )->justReturn( true );
+		Functions\when( 'wp_mkdir_p' )->alias(
+			function ( string $dir ): bool {
+				$created = is_dir( $dir ) || mkdir( $dir, 0777, true );
+				if ( $created && ! in_array( $dir, $this->tmp_dirs, true ) ) {
+					$this->tmp_dirs[] = $dir;
+				}
+				return $created;
+			}
+		);
 		Functions\when( 'content_url' )->alias( fn( $p = '' ) => 'http://example.test/wp-content/' . ltrim( (string) $p, '/' ) );
 		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/gif', 'ext' => 'gif' ] );
 		return new Resizer();
+	}
+
+	private function outputPath( int $w, int $h, string $style ): string {
+		$path = $this->cache_dir . '/' . $w . 'x' . $h . '-' . $style . '/img.gif';
+		$this->tmp[] = $path;
+		return $path;
+	}
+
+	private function assertAnimatedDimensions( string $path, int $width, int $height ): void {
+		$check = new \Imagick();
+		$check->readImage( $path );
+		$this->assertGreaterThan( 1, $check->getNumberImages() );
+		foreach ( $check as $frame ) {
+			$this->assertSame( $width, $frame->getImageWidth() );
+			$this->assertSame( $height, $frame->getImageHeight() );
+		}
+		$check->clear();
+		$check->destroy();
 	}
 
 	private function variant( int $w, int $h, string $style = 'center' ): array {
@@ -85,12 +130,7 @@ class ProcessAnimatedVariantTest extends ResizerTestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertSame( 4, $result['width'] );
-		$out = str_replace( 'http://example.test/wp-content/', WP_CONTENT_DIR . '/', $result['src'] );
-		$this->tmp[] = $out;
-		$check = new \Imagick();
-		$check->pingImage( $out );
-		$this->assertGreaterThan( 1, $check->getNumberImages() );
-		$check->clear();
+		$this->assertAnimatedDimensions( $this->outputPath( 4, 4, 'center' ), 4, 4 );
 	}
 
 	public function test_frame_cap_exceeded_returns_null(): void {
@@ -134,15 +174,7 @@ class ProcessAnimatedVariantTest extends ResizerTestCase {
 		$result = $this->callPrivate( $resizer, 'processAnimatedVariant', [ $this->variant( 4, 0, 'center' ), $src, 'img', $this->defaultImage() ] );
 
 		$this->assertIsArray( $result );
-		$out = str_replace( 'http://example.test/wp-content/', WP_CONTENT_DIR . '/', $result['src'] );
-		$this->tmp[] = $out;
-		$check = new \Imagick();
-		$check->readImage( $out );
-		$this->tmp[] = $out;
-		$this->assertGreaterThan( 1, $check->getNumberImages() );
-		$check->setFirstIterator();
-		$this->assertSame( 4, $check->getImageWidth() );
-		$check->clear();
+		$this->assertAnimatedDimensions( $this->outputPath( 4, 0, 'center' ), 4, 3 );
 	}
 
 	public function test_positional_crop_offset_produces_target_dimensions(): void {
@@ -159,13 +191,6 @@ class ProcessAnimatedVariantTest extends ResizerTestCase {
 		$result = $this->callPrivate( $resizer, 'processAnimatedVariant', [ $this->variant( 4, 4, 'top' ), $src, 'img', $this->defaultImage() ] );
 
 		$this->assertIsArray( $result );
-		$out = str_replace( 'http://example.test/wp-content/', WP_CONTENT_DIR . '/', $result['src'] );
-		$this->tmp[] = $out;
-		$check = new \Imagick();
-		$check->readImage( $out );
-		$check->setFirstIterator();
-		$this->assertSame( 4, $check->getImageWidth() );
-		$this->assertSame( 4, $check->getImageHeight() );
-		$check->clear();
+		$this->assertAnimatedDimensions( $this->outputPath( 4, 4, 'top' ), 4, 4 );
 	}
 }
