@@ -741,11 +741,11 @@ class Resizer {
 	 * `timber_kit_resizer_animated_max_frames` filter — the caller then passes the
 	 * original through rather than emitting a broken variant.
 	 *
-	 * @param array  $variant       Normalized variant spec.
-	 * @param string $source_path   Absolute source path.
-	 * @param string $filename      Sanitized filename (no extension).
-	 * @param array  $default_image Default image metadata.
-	 * @return array|null
+	 * @param array<string, mixed> $variant       Normalized variant spec.
+	 * @param string               $source_path   Absolute source path.
+	 * @param string               $filename      Sanitized filename (no extension).
+	 * @param array<string, mixed> $default_image Default image metadata.
+	 * @return array<string, mixed>|null
 	 */
 	private function processAnimatedVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
 		$target_dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
