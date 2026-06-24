@@ -125,6 +125,15 @@ class Resizer {
 	private ?array $decodable_cache = null;
 
 	/**
+	 * Memoized animated-write capability per target format, keyed by lowercase
+	 * format tag. `static` so the round-trip self-test is paid at most once per
+	 * format per process, even when Twig instantiates many Resizer objects.
+	 *
+	 * @var array<string, bool>
+	 */
+	private static array $animated_encode_cache = [];
+
+	/**
 	 * Initialize resizer settings, each of which can be overridden via a WordPress filter.
 	 *
 	 * Filters available:
@@ -458,6 +467,82 @@ class Resizer {
 			$formats[] = 'BMP';
 		}
 		return $formats;
+	}
+
+	/**
+	 * Whether the active backend can re-encode an animated file for $format.
+	 *
+	 * Gates the multi-frame resize path: a positive verdict means
+	 * `processAnimatedVariant()` will preserve animation; a negative one routes
+	 * the source to passthrough rather than flattening it. Memoized per process
+	 * per format — the real probe (`probeAnimatedEncode()`) runs at most once.
+	 *
+	 * @param string $format Target format tag, e.g. `avif`.
+	 * @return bool
+	 */
+	private function canEncodeAnimated( string $format ): bool {
+		$key = strtolower( $format );
+		if ( ! array_key_exists( $key, self::$animated_encode_cache ) ) {
+			self::$animated_encode_cache[ $key ] = $this->probeAnimatedEncode( $key );
+		}
+		return self::$animated_encode_cache[ $key ];
+	}
+
+	/**
+	 * Live round-trip self-test: can Imagick actually write a multi-frame file
+	 * for $format on this server?
+	 *
+	 * Never assume from a version string. Build a 2-frame in-memory image, write
+	 * it with `writeImagesFile(..., true)` to a memory stream, read it back, and
+	 * assert `getNumberImages() > 1`. Anything that throws or yields a single
+	 * frame means "cannot animate this format" → the caller falls back to
+	 * passthrough. AVIF (libheif) is the format this actually protects against.
+	 *
+	 * `protected` so tests can stub capability without a live delegate build.
+	 *
+	 * @param string $format Lowercase target format tag.
+	 * @return bool
+	 */
+	protected function probeAnimatedEncode( string $format ): bool {
+		if ( ! extension_loaded( 'imagick' ) || ! class_exists( '\Imagick' ) ) {
+			return false;
+		}
+
+		$src = null;
+		$round = null;
+		try {
+			$formats = ( new \Imagick() )->queryFormats( strtoupper( $format ) );
+			if ( empty( $formats ) ) {
+				return false;
+			}
+
+			$src = new \Imagick();
+			for ( $i = 0; $i < 2; $i++ ) {
+				$frame = new \Imagick();
+				$frame->newImage( 4, 4, new \ImagickPixel( 0 === $i ? 'red' : 'blue' ) );
+				$frame->setImageFormat( $format );
+				$frame->setImageDelay( 10 );
+				$src->addImage( $frame );
+				$frame->clear();
+			}
+			$src->setImageFormat( $format );
+
+			$blob = $src->getImagesBlob(); // serialises all frames (adjoined)
+
+			$round = new \Imagick();
+			$round->readImageBlob( $blob );
+			return $round->getNumberImages() > 1;
+		} catch ( \Throwable $e ) {
+			unset( $e );
+			return false;
+		} finally {
+			foreach ( [ $src, $round ] as $img ) {
+				if ( $img instanceof \Imagick ) {
+					$img->clear();
+					$img->destroy();
+				}
+			}
+		}
 	}
 
 	/**
