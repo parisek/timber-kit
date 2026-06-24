@@ -780,7 +780,7 @@ class Resizer {
 				 */
 				$max_frames = (int) apply_filters( 'timber_kit_resizer_animated_max_frames', 0 );
 				if ( $max_frames > 0 && $imagick->getNumberImages() > $max_frames ) {
-					error_log( sprintf( 'Resizer: animated source "%s" exceeds max frames (%d) — passthrough', $source_path, $max_frames ) );
+					error_log( sprintf( 'Resizer: animated source "%s" exceeds max frames (%d) - passthrough', $source_path, $max_frames ) );
 					return null;
 				}
 
@@ -794,6 +794,9 @@ class Resizer {
 					if ( $is_crop ) {
 						$src_w = $frame->getImageWidth();
 						$src_h = $frame->getImageHeight();
+						if ( $src_w <= 0 || $src_h <= 0 ) {
+							throw new \RuntimeException( 'Resizer: degenerate animated frame dimensions' );
+						}
 						// Cover-scale: fill the target box, preserving aspect.
 						$scale = max( $w / $src_w, $h / $src_h );
 						$scaled_w = (int) ceil( $src_w * $scale );

@@ -32,31 +32,18 @@ class ProcessAnimatedVariantTest extends ResizerTestCase {
 	private function animatedGif(): string {
 		$path = tempnam( sys_get_temp_dir(), 'agif' ) . '.gif';
 		$this->tmp[] = $path;
-		// 1x1, 2 frames. Built with GD if available, else a hand-rolled byte blob.
-		if ( function_exists( 'imagecreatetruecolor' ) && function_exists( 'imagegif' ) ) {
-			$im = imagecreatetruecolor( 2, 2 );
-			ob_start();
-			imagegif( $im );
-			$one = (string) ob_get_clean();
-			imagedestroy( $im );
-			// Duplicate the single frame's image-descriptor block to fake a 2nd frame
-			// is fragile; instead rely on Imagick to read a real animated GIF when
-			// present. Fall back: write via Imagick directly.
+		$ani = new \Imagick();
+		foreach ( [ 'red', 'blue' ] as $c ) {
+			$f = new \Imagick();
+			$f->newImage( 8, 6, new \ImagickPixel( $c ) );
+			$f->setImageFormat( 'gif' );
+			$f->setImageDelay( 10 );
+			$ani->addImage( $f );
+			$f->clear();
 		}
-		if ( extension_loaded( 'imagick' ) ) {
-			$ani = new \Imagick();
-			foreach ( [ 'red', 'blue' ] as $c ) {
-				$f = new \Imagick();
-				$f->newImage( 8, 6, new \ImagickPixel( $c ) );
-				$f->setImageFormat( 'gif' );
-				$f->setImageDelay( 10 );
-				$ani->addImage( $f );
-				$f->clear();
-			}
-			$ani->setImageFormat( 'gif' );
-			$ani->writeImages( $path, true );
-			$ani->clear();
-		}
+		$ani->setImageFormat( 'gif' );
+		$ani->writeImages( $path, true );
+		$ani->clear();
 		return $path;
 	}
 
@@ -92,7 +79,6 @@ class ProcessAnimatedVariantTest extends ResizerTestCase {
 			$this->markTestSkipped( 'backend cannot write animated gif' );
 		}
 		$src = $this->animatedGif();
-		$cache = $this->getPrivateProperty( $resizer, 'image_cache_dir' );
 
 		$result = $this->callPrivate( $resizer, 'processAnimatedVariant', [ $this->variant( 4, 4, 'center' ), $src, 'img', $this->defaultImage() ] );
 
@@ -131,5 +117,51 @@ class ProcessAnimatedVariantTest extends ResizerTestCase {
 		$result = $this->callPrivate( $resizer, 'processAnimatedVariant', [ $this->variant( 4, 4 ), $src, 'img', $this->defaultImage() ] );
 
 		$this->assertNull( $result );
+	}
+
+	public function test_scale_only_branch_resizes_without_cropping(): void {
+		if ( ! extension_loaded( 'imagick' ) ) {
+			$this->markTestSkipped( 'imagick not available' );
+		}
+		$resizer = $this->resizerWritingGif();
+		if ( ! $this->callPrivate( $resizer, 'canEncodeAnimated', [ 'gif' ] ) ) {
+			$this->markTestSkipped( 'backend cannot write animated gif' );
+		}
+		$src = $this->animatedGif();
+
+		// height=0 means unconstrained — scale-only path, no crop.
+		$result = $this->callPrivate( $resizer, 'processAnimatedVariant', [ $this->variant( 4, 0, 'center' ), $src, 'img', $this->defaultImage() ] );
+
+		$this->assertIsArray( $result );
+		$out = str_replace( 'http://example.test/wp-content/', WP_CONTENT_DIR . '/', $result['src'] );
+		$this->tmp[] = $out;
+		$check = new \Imagick();
+		$check->readImage( $out );
+		$this->assertGreaterThan( 1, $check->getNumberImages() );
+		$check->clear();
+	}
+
+	public function test_positional_crop_offset_produces_target_dimensions(): void {
+		if ( ! extension_loaded( 'imagick' ) ) {
+			$this->markTestSkipped( 'imagick not available' );
+		}
+		$resizer = $this->resizerWritingGif();
+		if ( ! $this->callPrivate( $resizer, 'canEncodeAnimated', [ 'gif' ] ) ) {
+			$this->markTestSkipped( 'backend cannot write animated gif' );
+		}
+		$src = $this->animatedGif();
+
+		// 'top' is a non-centre positional crop — exercises the offset branch.
+		$result = $this->callPrivate( $resizer, 'processAnimatedVariant', [ $this->variant( 4, 4, 'top' ), $src, 'img', $this->defaultImage() ] );
+
+		$this->assertIsArray( $result );
+		$out = str_replace( 'http://example.test/wp-content/', WP_CONTENT_DIR . '/', $result['src'] );
+		$this->tmp[] = $out;
+		$check = new \Imagick();
+		$check->readImage( $out );
+		$check->setFirstIterator();
+		$this->assertSame( 4, $check->getImageWidth() );
+		$this->assertSame( 4, $check->getImageHeight() );
+		$check->clear();
 	}
 }
