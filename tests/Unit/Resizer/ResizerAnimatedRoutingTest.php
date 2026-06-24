@@ -11,8 +11,9 @@ use Tests\Unit\ResizerTestCase;
 /**
  * Covers resizer()'s animated routing: capable backend → animated path,
  * incapable backend → passthrough, skip_animated → passthrough, static → normal.
- * Imagick is never touched — the three decision inputs (isAnimated,
- * canEncodeAnimated) and both processors are overridden on a Resizer subclass.
+ * Imagick is never touched — the decision inputs (imagickFrameCount,
+ * sniffAnimated, canEncodeAnimated) and both processors are overridden on a
+ * Resizer subclass.
  */
 class ResizerAnimatedRoutingTest extends ResizerTestCase {
 
@@ -43,8 +44,14 @@ class ResizerAnimatedRoutingTest extends ResizerTestCase {
 			protected function isAnimatableType( string $mime ): bool {
 				return true;
 			}
-			protected function isAnimated( string $source_path ): bool {
-				return $this->opts['animated'];
+			protected function imagickFrameCount( string $source_path ): ?int {
+				// Animated sources here decode cleanly to multiple frames; static
+				// sources to one. The under-decode case (animated structure, one
+				// decoded frame) is covered by ResizerUnderdecodeGuardTest.
+				return $this->opts['animated'] ? 2 : 1;
+			}
+			protected function sniffAnimated( string $source_path ): bool {
+				return false;
 			}
 			protected function canEncodeAnimated( string $format ): bool {
 				return $this->opts['capable'];

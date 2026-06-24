@@ -246,16 +246,18 @@ class Resizer {
 	 * to the first frame, silently destroying the animation. resizer() treats a
 	 * positive result here like an unsupported type and returns the original.
 	 *
-	 * Single detection per source, in priority order:
-	 *   1. Imagick frame count — authoritative when the extension is present, and
-	 *      it reads the whole file so it isn't bounded by the byte sniff's window.
-	 *   2. A backend-independent, structurally-parsed byte sniff — the GD-only
-	 *      fallback (and the path when Imagick throws on the source).
-	 * The byte sniff parses container structure (it does not scan for loose
-	 * substrings), so when it has to run its false-positive rate is negligible.
-	 * Note: on GD-only servers the sniff is bounded by its read window, so an
-	 * animated GIF whose first frame exceeds that window can be missed — Imagick,
-	 * when present, has no such limit.
+	 * Animated when EITHER signal fires — a deliberate union, because the two can
+	 * disagree and a missed frame is the dangerous case:
+	 *   1. Imagick decodes more than one frame (`imagickFrameCount()`).
+	 *   2. Otherwise, a backend-independent, structurally-parsed byte sniff
+	 *      (`sniffAnimated()`).
+	 * Imagick alone is NOT authoritative for "static": a backend can under-decode
+	 * an animated container to its primary frame (an AVIF image-sequence on a
+	 * libheif too old to read sequence tracks reports one frame), so a one-frame
+	 * Imagick result still defers to the structural sniff. The sniff parses
+	 * container structure (no loose substring scans), so its false-positive rate is
+	 * negligible. Note: on GD-only servers the sniff is bounded by its read window,
+	 * so an animated GIF whose first frame exceeds that window can be missed.
 	 *
 	 * Callers must gate this behind `isAnimatableType()` — it assumes the source
 	 * is one of the animatable containers and only reads enough to confirm.
@@ -264,24 +266,59 @@ class Resizer {
 	 * @return bool True when the source has more than one frame.
 	 */
 	protected function isAnimated( string $source_path ): bool {
-		if ( extension_loaded( 'imagick' ) && class_exists( '\Imagick' ) ) {
-			$probe = null;
-			try {
-				$probe = new \Imagick();
-				$probe->pingImage( $source_path );
-				return $probe->getNumberImages() > 1;
-			} catch ( \Throwable $e ) {
-				// Unreadable by Imagick — fall through to the byte sniff.
-				unset( $e );
-			} finally {
-				if ( $probe instanceof \Imagick ) {
-					$probe->clear();
-					$probe->destroy();
-				}
-			}
+		$frames = $this->imagickFrameCount( $source_path );
+		if ( null !== $frames && $frames > 1 ) {
+			return true;
 		}
 
+		// Imagick decoded a single frame (or is unavailable). That is NOT proof the
+		// source is static: a backend can under-decode an animated container to its
+		// primary frame — e.g. an AVIF image-sequence (`avis` brand) on a libheif
+		// too old to read sequence tracks reports one frame through Imagick while
+		// the file actually holds dozens. Consult the structural sniff, which reads
+		// the container's animation markers directly, so such sources are still
+		// recognised as animated (and handled as the gate decides — never flattened).
 		return $this->sniffAnimated( $source_path );
+	}
+
+	/**
+	 * Number of frames Imagick decodes from the source, or null when Imagick is
+	 * unavailable or cannot read the file.
+	 *
+	 * This is the *backend's* view of the source — what `coalesceImages()` would
+	 * actually have to work with — which is distinct from whether the file is
+	 * structurally animated (`sniffAnimated()`). The two can disagree: an animated
+	 * AVIF image-sequence on an older libheif decodes to one frame here even though
+	 * the structure says many. The resizer gate needs both: structure decides
+	 * "animated?", this decides "can the backend actually re-encode the frames, or
+	 * would resizing flatten them?".
+	 *
+	 * Extracted as a `protected` seam so tests can simulate an under-decoding
+	 * backend without a specific libheif build.
+	 *
+	 * @param string $source_path Absolute filesystem path to the source image.
+	 * @return int|null Decoded frame count, or null when Imagick can't read it.
+	 */
+	protected function imagickFrameCount( string $source_path ): ?int {
+		if ( ! extension_loaded( 'imagick' ) || ! class_exists( '\Imagick' ) ) {
+			return null;
+		}
+
+		$probe = null;
+		try {
+			$probe = new \Imagick();
+			$probe->pingImage( $source_path );
+			return $probe->getNumberImages();
+		} catch ( \Throwable $e ) {
+			// Unreadable by Imagick — caller treats this like "cannot decode".
+			unset( $e );
+			return null;
+		} finally {
+			if ( $probe instanceof \Imagick ) {
+				$probe->clear();
+				$probe->destroy();
+			}
+		}
 	}
 
 	/**
@@ -303,7 +340,7 @@ class Resizer {
 	 * @param string $source_path Absolute filesystem path to the source image.
 	 * @return bool
 	 */
-	private function sniffAnimated( string $source_path ): bool {
+	protected function sniffAnimated( string $source_path ): bool {
 		$handle = @fopen( $source_path, 'rb' );
 		if ( false === $handle ) {
 			return false;
@@ -1241,15 +1278,30 @@ class Resizer {
 
 		// Animated AVIF / WebP / GIF cannot survive the single-frame static
 		// pipeline (Spatie\Image / Imagick singular writeImage() flatten to frame
-		// 0). Decide what to do at RUNTIME — never assume:
-		//   - skip_animated on  → always passthrough (the #60 escape hatch).
-		//   - backend can write animated <target_format> → multi-frame resize.
-		//   - backend cannot     → passthrough (never flatten — the core fix).
-		// Detection is gated on isAnimatableType() so still JPEG/PNG pay nothing.
-		$animated = $this->isAnimatableType( $source_mime ) && $this->isAnimated( $source_path );
+		// 0). Decide what to do at RUNTIME — never assume.
+		//
+		// Two independent signals, because they can disagree:
+		//   - $frames: how many frames Imagick actually decodes from THIS source
+		//     (null when Imagick is unavailable/unreadable).
+		//   - sniffAnimated(): whether the container is structurally animated.
+		// A source can be structurally animated yet under-decode to one frame
+		// (an AVIF image-sequence on a libheif too old to read sequence tracks).
+		//
+		// Decision for an animated source:
+		//   - skip_animated on                       → passthrough (the #60 escape hatch).
+		//   - backend decodes >1 frame AND can write
+		//     animated <target_format>               → multi-frame resize.
+		//   - otherwise (under-decoded, or can't
+		//     write animated)                         → passthrough (never flatten).
+		// Detection is gated on isAnimatableType() so still JPEG/PNG pay nothing;
+		// the sniff runs only when Imagick didn't already see multiple frames.
+		$animatable = $this->isAnimatableType( $source_mime );
+		$frames = $animatable ? $this->imagickFrameCount( $source_path ) : null;
+		$decodes_multi = ( null !== $frames && $frames > 1 );
+		$animated = $animatable && ( $decodes_multi || $this->sniffAnimated( $source_path ) );
 		$use_animated_path = false;
 		if ( $animated ) {
-			if ( $this->skip_animated || ! $this->canEncodeAnimated( $this->target_format ) ) {
+			if ( $this->skip_animated || ! $decodes_multi || ! $this->canEncodeAnimated( $this->target_format ) ) {
 				return [ $default_image ];
 			}
 			$use_animated_path = true;
