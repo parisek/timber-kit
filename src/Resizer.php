@@ -107,11 +107,14 @@ class Resizer {
 	private bool $force_regenerate;
 
 	/**
-	 * Whether to pass animated sources (animated AVIF / WebP / GIF) through
-	 * untouched instead of re-encoding them. Default on — re-encoding an animated
-	 * source flattens it to its first frame, so skipping is the safe default. Set
-	 * false (via `StarterBase::$resizer_skip_animated` or the
-	 * `timber_kit_resizer_skip_animated` filter) to restore the legacy re-encode.
+	 * Whether to always pass animated sources (animated AVIF / WebP / GIF)
+	 * through untouched. Default true — always passthrough; animation is
+	 * never flattened on any path. Set false (via
+	 * `StarterBase::$resizer_skip_animated` or the
+	 * `timber_kit_resizer_skip_animated` filter) to attempt the
+	 * capability-gated animated resize: animated sources are resized/cropped
+	 * with animation preserved when the active backend can re-encode animated
+	 * output for the target format, otherwise they still pass through untouched.
 	 *
 	 * @var bool
 	 */
@@ -137,11 +140,16 @@ class Resizer {
 	 * Initialize resizer settings, each of which can be overridden via a WordPress filter.
 	 *
 	 * Filters available:
-	 *   - `timber_kit_resizer_target_format`   — output image format (default: avif)
-	 *   - `timber_kit_resizer_target_quality`  — output quality 0-100 (default: 100)
-	 *   - `timber_kit_resizer_image_cache_dir` — absolute path to cache directory
-	 *   - `timber_kit_resizer_force_regenerate` — skip cache and always regenerate
-	 *   - `timber_kit_resizer_skip_animated`   — pass animated sources through untouched (default: true)
+	 *   - `timber_kit_resizer_target_format`        — output image format (default: avif)
+	 *   - `timber_kit_resizer_target_quality`       — output quality 0-100 (default: 100)
+	 *   - `timber_kit_resizer_image_cache_dir`      — absolute path to cache directory
+	 *   - `timber_kit_resizer_force_regenerate`     — skip cache and always regenerate
+	 *   - `timber_kit_resizer_skip_animated`        — true (default): always passthrough for animated sources;
+	 *                                                 false: attempt capability-gated animated resize, fall back
+	 *                                                 to passthrough when the backend cannot write animated output;
+	 *                                                 animation is never flattened on any path
+	 *   - `timber_kit_resizer_animated_max_frames`  — int (default: 0 = unlimited); animated sources whose frame
+	 *                                                 count exceeds this cap pass through untouched
 	 */
 	public function __construct() {
 		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );

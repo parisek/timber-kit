@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **Capability-gated multi-frame resize for animated AVIF/WebP/GIF (#61).** Building on #60's passthrough: when the active Imagick backend can re-encode animated output for the target format — proven by a cached round-trip self-test, never assumed — an animated source is now resized/cropped with its animation preserved (raw-Imagick `coalesceImages()` → per-frame scale/crop → `writeImages(…, true)`) instead of served at original size. On a backend that cannot write animated output, the source still passes through untouched — it is never flattened. Animated output uses the configured `timber_kit_resizer_target_format` (AVIF default); crop styles cover scale and positional crop (`smart-crop` degrades to centre). New `timber_kit_resizer_animated_max_frames` filter (int, default `0` = unlimited) caps frame count, passing very long sequences through untouched. Setting `StarterBase::$resizer_skip_animated = false` (or the `timber_kit_resizer_skip_animated` filter to `false`) now **attempts** this capability-gated resize — falling back to passthrough when the backend cannot write animated output — instead of the old flattening re-encode that destroyed animation. `true` (the default) keeps the always-passthrough behaviour from #60. Animation is never flattened on any path.
+
 ## [1.13.0] - 2026-06-24
 
 ### Added

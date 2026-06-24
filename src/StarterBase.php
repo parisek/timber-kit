@@ -352,18 +352,17 @@ class StarterBase extends Site {
 	protected bool $resizer_format_health = true;
 
 	/**
-	 * Pass animated sources (animated AVIF / WebP / GIF) through the resizer
-	 * untouched instead of re-encoding them. The resize pipeline is single-frame
-	 * (Spatie\Image / Imagick writeImage), so re-encoding an animated source
-	 * flattens it to its first frame — every `|resizer` variant becomes a frozen
-	 * still. With this on, animated sources are served at their original size
-	 * (cropping/scaling becomes the consumer's CSS job) and the animation survives.
+	 * Whether to always pass animated sources (animated AVIF / WebP / GIF)
+	 * through the resizer untouched. Default **true** — always passthrough;
+	 * animation is never flattened on any path.
 	 *
-	 * Default **on**: re-encoding an animated source is always wrong (it destroys
-	 * the animation), so the safe behaviour ships by default — a deliberate
-	 * exception to the usual default-off feature-flag rule, since the legacy
-	 * behaviour is a bug, not a feature. Set false to restore the legacy
-	 * re-encode (e.g. on a backend that can write animated output — see #61).
+	 * Set **false** to attempt the capability-gated animated resize (#61):
+	 * when the active Imagick backend can re-encode animated output for the
+	 * configured target format (proven by a cached round-trip self-test, never
+	 * assumed), animated sources are resized/cropped with animation preserved
+	 * (`coalesceImages()` → per-frame scale/crop → `writeImages(…, true)`).
+	 * On a backend that cannot write animated output the source still passes
+	 * through untouched — it is never flattened regardless of this flag.
 	 *
 	 * @var bool
 	 */
@@ -713,8 +712,11 @@ class StarterBase extends Site {
 			add_filter( 'debug_information', array( $this, 'site_health_resizer_formats_debug' ) );
 		}
 		if ( ! $this->resizer_skip_animated ) {
-			// Default is on (skip); only register an override to restore the
-			// legacy flattening re-encode when a project explicitly opts out.
+			// Default is true (always passthrough). When a project opts out
+			// (false), enable the capability-gated animated resize path: animated
+			// sources are resized with animation preserved when the active backend
+			// can write animated output for the target format, otherwise they still
+			// pass through untouched — animation is never flattened on any path.
 			add_filter( 'timber_kit_resizer_skip_animated', '__return_false' );
 		}
 	}
