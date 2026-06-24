@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Resizer;
 
-use Parisek\TimberKit\Resizer;
 use Tests\Unit\ResizerTestCase;
 
 /**

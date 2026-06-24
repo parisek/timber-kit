@@ -26,13 +26,12 @@ class ResizerAnimatedRoutingTest extends ResizerTestCase {
 				return 'timber_kit_resizer_skip_animated' === $filter ? $opts['skip'] : $default;
 			}
 		);
-		Functions\when( 'wp_upload_dir' )->justReturn( [ 'basedir' => '/up', 'baseurl' => 'http://x/up' ] );
 		Functions\when( 'sanitize_file_name' )->returnArg();
 		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/gif', 'ext' => 'gif' ] );
 
 		return new class( $opts, $calls ) extends Resizer {
 			private array $opts;
-			public $callsRef;
+			public array $callsRef;
 			public function __construct( array $opts, array &$calls ) {
 				$this->opts = $opts;
 				$this->callsRef = &$calls;

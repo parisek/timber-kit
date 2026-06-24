@@ -40,6 +40,7 @@ class ProcessAnimatedVariantTest extends ResizerTestCase {
 			$f->setImageDelay( 10 );
 			$ani->addImage( $f );
 			$f->clear();
+			$f->destroy();
 		}
 		$ani->setImageFormat( 'gif' );
 		$ani->writeImages( $path, true );
@@ -137,7 +138,10 @@ class ProcessAnimatedVariantTest extends ResizerTestCase {
 		$this->tmp[] = $out;
 		$check = new \Imagick();
 		$check->readImage( $out );
+		$this->tmp[] = $out;
 		$this->assertGreaterThan( 1, $check->getNumberImages() );
+		$check->setFirstIterator();
+		$this->assertSame( 4, $check->getImageWidth() );
 		$check->clear();
 	}
 

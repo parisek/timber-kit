@@ -792,7 +792,10 @@ class Resizer {
 					return null;
 				}
 
-				$imagick = $imagick->coalesceImages();
+				$coalesced = $imagick->coalesceImages();
+				$imagick->clear();
+				$imagick->destroy();
+				$imagick = $coalesced;
 
 				$w = (int) $variant['width'];
 				$h = (int) $variant['height'];
@@ -821,7 +824,10 @@ class Resizer {
 					$frame->setImageCompressionQuality( (int) $variant['quality'] );
 				}
 
-				$imagick = $imagick->deconstructImages();
+				$deconstructed = $imagick->deconstructImages();
+				$imagick->clear();
+				$imagick->destroy();
+				$imagick = $deconstructed;
 				$imagick->writeImages( $target_path, true );
 			} catch ( \Throwable $e ) {
 				error_log( sprintf( 'Resizer: failed to process animated "%s" to "%s": %s', $source_path, $target_path, $e->getMessage() ) );
