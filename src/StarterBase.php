@@ -360,18 +360,16 @@ class StarterBase extends Site {
 	protected bool $warn_duplicate_security_headers = true;
 
 	/**
-	 * Pass animated sources (animated AVIF / WebP / GIF) through the resizer
-	 * untouched instead of re-encoding them. The resize pipeline is single-frame
-	 * (Spatie\Image / Imagick writeImage), so re-encoding an animated source
-	 * flattens it to its first frame — every `|resizer` variant becomes a frozen
-	 * still. With this on, animated sources are served at their original size
-	 * (cropping/scaling becomes the consumer's CSS job) and the animation survives.
+	 * Whether to pass animated sources (animated AVIF / WebP / GIF) through the
+	 * resizer untouched. Default **true** — animated sources are detected (Imagick
+	 * frame count unioned with a structural byte-sniff, so even sources the backend
+	 * under-decodes are caught) and the original is served unchanged; animation is
+	 * preserved.
 	 *
-	 * Default **on**: re-encoding an animated source is always wrong (it destroys
-	 * the animation), so the safe behaviour ships by default — a deliberate
-	 * exception to the usual default-off feature-flag rule, since the legacy
-	 * behaviour is a bug, not a feature. Set false to restore the legacy
-	 * re-encode (e.g. on a backend that can write animated output — see #61).
+	 * Set **false** to opt out: animated sources then flow into the normal
+	 * single-frame resize pipeline, which re-encodes them and flattens the
+	 * animation to its first frame (the legacy behaviour). Only do this if you
+	 * have a reason to want the flattened, resized variant.
 	 *
 	 * @var bool
 	 */
@@ -727,8 +725,9 @@ class StarterBase extends Site {
 			add_filter( 'debug_information', array( $this, 'site_health_resizer_formats_debug' ) );
 		}
 		if ( ! $this->resizer_skip_animated ) {
-			// Default is on (skip); only register an override to restore the
-			// legacy flattening re-encode when a project explicitly opts out.
+			// Default is true (animated sources pass through untouched). Opting out
+			// (false) lets animated sources flow into the normal single-frame resize
+			// pipeline, which flattens the animation — the legacy behaviour.
 			add_filter( 'timber_kit_resizer_skip_animated', '__return_false' );
 		}
 	}
