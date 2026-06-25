@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.14.1] - 2026-06-25
+
 ### Fixed
 
 - **Resizer animation detection hardened so animated AVIF/WebP/GIF are never silently flattened (#61).** Refines #60's passthrough. `resizer()` now detects an animated source from a **union** of two signals — Imagick's decoded frame count **and** a structural byte-sniff (`avis` ftyp brand / WebP VP8X `ANIM` flag / GIF image-descriptor walk) — and passes the original through untouched (no re-encode, animation preserved). The union matters because Imagick alone can mislead: a backend that *under-decodes* an animated container to its primary frame reports a single frame, which a frame-count-only check treats as static and flattens. This is not hypothetical — animated AVIF **image-sequences** (`avis` brand, dozens of frames) decode to one frame through Imagick on **both** a libheif 1.19.8 dev box **and** an ImageMagick 7.1.2-8 production box; #60's passthrough never fired for them, so only a manual workaround preserved the animation. Consulting the sniff whenever Imagick sees ≤1 frame closes that gap. Public surface is unchanged from #60: `StarterBase::$resizer_skip_animated` / the `timber_kit_resizer_skip_animated` filter still default to `true` (passthrough); set `false` to opt out (animated sources flow into the normal resize pipeline). **Resizing animated sources while preserving animation (multi-frame re-encode) is intentionally out of scope** — no commonly-available ImageMagick build decodes these AVIF sequences as multi-frame anyway, so passthrough is the correct outcome; capability-gated multi-frame resize remains tracked in #61.
