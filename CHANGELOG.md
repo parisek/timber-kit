@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-06-25
+
 ### Changed
 
 - **`StarterBase::$admin_resizable_sidebar` now defaults to `false`** (was `true`) — the resizable Gutenberg editor sidebar is now **opt-in**. Its JS/CSS ship inside the package and are served from `vendor/` via `packageAssetUrl()`, but the standard theme `.htaccess` blanket-denies `vendor/` (`RewriteRule ^vendor/(.*)?$ / [F,L]`). The old default therefore made **every** consumer's block editor request those assets and receive **403** — the README's "works out of the box" claim was wrong in the presence of the skeleton `.htaccess`. ⚠️ **Behavior change**: themes that want the sidebar must now set `$admin_resizable_sidebar = true` **and** add an allow rule for static assets under `vendor/` to the theme `.htaccess` (snippet in README § Resizable sidebar). `wordpress-base`'s `starter_theme` ships that allow rule so scaffolded projects only need the flag. Surfaced from downstream project `pm-a`.
