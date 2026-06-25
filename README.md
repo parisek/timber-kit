@@ -420,7 +420,18 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 | `$gutenberg_responsive_embeds` | bool | `true` | Responsive video embeds |
 | `$gutenberg_editor_styles` | bool | `true` | Load editor stylesheet |
 | `$gutenberg_disable_core_patterns` | bool | `true` | Remove core block patterns |
-| `$admin_resizable_sidebar` | bool | `true` | Toggle the resizable Gutenberg editor sidebar. The JS/CSS ship inside the package, so it works out of the box; set `false` to disable |
+| `$admin_resizable_sidebar` | bool | `false` | Opt-in resizable Gutenberg editor sidebar. Default **off** — the JS/CSS ship inside the package and are served from its `vendor/` dir, which the standard theme `.htaccess` denies, so enabling it also requires an `.htaccess` allow rule (see below). Set `true` to enable |
+
+> **Enabling `$admin_resizable_sidebar` — `.htaccess` requirement.** The sidebar's JS/CSS are served from the package's `vendor/` directory (`vendor/parisek/timber-kit/assets/…`) via `packageAssetUrl()`. The standard theme `.htaccess` blanket-denies `vendor/` for security (`RewriteRule ^vendor/(.*)?$ / [F,L]`), so the browser would get **403** for those assets. When you set `$admin_resizable_sidebar = true`, also allow static assets under `vendor/` in the project's theme `.htaccess`, **before** the blanket deny:
+>
+> ```apache
+> # Allow static assets shipped inside vendor (e.g. parisek/timber-kit admin
+> # CSS/JS enqueued via packageAssetUrl()) — must precede the blanket deny.
+> RewriteRule ^vendor/.+\.(css|js|mjs|map|woff2?|ttf|otf|eot|svg|png|jpe?g|gif|webp|avif)$ - [L]
+> RewriteRule ^vendor/(.*)?$ / [F,L]
+> ```
+>
+> PHP / source / config under `vendor/` stay forbidden. Projects scaffolded from `wordpress-base` (current `starter_theme`) already ship this allow rule.
 
 ### Options Pages
 
