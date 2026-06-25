@@ -541,7 +541,7 @@ class Resizer {
 	 * @param array  $default_image Default image data for metadata.
 	 * @return array|null Processed image data or null on failure.
 	 */
-	private function processVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
+	protected function processVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
 		$target_dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
 		$target_dir = $this->image_cache_dir . '/' . $target_dirname;
 		$target_path = $target_dir . '/' . $filename . '.' . $this->target_format;

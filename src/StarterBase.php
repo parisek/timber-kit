@@ -360,17 +360,18 @@ class StarterBase extends Site {
 	protected bool $warn_duplicate_security_headers = true;
 
 	/**
-	 * Whether to always pass animated sources (animated AVIF / WebP / GIF)
-	 * through the resizer untouched. Default **true** — always passthrough;
-	 * animation is never flattened on any path.
+	 * Whether to pass animated sources (animated AVIF / WebP / GIF) through the
+	 * resizer untouched. Default **true** — animated sources are detected (Imagick
+	 * frame count unioned with a structural byte-sniff, so even sources the backend
+	 * under-decodes are caught) and the original is served unchanged; animation is
+	 * preserved.
 	 *
-	 * Set **false** to attempt the capability-gated animated resize (#61):
-	 * when the active Imagick backend can re-encode animated output for the
-	 * configured target format (proven by a cached round-trip self-test, never
-	 * assumed), animated sources are resized/cropped with animation preserved
-	 * (`coalesceImages()` → per-frame scale/crop → `writeImages(…, true)`).
-	 * On a backend that cannot write animated output the source still passes
-	 * through untouched — it is never flattened regardless of this flag.
+	 * Set **false** to opt out: animated sources then flow into the normal
+	 * single-frame resize pipeline, which re-encodes them and flattens the
+	 * animation to its first frame (the legacy behaviour). Only do this if you
+	 * have a reason to want the flattened, resized variant.
+	 *
+	 * Resizing animated sources *with* animation preserved is out of scope — see #61.
 	 *
 	 * @var bool
 	 */
@@ -726,11 +727,9 @@ class StarterBase extends Site {
 			add_filter( 'debug_information', array( $this, 'site_health_resizer_formats_debug' ) );
 		}
 		if ( ! $this->resizer_skip_animated ) {
-			// Default is true (always passthrough). When a project opts out
-			// (false), enable the capability-gated animated resize path: animated
-			// sources are resized with animation preserved when the active backend
-			// can write animated output for the target format, otherwise they still
-			// pass through untouched — animation is never flattened on any path.
+			// Default is true (animated sources pass through untouched). Opting out
+			// (false) lets animated sources flow into the normal single-frame resize
+			// pipeline, which flattens the animation — the legacy behaviour.
 			add_filter( 'timber_kit_resizer_skip_animated', '__return_false' );
 		}
 	}

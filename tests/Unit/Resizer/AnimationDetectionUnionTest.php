@@ -91,4 +91,67 @@ class AnimationDetectionUnionTest extends ResizerTestCase {
 		$result = $this->callPrivate( $resizer, 'isAnimated', [ '/nonexistent.avif' ] );
 		$this->assertTrue( $result );
 	}
+
+	/**
+	 * Resizer subclass that reports a single decoded frame (under-decoding backend)
+	 * and records whether the single-frame resize pipeline was entered.
+	 *
+	 * @param array{static:int} $calls
+	 */
+	private function underDecodingSpyResizer( array &$calls ): Resizer {
+		$calls = [ 'static' => 0 ];
+		Functions\when( 'apply_filters' )->alias( static fn( $filter, $default, ...$args ) => $default );
+		Functions\when( 'sanitize_file_name' )->returnArg();
+		Functions\when( 'wp_check_filetype' )->justReturn( [ 'type' => 'image/gif', 'ext' => 'gif' ] );
+		Functions\when( 'wp_upload_dir' )->justReturn( [ 'basedir' => sys_get_temp_dir(), 'baseurl' => 'http://x/up' ] );
+
+		return new class( $calls ) extends Resizer {
+			/** @var array{static:int} */
+			public array $spy;
+			public function __construct( array &$calls ) {
+				$this->spy = &$calls;
+				parent::__construct();
+			}
+			public function canDecode( string $mime ): bool {
+				return true;
+			}
+			protected function imagickFrameCount( string $source_path ): ?int {
+				return 1; // backend under-decodes — reports one frame.
+			}
+			protected function processVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
+				$this->spy['static']++;
+				return $default_image;
+			}
+		};
+	}
+
+	public function test_under_decoded_animated_source_passes_through_resizer(): void {
+		$path = $this->tmpFile( $this->animatedGifBytes(), 'union_int' );
+		$calls = [];
+		$resizer = $this->underDecodingSpyResizer( $calls );
+		$image = [ 'src' => 'http://x/up/' . basename( $path ), 'width' => 1, 'height' => 1, 'alt' => '' ];
+
+		$out = $resizer->resizer( $image, [ [ 100, 100, 0, 'crop' ] ] );
+
+		// imagickFrameCount()=1 would make a frame-count-only check resize (and
+		// flatten) this source; the sniff catches the animation, so resizer()
+		// short-circuits to passthrough and never enters the resize pipeline.
+		$this->assertSame( 0, $calls['static'], 'under-decoded animated source must not reach the single-frame resize pipeline' );
+		$this->assertCount( 1, $out, 'only the original is returned (passthrough)' );
+		$this->assertSame( $image['src'], $out[0]['src'] );
+	}
+
+	public function test_genuinely_static_source_reaches_resize_pipeline(): void {
+		$path = $this->tmpFile( $this->staticGifBytes(), 'static_int' );
+		$calls = [];
+		$resizer = $this->underDecodingSpyResizer( $calls );
+		$image = [ 'src' => 'http://x/up/' . basename( $path ), 'width' => 1, 'height' => 1, 'alt' => '' ];
+
+		$out = $resizer->resizer( $image, [ [ 100, 100, 0, 'crop' ] ] );
+
+		// One decoded frame, no structural animation marker → not animated → the
+		// normal resize pipeline runs (proving the spy is wired and the passthrough
+		// in the previous test is a real short-circuit, not a dead path).
+		$this->assertSame( 1, $calls['static'], 'a genuinely static source must enter the resize pipeline' );
+	}
 }
