@@ -371,8 +371,6 @@ class StarterBase extends Site {
 	 * animation to its first frame (the legacy behaviour). Only do this if you
 	 * have a reason to want the flattened, resized variant.
 	 *
-	 * Resizing animated sources *with* animation preserved is out of scope — see #61.
-	 *
 	 * @var bool
 	 */
 	protected bool $resizer_skip_animated = true;
