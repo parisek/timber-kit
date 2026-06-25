@@ -107,14 +107,11 @@ class Resizer {
 	private bool $force_regenerate;
 
 	/**
-	 * Whether to always pass animated sources (animated AVIF / WebP / GIF)
-	 * through untouched. Default true — always passthrough; animation is
-	 * never flattened on any path. Set false (via
-	 * `StarterBase::$resizer_skip_animated` or the
-	 * `timber_kit_resizer_skip_animated` filter) to attempt the
-	 * capability-gated animated resize: animated sources are resized/cropped
-	 * with animation preserved when the active backend can re-encode animated
-	 * output for the target format, otherwise they still pass through untouched.
+	 * Whether to pass animated sources (animated AVIF / WebP / GIF) through
+	 * untouched instead of re-encoding them. Default on — re-encoding an animated
+	 * source flattens it to its first frame, so skipping is the safe default. Set
+	 * false (via `StarterBase::$resizer_skip_animated` or the
+	 * `timber_kit_resizer_skip_animated` filter) to restore the legacy re-encode.
 	 *
 	 * @var bool
 	 */
@@ -128,28 +125,14 @@ class Resizer {
 	private ?array $decodable_cache = null;
 
 	/**
-	 * Memoized animated-write capability per target format, keyed by lowercase
-	 * format tag. `static` so the round-trip self-test is paid at most once per
-	 * format per process, even when Twig instantiates many Resizer objects.
-	 *
-	 * @var array<string, bool>
-	 */
-	private static array $animated_encode_cache = [];
-
-	/**
 	 * Initialize resizer settings, each of which can be overridden via a WordPress filter.
 	 *
 	 * Filters available:
-	 *   - `timber_kit_resizer_target_format`        — output image format (default: avif)
-	 *   - `timber_kit_resizer_target_quality`       — output quality 0-100 (default: 100)
-	 *   - `timber_kit_resizer_image_cache_dir`      — absolute path to cache directory
-	 *   - `timber_kit_resizer_force_regenerate`     — skip cache and always regenerate
-	 *   - `timber_kit_resizer_skip_animated`        — true (default): always passthrough for animated sources;
-	 *                                                 false: attempt capability-gated animated resize, fall back
-	 *                                                 to passthrough when the backend cannot write animated output;
-	 *                                                 animation is never flattened on any path
-	 *   - `timber_kit_resizer_animated_max_frames`  — int (default: 0 = unlimited); animated sources whose frame
-	 *                                                 count exceeds this cap pass through untouched
+	 *   - `timber_kit_resizer_target_format`   — output image format (default: avif)
+	 *   - `timber_kit_resizer_target_quality`  — output quality 0-100 (default: 100)
+	 *   - `timber_kit_resizer_image_cache_dir` — absolute path to cache directory
+	 *   - `timber_kit_resizer_force_regenerate` — skip cache and always regenerate
+	 *   - `timber_kit_resizer_skip_animated`   — pass animated sources through untouched (default: true)
 	 */
 	public function __construct() {
 		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );
@@ -233,7 +216,7 @@ class Resizer {
 	 * @param string $mime Image MIME type, e.g. `image/png`.
 	 * @return bool
 	 */
-	protected function isAnimatableType( string $mime ): bool {
+	private function isAnimatableType( string $mime ): bool {
 		return in_array( $mime, [ 'image/avif', 'image/webp', 'image/gif' ], true );
 	}
 
@@ -247,17 +230,19 @@ class Resizer {
 	 * positive result here like an unsupported type and returns the original.
 	 *
 	 * Animated when EITHER signal fires — a deliberate union, because the two can
-	 * disagree and a missed frame is the dangerous case:
+	 * disagree and a missed frame is the dangerous case (it would be flattened):
 	 *   1. Imagick decodes more than one frame (`imagickFrameCount()`).
 	 *   2. Otherwise, a backend-independent, structurally-parsed byte sniff
 	 *      (`sniffAnimated()`).
 	 * Imagick alone is NOT authoritative for "static": a backend can under-decode
-	 * an animated container to its primary frame (an AVIF image-sequence on a
-	 * libheif too old to read sequence tracks reports one frame), so a one-frame
-	 * Imagick result still defers to the structural sniff. The sniff parses
-	 * container structure (no loose substring scans), so its false-positive rate is
-	 * negligible. Note: on GD-only servers the sniff is bounded by its read window,
-	 * so an animated GIF whose first frame exceeds that window can be missed.
+	 * an animated container to its primary frame — e.g. an AVIF image-sequence
+	 * (`avis` brand) on a libheif too old to read sequence tracks reports a single
+	 * frame through Imagick while the file actually holds dozens. A one-frame
+	 * Imagick result therefore still defers to the structural sniff, which reads
+	 * the container's animation markers directly. The sniff parses structure (no
+	 * loose substring scans), so its false-positive rate is negligible. Note: on
+	 * GD-only servers the sniff is bounded by its read window, so an animated GIF
+	 * whose first frame exceeds that window can be missed.
 	 *
 	 * Callers must gate this behind `isAnimatableType()` — it assumes the source
 	 * is one of the animatable containers and only reads enough to confirm.
@@ -265,19 +250,15 @@ class Resizer {
 	 * @param string $source_path Absolute filesystem path to the source image.
 	 * @return bool True when the source has more than one frame.
 	 */
-	protected function isAnimated( string $source_path ): bool {
+	private function isAnimated( string $source_path ): bool {
 		$frames = $this->imagickFrameCount( $source_path );
 		if ( null !== $frames && $frames > 1 ) {
 			return true;
 		}
 
 		// Imagick decoded a single frame (or is unavailable). That is NOT proof the
-		// source is static: a backend can under-decode an animated container to its
-		// primary frame — e.g. an AVIF image-sequence (`avis` brand) on a libheif
-		// too old to read sequence tracks reports one frame through Imagick while
-		// the file actually holds dozens. Consult the structural sniff, which reads
-		// the container's animation markers directly, so such sources are still
-		// recognised as animated (and handled as the gate decides — never flattened).
+		// source is static — a backend can under-decode an animated container to its
+		// primary frame — so consult the structural sniff before concluding.
 		return $this->sniffAnimated( $source_path );
 	}
 
@@ -285,16 +266,9 @@ class Resizer {
 	 * Number of frames Imagick decodes from the source, or null when Imagick is
 	 * unavailable or cannot read the file.
 	 *
-	 * This is the *backend's* view of the source — what `coalesceImages()` would
-	 * actually have to work with — which is distinct from whether the file is
-	 * structurally animated (`sniffAnimated()`). The two can disagree: an animated
-	 * AVIF image-sequence on an older libheif decodes to one frame here even though
-	 * the structure says many. The resizer gate needs both: structure decides
-	 * "animated?", this decides "can the backend actually re-encode the frames, or
-	 * would resizing flatten them?".
-	 *
 	 * Extracted as a `protected` seam so tests can simulate an under-decoding
-	 * backend without a specific libheif build.
+	 * backend (an animated source Imagick reports as a single frame) without a
+	 * specific libheif build.
 	 *
 	 * @param string $source_path Absolute filesystem path to the source image.
 	 * @return int|null Decoded frame count, or null when Imagick can't read it.
@@ -310,7 +284,7 @@ class Resizer {
 			$probe->pingImage( $source_path );
 			return $probe->getNumberImages();
 		} catch ( \Throwable $e ) {
-			// Unreadable by Imagick — caller treats this like "cannot decode".
+			// Unreadable by Imagick — caller falls back to the byte sniff.
 			unset( $e );
 			return null;
 		} finally {
@@ -340,7 +314,7 @@ class Resizer {
 	 * @param string $source_path Absolute filesystem path to the source image.
 	 * @return bool
 	 */
-	protected function sniffAnimated( string $source_path ): bool {
+	private function sniffAnimated( string $source_path ): bool {
 		$handle = @fopen( $source_path, 'rb' );
 		if ( false === $handle ) {
 			return false;
@@ -515,89 +489,6 @@ class Resizer {
 	}
 
 	/**
-	 * Whether the active backend can re-encode an animated file for $format.
-	 *
-	 * Gates the multi-frame resize path: a positive verdict means
-	 * `processAnimatedVariant()` will preserve animation; a negative one routes
-	 * the source to passthrough rather than flattening it. Memoized per process
-	 * per format — the real probe (`probeAnimatedEncode()`) runs at most once.
-	 *
-	 * @param string $format Target format tag, e.g. `avif`.
-	 * @return bool
-	 */
-	protected function canEncodeAnimated( string $format ): bool {
-		$key = strtolower( $format );
-		if ( ! array_key_exists( $key, self::$animated_encode_cache ) ) {
-			self::$animated_encode_cache[ $key ] = $this->probeAnimatedEncode( $key );
-		}
-		return self::$animated_encode_cache[ $key ];
-	}
-
-	/**
-	 * Live round-trip self-test: can Imagick actually write a multi-frame file
-	 * for $format on this server?
-	 *
-	 * Never assume from a version string. Build a 2-frame in-memory image,
-	 * serialise all frames into one in-memory blob via `getImagesBlob()`, read
-	 * it back, and assert `getNumberImages() > 1`. Anything that throws or
-	 * yields a single frame means "cannot animate this format" → the caller
-	 * falls back to passthrough. AVIF (libheif) is the format this actually
-	 * protects against.
-	 *
-	 * `protected` so tests can stub capability without a live delegate build.
-	 *
-	 * @param string $format Lowercase target format tag.
-	 * @return bool
-	 */
-	protected function probeAnimatedEncode( string $format ): bool {
-		if ( ! extension_loaded( 'imagick' ) || ! class_exists( '\Imagick' ) ) {
-			return false;
-		}
-
-		$query = null;
-		$src = null;
-		$round = null;
-		try {
-			$query = new \Imagick();
-			$formats = $query->queryFormats( strtoupper( $format ) );
-			$query->clear();
-			$query->destroy();
-			$query = null;
-			if ( empty( $formats ) ) {
-				return false;
-			}
-
-			$src = new \Imagick();
-			for ( $i = 0; $i < 2; $i++ ) {
-				$frame = new \Imagick();
-				$frame->newImage( 4, 4, new \ImagickPixel( 0 === $i ? 'red' : 'blue' ) );
-				$frame->setImageFormat( $format );
-				$frame->setImageDelay( 10 );
-				$src->addImage( $frame );
-				$frame->clear();
-				$frame->destroy();
-			}
-			$src->setImageFormat( $format );
-
-			$blob = $src->getImagesBlob(); // serialises all frames into one in-memory blob
-
-			$round = new \Imagick();
-			$round->readImageBlob( $blob );
-			return $round->getNumberImages() > 1;
-		} catch ( \Throwable $e ) {
-			unset( $e );
-			return false;
-		} finally {
-			foreach ( [ $query, $src, $round ] as $img ) {
-				if ( $img instanceof \Imagick ) {
-					$img->clear();
-					$img->destroy();
-				}
-			}
-		}
-	}
-
-	/**
 	 * Prepare default image array with metadata
 	 *
 	 * @param array $image Raw image data.
@@ -650,7 +541,7 @@ class Resizer {
 	 * @param array  $default_image Default image data for metadata.
 	 * @return array|null Processed image data or null on failure.
 	 */
-	protected function processVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
+	private function processVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
 		$target_dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
 		$target_dir = $this->image_cache_dir . '/' . $target_dirname;
 		$target_path = $target_dir . '/' . $filename . '.' . $this->target_format;
@@ -771,133 +662,6 @@ class Resizer {
 	}
 
 	/**
-	 * Multi-frame counterpart to `processVariant()` — resizes/crops an animated
-	 * source while preserving animation, via a raw Imagick path (Spatie\Image
-	 * cannot express multi-frame). Only reached after `canEncodeAnimated()` has
-	 * confirmed the backend can write animated output for the target format.
-	 *
-	 * Mirrors `processVariant()`'s cache-path/URL derivation, directory creation,
-	 * force-regenerate gate, and return shape so the two are interchangeable in
-	 * `resizer()`'s output list. Crop styles: scale (one-or-both dims) and
-	 * positional crop (cover-scale then per-frame `cropImage()` at the
-	 * `cropOffset()`); `smart-crop` degrades to centre.
-	 *
-	 * Returns `null` on any failure or when the source's frame count exceeds the
-	 * `timber_kit_resizer_animated_max_frames` filter — the caller then passes the
-	 * original through rather than emitting a broken variant.
-	 *
-	 * @param array<string, mixed> $variant       Normalized variant spec.
-	 * @param string               $source_path   Absolute source path.
-	 * @param string               $filename      Sanitized filename (no extension).
-	 * @param array<string, mixed> $default_image Default image metadata.
-	 * @return array<string, mixed>|null
-	 */
-	protected function processAnimatedVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
-		$target_dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
-		$target_dir = $this->image_cache_dir . '/' . $target_dirname;
-		$target_path = $target_dir . '/' . $filename . '.' . $this->target_format;
-
-		$relative_cache_dir = $this->image_cache_dir;
-		if ( defined( 'WP_CONTENT_DIR' ) && strpos( $relative_cache_dir, WP_CONTENT_DIR ) === 0 ) {
-			$relative_cache_dir = substr( $relative_cache_dir, strlen( WP_CONTENT_DIR ) );
-		}
-		$relative_cache_dir = ltrim( (string) $relative_cache_dir, '/\\' );
-		$target_url = content_url( $relative_cache_dir . '/' . $target_dirname . '/' . $filename . '.' . $this->target_format );
-
-		if ( ! file_exists( $target_path ) || $this->force_regenerate ) {
-			if ( ! file_exists( $target_dir ) ) {
-				if ( ! wp_mkdir_p( $target_dir ) ) {
-					error_log( sprintf( 'Resizer: failed to create directory "%s"', $target_dir ) );
-					return null;
-				}
-			}
-
-			$imagick = null;
-			try {
-				$imagick = new \Imagick( $source_path );
-
-				/**
-				 * Optional cap on animated frame count. 0 (default) = unlimited.
-				 * Over the cap → bail to passthrough; an animated re-encode of a
-				 * very long sequence can be prohibitively large/slow.
-				 *
-				 * @param int $max_frames Maximum frames to re-encode (0 = unlimited).
-				 */
-				$max_frames = (int) apply_filters( 'timber_kit_resizer_animated_max_frames', 0 );
-				if ( $max_frames > 0 && $imagick->getNumberImages() > $max_frames ) {
-					error_log( sprintf( 'Resizer: animated source "%s" exceeds max frames (%d) - passthrough', $source_path, $max_frames ) );
-					return null;
-				}
-
-				$coalesced = $imagick->coalesceImages();
-				$imagick->clear();
-				$imagick->destroy();
-				$imagick = $coalesced;
-
-				$w = (int) $variant['width'];
-				$h = (int) $variant['height'];
-				$is_crop = in_array( $variant['image_style'], [ 'crop', 'center', 'top', 'bottom', 'left', 'right', 'smart-crop' ], true ) && $w > 0 && $h > 0;
-
-				foreach ( $imagick as $frame ) {
-					if ( $is_crop ) {
-						$src_w = $frame->getImageWidth();
-						$src_h = $frame->getImageHeight();
-						if ( $src_w <= 0 || $src_h <= 0 ) {
-							throw new \RuntimeException( 'Resizer: degenerate animated frame dimensions' );
-						}
-						// Cover-scale: fill the target box, preserving aspect.
-						$scale = max( $w / $src_w, $h / $src_h );
-						$scaled_w = (int) ceil( $src_w * $scale );
-						$scaled_h = (int) ceil( $src_h * $scale );
-						$frame->scaleImage( $scaled_w, $scaled_h );
-						$offset = $this->cropOffset( $variant['image_style'], $scaled_w, $scaled_h, $w, $h );
-						$frame->cropImage( $w, $h, $offset['x'], $offset['y'] );
-						$frame->setImagePage( $w, $h, 0, 0 );
-					} else {
-						// Scale only: honour one-or-both dimensions. With bestfit off,
-						// Imagick treats a 0 dimension as "derive from aspect ratio", so
-						// a single-dimension variant scales proportionally and a two-
-						// dimension one resizes to the exact box (mirrors processVariant's
-						// width()/height()). bestfit MUST stay off — bestfit with a 0
-						// dimension throws "Invalid image geometry".
-						$frame->scaleImage( $w, $h, false );
-					}
-					$frame->setImageFormat( $this->target_format );
-					$frame->setImageCompressionQuality( (int) $variant['quality'] );
-				}
-
-				$deconstructed = $imagick->deconstructImages();
-				$imagick->clear();
-				$imagick->destroy();
-				$imagick = $deconstructed;
-				$imagick->writeImages( $target_path, true );
-			} catch ( \Throwable $e ) {
-				error_log( sprintf( 'Resizer: failed to process animated "%s" to "%s": %s', $source_path, $target_path, $e->getMessage() ) );
-				return null;
-			} finally {
-				if ( $imagick instanceof \Imagick ) {
-					$imagick->clear();
-					$imagick->destroy();
-				}
-			}
-		}
-
-		$filetype = wp_check_filetype( $target_path );
-		$actual_mime = $filetype['type'] ?? 'image/' . $this->target_format;
-
-		return [
-			'src' => $target_url,
-			'type' => $actual_mime,
-			'width' => $variant['width'],
-			'height' => $variant['height'],
-			'media' => ( ! empty( $variant['media'] ) ) ? '(min-width: ' . $variant['media'] . 'px)' : '',
-			'alt' => $default_image['alt'],
-			'caption' => $default_image['caption'],
-			'description' => $default_image['description'],
-		];
-	}
-
-	/**
 	 * Map crop position from Timber format to Spatie CropPosition enum
 	 *
 	 * @param string $position Crop position string.
@@ -911,38 +675,6 @@ class Resizer {
 			'right' => CropPosition::Right,
 			'center', 'crop' => CropPosition::Center,
 			default => CropPosition::Center,
-		};
-	}
-
-	/**
-	 * Pixel offset of the crop window for a cover-scaled frame.
-	 *
-	 * The animated path cover-scales each frame so it fills the target box
-	 * (`$scaledW >= $w`, `$scaledH >= $h`), then crops `$w × $h` at the offset
-	 * returned here. Mirrors the positional semantics of `mapCropPosition()` but
-	 * in raw pixel space (Imagick `cropImage()` takes coordinates, not a Spatie
-	 * `CropPosition` enum). `crop` and any unrecognised style centre, matching the
-	 * static path's default.
-	 *
-	 * @param string $style   Crop style (center/top/bottom/left/right/crop/…).
-	 * @param int    $scaledW Cover-scaled frame width.
-	 * @param int    $scaledH Cover-scaled frame height.
-	 * @param int    $w       Target crop width.
-	 * @param int    $h       Target crop height.
-	 * @return array{x: int, y: int} Non-negative crop offset.
-	 */
-	private function cropOffset( string $style, int $scaledW, int $scaledH, int $w, int $h ): array {
-		$overflow_x = max( 0, $scaledW - $w );
-		$overflow_y = max( 0, $scaledH - $h );
-		$center_x = (int) ( $overflow_x / 2 );
-		$center_y = (int) ( $overflow_y / 2 );
-
-		return match ( strtolower( $style ) ) {
-			'top'    => [ 'x' => $center_x, 'y' => 0 ],
-			'bottom' => [ 'x' => $center_x, 'y' => $overflow_y ],
-			'left'   => [ 'x' => 0, 'y' => $center_y ],
-			'right'  => [ 'x' => $overflow_x, 'y' => $center_y ],
-			default  => [ 'x' => $center_x, 'y' => $center_y ],
 		};
 	}
 
@@ -1276,45 +1008,25 @@ class Resizer {
 			return [ $default_image ];
 		}
 
-		// Animated AVIF / WebP / GIF cannot survive the single-frame static
-		// pipeline (Spatie\Image / Imagick singular writeImage() flatten to frame
-		// 0). Decide what to do at RUNTIME — never assume.
-		//
-		// Two independent signals, because they can disagree:
-		//   - $frames: how many frames Imagick actually decodes from THIS source
-		//     (null when Imagick is unavailable/unreadable).
-		//   - sniffAnimated(): whether the container is structurally animated.
-		// A source can be structurally animated yet under-decode to one frame
-		// (an AVIF image-sequence on a libheif too old to read sequence tracks).
-		//
-		// Decision for an animated source:
-		//   - skip_animated on                       → passthrough (the #60 escape hatch).
-		//   - backend decodes >1 frame AND can write
-		//     animated <target_format>               → multi-frame resize.
-		//   - otherwise (under-decoded, or can't
-		//     write animated)                         → passthrough (never flatten).
-		// Detection is gated on isAnimatableType() so still JPEG/PNG pay nothing;
-		// the sniff runs only when Imagick didn't already see multiple frames.
-		$animatable = $this->isAnimatableType( $source_mime );
-		$frames = $animatable ? $this->imagickFrameCount( $source_path ) : null;
-		$decodes_multi = ( null !== $frames && $frames > 1 );
-		$animated = $animatable && ( $decodes_multi || $this->sniffAnimated( $source_path ) );
-		$use_animated_path = false;
-		if ( $animated ) {
-			if ( $this->skip_animated || ! $decodes_multi || ! $this->canEncodeAnimated( $this->target_format ) ) {
-				return [ $default_image ];
-			}
-			$use_animated_path = true;
+		// Animated sources (animated AVIF / WebP / GIF) cannot survive the
+		// single-frame re-encode pipeline — Spatie\Image and Imagick's singular
+		// writeImage() both flatten to frame 0, silently dropping the animation.
+		// Pass the original through untouched ($skip_animated, on by default) —
+		// same contract as an unsupported type; cropping/scaling of an animated
+		// source is then the consumer's CSS job. Set StarterBase::$resizer_skip_animated
+		// false to restore the legacy (flattening) re-encode. $skip_animated is
+		// checked first so the detection cost (Imagick probe / header read) is
+		// skipped entirely when the legacy behaviour is selected.
+		if ( $this->skip_animated
+			&& $this->isAnimatableType( $source_mime )
+			&& $this->isAnimated( $source_path ) ) {
+			return [ $default_image ];
 		}
 
+		// Process each variant
 		$images = [];
 		foreach ( $normalized_variants as $variant ) {
-			$processed = $use_animated_path
-				? $this->processAnimatedVariant( $variant, $source_path, $filename, $default_image )
-				: $this->processVariant( $variant, $source_path, $filename, $default_image );
-			// A null from the animated path (write failure / frame cap) means the
-			// backend couldn't honour this variant — drop the variant; the original
-			// is still appended below as the guaranteed fallback.
+			$processed = $this->processVariant( $variant, $source_path, $filename, $default_image );
 			if ( $processed !== null ) {
 				$images[] = $processed;
 			}
