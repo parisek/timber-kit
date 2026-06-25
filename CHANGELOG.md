@@ -8,6 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **`StarterBase::$admin_resizable_sidebar` now defaults to `false`** (was `true`) — the resizable Gutenberg editor sidebar is now **opt-in**. Its JS/CSS ship inside the package and are served from `vendor/` via `packageAssetUrl()`, but the standard theme `.htaccess` blanket-denies `vendor/` (`RewriteRule ^vendor/(.*)?$ / [F,L]`). The old default therefore made **every** consumer's block editor request those assets and receive **403** — the README's "works out of the box" claim was wrong in the presence of the skeleton `.htaccess`. ⚠️ **Behavior change**: themes that want the sidebar must now set `$admin_resizable_sidebar = true` **and** add an allow rule for static assets under `vendor/` to the theme `.htaccess` (snippet in README § Resizable sidebar). `wordpress-base`'s `starter_theme` ships that allow rule so scaffolded projects only need the flag. Surfaced from downstream project `pm-a`.
+
 - **HSTS now always carries `; preload`** when `$security_headers` is on and the request is over TLS — the header is `max-age=31536000; includeSubDomains; preload` (previously without `preload`). This package targets an HTTPS-only fleet, so `preload` is the house default rather than an opt-in flag. ⚠️ `preload` is a hard-to-reverse commitment: it advertises the domain **and every subdomain** for browsers' built-in HSTS preload list (separate submission at [hstspreload.org](https://hstspreload.org)). On the rare project that serves — or might serve — a non-HTTPS subdomain, override the value via `$security_headers_config['Strict-Transport-Security']` (the existing per-header escape hatch).
 
 ### Added

@@ -246,11 +246,16 @@ class StarterBase extends Site {
 	];
 
 	/**
-	 * Enqueue the resizable Gutenberg editor sidebar (admin/js|css/
-	 * gutenberg-resizable-sidebar.*). Set false on themes that don't ship those
-	 * files, to skip the enqueue (and the asset-version lookups on missing files).
+	 * Resizable Gutenberg editor sidebar (assets/js|css/gutenberg-resizable-sidebar.*).
+	 *
+	 * Opt-in — default OFF. The JS/CSS ship inside the package and are served from
+	 * its `vendor/` dir via packageAssetUrl(). The standard theme `.htaccess`
+	 * blanket-denies `vendor/` (`RewriteRule ^vendor/(.*)?$ / [F,L]`), so enabling
+	 * this WITHOUT first allowing static assets under `vendor/` in the project's
+	 * theme `.htaccess` makes the editor request those files and get a 403. Set
+	 * `true` to enable, and add the allow rule from README § Gutenberg editor.
 	 */
-	protected bool $admin_resizable_sidebar = true;
+	protected bool $admin_resizable_sidebar = false;
 
 	/**
 	 * Auto-populate $context['breadcrumb'] with a Parisek\TimberKit\Breadcrumb on
