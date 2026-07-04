@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`Helpers::formatAnnouncement( ?array $value ): array`** — formats an announcement-bar ACF group (`enabled`, `text`, `dates.date_from`/`dates.date_to` as date_picker "U" timestamps) into a Twig/Alpine-ready shape. Re-anchors the midnight-UTC timestamps to `wp_timezone()` day bounds (00:00:00 for `date_from`, 23:59:59 for `date_to`) and returns millisecond timestamps for JS consumption; disabled or absent input yields the empty shape (`text: '', 0, 0`). Replaces the byte-identical private `get_announcement()` carried by four downstream projects and `starter_theme` — those now reduce to `Helpers::formatAnnouncement( $global_fields['announcement'] ?? null )`.
+
 ## [1.15.0] - 2026-07-04
 
 ### Added
