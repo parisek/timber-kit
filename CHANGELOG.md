@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-07-04
+
 ### Added
 
 - **`StarterBase::$restrict_allowed_blocks` flag (bool, default `true`)** — set `false` to skip wiring the `allowed_block_types_all` filter entirely, so the editor keeps all block types. For sites whose existing content pre-dates the `$allowed_core_blocks` allowlist, where restricting after the fact would flag already published blocks as invalid. Replaces the no-op `allowed_block_types_all()` override three downstream projects carry today. Default `true` preserves current behavior.
