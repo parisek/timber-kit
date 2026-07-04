@@ -12,7 +12,7 @@ composer require parisek/timber-kit
 
 ### StarterBase
 
-Extends `Timber\Site` with 25 configurable properties. Handles theme setup, Twig extensions, security hardening, Gutenberg blocks, media processing, and admin cleanup — all opt-in via boolean flags.
+Extends `Timber\Site` with dozens of configurable properties. Handles theme setup, Twig extensions, security hardening, Gutenberg blocks, media processing, and admin cleanup — all opt-in via boolean flags.
 
 ### Helpers
 
@@ -30,6 +30,8 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
 - `readTime()` — estimated reading time in minutes (Unicode-aware word counting, image budget, WPML-aware per-language WPM)
 - `getLanguage()` — normalized (lowercased, trimmed) language code for a post or the current request, with WPML per-post / site-wide / locale fallbacks. WPML region/script subtags are preserved (e.g. `pt-br`, `zh-hans`); only the locale fallback is strictly 2 letters
 - `formatImageFrom( ?array $raw ): ?array` — pure-core formatter extracted from `formatImage()`'s associative-array branch. No WordPress dependencies, safe for unit / property tests; missing keys resolve to `null` silently, `id` / `width` / `height` are cast to `int|null`, and the WordPress SVG-1px workaround is applied uniformly
+- `relabelPostType( string $post_type, array $labels )` — merge custom labels onto a registered post type (rename the built-in `post` to Články/News/…). Applies immediately after `init`, otherwise defers to `init` priority 999; keeps the top-level `label` in sync with `labels.name`
+- `hideTaxonomyMetaFields( string $taxonomy = 'category', array $fields = ['description', 'slug', 'parent'], bool $hide_columns = true )` — hide taxonomy form fields (CSS on add/edit screens) and drop the matching list-table columns, for taxonomies where editors should only pick a name
 
 ### Resizer
 
@@ -306,6 +308,8 @@ For an admin label without a dedicated setup hook (e.g. an options-page `page_ti
 | `$article_post_types` | array | `['post']` | Post types treated as articles |
 | `$block_category` | array | `['slug' => 'custom', 'title' => 'Custom']` | Custom block category |
 | `$favicon_path` | string | `'images/touch/favicon.svg'` | Favicon path |
+| `$context_privacy_policy` | bool | `false` | Opt-in: populate the site's privacy-policy URL (`get_privacy_policy_url()`) into the Timber context under `$privacy_policy_context_key`. Off by default — the key typically drives a cookie-consent partial, which must not appear on projects that ship without one |
+| `$privacy_policy_context_key` | string | `'ccnstL'` | Context key for the privacy-policy URL. The default is deliberately non-semantic so cookie-consent markup keyed off it stays invisible to ad-block heuristics |
 
 ### Security & Cleanup
 
@@ -420,6 +424,8 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 | `$gutenberg_responsive_embeds` | bool | `true` | Responsive video embeds |
 | `$gutenberg_editor_styles` | bool | `true` | Load editor stylesheet |
 | `$gutenberg_disable_core_patterns` | bool | `true` | Remove core block patterns |
+| `$restrict_allowed_blocks` | bool | `true` | Restrict the editor to `$allowed_core_blocks` + ACF blocks via `allowed_block_types_all`. Set `false` on sites whose existing content pre-dates the allowlist — the filter is then not wired at all, so no no-op `allowed_block_types_all()` override is needed |
+| `$render_block_passthrough_blocks` | string[] | `[]` | Block names `render_block()` returns unchanged, bypassing the core-block wrapper. Exact names (`'wpforms/form-selector'`), namespace wildcards (`'wpforms/*'`), or `'*'` to disable wrapping entirely. Escape hatch for third-party form/gallery blocks the wrapper would break |
 | `$admin_resizable_sidebar` | bool | `false` | Opt-in resizable Gutenberg editor sidebar. Default **off** — the JS/CSS ship inside the package and are served from its `vendor/` dir, which the standard theme `.htaccess` denies, so enabling it also requires an `.htaccess` allow rule (see below). Set `true` to enable |
 
 > **Enabling `$admin_resizable_sidebar` — `.htaccess` requirement.** The sidebar's JS/CSS are served from the package's `vendor/` directory (`vendor/parisek/timber-kit/assets/…`) via `packageAssetUrl()`. The standard theme `.htaccess` blanket-denies `vendor/` for security (`RewriteRule ^vendor/(.*)?$ / [F,L]`), so the browser would get **403** for those assets. When you set `$admin_resizable_sidebar = true`, also allow static assets under `vendor/` in the project's theme `.htaccess`, **before** the blanket deny:

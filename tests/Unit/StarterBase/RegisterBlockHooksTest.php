@@ -91,6 +91,23 @@ class RegisterBlockHooksTest extends StarterBaseTestCase {
 		$this->assertNotEmpty( $wbo, 'flag on → WpmlBlockOverride::register() hooked on init' );
 	}
 
+	public function test_does_not_register_allowed_block_types_filter_when_restriction_disabled(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstance();
+		$prop = new \ReflectionProperty( StarterBase::class, 'restrict_allowed_blocks' );
+		$prop->setValue( $instance, false );
+
+		$this->invokeRegisterBlockHooks( $instance );
+
+		$this->assertNotContains( 'allowed_block_types_all', $filters, 'restrict_allowed_blocks off → block allowlist filter must not be wired' );
+		$this->assertContains( 'render_block', $filters, 'other block hooks stay wired regardless of the flag' );
+	}
+
 	public function test_registers_clear_cache_on_options_save_at_priority_20(): void {
 		$actions = [];
 		Functions\when( 'add_action' )->alias( function ( $hook, $callback, $priority = 10, ...$rest ) use ( &$actions ) {

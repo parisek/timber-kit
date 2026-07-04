@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`StarterBase::$restrict_allowed_blocks` flag (bool, default `true`)** — set `false` to skip wiring the `allowed_block_types_all` filter entirely, so the editor keeps all block types. For sites whose existing content pre-dates the `$allowed_core_blocks` allowlist, where restricting after the fact would flag already published blocks as invalid. Replaces the no-op `allowed_block_types_all()` override three downstream projects carry today. Default `true` preserves current behavior.
+
+- **`StarterBase::$render_block_passthrough_blocks` (string[], default `[]`)** — block names `render_block()` must return unchanged, bypassing the core-block wrapper. Accepts exact names (`'wpforms/form-selector'`), a namespace wildcard (`'wpforms/*'`), or `'*'` to disable the wrapper entirely. Passthrough wins over the forced contact-form wrapping. Escape hatch for third-party form/gallery blocks the wrapper breaks (WPForms, Envira, CF7 variants) and for legacy-content sites — both previously required overriding the whole `render_block()` method downstream.
+
+- **`StarterBase::$context_privacy_policy` flag (bool, default `false`) + `$privacy_policy_context_key` (string, default `'ccnstL'`)** — opt-in population of `get_privacy_policy_url()` into the Timber context. Every audited downstream project sets this key manually in its `timber_context()` override (the non-semantic default key keeps cookie-consent markup invisible to ad-block heuristics); enabling the flag replaces that boilerplate. Off by default per the library's flag doctrine — the key typically drives a cookie-consent partial, which must not start rendering on projects that deliberately ship without one.
+
+- **`Helpers::relabelPostType( string $post_type, array $labels )`** — merge custom labels onto a registered post type (the "rename built-in `post` to a domain term" boilerplate found copy-pasted in 12 downstream article controllers, 8 of them with untranslated starter values). Applies immediately when `init` already fired, otherwise defers to `init` priority 999; keeps the top-level `label` in sync with `labels.name`.
+
+- **`Helpers::hideTaxonomyMetaFields( string $taxonomy = 'category', array $fields = ['description', 'slug', 'parent'], bool $hide_columns = true )`** — hide taxonomy meta fields on add/edit screens (CSS over `.term-{field}-wrap`) and drop the matching list-table columns. Replaces the recurring `manage_edit-{tax}_columns` + `{tax}_edit_form`/`{tax}_add_form` hook trio duplicated across 8–10 downstream projects.
+
 ## [1.14.1] - 2026-06-25
 
 ### Fixed
