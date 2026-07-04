@@ -1664,6 +1664,40 @@ class Helpers {
 	}
 
 	/**
+	 * Format an announcement-bar ACF group into a Twig/Alpine-ready shape.
+	 *
+	 * Replaces the per-project private get_announcement(). Expects the raw
+	 * group value (typically `formatFields('option')['announcement']`):
+	 * `enabled` (bool), `text` (string), `dates.date_from` / `dates.date_to`
+	 * (ACF date_picker "U" timestamps, i.e. midnight UTC). The timestamps are
+	 * re-anchored to `wp_timezone()` day bounds — 00:00:00 for `date_from`,
+	 * 23:59:59 for `date_to` — so the bar starts and stops at the editor's
+	 * wall-clock day, and returned in milliseconds for JS consumption.
+	 *
+	 * @param array<string, mixed>|null $value Raw announcement group value, or null when the field is absent.
+	 * @return array{text: string, date_from: int, date_to: int} Disabled or absent input yields `['text' => '', 'date_from' => 0, 'date_to' => 0]`.
+	 */
+	public static function formatAnnouncement( ?array $value ): array {
+		$enabled = ! empty( $value['enabled'] );
+		$dates = ( isset( $value['dates'] ) && is_array( $value['dates'] ) ) ? $value['dates'] : [];
+
+		$day_bound = static function ( mixed $ts, bool $end_of_day ): int {
+			if ( empty( $ts ) ) {
+				return 0;
+			}
+			$ymd = ( new \DateTime( '@' . (int) $ts ) )->format( 'Y-m-d' );
+			$time = $end_of_day ? '23:59:59' : '00:00:00';
+			return ( new \DateTime( "$ymd $time", wp_timezone() ) )->getTimestamp() * 1000;
+		};
+
+		return [
+			'text' => $enabled ? (string) ( $value['text'] ?? '' ) : '',
+			'date_from' => $enabled ? $day_bound( $dates['date_from'] ?? null, false ) : 0,
+			'date_to' => $enabled ? $day_bound( $dates['date_to'] ?? null, true ) : 0,
+		];
+	}
+
+	/**
 	 * Merge custom labels onto a registered post type.
 	 *
 	 * Replaces the per-project boilerplate that renames the built-in `post`
