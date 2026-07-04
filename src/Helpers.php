@@ -1662,4 +1662,73 @@ class Helpers {
 
 		return strtolower( substr( $locale, 0, 2 ) );
 	}
+
+	/**
+	 * Merge custom labels onto a registered post type.
+	 *
+	 * Replaces the per-project boilerplate that renames the built-in `post`
+	 * type to a domain term (Články, Novinky, Reference, …). Safe to call
+	 * from a template controller at any point: applies immediately when
+	 * `init` already fired, otherwise defers to `init` at a late priority so
+	 * default-priority post type registrations run first.
+	 *
+	 * @param string $post_type Post type name (e.g. `post`).
+	 * @param array<string, string> $labels Label overrides, keyed by WP_Post_Type_Labels property (`name`, `singular_name`, `add_new`, …). Keys not passed keep their registered value.
+	 * @return void
+	 */
+	public static function relabelPostType( string $post_type, array $labels ): void {
+		$apply = static function () use ( $post_type, $labels ): void {
+			$object = get_post_type_object( $post_type );
+			if ( null === $object ) {
+				return;
+			}
+			foreach ( $labels as $key => $value ) {
+				$object->labels->{$key} = $value;
+			}
+			// The top-level label mirrors labels.name everywhere WP shows it
+			// (admin menu, admin bar), so keep the two in sync.
+			if ( isset( $labels['name'] ) ) {
+				$object->label = $labels['name'];
+			}
+		};
+
+		if ( did_action( 'init' ) ) {
+			$apply();
+		} else {
+			add_action( 'init', $apply, 999 );
+		}
+	}
+
+	/**
+	 * Hide meta fields on a taxonomy's add/edit screens and list table.
+	 *
+	 * Covers the recurring "editors should only pick a name" admin cleanup:
+	 * hides the given fields' form rows via CSS on both the add and edit
+	 * screens, and (by default) drops the matching list table columns.
+	 *
+	 * @param string $taxonomy Taxonomy name (default `category`).
+	 * @param string[] $fields Field slugs to hide — matched against `.term-{field}-wrap` form rows and same-named list columns. Default description, slug, and parent.
+	 * @param bool $hide_columns Whether to also drop matching list table columns.
+	 * @return void
+	 */
+	public static function hideTaxonomyMetaFields( string $taxonomy = 'category', array $fields = [ 'description', 'slug', 'parent' ], bool $hide_columns = true ): void {
+		if ( $hide_columns ) {
+			add_filter( "manage_edit-{$taxonomy}_columns", static function ( array $columns ) use ( $fields ): array {
+				foreach ( $fields as $field ) {
+					unset( $columns[ $field ] );
+				}
+				return $columns;
+			} );
+		}
+
+		$print_css = static function () use ( $fields ): void {
+			$selectors = array_map(
+				static fn( string $field ): string => ".term-{$field}-wrap",
+				$fields
+			);
+			echo '<style>' . implode( ', ', $selectors ) . ' { display: none; }</style>';
+		};
+		add_action( "{$taxonomy}_edit_form", $print_css );
+		add_action( "{$taxonomy}_add_form", $print_css );
+	}
 }

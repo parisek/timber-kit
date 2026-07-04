@@ -59,6 +59,19 @@ class StarterBase extends Site {
 	/** @var array{slug: string, title: string} Custom Gutenberg block category definition. */
 	protected array $block_category = [ 'slug' => 'custom', 'title' => 'Custom' ];
 
+	/**
+	 * Whether to restrict the editor to $allowed_core_blocks + ACF blocks.
+	 *
+	 * Set false on sites with pre-existing content authored before the theme
+	 * adopted the allowlist — restricting after the fact would flag already
+	 * published blocks as invalid in the editor. Disabling skips wiring the
+	 * `allowed_block_types_all` filter entirely, so a project no longer needs
+	 * a no-op `allowed_block_types_all()` override for this.
+	 *
+	 * @var bool
+	 */
+	protected bool $restrict_allowed_blocks = true;
+
 	/** @var string[] Core Gutenberg blocks allowed in the editor. ACF blocks are always allowed. */
 	protected array $allowed_core_blocks = [
 		'core/paragraph',
@@ -86,6 +99,40 @@ class StarterBase extends Site {
 
 	/** @var string Twig template used to wrap core Gutenberg blocks on non-article pages. */
 	protected string $block_wrapper_template = '@component/content/content.twig';
+
+	/**
+	 * Block names render_block() must return unchanged, bypassing the wrapper.
+	 *
+	 * Accepts exact names ('wpforms/form-selector'), a namespace wildcard
+	 * ('wpforms/*'), or '*' to disable the wrapper entirely. Escape hatch for
+	 * third-party form/gallery blocks the wrapper would break, and for sites
+	 * whose existing content pre-dates the wrapper — previously both required
+	 * a full render_block() override.
+	 *
+	 * @var string[]
+	 */
+	protected array $render_block_passthrough_blocks = [];
+
+	/**
+	 * Populate the site's privacy-policy URL into the Timber context.
+	 *
+	 * Opt-in: enabling adds a context key that templates (typically a
+	 * cookie-consent partial) may render, so it must not appear on projects
+	 * that deliberately ship without it.
+	 *
+	 * @var bool
+	 */
+	protected bool $context_privacy_policy = false;
+
+	/**
+	 * Context key for the privacy-policy URL when $context_privacy_policy is on.
+	 *
+	 * The default is deliberately non-semantic so cookie-consent markup keyed
+	 * off it stays invisible to ad-block heuristics.
+	 *
+	 * @var string
+	 */
+	protected string $privacy_policy_context_key = 'ccnstL';
 
 	/** @var string Nav menu location for breadcrumb menu-trail strategy */
 	protected string $breadcrumb_menu_name = 'main-menu';
@@ -494,7 +541,9 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	private function registerBlockHooks(): void {
-		add_filter( 'allowed_block_types_all', array( $this, 'allowed_block_types_all' ), 10, 2 );
+		if ( $this->restrict_allowed_blocks ) {
+			add_filter( 'allowed_block_types_all', array( $this, 'allowed_block_types_all' ), 10, 2 );
+		}
 		add_action( 'init', array( $this, 'gutenberg_blocks' ) );
 		add_action( 'acf/init', array( $this, 'acf_options_page' ) );
 		add_action( 'acf/save_post', array( $this, 'clear_cache_on_options_save' ), 20 );
@@ -863,6 +912,10 @@ class StarterBase extends Site {
 			$context['langcode'] = get_bloginfo( 'language' );
 		}
 		$context['search_query'] = get_search_query();
+
+		if ( $this->context_privacy_policy ) {
+			$context[ $this->privacy_policy_context_key ] = get_privacy_policy_url();
+		}
 
 		// Auto-populate $context['breadcrumb'] — unless the project still ships
 		// a global \Breadcrumb class (legacy convention from wordpress-base
@@ -1696,6 +1749,12 @@ class StarterBase extends Site {
 			return $block_content;
 		}
 
+		// Project-declared passthrough wins over everything below, including
+		// the forced contact-form wrapping.
+		if ( $this->isPassthroughBlock( $block['blockName'] ?? null ) ) {
+			return $block_content;
+		}
+
 		// Apply filter only on core gutenberg blocks
 		// Custom blocks will get filter via Twig
 		if ( strpos( (string) $block['blockName'], 'core/' ) === FALSE && ! in_array( $block['blockName'], [ 'contact-form-7/contact-form-selector' ] ) ) {
@@ -1727,6 +1786,26 @@ class StarterBase extends Site {
 			];
 			return Timber::compile( $this->block_wrapper_template, $context );
 		}
+	}
+
+	/**
+	 * Whether a block name matches $render_block_passthrough_blocks.
+	 *
+	 * Supports exact names, a trailing `/*` namespace wildcard, and `*`.
+	 *
+	 * @param string|null $block_name The block name, or null for freeform blocks.
+	 * @return bool True when render_block() must leave the block unchanged.
+	 */
+	protected function isPassthroughBlock( ?string $block_name ): bool {
+		foreach ( $this->render_block_passthrough_blocks as $pattern ) {
+			if ( '*' === $pattern || $pattern === $block_name ) {
+				return true;
+			}
+			if ( str_ends_with( $pattern, '/*' ) && null !== $block_name && str_starts_with( $block_name, substr( $pattern, 0, -1 ) ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
