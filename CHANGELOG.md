@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `Helpers::fieldFormatter()`: a surfaced ACF field object with no saved value
+  (options-page group present in the local store but never filled — `value`
+  key missing or null) leaked the raw field-definition array into templates —
+  string filters like `|typography` then fatalled, surfacing as a misleading
+  "Component template not found" fallback. Valueless fields now read as empty
+  for every type (missing `value` key included); repeater/flexible keep their
+  documented pass-through only for an explicit `value => null` (block preview).
+
 ## [1.16.0] - 2026-07-04
 
 ### Added

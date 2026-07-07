@@ -1018,8 +1018,27 @@ class Helpers {
 			return FALSE;
 		}
 
-		if ( ! isset( $field['type'] ) || ! isset( $field['value'] ) ) {
+		if ( ! isset( $field['type'] ) ) {
 			return $field;
+		}
+
+		// A surfaced ACF field object with no saved value (options-page group
+		// present in the local store but never filled — `value` key missing
+		// or null) must read as "empty", not leak the raw field-definition
+		// array into templates — `{{ content.x|typography }}` fatals on
+		// arrays. Mirrors the pre-1.8 behaviour where valueless option fields
+		// simply never surfaced. Repeater/flexible keep their documented
+		// null-value pass-through (block-preview contract, covered by tests).
+		if ( ! array_key_exists( 'value', $field ) ) {
+			return FALSE;
+		}
+
+		if ( ! isset( $field['value'] ) ) {
+			if ( in_array( $field['type'], array( 'repeater', 'flexible_content' ), true ) ) {
+				return $field;
+			}
+
+			return FALSE;
 		}
 
 		if ( $field['type'] === 'link' ) {
