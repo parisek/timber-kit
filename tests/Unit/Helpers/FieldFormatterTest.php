@@ -32,6 +32,27 @@ class FieldFormatterTest extends HelpersTestCase {
 		$this->assertSame( $field, Helpers::fieldFormatter( $field ) );
 	}
 
+	public function test_typed_field_without_value_returns_false(): void {
+		// Options-page field object surfaced without a saved value (regression:
+		// the raw ACF field-definition array leaked into templates and fatalled
+		// on string filters like |typography).
+		$field = [
+			'type'   => 'text',
+			'name'   => 'form_title',
+			'_name'  => 'form_title',
+			'_valid' => 1,
+		];
+		$this->assertFalse( Helpers::fieldFormatter( $field ) );
+	}
+
+	public function test_scalar_field_with_null_value_returns_false(): void {
+		// Unfilled options-page fields surface with value => null; scalar and
+		// group types must read as empty (only repeater/flexible keep the
+		// null pass-through for block previews).
+		$this->assertFalse( Helpers::fieldFormatter( [ 'type' => 'text', 'value' => null ] ) );
+		$this->assertFalse( Helpers::fieldFormatter( [ 'type' => 'group', 'value' => null, 'sub_fields' => [] ] ) );
+	}
+
 	// --- Oembed ---
 
 	public function test_oembed_extracts_iframe_src(): void {

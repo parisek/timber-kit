@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `Helpers::fieldFormatter()`: a surfaced ACF field object with no `value` key
+  (options-page group present in the local store but never filled) leaked the
+  raw field-definition array into templates — string filters like `|typography`
+  then fatalled, surfacing as a misleading "Component template not found"
+  fallback. Missing `value` key now reads as empty; present-but-null `value`
+  keeps the documented repeater/flexible pass-through.
+
 ### Added
 
 - **`Helpers::formatAnnouncement( ?array $value ): array`** — formats an announcement-bar ACF group (`enabled`, `text`, `dates.date_from`/`dates.date_to` as date_picker "U" timestamps) into a Twig/Alpine-ready shape. Re-anchors the midnight-UTC timestamps to `wp_timezone()` day bounds (00:00:00 for `date_from`, 23:59:59 for `date_to`) and returns millisecond timestamps for JS consumption; disabled or absent input yields the empty shape (`text: '', 0, 0`). Replaces the byte-identical private `get_announcement()` carried by four downstream projects and `starter_theme` — those now reduce to `Helpers::formatAnnouncement( $global_fields['announcement'] ?? null )`.
