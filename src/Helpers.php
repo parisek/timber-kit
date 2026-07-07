@@ -1029,6 +1029,10 @@ class Helpers {
 		// arrays. Mirrors the pre-1.8 behaviour where valueless option fields
 		// simply never surfaced. Repeater/flexible keep their documented
 		// null-value pass-through (block-preview contract, covered by tests).
+		if ( ! array_key_exists( 'value', $field ) ) {
+			return FALSE;
+		}
+
 		if ( ! isset( $field['value'] ) ) {
 			if ( in_array( $field['type'], array( 'repeater', 'flexible_content' ), true ) ) {
 				return $field;

@@ -45,6 +45,14 @@ class FieldFormatterTest extends HelpersTestCase {
 		$this->assertFalse( Helpers::fieldFormatter( $field ) );
 	}
 
+	public function test_repeater_and_flexible_with_missing_value_key_return_false(): void {
+		// The null pass-through contract is for an EXPLICIT value => null
+		// (block previews); a field object with no value key at all is a
+		// never-filled surfaced field and must read as empty for all types.
+		$this->assertFalse( Helpers::fieldFormatter( [ 'type' => 'repeater', 'sub_fields' => [] ] ) );
+		$this->assertFalse( Helpers::fieldFormatter( [ 'type' => 'flexible_content', 'layouts' => [] ] ) );
+	}
+
 	public function test_scalar_field_with_null_value_returns_false(): void {
 		// Unfilled options-page fields surface with value => null; scalar and
 		// group types must read as empty (only repeater/flexible keep the
