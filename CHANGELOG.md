@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.17.0] - 2026-07-09
+
 ### Changed
 
 - **BREAKING (behavioral):** `StarterBase::$disable_application_passwords` now
