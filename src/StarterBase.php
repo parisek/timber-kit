@@ -195,8 +195,8 @@ class StarterBase extends Site {
 	/** @var bool Restrict REST API /wp/v2/users endpoint to authenticated users. */
 	protected bool $restrict_rest_users = true;
 
-	/** @var bool Disable WP Application Passwords (REST auth surface that is rarely used in practice). */
-	protected bool $disable_application_passwords = true;
+	/** @var bool Disable WP Application Passwords. Default off since 1.17 — Application Passwords are the auth mechanism for REST/MCP integrations (portadesign-mcp); set true on sites with no such integration to shrink the REST auth surface. */
+	protected bool $disable_application_passwords = false;
 
 	/** @var bool Block ?author=N URL enumeration that leaks usernames via canonical redirect. */
 	protected bool $block_author_enumeration = true;

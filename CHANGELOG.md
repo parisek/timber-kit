@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING (behavioral):** `StarterBase::$disable_application_passwords` now
+  defaults to `false` — WP Application Passwords stay **available** out of the
+  box. They are the authentication mechanism for REST/MCP integrations
+  (portadesign-mcp), which every project is expected to adopt. Sites that
+  relied on the old hardened default must opt back in explicitly:
+  `protected bool $disable_application_passwords = true;` in the theme `Base`.
+  The rest of the security-hardening surface is unchanged.
+
 ## [1.16.1] - 2026-07-07
 
 ### Fixed
