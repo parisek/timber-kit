@@ -9,8 +9,9 @@ use Parisek\TimberKit\Health\Result;
 
 /**
  * Effect check: wp_head/feeds emit the generator through the the_generator
- * filter — pushing a sentinel through it shows what would really be printed,
- * without depending on which layer emptied it.
+ * filter — running the real generator markup through it and looking for the
+ * actual version string shows what a visitor would really see, without
+ * depending on which layer emptied or rewrote it.
  */
 final class WpVersionHidden implements HealthCheck {
 
@@ -31,14 +32,15 @@ final class WpVersionHidden implements HealthCheck {
 	}
 
 	public function run(): Result {
-		$emitted = apply_filters( 'the_generator', 'generator-sentinel', 'xhtml' );
+		$emitted = apply_filters( 'the_generator', get_the_generator( 'xhtml' ), 'xhtml' );
+		$version = get_bloginfo( 'version' );
 
-		if ( '' === $emitted ) {
-			return Result::good( __( 'The generator meta tag is empty — the WordPress version is not disclosed in markup or feeds.', 'timber-kit' ) );
+		if ( is_string( $emitted ) && '' !== $version && str_contains( $emitted, $version ) ) {
+			return Result::recommended(
+				__( 'The generator tag discloses the WordPress version. Enable the $remove_wp_generator flag in the project Base class.', 'timber-kit' )
+			);
 		}
 
-		return Result::recommended(
-			__( 'The generator tag discloses the WordPress version. Enable the $remove_wp_generator flag in the project Base class.', 'timber-kit' )
-		);
+		return Result::good( __( 'The emitted generator output does not contain the WordPress version.', 'timber-kit' ) );
 	}
 }

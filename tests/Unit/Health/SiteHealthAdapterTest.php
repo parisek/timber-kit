@@ -14,6 +14,8 @@ class SiteHealthAdapterTest extends HealthTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Functions\when( 'esc_html' )->returnArg();
+		Functions\when( 'wp_kses_post' )->returnArg();
+		Functions\when( '__' )->returnArg();
 	}
 
 	private function fakeCheck( string $id, Result $result ): HealthCheck {
@@ -69,6 +71,30 @@ class SiteHealthAdapterTest extends HealthTestCase {
 
 		$this->assertArrayNotHasKey( 'timber_kit_health_bogus', $mapped['direct'] );
 		$this->assertArrayHasKey( 'timber_kit_health_real', $mapped['direct'] );
+	}
+
+	public function test_map_tests_first_check_wins_on_duplicate_id(): void {
+		$mapped = SiteHealthAdapter::mapTests(
+			[ 'direct' => [], 'async' => [] ],
+			[
+				'a' => $this->fakeCheck( 'same', Result::good( 'first' ) ),
+				'b' => $this->fakeCheck( 'same', Result::critical( 'second' ) ),
+			]
+		);
+
+		$outcome = $mapped['direct']['timber_kit_health_same']['test']();
+
+		$this->assertSame( '<p>first</p>', $outcome['description'] );
+	}
+
+	public function test_actions_html_is_passed_through_wp_kses_post(): void {
+		Functions\when( 'wp_kses_post' )->alias( fn ( string $html ): string => str_replace( '<script>bad</script>', '', $html ) );
+
+		$check = $this->fakeCheck( 'foo', Result::critical( 'Bad.', '<script>bad</script><a href="https://example.com">Docs</a>' ) );
+
+		$result = SiteHealthAdapter::toSiteHealthResult( $check );
+
+		$this->assertSame( '<a href="https://example.com">Docs</a>', $result['actions'] );
 	}
 
 	public function test_to_site_health_result_maps_result_to_wp_shape(): void {

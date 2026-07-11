@@ -15,6 +15,8 @@ class WpVersionHiddenTest extends HealthTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Functions\when( '__' )->returnArg();
+		Functions\when( 'get_bloginfo' )->justReturn( '6.9' );
+		Functions\when( 'get_the_generator' )->justReturn( '<meta name="generator" content="WordPress 6.9" />' );
 	}
 
 	public function test_identity(): void {
@@ -31,7 +33,14 @@ class WpVersionHiddenTest extends HealthTestCase {
 		$this->assertSame( 'good', ( new WpVersionHidden() )->run()->status() );
 	}
 
-	public function test_recommended_when_generator_passes_through(): void {
+	public function test_recommended_when_generator_discloses_the_version(): void {
+		// the_generator passes the real markup through by default.
 		$this->assertSame( 'recommended', ( new WpVersionHidden() )->run()->status() );
+	}
+
+	public function test_good_when_generator_is_custom_without_version(): void {
+		Filters\expectApplied( 'the_generator' )->once()->andReturn( '<meta name="generator" content="My CMS" />' );
+
+		$this->assertSame( 'good', ( new WpVersionHidden() )->run()->status() );
 	}
 }

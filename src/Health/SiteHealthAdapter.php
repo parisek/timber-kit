@@ -34,7 +34,14 @@ final class SiteHealthAdapter {
 			if ( ! $check instanceof HealthCheck ) {
 				continue;
 			}
-			$tests['direct'][ 'timber_kit_health_' . $check->id() ] = array(
+			$key = 'timber_kit_health_' . $check->id();
+			if ( isset( $tests['direct'][ $key ] ) ) {
+				// Registry uniqueness only covers the kit defaults; the override
+				// and the public filter can reintroduce a duplicate id. First
+				// registration wins — deterministic, and never a wp-admin fatal.
+				continue;
+			}
+			$tests['direct'][ $key ] = array(
 				'label' => $check->label(),
 				'test'  => static fn (): array => self::toSiteHealthResult( $check ),
 			);
@@ -55,12 +62,32 @@ final class SiteHealthAdapter {
 			'label'       => $check->label(),
 			'status'      => $result->status(),
 			'badge'       => array(
-				'label' => ucfirst( $check->category() ),
+				'label' => self::badgeLabel( $check->category() ),
 				'color' => 'blue',
 			),
 			'description' => '<p>' . esc_html( $result->summary() ) . '</p>',
-			'actions'     => $result->actions(),
+			// Checks can arrive via the public filter — treat their actions HTML
+			// as untrusted and reduce it to post-safe markup.
+			'actions'     => wp_kses_post( $result->actions() ),
 			'test'        => 'timber_kit_health_' . $check->id(),
 		);
+	}
+
+	/**
+	 * Translated badge label per board category; unknown categories fall back
+	 * to a capitalized slug.
+	 */
+	private static function badgeLabel( string $category ): string {
+		$labels = array(
+			'security'    => __( 'Security', 'timber-kit' ),
+			'caching'     => __( 'Caching', 'timber-kit' ),
+			'seo'         => __( 'SEO', 'timber-kit' ),
+			'performance' => __( 'Performance', 'timber-kit' ),
+			'mail'        => __( 'Mail', 'timber-kit' ),
+			'a11y'        => __( 'Accessibility', 'timber-kit' ),
+			'timber-kit'  => 'timber-kit',
+		);
+
+		return $labels[ $category ] ?? ucfirst( $category );
 	}
 }

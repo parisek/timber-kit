@@ -25,8 +25,8 @@ class AuthorSitemapDisabledTest extends HealthTestCase {
 		$this->assertSame( HealthCheck::METHOD_EFFECT, $check->method() );
 	}
 
-	public function test_good_when_users_provider_is_dropped(): void {
-		Filters\expectApplied( 'wp_sitemaps_add_provider' )->once()->andReturn( false );
+	public function test_good_when_users_provider_is_absent(): void {
+		Functions\when( 'wp_get_sitemap_providers' )->justReturn( [ 'posts' => new \stdClass() ] );
 
 		$this->assertSame( 'good', ( new AuthorSitemapDisabled() )->run()->status() );
 	}
@@ -37,8 +37,10 @@ class AuthorSitemapDisabledTest extends HealthTestCase {
 		$this->assertSame( 'good', ( new AuthorSitemapDisabled() )->run()->status() );
 	}
 
-	public function test_recommended_when_users_provider_survives(): void {
-		// Both filters pass through by default: sitemaps on, provider kept.
+	public function test_recommended_when_users_provider_is_registered(): void {
+		// wp_sitemaps_enabled passes through by default (sitemaps on).
+		Functions\when( 'wp_get_sitemap_providers' )->justReturn( [ 'posts' => new \stdClass(), 'users' => new \stdClass() ] );
+
 		$this->assertSame( 'recommended', ( new AuthorSitemapDisabled() )->run()->status() );
 	}
 }

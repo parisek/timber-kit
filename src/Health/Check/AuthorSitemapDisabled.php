@@ -9,8 +9,9 @@ use Parisek\TimberKit\Health\Result;
 
 /**
  * Effect check: /wp-sitemap-users-1.xml lists author slugs (a username-
- * enumeration vector) — verified by pushing a stub provider through the
- * wp_sitemaps_add_provider filter under the "users" name.
+ * enumeration vector) — verified against the real provider registry via
+ * wp_get_sitemap_providers(), so third-party wp_sitemaps_add_provider
+ * callbacks only ever see genuine provider objects.
  */
 final class AuthorSitemapDisabled implements HealthCheck {
 
@@ -35,9 +36,9 @@ final class AuthorSitemapDisabled implements HealthCheck {
 			return Result::good( __( 'Core sitemaps are disabled entirely — no author sitemap is exposed.', 'timber-kit' ) );
 		}
 
-		$provider = apply_filters( 'wp_sitemaps_add_provider', new \stdClass(), 'users' );
+		$providers = wp_get_sitemap_providers();
 
-		if ( false === $provider ) {
+		if ( ! isset( $providers['users'] ) ) {
 			return Result::good( __( 'The users sitemap provider is removed — author slugs are not enumerable via /wp-sitemap-users-1.xml.', 'timber-kit' ) );
 		}
 
