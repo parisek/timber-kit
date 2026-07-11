@@ -26,6 +26,7 @@ use Parisek\TimberKit\BlockRenderer;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
 use Parisek\TimberKit\Health\Check\FileEditingDisabled;
 use Parisek\TimberKit\Health\Check\RestUsersRestricted;
+use Parisek\TimberKit\Health\Check\Utf8mb4Tables;
 use Parisek\TimberKit\Health\Check\WpVersionHidden;
 use Parisek\TimberKit\Health\Check\XmlrpcDisabled;
 use Parisek\TimberKit\Health\CheckRegistry;
@@ -503,6 +504,7 @@ class StarterBase extends Site {
 		}
 
 		\WP_CLI::add_command( 'timber-kit prune-originals', \Parisek\TimberKit\Cli\PruneOriginalsCommand::class );
+		\WP_CLI::add_command( 'timber-kit convert-utf8mb4', \Parisek\TimberKit\Cli\ConvertUtf8mb4Command::class );
 	}
 
 	/**
@@ -847,6 +849,7 @@ class StarterBase extends Site {
 			new AuthorSitemapDisabled(),
 			new FileEditingDisabled(),
 			new RestUsersRestricted(),
+			new Utf8mb4Tables(),
 		);
 	}
 

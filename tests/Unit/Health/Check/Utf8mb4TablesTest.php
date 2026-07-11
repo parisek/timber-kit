@@ -26,7 +26,7 @@ class Utf8mb4TablesTest extends HealthTestCase {
 	 * @param list<array<string, string>> $columns
 	 */
 	private function stubWpdb( array $tables, array $columns = [] ): void {
-		$GLOBALS['wpdb'] = new class( $tables, $columns ) {
+		$GLOBALS['wpdb'] = new class( $tables, $columns ) extends \wpdb {
 			public string $prefix = 'wp_';
 
 			public function __construct(

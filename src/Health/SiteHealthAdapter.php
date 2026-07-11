@@ -85,6 +85,7 @@ final class SiteHealthAdapter {
 			'performance' => __( 'Performance', 'timber-kit' ),
 			'mail'        => __( 'Mail', 'timber-kit' ),
 			'a11y'        => __( 'Accessibility', 'timber-kit' ),
+			'database'    => __( 'Database', 'timber-kit' ),
 			'timber-kit'  => 'timber-kit',
 		);
 

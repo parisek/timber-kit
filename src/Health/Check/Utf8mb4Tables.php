@@ -91,7 +91,7 @@ final class Utf8mb4Tables implements HealthCheck {
 	public function audit(): ?CharsetAudit {
 		global $wpdb;
 
-		if ( ! isset( $wpdb ) || ! is_object( $wpdb ) ) {
+		if ( ! $wpdb instanceof \wpdb ) {
 			return null;
 		}
 
@@ -117,11 +117,31 @@ final class Utf8mb4Tables implements HealthCheck {
 			ARRAY_A
 		);
 
-		return new CharsetAudit(
-			is_array( $tables ) ? $tables : array(),
-			is_array( $columns ) ? $columns : array(),
-			(string) $wpdb->prefix
-		);
+		$table_rows = array();
+		foreach ( is_array( $tables ) ? $tables : array() as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$table_rows[] = array(
+				'name'       => (string) ( $row['name'] ?? '' ),
+				'collation'  => (string) ( $row['collation'] ?? '' ),
+				'row_format' => (string) ( $row['row_format'] ?? '' ),
+			);
+		}
+
+		$column_rows = array();
+		foreach ( is_array( $columns ) ? $columns : array() as $row ) {
+			if ( ! is_array( $row ) ) {
+				continue;
+			}
+			$column_rows[] = array(
+				'table_name'  => (string) ( $row['table_name'] ?? '' ),
+				'column_name' => (string) ( $row['column_name'] ?? '' ),
+				'collation'   => (string) ( $row['collation'] ?? '' ),
+			);
+		}
+
+		return new CharsetAudit( $table_rows, $column_rows, $wpdb->prefix );
 	}
 
 	/**

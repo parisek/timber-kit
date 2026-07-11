@@ -17,6 +17,7 @@ class SiteHealthRegisterChecksTest extends StarterBaseTestCase {
 		'timber_kit_health_author_sitemap_disabled',
 		'timber_kit_health_file_editing_disabled',
 		'timber_kit_health_rest_users_restricted',
+		'timber_kit_health_utf8mb4_tables',
 	];
 
 	protected function setUp(): void {
