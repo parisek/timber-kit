@@ -23,6 +23,14 @@ use Parisek\Twig\CommonExtension;
 use Parisek\Twig\AttributeExtension;
 use Parisek\Twig\TypographyExtension;
 use Parisek\TimberKit\BlockRenderer;
+use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
+use Parisek\TimberKit\Health\Check\FileEditingDisabled;
+use Parisek\TimberKit\Health\Check\RestUsersRestricted;
+use Parisek\TimberKit\Health\Check\WpVersionHidden;
+use Parisek\TimberKit\Health\Check\XmlrpcDisabled;
+use Parisek\TimberKit\Health\CheckRegistry;
+use Parisek\TimberKit\Health\HealthCheck;
+use Parisek\TimberKit\Health\SiteHealthAdapter;
 
 /**
  * Base class for WordPress themes using Timber/Twig templating.
@@ -407,6 +415,16 @@ class StarterBase extends Site {
 	protected bool $warn_duplicate_security_headers = true;
 
 	/**
+	 * Surface the Porta recommended-settings board in Tools → Site Health
+	 * (phase 1: security checks). Read-only — the board verifies effective
+	 * state against expectations declared in code; it never writes. Opt-in
+	 * because it adds admin-visible site_status_tests entries.
+	 *
+	 * @var bool
+	 */
+	protected bool $site_health = false;
+
+	/**
 	 * Whether to pass animated sources (animated AVIF / WebP / GIF) through the
 	 * resizer untouched. Default **true** — animated sources are detected (Imagick
 	 * frame count unioned with a structural byte-sniff, so even sources the backend
@@ -442,6 +460,7 @@ class StarterBase extends Site {
 		$this->registerSecurityHardeningHooks();
 		$this->registerCommentDisablingHooks();
 		$this->registerPerformanceHooks();
+		$this->registerSiteHealthHooks();
 
 		$this->setup_dev_media_proxy();
 		$this->setup_wpforms_config_bridge();
@@ -779,6 +798,68 @@ class StarterBase extends Site {
 			// pipeline, which flattens the animation — the legacy behaviour.
 			add_filter( 'timber_kit_resizer_skip_animated', '__return_false' );
 		}
+	}
+
+	/**
+	 * Register the Site Health board (gated by $site_health, default off).
+	 *
+	 * @return void
+	 */
+	private function registerSiteHealthHooks(): void {
+		if ( ! $this->site_health ) {
+			return;
+		}
+
+		add_filter( 'site_status_tests', array( $this, 'site_health_register_checks' ) );
+	}
+
+	/**
+	 * site_status_tests callback: build the check set and hand it to the
+	 * adapter. Order matters — the Base.php override runs first (the "home"
+	 * customization path, visible in project diffs), then the filter (uniform
+	 * low-level hook for mu-plugins / per-environment tweaks).
+	 *
+	 * @param mixed $tests Existing site_status_tests value.
+	 * @return array<string, mixed>
+	 */
+	public function site_health_register_checks( $tests ): array {
+		$registry = new CheckRegistry();
+		foreach ( $this->default_health_checks() as $check ) {
+			$registry->add( $check );
+		}
+
+		$checks = $this->health_checks( $registry->all() );
+		$checks = apply_filters( 'timber_kit_health_checks', $checks );
+
+		return SiteHealthAdapter::mapTests( $tests, is_array( $checks ) ? $checks : array() );
+	}
+
+	/**
+	 * The kit's seed check set. Split from health_checks() so a project
+	 * override always receives the full defaults to prune/extend.
+	 *
+	 * @return list<HealthCheck>
+	 */
+	protected function default_health_checks(): array {
+		return array(
+			new XmlrpcDisabled(),
+			new WpVersionHidden(),
+			new AuthorSitemapDisabled(),
+			new FileEditingDisabled(),
+			new RestUsersRestricted(),
+		);
+	}
+
+	/**
+	 * Extension point: override in the project Base class to add project
+	 * checks or drop defaults. Convention: every dropped check carries a
+	 * comment explaining why, so conscious exceptions survive code review.
+	 *
+	 * @param array<string, HealthCheck> $checks Default checks keyed by id.
+	 * @return array<string, HealthCheck>
+	 */
+	protected function health_checks( array $checks ): array {
+		return $checks;
 	}
 
 	/**
