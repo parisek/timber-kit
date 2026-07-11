@@ -26,6 +26,9 @@ class ConvertUtf8mb4Command {
 	 *
 	 * ## OPTIONS
 	 *
+	 * [--dry-run]
+	 * : Explicit alias of the default behavior — print the plan, change nothing.
+	 *
 	 * [--apply]
 	 * : Execute the conversion. Without it the command is a dry-run and only
 	 *   prints the plan. Requires --tables or --all.
@@ -74,7 +77,12 @@ class ConvertUtf8mb4Command {
 			return;
 		}
 
-		$plan = new ConversionPlan( $audit, $this->indexedColumns(), $target );
+		try {
+			$plan = new ConversionPlan( $audit, $this->indexedColumns(), $target );
+		} catch ( \InvalidArgumentException $e ) {
+			\WP_CLI::error( $e->getMessage() );
+			return;
+		}
 
 		if ( null === $plan->targetCollation() ) {
 			\WP_CLI::error( 'No utf8mb4 baseline exists in this database — pass --collate=<collation> explicitly.' );
@@ -98,7 +106,8 @@ class ConvertUtf8mb4Command {
 
 		\WP_CLI::log( sprintf( 'Target collation: %s', (string) $plan->targetCollation() ) );
 		foreach ( $entries as $entry ) {
-			\WP_CLI::log( sprintf( '  %s: %s -> %s', $entry['table'], $entry['from'], $entry['to'] ) );
+			$note = '' !== $entry['note'] ? sprintf( ' [%s]', $entry['note'] ) : '';
+			\WP_CLI::log( sprintf( '  %s: %s -> %s%s', $entry['table'], $entry['from'], $entry['to'], $note ) );
 			if ( '' !== $entry['warning'] ) {
 				\WP_CLI::warning( sprintf( '  %s: %s', $entry['table'], $entry['warning'] ) );
 			}

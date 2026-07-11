@@ -95,6 +95,10 @@ final class Utf8mb4Tables implements HealthCheck {
 			return null;
 		}
 
+		// Fail closed: a denied/failed information_schema query must surface
+		// as "could not inspect", never as an empty (= clean) audit.
+		$wpdb->last_error = '';
+
 		$like = $wpdb->esc_like( $wpdb->prefix ) . '%';
 
 		$tables = $wpdb->get_results(
@@ -116,6 +120,10 @@ final class Utf8mb4Tables implements HealthCheck {
 			),
 			ARRAY_A
 		);
+
+		if ( '' !== self::lastError( $wpdb ) ) {
+			return null;
+		}
 
 		$table_rows = array();
 		foreach ( is_array( $tables ) ? $tables : array() as $row ) {
@@ -141,7 +149,22 @@ final class Utf8mb4Tables implements HealthCheck {
 			);
 		}
 
+		// Zero visible tables cannot happen on a working WordPress install
+		// (core tables always match the prefix) — treat it as an inspection
+		// failure, not as a clean bill of health.
+		if ( array() === $table_rows ) {
+			return null;
+		}
+
 		return new CharsetAudit( $table_rows, $column_rows, $wpdb->prefix );
+	}
+
+	/**
+	 * Read last_error through a call boundary — get_results() mutates it,
+	 * which static analysis cannot see after the reset above.
+	 */
+	private static function lastError( \wpdb $wpdb ): string {
+		return (string) $wpdb->last_error;
 	}
 
 	/**

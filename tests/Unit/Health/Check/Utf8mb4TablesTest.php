@@ -29,6 +29,11 @@ class Utf8mb4TablesTest extends HealthTestCase {
 		$GLOBALS['wpdb'] = new class( $tables, $columns ) extends \wpdb {
 			public string $prefix = 'wp_';
 
+			public string $last_error = '';
+
+			/** Simulates a query failure: real wpdb sets last_error DURING the query. */
+			public string $error_on_query = '';
+
 			public function __construct(
 				private readonly array $tables,
 				private readonly array $columns,
@@ -44,6 +49,10 @@ class Utf8mb4TablesTest extends HealthTestCase {
 			}
 
 			public function get_results( string $query, string $output = 'OBJECT' ): array {
+				if ( '' !== $this->error_on_query ) {
+					$this->last_error = $this->error_on_query;
+					return [];
+				}
 				return str_contains( $query, 'information_schema.COLUMNS' ) ? $this->columns : $this->tables;
 			}
 		};
@@ -92,5 +101,25 @@ class Utf8mb4TablesTest extends HealthTestCase {
 		unset( $GLOBALS['wpdb'] );
 
 		$this->assertSame( 'recommended', ( new Utf8mb4Tables() )->run()->status() );
+	}
+
+	public function test_recommended_when_query_errors_instead_of_false_good(): void {
+		$this->stubWpdb( [
+			[ 'name' => 'wp_posts', 'collation' => 'utf8mb4_unicode_ci', 'row_format' => 'DYNAMIC' ],
+		] );
+		$GLOBALS['wpdb']->error_on_query = 'SELECT command denied';
+
+		$result = ( new Utf8mb4Tables() )->run();
+
+		$this->assertSame( 'recommended', $result->status() );
+		$this->assertStringContainsString( 'inspect', $result->summary() );
+	}
+
+	public function test_recommended_when_no_tables_visible(): void {
+		$this->stubWpdb( [] );
+
+		$result = ( new Utf8mb4Tables() )->run();
+
+		$this->assertSame( 'recommended', $result->status() );
 	}
 }

@@ -29,6 +29,13 @@ final class ConversionPlan {
 		private readonly ?string $target = null,
 		private readonly ?array $selection = null,
 	) {
+		// The target lands raw in ALTER TABLE statements — reject anything
+		// that is not shaped like a utf8mb4 collation before any SQL exists.
+		if ( null !== $target && 1 !== preg_match( '/^utf8mb4_[a-z0-9_]+$/i', $target ) ) {
+			throw new \InvalidArgumentException(
+				sprintf( 'Not a utf8mb4 collation: %s', $target )
+			);
+		}
 	}
 
 	/**
@@ -41,12 +48,15 @@ final class ConversionPlan {
 	}
 
 	/**
-	 * Plan rows, sorted by table name: every non-utf8mb4 table plus every
-	 * utf8mb4 table whose collation differs from the target. `warning` is a
-	 * non-empty sentence when the table's row format could hit the 767-byte
-	 * index-prefix limit after conversion, '' otherwise.
+	 * Plan rows, sorted by table name: every table whose default collation
+	 * differs from the target, plus every table carrying a column-collation
+	 * override off the target (CONVERT TO rewrites all text columns, so a
+	 * table-level statement remediates both). `warning` is a non-empty
+	 * sentence when the table's row format could hit the 767-byte
+	 * index-prefix limit after conversion, '' otherwise; `note` flags
+	 * tables that are planned (also) because of column overrides.
 	 *
-	 * @return list<array{table: string, from: string, to: string, warning: string}>
+	 * @return list<array{table: string, from: string, to: string, warning: string, note: string}>
 	 */
 	public function entries(): array {
 		$target = $this->targetCollation();
@@ -54,9 +64,17 @@ final class ConversionPlan {
 			return array();
 		}
 
+		$override_tables = array();
+		foreach ( $this->audit->columnOverrides() as $override ) {
+			if ( $override['collation'] !== $target ) {
+				$override_tables[ $override['table'] ] = true;
+			}
+		}
+
 		$entries = array();
 		foreach ( $this->audit->tableCollations() as $name => $collation ) {
-			if ( $collation === $target ) {
+			$has_override = isset( $override_tables[ $name ] );
+			if ( $collation === $target && ! $has_override ) {
 				continue;
 			}
 			if ( null !== $this->selection && ! in_array( $name, $this->selection, true ) ) {
@@ -67,6 +85,7 @@ final class ConversionPlan {
 				'from'    => $collation,
 				'to'      => $target,
 				'warning' => $this->warningFor( $name ),
+				'note'    => $has_override ? 'column collation overrides' : '',
 			);
 		}
 		usort( $entries, static fn ( array $a, array $b ): int => strcmp( $a['table'], $b['table'] ) );
@@ -108,7 +127,7 @@ final class ConversionPlan {
 		foreach ( $this->entries() as $entry ) {
 			$statements[] = sprintf(
 				'ALTER TABLE `%s` CONVERT TO CHARACTER SET utf8mb4 COLLATE %s',
-				$entry['table'],
+				str_replace( '`', '``', $entry['table'] ),
 				$entry['to']
 			);
 		}

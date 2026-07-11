@@ -89,6 +89,44 @@ class ConversionPlanTest extends HealthTestCase {
 		);
 	}
 
+	public function test_table_with_only_column_overrides_is_planned(): void {
+		$audit = new CharsetAudit(
+			[ [ 'name' => 'wp_posts', 'collation' => 'utf8mb4_unicode_ci', 'row_format' => 'DYNAMIC' ] ],
+			[ [ 'table_name' => 'wp_posts', 'column_name' => 'guid', 'collation' => 'utf8mb3_general_ci' ] ],
+			'wp_'
+		);
+
+		$entries = ( new ConversionPlan( $audit ) )->entries();
+
+		$this->assertSame( [ 'wp_posts' ], array_column( $entries, 'table' ) );
+		$this->assertStringContainsString( 'column', $entries[0]['note'] );
+	}
+
+	public function test_explicit_non_utf8mb4_target_collation_is_rejected(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'latin1_swedish_ci' );
+
+		new ConversionPlan( $this->audit(), [], 'latin1_swedish_ci' );
+	}
+
+	public function test_statements_escape_backticks_in_table_names(): void {
+		$audit = new CharsetAudit(
+			[
+				[ 'name' => 'wp_posts', 'collation' => 'utf8mb4_unicode_ci', 'row_format' => 'DYNAMIC' ],
+				[ 'name' => 'wp_weird`name', 'collation' => 'utf8mb3_general_ci', 'row_format' => 'DYNAMIC' ],
+			],
+			[],
+			'wp_'
+		);
+
+		$statements = ( new ConversionPlan( $audit ) )->statements();
+
+		$this->assertSame(
+			[ 'ALTER TABLE `wp_weird``name` CONVERT TO CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci' ],
+			$statements
+		);
+	}
+
 	public function test_has_warnings_reflects_selected_entries_only(): void {
 		$plan = $this->plan( [
 			[ 'table_name' => 'wp_aryo_activity_log', 'column_name' => 'hist_ip', 'max_len' => 255, 'sub_part' => null ],
