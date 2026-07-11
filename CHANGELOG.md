@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.18.0] - 2026-07-11
+
 ### Added
 
 - Site Health board (phase 1 of #41): extensible health-check registry under `Parisek\TimberKit\Health\` (`HealthCheck` interface, `Result` value object, `CheckRegistry`, `SiteHealthAdapter`), seeded with five security checks (XML-RPC disabled, WP version hidden, author sitemap disabled, file editing disabled, REST users endpoint restricted via anonymous loopback). Opt-in via new `StarterBase::$site_health` flag (default `false`); projects customize through the `health_checks()` override (primary) or the `timber_kit_health_checks` filter (runs after the override). Read-only by design — the board verifies effective state against expectations declared in code and never writes.
