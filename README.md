@@ -177,6 +177,28 @@ per-environment tweaks. Custom checks implement `Health\HealthCheck` (`id`,
 `label`, `category`, `method`, `run(): Result`) and return
 `Result::good()` / `Result::recommended()` / `Result::critical()`.
 
+#### utf8mb4 charset audit + conversion
+
+The `utf8mb4_tables` check (category `database`) audits every prefix-scoped
+table via `information_schema`: non-utf8mb4 tables (plugin tables keep their
+install-time charset forever), column-collation overrides, and mixed utf8mb4
+collations — the classic source of *Illegal mix of collations* errors and
+silent `?` degradation of 4-byte characters (emoji, some CJK).
+
+Remediation is a separate, explicit WP-CLI command that **never converts
+implicitly** — `--apply` requires selecting concrete tables:
+
+```bash
+wp timber-kit convert-utf8mb4                                  # dry-run plan
+wp timber-kit convert-utf8mb4 --apply --tables=wp_foo,wp_bar   # convert exactly these
+wp timber-kit convert-utf8mb4 --apply --all                    # conscious full convert
+```
+
+The target collation is the **dominant utf8mb4 collation already present in
+the database** (majority vote, tie-break toward core tables; `--collate=`
+overrides). Tables with COMPACT/REDUNDANT row formats and long indexed
+columns are flagged (767-byte index-prefix limit) and require `--force`.
+
 ### WpmlBlockOverride
 
 Runtime override of Copy field values in ACF Gutenberg blocks for WPML-multilingual sites. Hooks `render_block_data` at priority 20 (after WPML's own handlers) and, for ACF blocks rendered in a non-default language, overwrites `attrs.data.<field>` for fields marked `wpml_cf_preferences = 1` (Copy) with the source-language post's value. Attachment IDs (image / file / gallery) are remapped to per-language duplicates via `wpml_object_id`.

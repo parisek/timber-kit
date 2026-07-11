@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- utf8mb4 charset audit (phase 1+2 of #72): new `utf8mb4_tables` Site Health check (category `database`) auditing prefix-scoped tables via `information_schema` — non-utf8mb4 tables (incl. the `utf8`→utf8mb3 alias), column-collation overrides, mixed utf8mb4 collations — with the database's dominant utf8mb4 collation suggested as the convert target. Plus `wp timber-kit convert-utf8mb4`: dry-run by default, `--apply` refuses to run without an explicit `--tables=<csv>` selection (or a conscious `--all`), target collation is the dominant one already in the DB (never hardcoded, `--collate=` overrides), and COMPACT/REDUNDANT tables with long indexed columns are flagged behind `--force` (767-byte index-prefix limit). Analysis lives in pure, unit-tested `Health\Db\CharsetAudit` + `Health\Db\ConversionPlan`.
+
 ## [1.18.0] - 2026-07-11
 
 ### Added

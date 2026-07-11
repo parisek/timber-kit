@@ -20,6 +20,18 @@ if ( ! defined( 'DAY_IN_SECONDS' ) ) {
 	define( 'DAY_IN_SECONDS', 86400 );
 }
 
+if ( ! defined( 'ARRAY_A' ) ) {
+	define( 'ARRAY_A', 'ARRAY_A' );
+}
+
+// Minimal wpdb stub so production code can guard with `instanceof \wpdb`
+// (mirrors the WP_Post / WP_Term stub approach below).
+if ( ! class_exists( 'wpdb' ) ) {
+	#[\AllowDynamicProperties]
+	class wpdb {
+	}
+}
+
 // Lightweight `wp_strip_all_tags` stub so production code that calls it
 // directly (e.g. Helpers::readTime) works without per-test Brain Monkey
 // mocks that leak across test classes via Patchwork.
