@@ -20,6 +20,10 @@ if ( ! defined( 'DAY_IN_SECONDS' ) ) {
 	define( 'DAY_IN_SECONDS', 86400 );
 }
 
+if ( ! defined( 'ARRAY_A' ) ) {
+	define( 'ARRAY_A', 'ARRAY_A' );
+}
+
 // Lightweight `wp_strip_all_tags` stub so production code that calls it
 // directly (e.g. Helpers::readTime) works without per-test Brain Monkey
 // mocks that leak across test classes via Patchwork.
