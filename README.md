@@ -145,6 +145,38 @@ The class is `final` with three public static methods: `render()`, `isInserterPr
 
 `BlockRenderer::flushPostBlockCache($post_id)` is the handler `StarterBase` wires to `acf/save_post` at priority 20. When ACF saves a post, the cache group `acf_block_{$post_id}` is flushed — invalidating exactly the cached blocks tied to that post without touching others. The handler guards against non-numeric ids (ACF options-page strings, opaque `block_*` ids) and against environments without `wp_cache_supports('flush_group')`.
 
+### Site Health board
+
+Opt-in check-list of Porta recommended settings surfaced in Tools → Site Health
+(`$site_health` flag, default `false`). Read-only by design: the board verifies
+the real, effective state of each recommendation — it never writes anything,
+has no options page, and its "Actions" hints point to code fixes. The expected
+state lives versioned in code; Site Health only reports drift.
+
+Each check declares its verification method: `effect` (probe the real outcome,
+plugin-agnostic — survives plugin swaps), `config` (read stored config when
+there is no observable effect), or `both`. Seed set (security): XML-RPC
+disabled, WP version hidden, author sitemap disabled, file editing disabled,
+REST users endpoint restricted (anonymous loopback probe).
+
+Customize in the project `Base` class — conscious exceptions stay visible in
+code review:
+
+```php
+protected bool $site_health = true;
+
+protected function health_checks( array $checks ): array {
+    unset( $checks['rest_users_restricted'] ); // host blocks loopbacks — verified at the edge instead
+    $checks['my_check'] = new MyCheck();       // implements Parisek\TimberKit\Health\HealthCheck
+    return $checks;
+}
+```
+
+The `timber_kit_health_checks` filter runs after the override for mu-plugin /
+per-environment tweaks. Custom checks implement `Health\HealthCheck` (`id`,
+`label`, `category`, `method`, `run(): Result`) and return
+`Result::good()` / `Result::recommended()` / `Result::critical()`.
+
 ### WpmlBlockOverride
 
 Runtime override of Copy field values in ACF Gutenberg blocks for WPML-multilingual sites. Hooks `render_block_data` at priority 20 (after WPML's own handlers) and, for ACF blocks rendered in a non-default language, overwrites `attrs.data.<field>` for fields marked `wpml_cf_preferences = 1` (Copy) with the source-language post's value. Attachment IDs (image / file / gallery) are remapped to per-language duplicates via `wpml_object_id`.
