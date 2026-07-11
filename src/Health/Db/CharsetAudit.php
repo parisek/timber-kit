@@ -44,6 +44,34 @@ final class CharsetAudit {
 	) {
 	}
 
+	/**
+	 * Table name → collation, for plan building.
+	 *
+	 * @return array<string, string>
+	 */
+	public function tableCollations(): array {
+		$map = array();
+		foreach ( $this->tables as $table ) {
+			$map[ $table['name'] ] = $table['collation'];
+		}
+		return $map;
+	}
+
+	/**
+	 * Table name → ROW_FORMAT (only where the source rows carried one).
+	 *
+	 * @return array<string, string>
+	 */
+	public function rowFormats(): array {
+		$map = array();
+		foreach ( $this->tables as $table ) {
+			if ( isset( $table['row_format'] ) ) {
+				$map[ $table['name'] ] = $table['row_format'];
+			}
+		}
+		return $map;
+	}
+
 	public function clean(): bool {
 		return array() === $this->offendingTables()
 			&& array() === $this->columnOverrides()
