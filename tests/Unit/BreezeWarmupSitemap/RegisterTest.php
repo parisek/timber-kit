@@ -10,7 +10,8 @@ use PHPUnit\Framework\TestCase;
 use Parisek\TimberKit\BreezeWarmupSitemap;
 
 /**
- * Covers hook registration: idempotency and the
+ * Covers hook registration: both the `breeze_preload_urls` filter and the
+ * deferred-refresh cron action, idempotency, and the
  * `timberkit_warmup_sitemap_enabled` opt-out filter.
  */
 class RegisterTest extends TestCase {
@@ -27,7 +28,7 @@ class RegisterTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_register_hooks_breeze_preload_urls_filter(): void {
+	public function test_register_hooks_breeze_preload_urls_filter_and_refresh_cron_action(): void {
 		$filters = array();
 		Functions\when( 'add_filter' )->alias(
 			function ( string $tag ) use ( &$filters ) {
@@ -35,17 +36,32 @@ class RegisterTest extends TestCase {
 				return true;
 			}
 		);
+		$actions = array();
+		Functions\when( 'add_action' )->alias(
+			function ( string $tag ) use ( &$actions ) {
+				$actions[] = $tag;
+				return true;
+			}
+		);
 
 		BreezeWarmupSitemap::register();
 
 		$this->assertSame( array( 'breeze_preload_urls' ), $filters );
+		$this->assertSame( array( 'timber_kit_breeze_warmup_sitemap_refresh' ), $actions );
 	}
 
 	public function test_register_is_idempotent(): void {
-		$calls = 0;
+		$filterCalls = 0;
+		$actionCalls = 0;
 		Functions\when( 'add_filter' )->alias(
-			function () use ( &$calls ) {
-				++$calls;
+			function () use ( &$filterCalls ) {
+				++$filterCalls;
+				return true;
+			}
+		);
+		Functions\when( 'add_action' )->alias(
+			function () use ( &$actionCalls ) {
+				++$actionCalls;
 				return true;
 			}
 		);
@@ -53,7 +69,8 @@ class RegisterTest extends TestCase {
 		BreezeWarmupSitemap::register();
 		BreezeWarmupSitemap::register();
 
-		$this->assertSame( 1, $calls );
+		$this->assertSame( 1, $filterCalls );
+		$this->assertSame( 1, $actionCalls );
 	}
 
 	public function test_register_skips_hooking_when_opted_out(): void {
@@ -64,6 +81,7 @@ class RegisterTest extends TestCase {
 			}
 		);
 		Functions\expect( 'add_filter' )->never();
+		Functions\expect( 'add_action' )->never();
 
 		BreezeWarmupSitemap::register();
 

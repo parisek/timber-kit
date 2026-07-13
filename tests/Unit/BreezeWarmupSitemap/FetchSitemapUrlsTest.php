@@ -274,4 +274,145 @@ class FetchSitemapUrlsTest extends TestCase {
 		// are followed.
 		$this->assertCount( 50, $result );
 	}
+
+	public function test_cross_host_sub_sitemap_in_index_is_never_fetched(): void {
+		// SSRF guard: an index entry pointing off-host must be rejected
+		// before any request is made for it, not just filtered out afterwards.
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+
+		$requested = array();
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( $url ) use ( &$requested ) {
+				$requested[] = $url;
+				return match ( $url ) {
+					'https://example.test/wp-sitemap.xml' => Fixtures::response(
+						Fixtures::sitemapIndex(
+							array(
+								'https://evil.test/sub-sitemap.xml',
+								'https://example.test/wp-sitemap-posts.xml',
+							)
+						)
+					),
+					'https://example.test/wp-sitemap-posts.xml' => Fixtures::response(
+						Fixtures::urlset( array( 'https://example.test/post-1/' ) )
+					),
+					default => Fixtures::response( '', 404 ),
+				};
+			}
+		);
+
+		$result = BreezeWarmupSitemap::fetchSitemapUrls();
+
+		$this->assertNotContains( 'https://evil.test/sub-sitemap.xml', $requested );
+		$this->assertSame( array( 'https://example.test/post-1/' ), $result );
+	}
+
+	public function test_non_http_scheme_sub_sitemap_is_never_fetched(): void {
+		// SSRF guard: `file://`/`gopher://` (or any non-http(s) scheme) index
+		// entries must never reach wp_remote_get().
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+
+		$requested = array();
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( $url ) use ( &$requested ) {
+				$requested[] = $url;
+				return Fixtures::response(
+					Fixtures::sitemapIndex( array( 'file:///etc/passwd' ) )
+				);
+			}
+		);
+
+		$result = BreezeWarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( array( 'https://example.test/wp-sitemap.xml' ), $requested );
+		$this->assertSame( array(), $result );
+	}
+
+	public function test_redirects_are_disabled_on_every_remote_get_call(): void {
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+
+		$capturedArgs = array();
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( $url, $args = array() ) use ( &$capturedArgs ) {
+				$capturedArgs[] = $args;
+				return Fixtures::response( Fixtures::urlset( array( 'https://example.test/page/' ) ) );
+			}
+		);
+
+		BreezeWarmupSitemap::fetchSitemapUrls();
+
+		$this->assertNotEmpty( $capturedArgs );
+		foreach ( $capturedArgs as $args ) {
+			$this->assertArrayHasKey( 'redirection', $args );
+			$this->assertSame( 0, $args['redirection'] );
+		}
+	}
+
+	public function test_gzip_compressed_sitemap_is_decompressed(): void {
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+		Functions\when( 'wp_remote_get' )->justReturn(
+			Fixtures::gzipResponse( Fixtures::urlset( array( 'https://example.test/gz-page/' ) ) )
+		);
+
+		$result = BreezeWarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( array( 'https://example.test/gz-page/' ), $result );
+	}
+
+	public function test_oversized_gzip_body_is_rejected_before_decompression(): void {
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+		// Fake an over-the-cap "compressed" body: real gzip magic bytes
+		// followed by padding past MAX_GZIP_BYTES (10 MB) — the size check
+		// must reject this before ever calling gzdecode() on it.
+		$oversized = "\x1f\x8b" . str_repeat( 'x', 10485760 + 1 );
+		Functions\when( 'wp_remote_get' )->justReturn( Fixtures::response( $oversized ) );
+
+		$result = BreezeWarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( array(), $result );
+	}
+
+	public function test_empty_urlset_returns_empty_array(): void {
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+		Functions\when( 'wp_remote_get' )->justReturn( Fixtures::response( Fixtures::urlset( array() ) ) );
+
+		$result = BreezeWarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( array(), $result );
+	}
+
+	public function test_root_element_mismatch_is_ignored_despite_matching_child_names(): void {
+		// A generic feed with an <url><loc> child that happens to match the
+		// urlset shape by coincidence, but isn't a real <urlset> — MINOR 4:
+		// the root element name itself must gate parsing, not just presence
+		// of a <url> or <sitemap> child.
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+		Functions\when( 'wp_remote_get' )->justReturn(
+			Fixtures::response(
+				'<?xml version="1.0"?><feed><url><loc>https://example.test/not-a-sitemap/</loc></url></feed>'
+			)
+		);
+
+		$result = BreezeWarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( array(), $result );
+	}
+
+	public function test_xxe_entity_is_never_expanded(): void {
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+		Functions\when( 'wp_remote_get' )->justReturn(
+			Fixtures::response( Fixtures::xxeUrlset( 'file:///etc/passwd' ) )
+		);
+
+		$result = BreezeWarmupSitemap::fetchSitemapUrls();
+
+		// Whether libxml refuses to parse the unresolved entity (most likely,
+		// asserted explicitly below) or somehow yields a loc, the result must
+		// never carry filesystem content back out through the URL list.
+		$this->assertSame( array(), $result, 'the unresolved external entity must not silently degrade into a usable loc' );
+		foreach ( $result as $url ) {
+			$this->assertStringNotContainsString( 'root:', $url );
+			$this->assertStringNotContainsString( '/etc/passwd', $url );
+		}
+	}
 }

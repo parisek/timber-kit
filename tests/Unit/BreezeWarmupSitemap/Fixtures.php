@@ -54,4 +54,29 @@ final class Fixtures {
 			'body'     => $body,
 		);
 	}
+
+	/**
+	 * A gzip-compressed `wp_remote_get()`-shaped response wrapping the body.
+	 *
+	 * @param string $body Uncompressed body.
+	 * @param int    $code
+	 * @return array<string, mixed>
+	 */
+	public static function gzipResponse( string $body, int $code = 200 ): array {
+		return self::response( (string) gzencode( $body ), $code );
+	}
+
+	/**
+	 * An XXE payload: a `<urlset>` document whose DOCTYPE declares an
+	 * internal-subset external entity, referenced from a `<loc>`. Used to
+	 * regression-test that `parseXml()` never expands it.
+	 *
+	 * @param string $entityUri e.g. `file:///etc/passwd`.
+	 * @return string
+	 */
+	public static function xxeUrlset( string $entityUri ): string {
+		return '<?xml version="1.0" encoding="UTF-8"?>'
+			. '<!DOCTYPE urlset [<!ENTITY xxe SYSTEM "' . $entityUri . '">]>'
+			. '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>&xxe;</loc></url></urlset>';
+	}
 }
