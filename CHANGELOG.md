@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- Full Breeze page-cache flush on nav menu save (#76): new `StarterBase::$clear_cache_on_menu_update` flag wiring `wp_update_nav_menu` → `clear_cache_on_menu_update()`, mirroring the existing options-save flush (`breeze_clear_all_cache`, guarded by `has_action()` so it no-ops without Breeze). Menus render on every page, so a site-wide flush is the correct scope. Default **on** — a deliberate exception to the default-off flag doctrine, consistent with the unconditional options-save flush it mirrors; opt out with `false` in the project's `Base`.
+
 ## [1.19.0] - 2026-07-11
 
 ### Added
