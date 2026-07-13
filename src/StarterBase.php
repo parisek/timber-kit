@@ -23,6 +23,7 @@ use Parisek\Twig\CommonExtension;
 use Parisek\Twig\AttributeExtension;
 use Parisek\Twig\TypographyExtension;
 use Parisek\TimberKit\BlockRenderer;
+use Parisek\TimberKit\BreezeWarmupSitemap;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
 use Parisek\TimberKit\Health\Check\FileEditingDisabled;
 use Parisek\TimberKit\Health\Check\RestUsersRestricted;
@@ -481,6 +482,7 @@ class StarterBase extends Site {
 
 		$this->setup_dev_media_proxy();
 		$this->setup_wpforms_config_bridge();
+		$this->setup_breeze_warmup_sitemap();
 		$this->registerCliCommands();
 
 		parent::__construct();
@@ -921,6 +923,25 @@ class StarterBase extends Site {
 		}
 
 		WPFormsConfigBridge::register();
+	}
+
+	/**
+	 * Activate the Breeze Cache Warmup sitemap feed when Breeze is active.
+	 *
+	 * Only runs for projects that have the Breeze cache plugin loaded;
+	 * otherwise `breeze_preload_urls` never fires but registering it is
+	 * unnecessary overhead. The per-project opt-out filter
+	 * (`timberkit_warmup_sitemap_enabled`, default true) is re-checked inside
+	 * {@see BreezeWarmupSitemap::register()} so the module stays self-guarding.
+	 *
+	 * @return void
+	 */
+	protected function setup_breeze_warmup_sitemap(): void {
+		if ( ! defined( 'BREEZE_VERSION' ) && ! function_exists( 'breeze_get_option' ) && ! class_exists( 'Breeze_Admin' ) ) {
+			return;
+		}
+
+		BreezeWarmupSitemap::register();
 	}
 
 	/**

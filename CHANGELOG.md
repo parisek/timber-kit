@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 
 - Full Breeze page-cache flush on nav menu save (#76): new `StarterBase::$clear_cache_on_menu_update` flag wiring `wp_update_nav_menu` → `clear_cache_on_menu_update()`, mirroring the existing options-save flush (`breeze_clear_all_cache`, guarded by `has_action()` so it no-ops without Breeze). Menus render on every page, so a site-wide flush is the correct scope. Default **on** — a deliberate exception to the default-off flag doctrine, consistent with the unconditional options-save flush it mirrors; opt out with `false` in the project's `Base`.
+- Breeze Cache Warmup sitemap feed (#74): new `BreezeWarmupSitemap` module hooks `breeze_preload_urls` and merges in every same-host URL from the site's XML sitemap (AIOSEO `/sitemap.xml` first, core `/wp-sitemap.xml` fallback; sitemap indexes are followed recursively, bounded by sub-sitemap count and depth caps). Activation is auto-detected from `StarterBase` when Breeze is loaded, mirroring the `WPFormsConfigBridge` pattern; per-project opt-out via `add_filter( 'timberkit_warmup_sitemap_enabled', '__return_false' )`, safety cap on merged URLs filterable via `timberkit_warmup_sitemap_max_urls` (default 200). Sitemap fetch is cached in a 1-hour transient and degrades silently on any network/parse failure — never blocks or delays the purge.
 
 ## [1.19.0] - 2026-07-11
 
