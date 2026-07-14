@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.21.0] - 2026-07-14
+
 ### Changed
 
 - **Video source API redesigned: bare `codecs` split from the mime type** (supersedes the 1.20.0 API, which had no consumers). `Helpers::videoSourceType()` (combined `video/mp4; codecs="…"` string) is replaced by `Helpers::videoCodecs()` returning the bare RFC 6381 string (`av01.0.01M.08`) or null; `VideoCodecs::sourceType()` is renamed to `VideoCodecs::codecsString()` and returns the bare value. `Helpers::formatVideoSources()` entries are now `{src, type, codecs}` with `type` a plain comparable mime. Rationale: the mime stays printable in double-quoted attributes and comparable in templates, and the codecs value is independently inspectable; templates compose `type='{{ type }}{% if codecs %}; codecs="{{ codecs }}"{% endif %}'`. Attachment-meta cache key moves to `_timber_kit_video_codecs` (`none` sentinel for negative results).
