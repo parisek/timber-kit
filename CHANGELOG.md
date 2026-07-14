@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.20.0] - 2026-07-14
+
 ### Added
 
 - `Helpers::videoSourceType()` and `Helpers::formatVideoSources()` for video `<source>` data: AV1 MP4 attachments now derive RFC 6381 `codecs` values from the local file instead of hardcoding `av01.0.05M.08`, cache the computed type in attachment meta, and fall back to the stored mime type for non-AV1 MP4/WebM variants.
