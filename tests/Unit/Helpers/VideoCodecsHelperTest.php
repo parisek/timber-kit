@@ -12,6 +12,17 @@ class VideoCodecsHelperTest extends HelpersTestCase {
 
 	private const CACHE_KEY = '_timber_kit_video_codecs';
 
+	/**
+	 * @param array<string,mixed> $row
+	 * @return array<string,mixed>
+	 */
+	private function appendVideoSources( array $row ): array {
+		$method = new \ReflectionMethod( Helpers::class, 'appendVideoSources' );
+		$method->setAccessible( true );
+
+		return $method->invoke( null, $row );
+	}
+
 	public function test_cache_hit_returns_stored_codecs_without_recompute(): void {
 		Functions\expect( 'get_post_meta' )
 			->once()
@@ -120,5 +131,102 @@ class VideoCodecsHelperTest extends HelpersTestCase {
 			],
 			Helpers::formatVideoSources( $variants )
 		);
+	}
+
+	public function test_append_video_sources_builds_ordered_sources_from_formatted_row_variants(): void {
+		$row = [
+			'video_preview_av1' => [
+				'src' => 'https://example.test/preview-av1.mp4',
+				'type' => 'video/mp4',
+				'codecs' => 'av01.0.00M.08',
+			],
+			'video_preview' => [
+				'src' => 'https://example.test/preview.mp4',
+				'type' => 'video/mp4',
+				'codecs' => null,
+			],
+			'video' => [
+				'src' => 'https://example.test/full.mp4',
+				'type' => 'video/mp4',
+				'codecs' => null,
+			],
+		];
+
+		$this->assertSame(
+			[
+				[
+					'src' => 'https://example.test/preview-av1.mp4',
+					'type' => 'video/mp4',
+					'codecs' => 'av01.0.00M.08',
+				],
+				[
+					'src' => 'https://example.test/preview.mp4',
+					'type' => 'video/mp4',
+					'codecs' => null,
+				],
+				[
+					'src' => 'https://example.test/full.mp4',
+					'type' => 'video/mp4',
+					'codecs' => null,
+				],
+			],
+			$this->appendVideoSources( $row )['sources']
+		);
+	}
+
+	public function test_append_video_sources_skips_missing_variants_and_defaults_type(): void {
+		$row = [
+			'video_preview_av1' => [],
+			'video_preview' => [
+				'src' => '',
+				'type' => 'video/mp4',
+			],
+			'video' => [
+				'src' => 'https://example.test/full.mp4',
+				'codecs' => null,
+			],
+		];
+
+		$this->assertSame(
+			[
+				[
+					'src' => 'https://example.test/full.mp4',
+					'type' => 'video/mp4',
+					'codecs' => null,
+				],
+			],
+			$this->appendVideoSources( $row )['sources']
+		);
+	}
+
+	public function test_append_video_sources_leaves_rows_without_video_untouched(): void {
+		$row = [
+			'video_preview_av1' => [
+				'src' => 'https://example.test/preview-av1.mp4',
+				'type' => 'video/mp4',
+				'codecs' => 'av01.0.00M.08',
+			],
+		];
+
+		$this->assertSame( $row, $this->appendVideoSources( $row ) );
+	}
+
+	public function test_append_video_sources_never_overwrites_existing_sources_key(): void {
+		$row = [
+			'sources' => [
+				[
+					'src' => 'https://example.test/custom.webm',
+					'type' => 'video/webm',
+					'codecs' => null,
+				],
+			],
+			'video' => [
+				'src' => 'https://example.test/full.mp4',
+				'type' => 'video/mp4',
+				'codecs' => null,
+			],
+		];
+
+		$this->assertSame( $row, $this->appendVideoSources( $row ) );
 	}
 }

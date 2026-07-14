@@ -41,6 +41,8 @@ class FormatFileTest extends HelpersTestCase {
 		$this->assertSame( 'pdf', $result['subtype'] );
 		$this->assertSame( 'doc.pdf', $result['filename'] );
 		$this->assertSame( '100 KB', $result['filesize'] );
+		$this->assertArrayHasKey( 'codecs', $result );
+		$this->assertNull( $result['codecs'] );
 	}
 
 	public function test_object_input(): void {
@@ -172,6 +174,69 @@ class FormatFileTest extends HelpersTestCase {
 		$result = Helpers::formatFile( $file );
 
 		$this->assertSame( [], $result['preview'] );
+	}
+
+	public function test_video_file_includes_av1_codecs(): void {
+		$file = [
+			'ID'          => 20,
+			'url'         => 'https://example.com/clip-av1.mp4',
+			'mime_type'   => 'video/mp4',
+			'subtype'     => 'mp4',
+			'filename'    => 'clip-av1.mp4',
+			'filesize'    => 1024,
+			'alt'         => '',
+			'caption'     => '',
+			'description' => '',
+		];
+
+		Functions\expect( 'get_post_meta' )
+			->once()
+			->with( 20, '_timber_kit_video_codecs', true )
+			->andReturn( '' );
+		Functions\expect( 'get_attached_file' )
+			->once()
+			->with( 20 )
+			->andReturn( dirname( __DIR__, 2 ) . '/Fixtures/video/av1-8bit.mp4' );
+		Functions\expect( 'update_post_meta' )
+			->once()
+			->with( 20, '_timber_kit_video_codecs', 'av01.0.00M.08' );
+
+		$result = Helpers::formatFile( $file );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'av01.0.00M.08', $result['codecs'] );
+	}
+
+	public function test_non_av1_video_file_includes_null_codecs(): void {
+		$file = [
+			'ID'          => 21,
+			'url'         => 'https://example.com/clip-h264.mp4',
+			'mime_type'   => 'video/mp4',
+			'subtype'     => 'mp4',
+			'filename'    => 'clip-h264.mp4',
+			'filesize'    => 1024,
+			'alt'         => '',
+			'caption'     => '',
+			'description' => '',
+		];
+
+		Functions\expect( 'get_post_meta' )
+			->once()
+			->with( 21, '_timber_kit_video_codecs', true )
+			->andReturn( '' );
+		Functions\expect( 'get_attached_file' )
+			->once()
+			->with( 21 )
+			->andReturn( dirname( __DIR__, 2 ) . '/Fixtures/video/h264.mp4' );
+		Functions\expect( 'update_post_meta' )
+			->once()
+			->with( 21, '_timber_kit_video_codecs', 'none' );
+
+		$result = Helpers::formatFile( $file );
+
+		$this->assertIsArray( $result );
+		$this->assertArrayHasKey( 'codecs', $result );
+		$this->assertNull( $result['codecs'] );
 	}
 
 	public function test_non_numeric_filesize_returns_empty_string(): void {
