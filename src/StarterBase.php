@@ -23,6 +23,7 @@ use Parisek\Twig\CommonExtension;
 use Parisek\Twig\AttributeExtension;
 use Parisek\Twig\TypographyExtension;
 use Parisek\TimberKit\BlockRenderer;
+use Parisek\TimberKit\BreezeWarmupSitemap;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
 use Parisek\TimberKit\Health\Check\FileEditingDisabled;
 use Parisek\TimberKit\Health\Check\RestUsersRestricted;
@@ -366,6 +367,22 @@ class StarterBase extends Site {
 	protected bool $clear_cache_on_menu_update = true;
 
 	/**
+	 * Feed Breeze's Cache Warmup preloader ({@see BreezeWarmupSitemap}) with
+	 * every URL from the site's XML sitemap via the `breeze_preload_urls`
+	 * filter, instead of only the homepage + auto-detected pages + a
+	 * 30-URL manual list. Opt-in (default off): for a project with the
+	 * warmup checkbox already on, this is a real behavior change — the
+	 * preload queue can grow from ~30 URLs to `timberkit_warmup_sitemap_max_urls`
+	 * (default 200) after upgrade — so projects enable it deliberately.
+	 * No-ops unless Breeze itself is active (verified in
+	 * `setup_breeze_warmup_sitemap()`). Runtime kill switch even when this
+	 * flag is on: `add_filter( 'timberkit_warmup_sitemap_enabled', '__return_false' )`.
+	 *
+	 * @var bool
+	 */
+	protected bool $breeze_warmup_sitemap = false;
+
+	/**
 	 * ACF Datastore ({@see https://www.advancedcustomfields.com/resources/acf-settings-enable_datastore/}).
 	 *
 	 * Opt-in (default off). Switches how ACF saves field values — through the
@@ -481,6 +498,7 @@ class StarterBase extends Site {
 
 		$this->setup_dev_media_proxy();
 		$this->setup_wpforms_config_bridge();
+		$this->setup_breeze_warmup_sitemap();
 		$this->registerCliCommands();
 
 		parent::__construct();
@@ -921,6 +939,28 @@ class StarterBase extends Site {
 		}
 
 		WPFormsConfigBridge::register();
+	}
+
+	/**
+	 * Activate the Breeze Cache Warmup sitemap feed — gated by
+	 * `$breeze_warmup_sitemap` (default off; see the property docblock for
+	 * why this is opt-in rather than auto-activating) and by Breeze itself
+	 * being active. The per-project runtime opt-out filter
+	 * (`timberkit_warmup_sitemap_enabled`, default true) is re-checked inside
+	 * {@see BreezeWarmupSitemap::register()} so the module stays self-guarding.
+	 *
+	 * @return void
+	 */
+	protected function setup_breeze_warmup_sitemap(): void {
+		if ( ! $this->breeze_warmup_sitemap ) {
+			return;
+		}
+
+		if ( ! defined( 'BREEZE_VERSION' ) && ! function_exists( 'breeze_get_option' ) && ! class_exists( 'Breeze_Admin' ) ) {
+			return;
+		}
+
+		BreezeWarmupSitemap::register();
 	}
 
 	/**
