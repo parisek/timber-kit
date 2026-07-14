@@ -350,6 +350,22 @@ class StarterBase extends Site {
 	protected bool $wpml_block_override = false;
 
 	/**
+	 * Clear the whole Breeze page cache when a nav menu is saved
+	 * (`wp_update_nav_menu`), mirroring the existing options-save behavior in
+	 * {@see clear_cache_on_options_save()}. Menus render on every page, so a
+	 * menu edit leaves the entire page cache stale — a full flush is the only
+	 * correct scope.
+	 *
+	 * Default ON — a deliberate exception to the default-off flag doctrine:
+	 * the options-save flush this mirrors runs unconditionally today, and a
+	 * stale menu on every cached page is strictly worse than one extra flush.
+	 * No-ops without Breeze. Opt out with `false` in the project's `Base`.
+	 *
+	 * @var bool
+	 */
+	protected bool $clear_cache_on_menu_update = true;
+
+	/**
 	 * ACF Datastore ({@see https://www.advancedcustomfields.com/resources/acf-settings-enable_datastore/}).
 	 *
 	 * Opt-in (default off). Switches how ACF saves field values — through the
@@ -658,6 +674,9 @@ class StarterBase extends Site {
 		add_filter( 'run_wptexturize', '__return_false' );
 		// CF7 autop disable
 		add_filter( 'wpcf7_autop_or_not', '__return_false' );
+		if ( $this->clear_cache_on_menu_update ) {
+			add_action( 'wp_update_nav_menu', array( $this, 'clear_cache_on_menu_update' ) );
+		}
 	}
 
 	/**
@@ -2155,6 +2174,24 @@ class StarterBase extends Site {
 			return;
 		}
 
+		if ( has_action( 'breeze_clear_all_cache' ) ) {
+			do_action( 'breeze_clear_all_cache' );
+		}
+	}
+
+	/**
+	 * Clear Breeze cache when a nav menu is saved.
+	 *
+	 * Menus render on every page, so the flush is intentionally site-wide —
+	 * same scope as {@see clear_cache_on_options_save()}. Gated behind the
+	 * `$clear_cache_on_menu_update` flag (default on).
+	 *
+	 * Hooked to `wp_update_nav_menu`.
+	 *
+	 * @param int $menu_id The saved menu's ID (unused — flush is site-wide).
+	 * @return void
+	 */
+	public function clear_cache_on_menu_update( $menu_id ) {
 		if ( has_action( 'breeze_clear_all_cache' ) ) {
 			do_action( 'breeze_clear_all_cache' );
 		}

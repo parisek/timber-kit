@@ -47,6 +47,40 @@ class RegisterMiscHooksTest extends StarterBaseTestCase {
 		$this->assertSame( '__return_false', $callbacks['wpcf7_autop_or_not'] );
 	}
 
+	public function test_registers_menu_cache_clear_by_default(): void {
+		$actions = [];
+		Functions\when( 'add_action' )->alias( function ( $hook, $callback, ...$rest ) use ( &$actions ) {
+			$actions[] = [ 'hook' => $hook, 'callback' => $callback ];
+		} );
+		Functions\when( 'add_filter' )->justReturn( true );
+
+		$this->invokeRegisterMiscHooks( $this->bareInstance() );
+
+		$menuActions = array_filter(
+			$actions,
+			fn( $a ) => $a['hook'] === 'wp_update_nav_menu'
+				&& is_array( $a['callback'] )
+				&& $a['callback'][1] === 'clear_cache_on_menu_update'
+		);
+		$this->assertCount( 1, $menuActions );
+	}
+
+	public function test_does_not_register_menu_cache_clear_when_flag_disabled(): void {
+		$actions = [];
+		Functions\when( 'add_action' )->alias( function ( $hook, $callback, ...$rest ) use ( &$actions ) {
+			$actions[] = [ 'hook' => $hook, 'callback' => $callback ];
+		} );
+		Functions\when( 'add_filter' )->justReturn( true );
+
+		$instance = $this->bareInstance();
+		$prop     = new \ReflectionProperty( StarterBase::class, 'clear_cache_on_menu_update' );
+		$prop->setValue( $instance, false );
+
+		$this->invokeRegisterMiscHooks( $instance );
+
+		$this->assertNotContains( 'wp_update_nav_menu', array_column( $actions, 'hook' ) );
+	}
+
 	public function test_registers_exactly_two_filters(): void {
 		$filters = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
