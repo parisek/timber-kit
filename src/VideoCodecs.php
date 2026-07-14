@@ -11,16 +11,21 @@ declare(strict_types=1);
 namespace Parisek\TimberKit;
 
 /**
- * Derives RFC 6381 video source type strings from local media files.
+ * Derives bare RFC 6381 codecs strings from local media files.
  */
 class VideoCodecs {
 
 	private const AV1_CONFIGURATION_BOX_BYTES = 4;
 
 	/**
-	 * Parse a local video file and return a source `type` value when known.
+	 * Parse a local video file and return its bare codecs string when known.
+	 *
+	 * Returns e.g. `av01.0.01M.08` for AV1-in-MP4; null for anything the
+	 * parser doesn't cover (non-AV1 MP4, WebM, unreadable/garbage input).
+	 * Callers compose the `<source type>` attribute themselves:
+	 * `video/mp4; codecs="<value>"`.
 	 */
-	public static function sourceType( string $path ): ?string {
+	public static function codecsString( string $path ): ?string {
 		if ( ! is_file( $path ) || ! is_readable( $path ) ) {
 			return null;
 		}
@@ -127,7 +132,7 @@ class VideoCodecs {
 		$depth = ! $high_bitdepth ? '08' : ( $twelve_bit ? '12' : '10' );
 
 		return sprintf(
-			'video/mp4; codecs="av01.%d.%02d%s.%s"',
+			'av01.%d.%02d%s.%s',
 			$seq_profile,
 			$seq_level_idx_0,
 			$seq_tier_0 ? 'H' : 'M',
