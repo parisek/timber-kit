@@ -149,7 +149,7 @@ class Helpers {
 	 * @param object|array|int|string $file     File value as returned by ACF.
 	 * @param int|null                $post_id  Post ID the field belongs to (unused, kept for API parity).
 	 * @param array|null              $field    ACF field definition array (unused, kept for API parity).
-	 * @return array{id: int|null, src: string, type: string, subtype: string, filename: string, filesize: string, alt: string, caption: string, description: string, preview: array}|string
+	 * @return array{id: int|null, src: string, type: string, subtype: string, filename: string, filesize: string, alt: string, caption: string, description: string, preview: array, codecs: string|null}|string
 	 *               Associative file data array, or an empty string when the
 	 *               file cannot be resolved.
 	 */
@@ -215,6 +215,7 @@ class Helpers {
 			'caption' => $attachment['caption'] ?? '',
 			'description' => $attachment['description'] ?? '',
 			'preview' => $preview, // empty array if not a PDF or no preview
+			'codecs' => ( ! empty( $attachment['ID'] ) && str_starts_with( (string) ( $attachment['mime_type'] ?? '' ), 'video/' ) ) ? self::videoCodecs( (int) $attachment['ID'] ) : null,
 		];
 	}
 
@@ -228,7 +229,7 @@ class Helpers {
 	 * @param object|array|int|string $file     Video value as returned by ACF.
 	 * @param int|null                $post_id  Post ID the field belongs to (unused, kept for API parity).
 	 * @param array|null              $field    ACF field definition array (unused, kept for API parity).
-	 * @return array{id: int|null, src: string, type: string, width: int|null, height: int|null, alt: string, caption: string, description: string}|false|null
+	 * @return array{id: int|null, src: string, type: string, width: int|null, height: int|null, alt: string, caption: string, description: string, codecs: string|null}|false|null
 	 *               Single video data array, false if the list was empty, or
 	 *               null when the input is not countable.
 	 */
@@ -237,6 +238,9 @@ class Helpers {
 		$video = self::formatImage( $file, $post_id, $field );
 		// disable nested array
 		$video = is_countable( $video ) ? reset( $video ) : null;
+		if ( is_array( $video ) && [] !== $video ) {
+			$video['codecs'] = ( ! empty( $video['id'] ) && str_starts_with( (string) ( $video['type'] ?? '' ), 'video/' ) ) ? self::videoCodecs( (int) $video['id'] ) : null;
+		}
 		return $video;
 	}
 
@@ -306,6 +310,37 @@ class Helpers {
 		}
 
 		return $sources;
+	}
+
+	/**
+	 * Add an ordered video source cascade to a formatted repeater row.
+	 *
+	 * @param array<string,mixed> $row Formatted repeater row.
+	 * @return array<string,mixed>
+	 */
+	private static function appendVideoSources( array $row ): array {
+		if ( array_key_exists( 'sources', $row ) || empty( $row['video'] ) || ! is_array( $row['video'] ) || empty( $row['video']['src'] ) ) {
+			return $row;
+		}
+
+		$sources = [];
+		foreach ( [ 'video_preview_av1', 'video_preview', 'video' ] as $key ) {
+			if ( empty( $row[ $key ] ) || ! is_array( $row[ $key ] ) || empty( $row[ $key ]['src'] ) ) {
+				continue;
+			}
+
+			$sources[] = [
+				'src' => (string) $row[ $key ]['src'],
+				'type' => isset( $row[ $key ]['type'] ) && '' !== (string) $row[ $key ]['type'] ? (string) $row[ $key ]['type'] : 'video/mp4',
+				'codecs' => isset( $row[ $key ]['codecs'] ) && is_string( $row[ $key ]['codecs'] ) ? $row[ $key ]['codecs'] : null,
+			];
+		}
+
+		if ( [] !== $sources ) {
+			$row['sources'] = $sources;
+		}
+
+		return $row;
 	}
 
 	/**
@@ -1213,6 +1248,9 @@ class Helpers {
 								$sub_fields[ $sub_key ]['value'] = $sub_value;
 								$sub_value = self::fieldFormatter( $sub_fields[ $sub_key ], $post_id, $is_preview );
 							}
+						}
+						if ( 'repeater' === $field['type'] && is_array( $value ) ) {
+							$value = self::appendVideoSources( $value );
 						}
 					} else {
 						if ( isset( $sub_fields[ $key ] ) ) {

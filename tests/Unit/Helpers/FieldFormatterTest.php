@@ -177,6 +177,12 @@ class FieldFormatterTest extends HelpersTestCase {
 	public function test_gallery_with_mixed_types(): void {
 		Functions\when( 'size_format' )->justReturn( '2 MB' );
 		Functions\when( 'wp_get_attachment_image_src' )->justReturn( false );
+		Functions\expect( 'get_post_meta' )
+			->once()
+			->with( 3, '_timber_kit_video_codecs', true )
+			->andReturn( 'none' );
+		Functions\expect( 'get_attached_file' )->never();
+		Functions\expect( 'update_post_meta' )->never();
 
 		$field = [
 			'type'  => 'gallery',
@@ -230,6 +236,7 @@ class FieldFormatterTest extends HelpersTestCase {
 		// video item gets formatted by formatVideo (unwrapped from nested array)
 		$this->assertSame( 3, $result[2]['id'] );
 		$this->assertSame( 'video/mp4', $result[2]['type'] );
+		$this->assertNull( $result[2]['codecs'] );
 	}
 
 	// --- Wysiwyg ---
@@ -658,6 +665,83 @@ class FieldFormatterTest extends HelpersTestCase {
 		$this->assertSame( 42, $result[0]['photo'][0]['id'] );
 	}
 
+	public function test_repeater_with_video_row_appends_sources_after_sub_field_formatting(): void {
+		$field = [
+			'type'       => 'repeater',
+			'sub_fields' => [
+				[ 'name' => 'video_preview_av1', 'type' => 'file' ],
+				[ 'name' => 'video_preview', 'type' => 'file' ],
+				[ 'name' => 'video', 'type' => 'file' ],
+			],
+			'value'      => [
+				[
+					'video_preview_av1' => [
+						'ID'          => 31,
+						'url'         => 'https://example.com/preview-av1.mp4',
+						'mime_type'   => 'video/mp4',
+						'subtype'     => 'mp4',
+						'filename'    => 'preview-av1.mp4',
+						'filesize'    => 1024,
+						'alt'         => '',
+						'caption'     => '',
+						'description' => '',
+					],
+					'video_preview'     => [
+						'ID'          => 32,
+						'url'         => 'https://example.com/preview.mp4',
+						'mime_type'   => 'video/mp4',
+						'subtype'     => 'mp4',
+						'filename'    => 'preview.mp4',
+						'filesize'    => 1024,
+						'alt'         => '',
+						'caption'     => '',
+						'description' => '',
+					],
+					'video'             => [
+						'ID'          => 33,
+						'url'         => 'https://example.com/full.mp4',
+						'mime_type'   => 'video/mp4',
+						'subtype'     => 'mp4',
+						'filename'    => 'full.mp4',
+						'filesize'    => 1024,
+						'alt'         => '',
+						'caption'     => '',
+						'description' => '',
+					],
+				],
+			],
+		];
+
+		Functions\when( 'size_format' )->justReturn( '1 KB' );
+		Functions\when( 'wp_get_attachment_image_src' )->justReturn( false );
+		Functions\expect( 'get_post_meta' )
+			->times( 3 )
+			->andReturn( 'av01.0.00M.08', 'none', 'none' );
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertSame(
+			[
+				[
+					'src' => 'https://example.com/preview-av1.mp4',
+					'type' => 'video/mp4',
+					'codecs' => 'av01.0.00M.08',
+				],
+				[
+					'src' => 'https://example.com/preview.mp4',
+					'type' => 'video/mp4',
+					'codecs' => null,
+				],
+				[
+					'src' => 'https://example.com/full.mp4',
+					'type' => 'video/mp4',
+					'codecs' => null,
+				],
+			],
+			$result[0]['sources']
+		);
+	}
+
 	public function test_group_with_assoc_value(): void {
 		// Group with associative value (isAssoc returns true) — uses the else branch
 		$field = [
@@ -676,6 +760,32 @@ class FieldFormatterTest extends HelpersTestCase {
 
 		$this->assertSame( 'Hello', $result['heading'] );
 		$this->assertSame( 'World', $result['content'] );
+	}
+
+	public function test_group_assoc_value_does_not_append_video_sources(): void {
+		$field = [
+			'type'       => 'group',
+			'sub_fields' => [
+				[ 'name' => 'video_preview_av1', 'type' => 'text' ],
+				[ 'name' => 'video', 'type' => 'text' ],
+			],
+			'value'      => [
+				'video_preview_av1' => [
+					'src' => 'https://example.com/preview-av1.mp4',
+					'type' => 'video/mp4',
+					'codecs' => 'av01.0.00M.08',
+				],
+				'video'             => [
+					'src' => 'https://example.com/full.mp4',
+					'type' => 'video/mp4',
+					'codecs' => null,
+				],
+			],
+		];
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertArrayNotHasKey( 'sources', $result );
 	}
 
 	public function test_group_with_sequential_rows(): void {
