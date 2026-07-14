@@ -15,8 +15,8 @@ class VideoCodecsTest extends TestCase {
 	 */
 	public static function provideFixtureCodecs(): array {
 		return [
-			'av1 8-bit mp4' => [ 'av1-8bit.mp4', 'video/mp4; codecs="av01.0.00M.08"' ],
-			'av1 10-bit mp4' => [ 'av1-10bit.mp4', 'video/mp4; codecs="av01.0.00M.10"' ],
+			'av1 8-bit mp4' => [ 'av1-8bit.mp4', 'av01.0.00M.08' ],
+			'av1 10-bit mp4' => [ 'av1-10bit.mp4', 'av01.0.00M.10' ],
 			'h264 mp4' => [ 'h264.mp4', null ],
 			'av1 webm' => [ 'av1.webm', null ],
 			'truncated mp4' => [ 'truncated.mp4', null ],
@@ -27,7 +27,7 @@ class VideoCodecsTest extends TestCase {
 	public function test_parses_fixture_codecs( string $filename, ?string $expected ): void {
 		$this->assertSame(
 			$expected,
-			VideoCodecs::sourceType( dirname( __DIR__ ) . '/Fixtures/video/' . $filename )
+			VideoCodecs::codecsString( dirname( __DIR__ ) . '/Fixtures/video/' . $filename )
 		);
 	}
 
@@ -38,8 +38,8 @@ class VideoCodecsTest extends TestCase {
 		} );
 
 		try {
-			$this->assertNull( VideoCodecs::sourceType( dirname( __DIR__ ) . '/Fixtures/video/missing.mp4' ) );
-			$this->assertNull( VideoCodecs::sourceType( __FILE__ ) );
+			$this->assertNull( VideoCodecs::codecsString( dirname( __DIR__ ) . '/Fixtures/video/missing.mp4' ) );
+			$this->assertNull( VideoCodecs::codecsString( __FILE__ ) );
 		} finally {
 			restore_error_handler();
 			error_reporting( $prevLevel );

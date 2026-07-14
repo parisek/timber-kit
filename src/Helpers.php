@@ -241,58 +241,52 @@ class Helpers {
 	}
 
 	/**
-	 * Resolve a video attachment's `<source type>` value.
+	 * Resolve a video attachment's bare RFC 6381 codecs string.
 	 *
-	 * AV1 MP4 attachments include their RFC 6381 codec string when it can be
-	 * derived from the local file. Other videos fall back to their stored
-	 * WordPress/ACF mime type, then `video/mp4`.
+	 * Returns e.g. `av01.0.01M.08` for AV1 MP4 attachments (derived from the
+	 * file's `av1C` box), or null when no codecs string applies (non-AV1 MP4,
+	 * WebM, unresolvable file). Deliberately separate from the mime type: the
+	 * mime stays a plain comparable value and the codecs value stays
+	 * independently inspectable; templates compose the attribute themselves —
+	 * `type='video/mp4; codecs="…"'`, single-quoted because the composed
+	 * value embeds double quotes.
 	 *
-	 * The computed value is cached in attachment meta on first use. This v1
-	 * cache is intentionally simple: replacing the underlying file does not
-	 * invalidate the meta automatically, so callers must clear
-	 * `_timber_kit_video_source_type` when regenerating attachments in place.
+	 * The computed value is cached in attachment meta on first use (`none`
+	 * sentinel for negative results). This v1 cache is intentionally simple:
+	 * replacing the underlying file does not invalidate the meta
+	 * automatically, so callers must clear `_timber_kit_video_codecs` when
+	 * regenerating attachments in place.
 	 *
 	 * @param int|array<string,mixed> $attachment Attachment ID or ACF file-field array.
 	 */
-	public static function videoSourceType( int|array $attachment ): string {
+	public static function videoCodecs( int|array $attachment ): ?string {
 		$attachment_id = is_int( $attachment ) ? $attachment : ( isset( $attachment['ID'] ) && is_numeric( $attachment['ID'] ) ? (int) $attachment['ID'] : 0 );
-		$array_mime = is_array( $attachment ) && isset( $attachment['mime_type'] ) ? (string) $attachment['mime_type'] : '';
-
-		if ( $attachment_id > 0 ) {
-			$cached = get_post_meta( $attachment_id, '_timber_kit_video_source_type', true );
-			if ( is_string( $cached ) && '' !== $cached ) {
-				return $cached;
-			}
+		if ( $attachment_id <= 0 ) {
+			return null;
 		}
 
-		$path = $attachment_id > 0 ? get_attached_file( $attachment_id ) : false;
-		$type = is_string( $path ) ? VideoCodecs::sourceType( $path ) : null;
-
-		if ( null === $type ) {
-			$type = '' !== $array_mime ? $array_mime : '';
+		$cached = get_post_meta( $attachment_id, '_timber_kit_video_codecs', true );
+		if ( is_string( $cached ) && '' !== $cached ) {
+			return 'none' === $cached ? null : $cached;
 		}
 
-		if ( '' === $type && $attachment_id > 0 ) {
-			$post_mime = get_post_mime_type( $attachment_id );
-			$type = is_string( $post_mime ) && '' !== $post_mime ? $post_mime : '';
-		}
+		$path = get_attached_file( $attachment_id );
+		$codecs = is_string( $path ) ? VideoCodecs::codecsString( $path ) : null;
 
-		if ( '' === $type ) {
-			$type = 'video/mp4';
-		}
+		update_post_meta( $attachment_id, '_timber_kit_video_codecs', $codecs ?? 'none' );
 
-		if ( $attachment_id > 0 ) {
-			update_post_meta( $attachment_id, '_timber_kit_video_source_type', $type );
-		}
-
-		return $type;
+		return $codecs;
 	}
 
 	/**
 	 * Normalise ordered ACF video variants into `<source>` dictionaries.
 	 *
+	 * `type` is the variant's plain mime (default `video/mp4`); `codecs` is
+	 * the bare RFC 6381 string from {@see videoCodecs()} or null. Templates
+	 * compose the attribute: `type='{{ type }}{% if codecs %}; codecs="{{ codecs }}"{% endif %}'`.
+	 *
 	 * @param array<int, array<string,mixed>|null|false> $variants Ordered ACF file arrays.
-	 * @return array<int, array{src: string, type: string}>
+	 * @return array<int, array{src: string, type: string, codecs: string|null}>
 	 */
 	public static function formatVideoSources( array $variants ): array {
 		$sources = [];
@@ -302,9 +296,12 @@ class Helpers {
 				continue;
 			}
 
+			$mime = isset( $variant['mime_type'] ) && '' !== (string) $variant['mime_type'] ? (string) $variant['mime_type'] : 'video/mp4';
+
 			$sources[] = [
 				'src' => (string) $variant['url'],
-				'type' => self::videoSourceType( $variant ),
+				'type' => $mime,
+				'codecs' => self::videoCodecs( $variant ),
 			];
 		}
 
