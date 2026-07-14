@@ -241,6 +241,77 @@ class Helpers {
 	}
 
 	/**
+	 * Resolve a video attachment's `<source type>` value.
+	 *
+	 * AV1 MP4 attachments include their RFC 6381 codec string when it can be
+	 * derived from the local file. Other videos fall back to their stored
+	 * WordPress/ACF mime type, then `video/mp4`.
+	 *
+	 * The computed value is cached in attachment meta on first use. This v1
+	 * cache is intentionally simple: replacing the underlying file does not
+	 * invalidate the meta automatically, so callers must clear
+	 * `_timber_kit_video_source_type` when regenerating attachments in place.
+	 *
+	 * @param int|array<string,mixed> $attachment Attachment ID or ACF file-field array.
+	 */
+	public static function videoSourceType( int|array $attachment ): string {
+		$attachment_id = is_int( $attachment ) ? $attachment : ( isset( $attachment['ID'] ) && is_numeric( $attachment['ID'] ) ? (int) $attachment['ID'] : 0 );
+		$array_mime = is_array( $attachment ) && isset( $attachment['mime_type'] ) ? (string) $attachment['mime_type'] : '';
+
+		if ( $attachment_id > 0 ) {
+			$cached = get_post_meta( $attachment_id, '_timber_kit_video_source_type', true );
+			if ( is_string( $cached ) && '' !== $cached ) {
+				return $cached;
+			}
+		}
+
+		$path = $attachment_id > 0 ? get_attached_file( $attachment_id ) : false;
+		$type = is_string( $path ) ? VideoCodecs::sourceType( $path ) : null;
+
+		if ( null === $type ) {
+			$type = '' !== $array_mime ? $array_mime : '';
+		}
+
+		if ( '' === $type && $attachment_id > 0 ) {
+			$post_mime = get_post_mime_type( $attachment_id );
+			$type = is_string( $post_mime ) && '' !== $post_mime ? $post_mime : '';
+		}
+
+		if ( '' === $type ) {
+			$type = 'video/mp4';
+		}
+
+		if ( $attachment_id > 0 ) {
+			update_post_meta( $attachment_id, '_timber_kit_video_source_type', $type );
+		}
+
+		return $type;
+	}
+
+	/**
+	 * Normalise ordered ACF video variants into `<source>` dictionaries.
+	 *
+	 * @param array<int, array<string,mixed>|null|false> $variants Ordered ACF file arrays.
+	 * @return array<int, array{src: string, type: string}>
+	 */
+	public static function formatVideoSources( array $variants ): array {
+		$sources = [];
+
+		foreach ( $variants as $variant ) {
+			if ( empty( $variant ) || ! is_array( $variant ) || empty( $variant['url'] ) ) {
+				continue;
+			}
+
+			$sources[] = [
+				'src' => (string) $variant['url'],
+				'type' => self::videoSourceType( $variant ),
+			];
+		}
+
+		return $sources;
+	}
+
+	/**
 	 * Normalise a list of Timber Term objects into a flat array structure.
 	 *
 	 * Each term is represented as an associative array. Children are resolved
