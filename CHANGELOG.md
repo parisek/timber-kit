@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- Drupal-style update runner (`wp timber-kit updates status|run`) for run-once content/data migrations discovered from theme-wide and component-local `updates/NNNN-slug.php` files. Updates use `<component>:<NNNN>` ids, record completions in the autoload-off `timber_kit_updates_applied` option, support `--dry-run`, `--component`, and `--only`, and include WPML-aware block transforms that fan out across translations; intended as the WordPress/Timber `drush updb` analog for deploy-time data shape changes.
+
 ## [1.21.0] - 2026-07-14
 
 ### Changed

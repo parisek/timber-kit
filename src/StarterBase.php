@@ -539,6 +539,7 @@ class StarterBase extends Site {
 
 		\WP_CLI::add_command( 'timber-kit prune-originals', \Parisek\TimberKit\Cli\PruneOriginalsCommand::class );
 		\WP_CLI::add_command( 'timber-kit convert-utf8mb4', \Parisek\TimberKit\Cli\ConvertUtf8mb4Command::class );
+		\WP_CLI::add_command( 'timber-kit updates', \Parisek\TimberKit\Cli\UpdatesCommand::class );
 	}
 
 	/**
