@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.23.0] - 2026-07-14
+
 ### Added
 
 - Native always-on video enrichment in `formatFields`: formatted video file values now include additive `codecs` keys, and repeater rows carrying a video now receive an additive `sources` cascade. Existing keys stay unchanged, `sources` never overwrites an existing key, and this supersedes the opt-in flag design discussed in #82.
