@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.23.1] - 2026-07-15
+
 ### Fixed
 
 - `UpdateContext::transformBlocks()` now passes `wp_slash()`ed content to `wp_update_post()`. Without it, `wp_update_post()`'s internal `wp_unslash()` stripped every backslash from the serialized block JSON, so `\u003c`/`\u0026` escapes in ACF block attributes rendered as literal `u003c`/`u0026` text on the front end after any block-data migration (hit in production on mairateam, 2026-07-15). Regression test included.
