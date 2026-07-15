@@ -66,7 +66,11 @@ class UpdateContext {
 				$result = wp_update_post(
 					[
 						'ID'           => $translation['post']->ID,
-						'post_content' => $changed,
+						// wp_update_post() runs wp_unslash() on its input; raw
+						// serialized block JSON would lose every backslash
+						// (\\u003c escapes render as literal "u003c" on the
+						// front end), so the content must go in slashed.
+						'post_content' => wp_slash( $changed ),
 					],
 					true
 				);
