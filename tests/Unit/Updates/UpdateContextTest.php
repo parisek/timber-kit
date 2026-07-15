@@ -47,6 +47,39 @@ class UpdateContextTest extends TestCase {
 		$this->assertStringContainsString( 'Old!', $writes[0]['post']['post_content'] );
 	}
 
+	public function test_transform_blocks_slashes_content_before_wp_update_post(): void {
+		// Regression (mairateam 2026-07-15): wp_update_post() unslashes
+		// post_content, so serialized block JSON written without wp_slash()
+		// loses every backslash - \u003c escapes render as literal "u003c"
+		// on the front end. The runner must hand wp_update_post slashed content.
+		$writes = [];
+		Functions\when( 'get_post' )->justReturn( new \WP_Post( [ 'ID' => 10, 'post_type' => 'page', 'post_content' => '<!-- old -->' ] ) );
+		Functions\when( 'apply_filters' )->alias( static fn ( string $filter, mixed $default ) => $default );
+		Functions\when( 'parse_blocks' )->justReturn( [
+			[ 'blockName' => 'acf/card', 'attrs' => [ 'data' => [ 'title' => 'Old' ] ], 'innerBlocks' => [] ],
+		] );
+		Functions\when( 'serialize_blocks' )->justReturn( '<!-- wp:acf/card {"perex":"a \\u003cstrong\\u003eb\\u003c/strong\\u003e"} /-->' );
+		Functions\when( 'wp_slash' )->alias( static fn ( string $value ): string => addslashes( $value ) );
+		Functions\when( 'wp_update_post' )->alias(
+			function ( array $post, bool $wp_error ) use ( &$writes ): int {
+				$writes[] = $post;
+				return (int) $post['ID'];
+			}
+		);
+
+		( new UpdateContext( false ) )->transformBlocks(
+			'acf/card',
+			static fn ( array $data ): array => [ 'title' => 'New' ],
+			[ 10 ]
+		);
+
+		$this->assertSame(
+			addslashes( '<!-- wp:acf/card {"perex":"a \\u003cstrong\\u003eb\\u003c/strong\\u003e"} /-->' ),
+			$writes[0]['post_content'],
+			'post_content must be wp_slash()ed so wp_update_post\'s unslash restores the original'
+		);
+	}
+
 	public function test_transform_blocks_fans_out_wpml_translations_with_languages(): void {
 		$seen = [];
 		Functions\when( 'get_post' )->alias( static fn ( int $id ): \WP_Post => new \WP_Post( [ 'ID' => $id, 'post_type' => 'page', 'post_content' => '' ] ) );
