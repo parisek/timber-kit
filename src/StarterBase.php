@@ -351,6 +351,22 @@ class StarterBase extends Site {
 	protected bool $wpml_block_override = false;
 
 	/**
+	 * Downgrade empty translatable fields to copy-only in WPML translation job
+	 * packages (`wpml_tm_translation_job_data`). ATE turns empty source
+	 * segments into trans-units the translator cannot see or fill, exports
+	 * them without a `<target>` element, and WPML then rejects the whole XLIFF
+	 * on delivery ("The uploaded xliff file does not seem to be properly
+	 * formed. Missing or wrong data: target") — the completed translation
+	 * silently never applies. Typical producers: an ACF `link` field's empty
+	 * `target` sub-key when the field is set to translate, and an empty post
+	 * excerpt. Opt-in (default off) per the feature-flag doctrine; harmless
+	 * without WPML — the filter simply never fires.
+	 *
+	 * @var bool
+	 */
+	protected bool $wpml_skip_empty_translation_job_fields = false;
+
+	/**
 	 * Clear the whole Breeze page cache when a nav menu is saved
 	 * (`wp_update_nav_menu`), mirroring the existing options-save behavior in
 	 * {@see clear_cache_on_options_save()}. Menus render on every page, so a
@@ -695,6 +711,9 @@ class StarterBase extends Site {
 		add_filter( 'wpcf7_autop_or_not', '__return_false' );
 		if ( $this->clear_cache_on_menu_update ) {
 			add_action( 'wp_update_nav_menu', array( $this, 'clear_cache_on_menu_update' ) );
+		}
+		if ( $this->wpml_skip_empty_translation_job_fields ) {
+			add_filter( 'wpml_tm_translation_job_data', array( $this, 'wpml_skip_empty_translation_job_fields' ) );
 		}
 	}
 
@@ -2236,6 +2255,52 @@ class StarterBase extends Site {
 		if ( has_action( 'breeze_clear_all_cache' ) ) {
 			do_action( 'breeze_clear_all_cache' );
 		}
+	}
+
+	/**
+	 * Downgrade empty translatable fields to copy-only before a WPML
+	 * translation job is created.
+	 *
+	 * An empty source segment has nothing to translate, but ATE still emits a
+	 * trans-unit for it — hidden from the translator, exported without a
+	 * `<target>` element — and WPML's delivery validation then rejects the
+	 * entire XLIFF, so the completed translation never applies. Flipping
+	 * `translate` to 0 keeps the field in the job as copy-only: empty stays
+	 * empty in the target language and no broken trans-unit is produced.
+	 *
+	 * Gated behind the `$wpml_skip_empty_translation_job_fields` flag
+	 * (default off).
+	 *
+	 * Hooked to `wpml_tm_translation_job_data`.
+	 *
+	 * @param mixed $package Translation job package with a `contents` array of
+	 *                       field name => {translate, data, format?} entries.
+	 * @return mixed Package with empty translatable fields set to copy-only.
+	 */
+	public function wpml_skip_empty_translation_job_fields( $package ) {
+		if ( ! is_array( $package ) || ! isset( $package['contents'] ) || ! is_array( $package['contents'] ) ) {
+			return $package;
+		}
+
+		foreach ( $package['contents'] as $name => $field ) {
+			if ( ! is_array( $field ) || empty( $field['translate'] ) ) {
+				continue;
+			}
+
+			$data = (string) ( $field['data'] ?? '' );
+			if ( isset( $field['format'] ) && 'base64' === $field['format'] ) {
+				$decoded = base64_decode( $data, true );
+				if ( false !== $decoded ) {
+					$data = $decoded;
+				}
+			}
+
+			if ( '' === trim( $data ) ) {
+				$package['contents'][ $name ]['translate'] = 0;
+			}
+		}
+
+		return $package;
 	}
 
 	/**
