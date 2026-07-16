@@ -46,6 +46,33 @@ class PreferenceSyncPlanTest extends TestCase {
 		$this->assertSame( [], $plan->summary()['unresolvable'] );
 	}
 
+	public function test_non_string_companion_value_is_ignored_without_notices(): void {
+		$plan = $this->plan( [
+			'field_abc' => [ 'name' => 'title', 'wpml_cf_preferences' => 2 ],
+		] );
+
+		$plan->collect( [
+			'broken'  => [ 'v' ],
+			'_broken' => [ [ 'field_abc' ] ],
+		] );
+
+		$this->assertSame( [], $plan->patch( [] ) );
+		$this->assertSame( [], $plan->summary()['unresolvable'] );
+	}
+
+	public function test_registers_dont_translate_preference_explicitly(): void {
+		$plan = $this->plan( [
+			'field_internal' => [ 'name' => 'internal_note', 'wpml_cf_preferences' => 0 ],
+		] );
+
+		$plan->collect( [
+			'internal_note'  => [ 'v' ],
+			'_internal_note' => [ 'field_internal' ],
+		] );
+
+		$this->assertSame( PreferenceSyncPlan::PREF_IGNORE, $plan->patch( [] )['internal_note'] );
+	}
+
 	public function test_counts_unresolvable_fields_without_registering(): void {
 		$plan = $this->plan( [
 			'field_nopref' => [ 'name' => 'perex' ],

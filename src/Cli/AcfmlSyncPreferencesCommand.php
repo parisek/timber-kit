@@ -134,8 +134,9 @@ class AcfmlSyncPreferencesCommand {
 		}
 
 		// Patch-only merge: touch exactly the computed keys, never rebuild or
-		// prune the dictionary — concurrent writers (ACFML events, admin saves)
-		// keep their entries.
+		// prune the dictionary. save_settings() still persists the whole
+		// settings snapshot loaded at bootstrap, so a write racing within the
+		// same request window can be lost — acceptable for a deploy step.
 		foreach ( $patch as $key => $pref ) {
 			$iclTranslationManagement->settings['custom_fields_translation'][ $key ] = $pref;
 		}

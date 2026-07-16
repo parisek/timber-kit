@@ -72,8 +72,8 @@ class PreferenceSyncPlan {
 				continue;
 			}
 
-			$field_key = isset( $meta[ '_' . $key ][0] ) ? (string) $meta[ '_' . $key ][0] : '';
-			if ( ! str_starts_with( $field_key, 'field_' ) ) {
+			$field_key = $meta[ '_' . $key ][0] ?? '';
+			if ( ! is_string( $field_key ) || ! str_starts_with( $field_key, 'field_' ) ) {
 				continue;
 			}
 
