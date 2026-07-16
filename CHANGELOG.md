@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.25.0] - 2026-07-16
+
 ### Added
 
 - `wp timber-kit acfml-sync-preferences` deploy-time command reconciling WPML's `custom_fields_translation` dictionary with ACF field definitions: walks postmeta of translatable post types, resolves each key via its `_<key>` field-key companion, and registers the exact key with the definition's `wpml_cf_preferences`. Closes the ACFML materialisation gap where programmatically-written meta (importers, WPML duplication, direct writes) never reaches translation jobs (hit in production on fellows, 2026-07-16 — an entire flexible content of ~47 translatable fields per post missing from every job). Dry-run by default (`--apply` to write), idempotent, patch-only merge, conflicting preferences reported and skipped. Note: applying newly-translatable keys flags affected translations as needing update via WPML's ProcessNewTranslatableFields — the intended surfacing of the invisible backlog.
