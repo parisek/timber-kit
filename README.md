@@ -301,6 +301,41 @@ add_filter( 'timber_kit/wpml_block_override/copy_fields', function ( $copy_field
 
 **Reordered duplicate blocks / rows.** Both same-named blocks and a repeater's rows within a matched block are paired by position, relying on source and translation sharing the same order and count. Add/remove is guarded at **both** levels — if the counts of a block name differ, that name is skipped; if a repeater's row count differs between source and translation, that nested field is skipped (no-op). The one unguarded case is an *equal-count manual swap*: a translation edited independently (not through ATE, which rebuilds from the source and preserves order) where two same-named blocks — or two rows of the same repeater — are reordered without changing the count. Positional matching would then apply one instance's Copy value to the other. There is no stable per-instance id in `post_content` to detect this, and the blast radius is bounded — a Copy value from a sibling of the *same type*, read-time only (no DB writes). If you reorder duplicate blocks or rows in a translation independently, re-run it through the WPML translation editor to restore source order.
 
+### ACFML preference sync
+
+WPML packs custom fields into translation jobs by **exact meta-key lookup**
+against one global dictionary (`custom_fields_translation` in
+`icl_sitepress_settings`). ACFML fills that dictionary only event-driven — on
+admin field-group save (never fires for JSON-only groups) or on value save
+through the ACF pipeline (the only producer of indexed keys like
+`blocks_0_items_1_title`). ACF meta written **programmatically** (importers,
+WPML post duplication, direct `update_post_meta()`) therefore never gets
+dictionary entries and is silently excluded from translation jobs, even when
+every field declares a correct `wpml_cf_preferences` in its JSON definition.
+
+`wp timber-kit acfml-sync-preferences` reconciles the dictionary with the
+code-defined truth: it walks existing postmeta, resolves each key's field
+definition via the `_<key>` field-key companion, and registers the **exact**
+key with the definition's preference — the same result a manual admin re-save
+of every post would produce. Intended as a deploy step after
+`wp timber-kit updates`.
+
+```bash
+wp timber-kit acfml-sync-preferences                          # dry-run report
+wp timber-kit acfml-sync-preferences --apply                  # write the entries
+wp timber-kit acfml-sync-preferences --apply --post_type=room_type
+```
+
+Dry-run by default; idempotent (a second run writes nothing); patch-only merge
+(never rebuilds or prunes the dictionary, existing `_<key>` companion entries
+are never overwritten). Keys resolving to **different** preferences across
+posts are reported as conflicts and skipped — never guessed. Scope is postmeta
+of the current site; on multisite run per-site via `wp --url=…`.
+
+Applying newly-translatable keys triggers WPML's ProcessNewTranslatableFields
+background task — affected translations get flagged as needing update, which
+is the point: translators see the previously invisible backlog.
+
 ## Usage
 
 Create a `Base` class in your theme that extends `StarterBase`:

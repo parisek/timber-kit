@@ -9,6 +9,8 @@ parameters:
     scanDirectories:
         - vendor/
     treatPhpDocTypesAsCertain: false
+    stubFiles:
+        - phpstan-stubs/wpml.stub
     reportUnmatchedIgnoredErrors: false
     ignoreErrors:
         - '#Offset .relative. does not exist on array#'
