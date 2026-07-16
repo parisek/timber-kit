@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `$wpml_skip_empty_translation_job_fields` StarterBase flag (**default on** — a deliberate exception to the default-off flag doctrine, same as `$clear_cache_on_menu_update`): downgrades empty translatable fields to copy-only in WPML translation job packages via `wpml_tm_translation_job_data`. Empty source segments (an ACF `link` field's empty `target` sub-key marked translatable, an empty excerpt) become hidden ATE trans-units the translator cannot fill; ATE exports them without a `<target>` element and WPML rejects the whole XLIFF on delivery with "The uploaded xliff file does not seem to be properly formed. Missing or wrong data: target", so the completed translation silently never applies (hit in production on fellows, 2026-07-16). Default-off would make every consumer rediscover the silent loss independently; an empty field has nothing to translate, so no translator work is removed. Opt out with `false` in the project's `Base` if a project fills targets for intentionally empty sources in the classic (non-ATE) editor.
+
 ## [1.23.1] - 2026-07-15
 
 ### Fixed
