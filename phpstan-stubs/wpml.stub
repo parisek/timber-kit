@@ -1,0 +1,30 @@
+<?php
+
+/**
+ * Minimal WPML core surface used by timber-kit — no published stub package
+ * exists for sitepress-multilingual-cms (cf. the WP_CLI ignore in
+ * phpstan.neon). Only the members actually consumed are declared.
+ */
+
+class TranslationManagement {
+
+	/** @var array<string, mixed> */
+	public $settings = array();
+
+	/**
+	 * @return void
+	 */
+	public function save_settings() {
+	}
+}
+
+class SitePress {
+
+	/**
+	 * @param bool $include_not_synced
+	 * @return array<string, object>
+	 */
+	public function get_translatable_documents( $include_not_synced = false ) {
+		return array();
+	}
+}
