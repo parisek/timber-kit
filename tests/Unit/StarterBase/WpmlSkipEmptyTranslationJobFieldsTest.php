@@ -9,7 +9,7 @@ use Parisek\TimberKit\StarterBase;
 use Tests\Unit\StarterBaseTestCase;
 
 /**
- * Covers the opt-in `$wpml_skip_empty_translation_job_fields` flag: hook wiring
+ * Covers the `$wpml_skip_empty_translation_job_fields` flag (default on): hook wiring
  * inside registerMiscHooks() and the wpml_tm_translation_job_data callback that
  * downgrades empty translatable fields to copy-only.
  *
@@ -25,14 +25,30 @@ class WpmlSkipEmptyTranslationJobFieldsTest extends StarterBaseTestCase {
 		$method->invoke( $instance );
 	}
 
-	private function bareInstance( bool $flag = false ): StarterBase {
+	private function bareInstance( ?bool $flag = null ): StarterBase {
 		$instance = ( new \ReflectionClass( StarterBase::class ) )->newInstanceWithoutConstructor();
-		$property = ( new \ReflectionClass( StarterBase::class ) )->getProperty( 'wpml_skip_empty_translation_job_fields' );
-		$property->setValue( $instance, $flag );
+		if ( null !== $flag ) {
+			$property = ( new \ReflectionClass( StarterBase::class ) )->getProperty( 'wpml_skip_empty_translation_job_fields' );
+			$property->setValue( $instance, $flag );
+		}
 		return $instance;
 	}
 
-	public function test_filter_not_registered_when_flag_off(): void {
+	public function test_filter_registered_by_default(): void {
+		$callbacks = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, $callback, ...$rest ) use ( &$callbacks ) {
+			$callbacks[ $hook ] = $callback;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstance();
+		$this->invokeRegisterMiscHooks( $instance );
+
+		$this->assertArrayHasKey( 'wpml_tm_translation_job_data', $callbacks );
+		$this->assertSame( [ $instance, 'wpml_skip_empty_translation_job_fields' ], $callbacks['wpml_tm_translation_job_data'] );
+	}
+
+	public function test_filter_not_registered_when_flag_opted_out(): void {
 		$filters = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
 			$filters[] = $hook;
@@ -42,20 +58,6 @@ class WpmlSkipEmptyTranslationJobFieldsTest extends StarterBaseTestCase {
 		$this->invokeRegisterMiscHooks( $this->bareInstance( false ) );
 
 		$this->assertNotContains( 'wpml_tm_translation_job_data', $filters );
-	}
-
-	public function test_filter_registered_when_flag_on(): void {
-		$callbacks = [];
-		Functions\when( 'add_filter' )->alias( function ( $hook, $callback, ...$rest ) use ( &$callbacks ) {
-			$callbacks[ $hook ] = $callback;
-		} );
-		Functions\when( 'add_action' )->justReturn( true );
-
-		$instance = $this->bareInstance( true );
-		$this->invokeRegisterMiscHooks( $instance );
-
-		$this->assertArrayHasKey( 'wpml_tm_translation_job_data', $callbacks );
-		$this->assertSame( [ $instance, 'wpml_skip_empty_translation_job_fields' ], $callbacks['wpml_tm_translation_job_data'] );
 	}
 
 	public function test_empty_base64_translatable_field_is_downgraded_to_copy(): void {

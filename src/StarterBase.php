@@ -359,12 +359,20 @@ class StarterBase extends Site {
 	 * formed. Missing or wrong data: target") — the completed translation
 	 * silently never applies. Typical producers: an ACF `link` field's empty
 	 * `target` sub-key when the field is set to translate, and an empty post
-	 * excerpt. Opt-in (default off) per the feature-flag doctrine; harmless
-	 * without WPML — the filter simply never fires.
+	 * excerpt.
+	 *
+	 * Default ON — a deliberate exception to the default-off flag doctrine:
+	 * the default-off state is the harmful one (every consumer rediscovers a
+	 * silent loss of completed ATE translations independently), an empty field
+	 * has nothing to translate so no translator work is removed, and rendered
+	 * output is unchanged — empty stays empty. The only sacrificed edge case
+	 * is filling a target for an intentionally empty source in the classic
+	 * (non-ATE) editor; opt out with `false` in the project's `Base` if a
+	 * project relies on that. No-ops without WPML — the filter never fires.
 	 *
 	 * @var bool
 	 */
-	protected bool $wpml_skip_empty_translation_job_fields = false;
+	protected bool $wpml_skip_empty_translation_job_fields = true;
 
 	/**
 	 * Clear the whole Breeze page cache when a nav menu is saved
@@ -2269,7 +2277,7 @@ class StarterBase extends Site {
 	 * empty in the target language and no broken trans-unit is produced.
 	 *
 	 * Gated behind the `$wpml_skip_empty_translation_job_fields` flag
-	 * (default off).
+	 * (default on).
 	 *
 	 * Hooked to `wpml_tm_translation_job_data`.
 	 *
