@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `$wpml_theme_domain_authoritative` StarterBase flag (**default on**, same deliberate exception as `$wpml_skip_empty_translation_job_fields`): keeps the theme's gettext text-domain authoritative over WPML String Translation by runtime-injecting it into `icl_sitepress_settings['st']['wpml_st_auto_reg_excluded_contexts']` via a filter on `option_icl_sitepress_settings` — no `update_option()` write, nothing persisted. Without it, WPML ST scans the theme's compiled `.mo`, registers every string, and compiles its own overriding `wp-content/languages/wpml/<domain>-<locale>.mo` that WPML's Just-In-Time MO loader serves instead of the theme's own `.mo` — so editing the theme's `.po` and rebuilding has no visible effect, the corrected string keeps rendering its stale WPML-compiled value (hit in production on fellows, 2026-07-20). No-ops without WPML. Opt out with `false` in the project's `Base` if a project wants translators managing theme strings through WPML ST instead of the `.po`/`.mo` pipeline.
+
 ## [1.25.0] - 2026-07-16
 
 ### Added

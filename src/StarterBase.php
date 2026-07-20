@@ -375,6 +375,38 @@ class StarterBase extends Site {
 	protected bool $wpml_skip_empty_translation_job_fields = true;
 
 	/**
+	 * Keep the theme's gettext text-domain authoritative over WPML String
+	 * Translation. WPML ST scans the theme's compiled `.mo`, registers every
+	 * string it finds, and then compiles its own overriding
+	 * `wp-content/languages/wpml/<domain>-<locale>.mo` — which WPML's
+	 * Just-In-Time MO loader loads *instead of* the theme's own `.mo` at
+	 * runtime. That silently desyncs the theme's `.po` source of truth:
+	 * editing the `.po` and rebuilding the `.mo` has no visible effect,
+	 * because WPML's separately-compiled `.mo` still wins (observed in
+	 * production — a corrected string kept rendering its stale value).
+	 *
+	 * The fix runtime-injects the theme's text-domain into
+	 * `icl_sitepress_settings['st']['wpml_st_auto_reg_excluded_contexts']`
+	 * via a filter on `option_icl_sitepress_settings` — no `update_option()`
+	 * call, nothing persisted to the database. A domain in that list is (a)
+	 * excluded from WPML ST auto-registration, and (b) skipped by WPML's
+	 * Just-In-Time `.mo` loader, so the theme's own `load_theme_textdomain()`
+	 * call serves its `.mo` directly and stays the single source of truth.
+	 *
+	 * Default ON — a deliberate exception to the default-off flag doctrine:
+	 * the theme's `.po`/`.mo` pair is already version-controlled and
+	 * dev-managed, so WPML ST managing the same strings a second time is
+	 * pure redundancy with a silent-override failure mode. No-ops without
+	 * WPML — `option_icl_sitepress_settings` is simply never read. Opt out
+	 * with `false` in the project's `Base` if a project deliberately wants
+	 * translators to manage theme strings through WPML ST instead of the
+	 * `.po`/`.mo` pipeline.
+	 *
+	 * @var bool
+	 */
+	protected bool $wpml_theme_domain_authoritative = true;
+
+	/**
 	 * Clear the whole Breeze page cache when a nav menu is saved
 	 * (`wp_update_nav_menu`), mirroring the existing options-save behavior in
 	 * {@see clear_cache_on_options_save()}. Menus render on every page, so a
@@ -554,6 +586,13 @@ class StarterBase extends Site {
 	 * originals — a deliberate opt-in sweep, never an on-upload hook. See
 	 * {@see \Parisek\TimberKit\OriginalImagePruner}.
 	 *
+	 * `timber-kit wpml-cleanup-theme-domain` is the companion cleanup for
+	 * `$wpml_theme_domain_authoritative` — it purges the WPML String
+	 * Translation rows and compiled `.mo`/`.l10n.php`/`.json` files that were
+	 * already registered for the theme's domain before the exclusion took
+	 * effect. See
+	 * {@see \Parisek\TimberKit\Cli\WpmlCleanupThemeDomainCommand}.
+	 *
 	 * @return void
 	 */
 	private function registerCliCommands(): void {
@@ -565,6 +604,7 @@ class StarterBase extends Site {
 		\WP_CLI::add_command( 'timber-kit convert-utf8mb4', \Parisek\TimberKit\Cli\ConvertUtf8mb4Command::class );
 		\WP_CLI::add_command( 'timber-kit updates', \Parisek\TimberKit\Cli\UpdatesCommand::class );
 		\WP_CLI::add_command( 'timber-kit acfml-sync-preferences', \Parisek\TimberKit\Cli\AcfmlSyncPreferencesCommand::class );
+		\WP_CLI::add_command( 'timber-kit wpml-cleanup-theme-domain', \Parisek\TimberKit\Cli\WpmlCleanupThemeDomainCommand::class );
 	}
 
 	/**
@@ -723,6 +763,9 @@ class StarterBase extends Site {
 		}
 		if ( $this->wpml_skip_empty_translation_job_fields ) {
 			add_filter( 'wpml_tm_translation_job_data', array( $this, 'wpml_skip_empty_translation_job_fields' ) );
+		}
+		if ( $this->wpml_theme_domain_authoritative ) {
+			add_filter( 'option_icl_sitepress_settings', array( $this, 'wpml_exclude_theme_domain_from_st' ) );
 		}
 	}
 
@@ -2310,6 +2353,51 @@ class StarterBase extends Site {
 		}
 
 		return $package;
+	}
+
+	/**
+	 * Runtime-inject the theme's text-domain into WPML String Translation's
+	 * excluded-contexts list so WPML neither registers the theme's strings
+	 * nor compiles an overriding `.mo` for them — the theme's own `.po`/`.mo`
+	 * stays the single source of truth. See the
+	 * `$wpml_theme_domain_authoritative` property docblock for the full
+	 * rationale.
+	 *
+	 * Filters the option at read time only — nothing is persisted back to
+	 * the database, so this never calls `get_option()`/`update_option()`
+	 * itself (that would recurse through this same filter and/or write
+	 * unnecessarily on every page load).
+	 *
+	 * No-ops when `$this->theme_name` is empty — an unresolved theme name
+	 * (e.g. `resolveThemeName()` failing before `register()` sets it) must
+	 * never inject a bare `''` into the excluded-contexts list, which would
+	 * excuse WPML from registering *every* domain-less string.
+	 *
+	 * Hooked to `option_icl_sitepress_settings`.
+	 *
+	 * @param mixed $settings The `icl_sitepress_settings` option value.
+	 * @return mixed Settings with the theme's text-domain added to
+	 *               `st.wpml_st_auto_reg_excluded_contexts`.
+	 */
+	public function wpml_exclude_theme_domain_from_st( $settings ) {
+		if ( ! is_array( $settings ) ) {
+			return $settings;
+		}
+
+		if ( ! isset( $settings['st'] ) || ! is_array( $settings['st'] ) ) {
+			$settings['st'] = array();
+		}
+
+		$excluded = isset( $settings['st']['wpml_st_auto_reg_excluded_contexts'] ) && is_array( $settings['st']['wpml_st_auto_reg_excluded_contexts'] )
+			? $settings['st']['wpml_st_auto_reg_excluded_contexts']
+			: array();
+
+		if ( '' !== (string) $this->theme_name && ! in_array( $this->theme_name, $excluded, true ) ) {
+			$excluded[] = $this->theme_name;
+			$settings['st']['wpml_st_auto_reg_excluded_contexts'] = array_values( $excluded );
+		}
+
+		return $settings;
 	}
 
 	/**
