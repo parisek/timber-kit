@@ -81,7 +81,7 @@ class RegisterMiscHooksTest extends StarterBaseTestCase {
 		$this->assertNotContains( 'wp_update_nav_menu', array_column( $actions, 'hook' ) );
 	}
 
-	public function test_registers_exactly_three_filters_by_default(): void {
+	public function test_registers_exactly_four_filters_by_default(): void {
 		$filters = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
 			$filters[] = $hook;
@@ -90,8 +90,34 @@ class RegisterMiscHooksTest extends StarterBaseTestCase {
 		$this->invokeRegisterMiscHooks( $this->bareInstance() );
 
 		$this->assertSame(
-			[ 'run_wptexturize', 'wpcf7_autop_or_not', 'wpml_tm_translation_job_data' ],
+			[ 'run_wptexturize', 'wpcf7_autop_or_not', 'wpml_tm_translation_job_data', 'option_icl_sitepress_settings' ],
 			$filters
 		);
+	}
+
+	public function test_registers_wpml_theme_domain_authoritative_filter_by_default(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$this->invokeRegisterMiscHooks( $this->bareInstance() );
+
+		$this->assertContains( 'option_icl_sitepress_settings', $filters );
+	}
+
+	public function test_does_not_register_wpml_theme_domain_authoritative_filter_when_flag_disabled(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$instance = $this->bareInstance();
+		$prop     = new \ReflectionProperty( StarterBase::class, 'wpml_theme_domain_authoritative' );
+		$prop->setValue( $instance, false );
+
+		$this->invokeRegisterMiscHooks( $instance );
+
+		$this->assertNotContains( 'option_icl_sitepress_settings', $filters );
 	}
 }
