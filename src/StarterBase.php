@@ -586,6 +586,13 @@ class StarterBase extends Site {
 	 * originals — a deliberate opt-in sweep, never an on-upload hook. See
 	 * {@see \Parisek\TimberKit\OriginalImagePruner}.
 	 *
+	 * `timber-kit wpml-cleanup-theme-domain` is the companion cleanup for
+	 * `$wpml_theme_domain_authoritative` — it purges the WPML String
+	 * Translation rows and compiled `.mo`/`.l10n.php`/`.json` files that were
+	 * already registered for the theme's domain before the exclusion took
+	 * effect. See
+	 * {@see \Parisek\TimberKit\Cli\WpmlCleanupThemeDomainCommand}.
+	 *
 	 * @return void
 	 */
 	private function registerCliCommands(): void {
@@ -597,6 +604,7 @@ class StarterBase extends Site {
 		\WP_CLI::add_command( 'timber-kit convert-utf8mb4', \Parisek\TimberKit\Cli\ConvertUtf8mb4Command::class );
 		\WP_CLI::add_command( 'timber-kit updates', \Parisek\TimberKit\Cli\UpdatesCommand::class );
 		\WP_CLI::add_command( 'timber-kit acfml-sync-preferences', \Parisek\TimberKit\Cli\AcfmlSyncPreferencesCommand::class );
+		\WP_CLI::add_command( 'timber-kit wpml-cleanup-theme-domain', \Parisek\TimberKit\Cli\WpmlCleanupThemeDomainCommand::class );
 	}
 
 	/**
