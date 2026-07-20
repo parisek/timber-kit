@@ -111,4 +111,45 @@ class WpmlThemeDomainAuthoritativeTest extends StarterBaseTestCase {
 		$this->assertSame( 'not-an-array', $this->bareInstance( true )->wpml_exclude_theme_domain_from_st( 'not-an-array' ) );
 		$this->assertFalse( $this->bareInstance( true )->wpml_exclude_theme_domain_from_st( false ) );
 	}
+
+	public function test_empty_theme_name_does_not_inject_empty_string(): void {
+		$result = $this->bareInstance( true, '' )->wpml_exclude_theme_domain_from_st( [] );
+
+		$this->assertArrayNotHasKey( 'wpml_st_auto_reg_excluded_contexts', $result['st'] );
+	}
+
+	public function test_empty_theme_name_does_not_append_to_existing_excluded_contexts(): void {
+		$settings = [
+			'st' => [
+				'wpml_st_auto_reg_excluded_contexts' => [ 'some-plugin' ],
+			],
+		];
+
+		$result = $this->bareInstance( true, '' )->wpml_exclude_theme_domain_from_st( $settings );
+
+		$this->assertSame( [ 'some-plugin' ], $result['st']['wpml_st_auto_reg_excluded_contexts'] );
+		$this->assertNotContains( '', $result['st']['wpml_st_auto_reg_excluded_contexts'] );
+	}
+
+	public function test_st_key_not_an_array_is_replaced_without_fatal(): void {
+		$settings = [
+			'st' => 'not-an-array',
+		];
+
+		$result = $this->bareInstance( true, 'my-theme' )->wpml_exclude_theme_domain_from_st( $settings );
+
+		$this->assertSame( [ 'my-theme' ], $result['st']['wpml_st_auto_reg_excluded_contexts'] );
+	}
+
+	public function test_excluded_contexts_not_an_array_is_treated_as_empty(): void {
+		$settings = [
+			'st' => [
+				'wpml_st_auto_reg_excluded_contexts' => 'not-an-array',
+			],
+		];
+
+		$result = $this->bareInstance( true, 'my-theme' )->wpml_exclude_theme_domain_from_st( $settings );
+
+		$this->assertSame( [ 'my-theme' ], $result['st']['wpml_st_auto_reg_excluded_contexts'] );
+	}
 }

@@ -2360,6 +2360,11 @@ class StarterBase extends Site {
 	 * itself (that would recurse through this same filter and/or write
 	 * unnecessarily on every page load).
 	 *
+	 * No-ops when `$this->theme_name` is empty — an unresolved theme name
+	 * (e.g. `resolveThemeName()` failing before `register()` sets it) must
+	 * never inject a bare `''` into the excluded-contexts list, which would
+	 * excuse WPML from registering *every* domain-less string.
+	 *
 	 * Hooked to `option_icl_sitepress_settings`.
 	 *
 	 * @param mixed $settings The `icl_sitepress_settings` option value.
@@ -2379,7 +2384,7 @@ class StarterBase extends Site {
 			? $settings['st']['wpml_st_auto_reg_excluded_contexts']
 			: array();
 
-		if ( ! in_array( $this->theme_name, $excluded, true ) ) {
+		if ( '' !== (string) $this->theme_name && ! in_array( $this->theme_name, $excluded, true ) ) {
 			$excluded[] = $this->theme_name;
 			$settings['st']['wpml_st_auto_reg_excluded_contexts'] = array_values( $excluded );
 		}
