@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Release guard runs every test suite.** `release-stamp.yml` ran
+  `composer test`, which is the Unit suite only (`--testsuite=Unit`), so a
+  version could be stamped without the property suite's generative assertions.
+  It now runs a new `composer check` (`test:all` + `phpstan`) — the property
+  suite takes ~1s against Unit's ~18s, so there was no cost reason to omit it.
+  Also brings the `check` script in line with the sibling packages.
+
 ## [1.26.0] - 2026-07-20
 
 ### Added

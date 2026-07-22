@@ -61,11 +61,12 @@ jobs:
 
       - run: composer install --no-interaction --prefer-dist
 
-      - name: Run tests
-        run: composer test
-
-      - name: Run PHPStan
-        run: composer phpstan
+      # `composer check` = test:all + phpstan. Deliberately NOT `composer test`,
+      # which is the Unit suite only (--testsuite=Unit) — the property suite was
+      # never part of this guard, so a release could be stamped without its
+      # 4317 generative assertions. It costs ~1s against Unit's ~18s.
+      - name: Run the full suite + PHPStan
+        run: composer check
 
       - name: Stamp CHANGELOG
         env:
