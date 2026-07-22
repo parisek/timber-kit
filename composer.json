@@ -52,6 +52,10 @@
         }
     },
     "scripts": {
+        "check": [
+            "@test:all",
+            "@phpstan"
+        ],
         "phpstan": "php -d memory_limit=2G vendor/bin/phpstan analyse",
         "test": "vendor/bin/phpunit --testsuite=Unit",
         "test:all": [
