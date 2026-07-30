@@ -11,9 +11,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Release guard runs every test suite.** `release-stamp.yml` ran
   `composer test`, which is the Unit suite only (`--testsuite=Unit`), so a
   version could be stamped without the property suite's generative assertions.
-  It now runs a new `composer check` (`test:all` + `phpstan`) — the property
+  It now runs a new `composer check` (`test:all` + `phpstan`, since joined by `adr`) — the property
   suite takes ~1s against Unit's ~18s, so there was no cost reason to omit it.
   Also brings the `check` script in line with the sibling packages.
+
+- **ADR practice unified across the four Composer packages.** `docs/adr/README.md`
+  and the `AGENTS.md` § *Architecture decisions* section now carry the same rules
+  as `parisek/styleguide`, `parisek/definition-kit` and `parisek/acf-json-schema`,
+  gaining two this repo lacked: an ADR of a sibling repo is cited qualified
+  (`tailwind-base ADR-0007`, never a bare number — the numbering spaces are
+  per-repo), and every ADR must appear in the index.
+
+  `scripts/check-adr-index.py` (`composer adr`, CI job *docs/adr/ index is in
+  sync*, also folded into `composer check`) enforces the second: it fails on an
+  ADR missing from the index, a duplicate number, a dangling index entry, or an
+  off-convention filename.
+
+### Removed
+
+- **`docs/adr/2026-05-24-breadcrumb-design.md`** — a 429-line draft still marked
+  *"awaiting user approval"*, sitting in `docs/adr/` off the `NNNN-kebab-title.md`
+  convention and absent from the index. It is the design document that produced
+  [ADR-0002](docs/adr/0002-breadcrumb-design.md), which is the accepted, indexed
+  record of that decision; the draft remains in git history. It is also the
+  finding that motivated the new check.
 
 ## [1.26.0] - 2026-07-20
 

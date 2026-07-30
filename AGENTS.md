@@ -69,6 +69,9 @@ otherwise git-ignored `docs/`. See `docs/adr/README.md` for the template and ind
 - One file per decision, `NNNN-kebab-title.md`, sequential and permanent (never renumber/reuse).
 - Structure is the Nygard triad: `## Context` / `## Decision` / `## Consequences`. No status line.
 - To reverse a past decision, write a new ADR linking back — don't edit the old one.
+- The ADR lands in the **same PR** as the work it describes — a merge gate, not a follow-up.
+- Citing a sibling repo's ADR: **always qualify it with the repo** — `tailwind-base ADR-0007`, never a bare `ADR 0007`. Numbering spaces are per-repo.
+- Every ADR belongs in the index in `docs/adr/README.md`; `composer adr` (and CI) enforces it.
 
 ## Release process — DO NOT bypass
 
