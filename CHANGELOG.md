@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **README badges** — Packagist version, PHP version, Timber, Tests, License.
+  Matches `parisek/definition-kit` and `parisek/acf-json-schema`, which already
+  carried the same row; `parisek/styleguide` gains it in parallel.
+
 ### Changed
 
 - **Release guard runs every test suite.** `release-stamp.yml` ran
