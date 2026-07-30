@@ -6,6 +6,19 @@ choices a future reader would otherwise have to reverse-engineer from the code.
 `docs/` is git-ignored repo-wide; only this `adr/` subtree is tracked (see
 `.gitignore`). So ADRs commit, scratch docs don't.
 
+This practice is shared verbatim with `parisek/styleguide`,
+`parisek/definition-kit` and `parisek/acf-json-schema` — four Composer packages,
+one set of rules. Change it in one and change it in all four.
+
+**Citing a sibling repo's ADR**: always qualify it with the repo —
+`tailwind-base ADR-0007`, never a bare `ADR 0007`. The numbering spaces are
+independent, so a bare number sends the reader to this repo's `docs/adr/`, where
+it either does not exist or is a different decision entirely.
+
+**Every ADR is listed in the Index below.** `scripts/check-adr-index.py`
+(`composer adr`, and a CI job) fails the build otherwise: an ADR nothing links to
+reads as a decision nobody recorded.
+
 ## When to write one
 
 Offer an ADR **sparingly** — only when **all three** are true:

@@ -52,9 +52,11 @@
         }
     },
     "scripts": {
+        "adr": "python3 scripts/check-adr-index.py",
         "check": [
             "@test:all",
-            "@phpstan"
+            "@phpstan",
+            "@adr"
         ],
         "phpstan": "php -d memory_limit=2G vendor/bin/phpstan analyse",
         "test": "vendor/bin/phpunit --testsuite=Unit",
