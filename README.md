@@ -1,5 +1,11 @@
 # timber-kit
 
+[![Packagist Version](https://img.shields.io/packagist/v/parisek/timber-kit.svg)](https://packagist.org/packages/parisek/timber-kit)
+[![PHP Version](https://img.shields.io/packagist/php-v/parisek/timber-kit.svg)](https://packagist.org/packages/parisek/timber-kit)
+[![Timber](https://img.shields.io/badge/Timber-2.x-blue.svg)](https://timber.github.io/docs/v2/)
+[![Tests](https://github.com/parisek/timber-kit/actions/workflows/tests.yml/badge.svg)](https://github.com/parisek/timber-kit/actions/workflows/tests.yml)
+[![License](https://img.shields.io/packagist/l/parisek/timber-kit.svg)](LICENSE)
+
 WordPress/Timber starter kit — configurable base class, ACF helpers, image resizer, dev media proxy, WPForms config bridge, ACF block renderer, WPML Copy-field override.
 
 ## Installation
