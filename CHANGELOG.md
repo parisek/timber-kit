@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.26.1] - 2026-08-01
+
 ### Added
 
 - **README badges** — Packagist version, PHP version, Timber, Tests, License.
