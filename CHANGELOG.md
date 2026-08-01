@@ -14,6 +14,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **`fieldFormatter()` gates the repeater/flexible null-value pass-through on
+  `$is_preview`** ([#98](https://github.com/parisek/timber-kit/issues/98)). An
+  unfilled `repeater` / `flexible_content` returned its raw ACF field-definition
+  array regardless of context. That is the block-preview contract — an unsaved
+  block needs `sub_fields` to render a placeholder — but it was ungated, so it
+  also fired on ordinary front-end reads, where the definition array reads as a
+  populated list: `{% if x and x|length > 0 %}` passes on the definition's own
+  28 keys, a template opens its wrapper, and the inner per-row guard then
+  suppresses every row. The visible result is empty chrome — a bordered `<ul>`
+  with nothing in it — which is why it survived review.
+
+  Measured on a `nav_menu_item` group whose `more_items` repeater was filled on
+  10 of 425 items: 67 of 69 items reported a 28-element `more_items`. Options
+  pages resolve through the same gate, so an options-page repeater left unfilled
+  had the same symptom and is closed by the same change.
+
+  Outside preview the value is now `FALSE`. **Where that lands differs by
+  depth:** `formatFields()` prunes on `! empty( $value )`, so a *top-level*
+  field drops out of the context entirely — the key is absent. A *nested*
+  repeater / flexible_content inside a populated parent row is assigned in
+  place by the recursion and is not pruned, so the row carries `links => false`
+  rather than omitting the key. Both read as empty in Twig; PHP consumers doing
+  `array_key_exists()` on a nested row see `false` where they previously saw the
+  definition array.
+
+  **Behaviour change, narrow:** the only affected input is a `repeater` /
+  `flexible_content` with `value => null` read with `$is_preview = false`.
+  `BlockRenderer::buildContent()` already propagates the flag; a block render
+  path that bypasses `BlockRenderer` — a legacy per-theme
+  `timber_block_render_callback()` predating the `BlockRenderer` migration — and
+  omits it would lose its editor placeholder (editor-only, front end
+  unaffected), and is fixed by forwarding the `$is_preview` WordPress already
+  hands that callback.
+
 - **Release guard runs every test suite.** `release-stamp.yml` ran
   `composer test`, which is the Unit suite only (`--testsuite=Unit`), so a
   version could be stamped without the property suite's generative assertions.

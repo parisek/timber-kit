@@ -930,4 +930,69 @@ class FormatFieldsTest extends HelpersTestCase {
 
 		$this->assertSame( 'site_title@option', $result['site_title'] );
 	}
+
+	/**
+	 * Locks the $is_preview hand-off from formatFields() into fieldFormatter().
+	 * Drop the argument at the call site and this goes red: the placeholder
+	 * definition an unsaved block renders from would silently disappear.
+	 */
+	public function test_preview_keeps_unfilled_repeater_definition(): void {
+		$field = [ 'type' => 'repeater', 'sub_fields' => [ [ 'name' => 'title', 'type' => 'text' ] ], 'value' => null ];
+
+		Functions\when( 'get_field_objects' )->justReturn( [ 'rows' => $field ] );
+
+		$this->assertSame( $field, Helpers::formatFields( 7, true )['rows'] );
+	}
+
+	public function test_unfilled_repeater_is_absent_outside_preview(): void {
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'rows' => [ 'type' => 'repeater', 'sub_fields' => [ [ 'name' => 'title', 'type' => 'text' ] ], 'value' => null ],
+		] );
+
+		$this->assertArrayNotHasKey( 'rows', Helpers::formatFields( 7 ) );
+	}
+
+	/**
+	 * Same hand-off, one level down. fieldFormatter() recurses into sub-fields
+	 * and must carry $is_preview with it; a nested repeater left unfilled inside
+	 * a populated parent row is the case that exercises it.
+	 */
+	public function test_preview_propagates_into_nested_repeater(): void {
+		$nested = [ 'name' => 'links', 'type' => 'repeater', 'sub_fields' => [ [ 'name' => 'url', 'type' => 'text' ] ] ];
+
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'sections' => [
+				'type'       => 'repeater',
+				'sub_fields' => [ [ 'name' => 'heading', 'type' => 'text' ], $nested ],
+				'value'      => [ [ 'heading' => 'Docs', 'links' => null ] ],
+			],
+		] );
+
+		$row = Helpers::formatFields( 7, true )['sections'][0];
+
+		$this->assertSame( 'Docs', $row['heading'] );
+		$this->assertSame( 'repeater', $row['links']['type'] );
+	}
+
+	/**
+	 * The nested counterpart is NOT pruned — formatFields() prunes only at the
+	 * top level, so a null nested repeater lands in the row as false rather than
+	 * being omitted. Documented here because it is easy to assume otherwise.
+	 */
+	public function test_nested_unfilled_repeater_is_false_outside_preview(): void {
+		$nested = [ 'name' => 'links', 'type' => 'repeater', 'sub_fields' => [ [ 'name' => 'url', 'type' => 'text' ] ] ];
+
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'sections' => [
+				'type'       => 'repeater',
+				'sub_fields' => [ [ 'name' => 'heading', 'type' => 'text' ], $nested ],
+				'value'      => [ [ 'heading' => 'Docs', 'links' => null ] ],
+			],
+		] );
+
+		$row = Helpers::formatFields( 7 )['sections'][0];
+
+		$this->assertSame( 'Docs', $row['heading'] );
+		$this->assertFalse( $row['links'] );
+	}
 }
