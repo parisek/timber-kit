@@ -808,8 +808,8 @@ class FieldFormatterTest extends HelpersTestCase {
 		$this->assertSame( 'Bob', $result[1]['name'] );
 	}
 
-	public function test_repeater_null_value_returns_field_as_is(): void {
-		// isset() returns false for null, so early return $field happens
+	public function test_repeater_null_value_returns_field_as_is_in_preview(): void {
+		// Block preview needs the definition (sub_fields) to render a placeholder.
 		$field = [
 			'type'       => 'repeater',
 			'sub_fields' => [
@@ -818,9 +818,23 @@ class FieldFormatterTest extends HelpersTestCase {
 			'value'      => null,
 		];
 
-		$result = Helpers::fieldFormatter( $field );
+		$result = Helpers::fieldFormatter( $field, null, true );
 
 		$this->assertSame( $field, $result );
+	}
+
+	public function test_repeater_null_value_returns_false_outside_preview(): void {
+		// Front-end reads must see "empty", not a definition array masquerading
+		// as a populated list of rows.
+		$field = [
+			'type'       => 'repeater',
+			'sub_fields' => [
+				[ 'name' => 'title', 'type' => 'text' ],
+			],
+			'value'      => null,
+		];
+
+		$this->assertFalse( Helpers::fieldFormatter( $field ) );
 	}
 
 	public function test_flexible_content_basic(): void {
@@ -1021,8 +1035,8 @@ class FieldFormatterTest extends HelpersTestCase {
 		$this->assertSame( '_blank', $result[0]['button']['attributes']['target'] );
 	}
 
-	public function test_flexible_content_null_value_returns_field_as_is(): void {
-		// isset() returns false for null, so early return $field happens
+	public function test_flexible_content_null_value_returns_field_as_is_in_preview(): void {
+		// Block preview needs the definition (layouts) to render a placeholder.
 		$field = [
 			'type'    => 'flexible_content',
 			'layouts' => [
@@ -1036,8 +1050,26 @@ class FieldFormatterTest extends HelpersTestCase {
 			'value'   => null,
 		];
 
-		$result = Helpers::fieldFormatter( $field );
+		$result = Helpers::fieldFormatter( $field, null, true );
 
 		$this->assertSame( $field, $result );
+	}
+
+	public function test_flexible_content_null_value_returns_false_outside_preview(): void {
+		// Front-end reads must see "empty", not a definition array.
+		$field = [
+			'type'    => 'flexible_content',
+			'layouts' => [
+				[
+					'name'       => 'block',
+					'sub_fields' => [
+						[ 'name' => 'title', 'type' => 'text' ],
+					],
+				],
+			],
+			'value'   => null,
+		];
+
+		$this->assertFalse( Helpers::fieldFormatter( $field ) );
 	}
 }

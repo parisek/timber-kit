@@ -762,12 +762,21 @@ class Helpers {
 	 * contexts).  Each field value is passed through {@see fieldFormatter()}.
 	 * Fields with an empty formatted value are omitted from the result.
 	 *
+	 * Resolution goes through `get_field_objects()`, which honours the field
+	 * group's location rule. A group scoped to something the current request
+	 * does not establish — a `nav_menu_item` rule under WP-CLI with another
+	 * theme active, so no menu location is registered — surfaces no fields at
+	 * all, and reads identically to "the data is not there". `get_field()` by
+	 * name still resolves in that situation; prefer it when probing.
+	 *
 	 * @param object|int|string|null $post       Post object, term object, numeric post ID,
 	 *                                            options-page string key, or null to use the
 	 *                                            current queried object.
 	 * @param bool                   $is_preview True when rendering inside a Gutenberg block
-	 *                                            preview (suppresses shortcode execution for
-	 *                                            certain form plugins).
+	 *                                            preview. Suppresses shortcode execution for
+	 *                                            certain form plugins, and keeps the raw
+	 *                                            definition of an unfilled repeater /
+	 *                                            flexible_content so a placeholder can render.
 	 * @return array<string, mixed> Associative array keyed by ACF field name with formatted values.
 	 */
 	public static function formatFields( $post = null, $is_preview = false ) {
@@ -1131,13 +1140,18 @@ class Helpers {
 		// array into templates — `{{ content.x|typography }}` fatals on
 		// arrays. Mirrors the pre-1.8 behaviour where valueless option fields
 		// simply never surfaced. Repeater/flexible keep their documented
-		// null-value pass-through (block-preview contract, covered by tests).
+		// null-value pass-through, but only under preview (see below).
 		if ( ! array_key_exists( 'value', $field ) ) {
 			return FALSE;
 		}
 
 		if ( ! isset( $field['value'] ) ) {
-			if ( in_array( $field['type'], array( 'repeater', 'flexible_content' ), true ) ) {
+			// Only a block preview has a use for the definition: an unsaved block
+			// needs `sub_fields` / `layouts` to render its placeholder. On an
+			// ordinary read the same array masquerades as a populated list —
+			// `x|length > 0` passes on the definition's own keys, so a template
+			// opens its wrapper for rows that do not exist.
+			if ( $is_preview && in_array( $field['type'], array( 'repeater', 'flexible_content' ), true ) ) {
 				return $field;
 			}
 
