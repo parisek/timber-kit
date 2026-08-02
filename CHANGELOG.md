@@ -8,6 +8,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- **`post_id` on an `$options_pages` entry** — sets the ACF storage namespace, so
+  a theme's options no longer share the default `options_<field_name>` prefix in
+  `wp_options` with every other options page on the install. Purely additive:
+  omit the key and ACF's own default applies exactly as before.
+  ([#100](https://github.com/parisek/timber-kit/issues/100))
+
+  Found on a site carrying a second options page created years earlier through
+  ACF's admin UI — a database row, invisible to any grep of the repo. Both sides
+  owned a field named `footer`; the theme's own `links`, `announcement`, `social`
+  and `exit_popup` groups never surfaced at all, while the footer rendered
+  *correctly* from the other page's data because `options_footer_apps_*` happened
+  to match the theme's own selector. A name collision reads as success, which is
+  what made it expensive to find rather than merely wrong.
+
+  A sub-page **inherits its parent's `post_id`** unless it declares its own. ACF
+  does not do this — `acf_validate_options_page()` defaults every page to
+  `'options'` independently, parent or not — and without the inheritance a
+  namespaced parent with unmarked children would split one theme's settings
+  across two namespaces, with `formatFields()` returning only half of them. The
+  read side needed no change: `Helpers::getFieldObjectsForOptions()` already
+  matches on namespace.
+
+  Adopting it on a live site is a data migration — stored values stay behind
+  under the old prefix.
+
 - **README badges** — Packagist version, PHP version, Timber, Tests, License.
   Matches `parisek/definition-kit` and `parisek/acf-json-schema`, which already
   carried the same row; `parisek/styleguide` gains it in parallel.

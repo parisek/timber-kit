@@ -293,6 +293,33 @@ class StarterBase extends Site {
 	 *     ['menu_slug'=>'dev','page_title'=>'Dev Settings','capability'=>'manage_options'],
 	 *   ];
 	 *
+	 * `post_id` (optional, top-level entries) sets the ACF storage namespace for
+	 * the page. Omitted, ACF applies its own default of `'options'`, so values
+	 * land in `wp_options` as `options_<field_name>` — keyed by field name, not
+	 * by page. That is invisible right up until a second options page exists on
+	 * the install (a plugin's, or one created through ACF's admin UI, which lives
+	 * in the database and appears in no grep of the repo): two pages owning a
+	 * field of the same name silently read each other's values, and an options
+	 * group that resolved to nothing is indistinguishable from one nobody filled
+	 * in. Setting it namespaces this theme's storage:
+	 *   $this->options_pages = [
+	 *     ['menu_slug'=>'settings','page_title'=>'Theme Settings','post_id'=>'mytheme_settings'],
+	 *   ];
+	 * Values are then stored as `mytheme_settings_<field_name>`, and the theme
+	 * reads them with `Helpers::formatFields('mytheme_settings')`.
+	 *
+	 * **A sub-page inherits its parent's `post_id`** unless it declares its own.
+	 * ACF does not do this — `acf_validate_options_page()` defaults every page to
+	 * `'options'` independently, parent or not — so a namespaced parent with
+	 * unmarked children would split one theme's settings across two namespaces
+	 * and `formatFields()` would return only half of them. Within a single
+	 * `$options_pages` list a sub-page is visibly part of the same store, so it
+	 * is treated as one; declare `post_id` on the child to opt out.
+	 *
+	 * Adopting `post_id` on a live site is a **data migration**: existing values
+	 * stay behind under the old prefix and must be copied to the new one. New
+	 * projects should set it from the start.
+	 *
 	 * Set to an empty array (`$this->options_pages = [];`) to register NO options
 	 * pages at all — disables the feature entirely (no ACF page, no admin-bar link).
 	 *
@@ -2203,8 +2230,12 @@ class StarterBase extends Site {
 
 		// Register top-level pages first so a sub-page's parent is always present
 		// by the time the child is registered, regardless of list order.
+		$parent_post_ids = [];
 		foreach ( $this->options_pages as $page ) {
 			if ( ! isset( $page['parent_slug'] ) ) {
+				if ( isset( $page['post_id'] ) ) {
+					$parent_post_ids[ $page['menu_slug'] ] = $page['post_id'];
+				}
 				$this->register_options_page( $page );
 			}
 		}
@@ -2212,6 +2243,12 @@ class StarterBase extends Site {
 		if ( function_exists( 'acf_add_options_sub_page' ) ) {
 			foreach ( $this->options_pages as $page ) {
 				if ( isset( $page['parent_slug'] ) ) {
+					// Inherit the parent's storage namespace — see $options_pages.
+					// ACF itself does not: every page defaults to 'options'
+					// independently, which would split one theme's settings in two.
+					if ( ! isset( $page['post_id'] ) && isset( $parent_post_ids[ $page['parent_slug'] ] ) ) {
+						$page['post_id'] = $parent_post_ids[ $page['parent_slug'] ];
+					}
 					$this->register_options_page( $page );
 				}
 			}
@@ -2235,6 +2272,12 @@ class StarterBase extends Site {
 			'redirect'        => false,
 			'show_in_graphql' => false,
 		];
+
+		// Only set when declared — omitting the key leaves ACF's own 'options'
+		// default in place, so every existing consumer is unaffected.
+		if ( isset( $page['post_id'] ) ) {
+			$args['post_id'] = $page['post_id'];
+		}
 
 		if ( isset( $page['parent_slug'] ) ) {
 			$args['parent_slug'] = $page['parent_slug'];

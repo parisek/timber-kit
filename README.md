@@ -541,7 +541,7 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
-| `$options_pages` | array | one "Theme Settings" page | List of ACF options pages. `parent_slug` => sub-page; `admin_bar => true` => add admin-bar link for this entry; `[]` disables the feature entirely (no page, no admin-bar link). The default "Theme Settings" entry has `admin_bar => true` |
+| `$options_pages` | array | one "Theme Settings" page | List of ACF options pages. `parent_slug` => sub-page; `admin_bar => true` => add admin-bar link for this entry; `post_id` => ACF storage namespace (see below); `[]` disables the feature entirely (no page, no admin-bar link). The default "Theme Settings" entry has `admin_bar => true` |
 
 ```php
 // one top-level page with an admin-bar shortcut + two sub-pages under it
@@ -555,6 +555,25 @@ $this->options_pages = [
 // disable completely
 $this->options_pages = [];
 ```
+
+#### `post_id` — storage namespace
+
+Omitted, ACF applies its own default of `'options'`: values land in `wp_options` as `options_<field_name>`, **keyed by field name, not by page**. That holds fine while an install has exactly one set of options pages — and stops holding the moment a second one appears, which it can without any repo change (a plugin's page, or one created through ACF's admin UI, which lives in the database as an `acf-ui-options-page` post and shows up in no grep of the theme).
+
+Two pages then share one namespace, and where their field names overlap they read each other's values. Nothing errors: `get_field('links_login', 'option')` returns the *other* page's stored value, `get_field('links', 'option')` returns `null`, and `Helpers::formatFields()` sees nothing — an options group that resolved to nothing is indistinguishable from one nobody filled in. The colliding case is the worse of the two, because the page renders and looks correct.
+
+```php
+$this->options_pages = [
+    [ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings', 'post_id' => 'mytheme_settings' ],
+    [ 'menu_slug' => 'footer', 'page_title' => 'Footer', 'parent_slug' => 'settings' ],
+];
+```
+
+Values are stored as `mytheme_settings_<field_name>` and read with `Helpers::formatFields('mytheme_settings')`.
+
+**A sub-page inherits its parent's `post_id`** unless it declares its own. ACF does not — `acf_validate_options_page()` defaults every page to `'options'` independently, parent or not — so without the inheritance a namespaced parent with unmarked children would split one theme's settings across two namespaces and `formatFields()` would return only half of them. Declare `post_id` on the child to opt out.
+
+Adopting this on a live site is a **data migration**: existing values stay behind under the old prefix and have to be copied to the new one. Set it from the start on new projects.
 
 ### Breadcrumbs
 
