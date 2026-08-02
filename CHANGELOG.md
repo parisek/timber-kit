@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.27.0] - 2026-08-02
+
+### Added
+
+- **`post_id` on an `$options_pages` entry** — sets the ACF storage namespace, so
+  a theme's options no longer share the default `options_<field_name>` prefix in
+  `wp_options` with every other options page on the install. Purely additive:
+  omit the key and ACF's own default applies exactly as before.
+  ([#100](https://github.com/parisek/timber-kit/issues/100))
+
+  Found on a site carrying a second options page created years earlier through
+  ACF's admin UI — a database row, invisible to any grep of the repo. Both sides
+  owned a field named `footer`; the theme's own `links`, `announcement`, `social`
+  and `exit_popup` groups never surfaced at all, while the footer rendered
+  *correctly* from the other page's data because `options_footer_apps_*` happened
+  to match the theme's own selector. A name collision reads as success, which is
+  what made it expensive to find rather than merely wrong.
+
+  A sub-page **inherits its parent's `post_id`** unless it declares its own, and
+  the inheritance is transitive across nesting levels. ACF does not do this —
+  `acf_options_page::validate_page()` applies `'post_id' => 'options'` through
+  `wp_parse_args` to every page independently, parent or not — and without the
+  inheritance a namespaced parent with unmarked children would split one theme's
+  settings across two namespaces, with `formatFields()` returning only half of
+  them. The read side needed no change: `Helpers::getFieldObjectsForOptions()`
+  already matches on namespace.
+
+  Adopting it on a live site is a data migration — stored values stay behind
+  under the old prefix.
+
+### Fixed
+
+- **Breeze cache purge missed options pages with a custom `post_id`.**
+  `clear_cache_on_options_save()` compared the incoming id against the literal
+  `'options'`, but ACF's admin controller saves through
+  `acf_save_post( $page['post_id'] )` — so a namespaced page (and, under WPML,
+  any language-suffixed id from `acf_get_valid_post_id()`) fired the hook with
+  an id the check rejected, and stale pages kept being served after a save. It
+  now matches any id that `acf_decode_post_id()` classifies as an options
+  namespace. The purge is site-wide either way, so widening the match can only
+  flush on another page's save — the safe direction for a cache.
+
 ## [1.26.1] - 2026-08-01
 
 ### Added
