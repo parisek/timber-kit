@@ -22,16 +22,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   to match the theme's own selector. A name collision reads as success, which is
   what made it expensive to find rather than merely wrong.
 
-  A sub-page **inherits its parent's `post_id`** unless it declares its own. ACF
-  does not do this — `acf_validate_options_page()` defaults every page to
-  `'options'` independently, parent or not — and without the inheritance a
-  namespaced parent with unmarked children would split one theme's settings
-  across two namespaces, with `formatFields()` returning only half of them. The
-  read side needed no change: `Helpers::getFieldObjectsForOptions()` already
-  matches on namespace.
+  A sub-page **inherits its parent's `post_id`** unless it declares its own, and
+  the inheritance is transitive across nesting levels. ACF does not do this —
+  `acf_options_page::validate_page()` applies `'post_id' => 'options'` through
+  `wp_parse_args` to every page independently, parent or not — and without the
+  inheritance a namespaced parent with unmarked children would split one theme's
+  settings across two namespaces, with `formatFields()` returning only half of
+  them. The read side needed no change: `Helpers::getFieldObjectsForOptions()`
+  already matches on namespace.
 
   Adopting it on a live site is a data migration — stored values stay behind
   under the old prefix.
+
+### Fixed
+
+- **Breeze cache purge missed options pages with a custom `post_id`.**
+  `clear_cache_on_options_save()` compared the incoming id against the literal
+  `'options'`, but ACF's admin controller saves through
+  `acf_save_post( $page['post_id'] )` — so a namespaced page (and, under WPML,
+  any language-suffixed id from `acf_get_valid_post_id()`) fired the hook with
+  an id the check rejected, and stale pages kept being served after a save. It
+  now matches any id that `acf_decode_post_id()` classifies as an options
+  namespace. The purge is site-wide either way, so widening the match can only
+  flush on another page's save — the safe direction for a cache.
 
 - **README badges** — Packagist version, PHP version, Timber, Tests, License.
   Matches `parisek/definition-kit` and `parisek/acf-json-schema`, which already

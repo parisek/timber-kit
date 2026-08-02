@@ -571,7 +571,11 @@ $this->options_pages = [
 
 Values are stored as `mytheme_settings_<field_name>` and read with `Helpers::formatFields('mytheme_settings')`.
 
-**A sub-page inherits its parent's `post_id`** unless it declares its own. ACF does not — `acf_validate_options_page()` defaults every page to `'options'` independently, parent or not — so without the inheritance a namespaced parent with unmarked children would split one theme's settings across two namespaces and `formatFields()` would return only half of them. Declare `post_id` on the child to opt out.
+**A sub-page inherits its parent's `post_id`** unless it declares its own. ACF does not — `acf_options_page::validate_page()` applies `'post_id' => 'options'` through `wp_parse_args` to every page independently, parent or not — so without the inheritance a namespaced parent with unmarked children would split one theme's settings across two namespaces and `formatFields()` would return only half of them. Declare `post_id` on the child to opt out.
+
+Inheritance is **transitive**: ACF's `add_sub_page()` accepts a `parent_slug` pointing at another sub-page, so a page nested two levels down takes the namespace of its nearest ancestor that declares one. A `parent_slug` referencing a page *outside* `$options_pages` (a plugin's) inherits nothing — this class cannot know what namespace that page registered with.
+
+Adopting `post_id` also widens what `clear_cache_on_options_save()` matches: it purges on a save to any options namespace rather than the literal `'options'`, since ACF saves through `acf_save_post( $page['post_id'] )` and would otherwise stop purging for exactly the projects that namespace their storage.
 
 Adopting this on a live site is a **data migration**: existing values stay behind under the old prefix and have to be copied to the new one. Set it from the start on new projects.
 

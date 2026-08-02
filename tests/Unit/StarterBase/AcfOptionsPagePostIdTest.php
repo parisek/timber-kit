@@ -133,6 +133,80 @@ class AcfOptionsPagePostIdTest extends StarterBaseTestCase {
 	}
 
 	/**
+	 * ACF's add_sub_page() accepts a parent_slug pointing at another sub-page,
+	 * so the namespace has to travel further than one level. Without this, the
+	 * deepest page falls back to 'options' while its siblings sit under the
+	 * theme's namespace — the same split this feature exists to prevent.
+	 */
+	public function test_inheritance_is_transitive_across_nesting_levels(): void {
+		$base = $this->createStarterBase( [
+			'options_pages' => [
+				[ 'menu_slug' => 'settings', 'page_title' => 'Settings', 'post_id' => 'mytheme_settings' ],
+				[ 'menu_slug' => 'sub', 'page_title' => 'Sub', 'parent_slug' => 'settings' ],
+				[ 'menu_slug' => 'subsub', 'page_title' => 'SubSub', 'parent_slug' => 'sub' ],
+			],
+		] );
+
+		$base->acf_options_page();
+
+		$by_slug = array_column( $this->sub_pages, null, 'menu_slug' );
+		$this->assertSame( 'mytheme_settings', $by_slug['sub']['post_id'] );
+		$this->assertSame( 'mytheme_settings', $by_slug['subsub']['post_id'] );
+	}
+
+	/** Deepest-first declaration must resolve the same way. */
+	public function test_transitive_inheritance_ignores_declaration_order(): void {
+		$base = $this->createStarterBase( [
+			'options_pages' => [
+				[ 'menu_slug' => 'subsub', 'page_title' => 'SubSub', 'parent_slug' => 'sub' ],
+				[ 'menu_slug' => 'sub', 'page_title' => 'Sub', 'parent_slug' => 'settings' ],
+				[ 'menu_slug' => 'settings', 'page_title' => 'Settings', 'post_id' => 'mytheme_settings' ],
+			],
+		] );
+
+		$base->acf_options_page();
+
+		$by_slug = array_column( $this->sub_pages, null, 'menu_slug' );
+		$this->assertSame( 'mytheme_settings', $by_slug['subsub']['post_id'] );
+	}
+
+	/** A mid-level override re-namespaces its own subtree, not its parent's. */
+	public function test_mid_level_override_applies_to_its_own_descendants(): void {
+		$base = $this->createStarterBase( [
+			'options_pages' => [
+				[ 'menu_slug' => 'settings', 'page_title' => 'Settings', 'post_id' => 'mytheme_settings' ],
+				[ 'menu_slug' => 'sub', 'page_title' => 'Sub', 'parent_slug' => 'settings', 'post_id' => 'mytheme_sub' ],
+				[ 'menu_slug' => 'subsub', 'page_title' => 'SubSub', 'parent_slug' => 'sub' ],
+			],
+		] );
+
+		$base->acf_options_page();
+
+		$by_slug = array_column( $this->sub_pages, null, 'menu_slug' );
+		$this->assertSame( 'mytheme_sub', $by_slug['subsub']['post_id'] );
+	}
+
+	/**
+	 * A parent_slug cycle is a misconfiguration ACF would not untangle either.
+	 * The requirement is only that resolution terminates rather than recursing
+	 * forever — the list is walked in repeated passes for exactly this reason.
+	 */
+	public function test_parent_slug_cycle_terminates_without_inheriting(): void {
+		$base = $this->createStarterBase( [
+			'options_pages' => [
+				[ 'menu_slug' => 'a', 'page_title' => 'A', 'parent_slug' => 'b' ],
+				[ 'menu_slug' => 'b', 'page_title' => 'B', 'parent_slug' => 'a' ],
+			],
+		] );
+
+		$base->acf_options_page();
+
+		$this->assertCount( 2, $this->sub_pages );
+		$this->assertArrayNotHasKey( 'post_id', $this->sub_pages[0] );
+		$this->assertArrayNotHasKey( 'post_id', $this->sub_pages[1] );
+	}
+
+	/**
 	 * A sub-page whose parent_slug points outside the list (a plugin's page,
 	 * say) has no namespace to inherit and must not pick up an unrelated one.
 	 */

@@ -279,9 +279,10 @@ class StarterBase extends Site {
 	 * a sub-page (acf_add_options_sub_page) under that parent; otherwise it is a
 	 * top-level page (acf_add_options_page). `icon_url` is only used for top-level
 	 * pages (sub-pages do not take an icon); defaults to `'dashicons-admin-generic'`
-	 * when not set. A 'parent_slug' must reference a top-level page in the same
-	 * list (top-level pages are always registered first, so order within the list
-	 * does not matter). `capability` sets the WordPress capability required to
+	 * when not set. A 'parent_slug' normally references a top-level page in the
+	 * same list (top-level pages are always registered first, so order within the
+	 * list does not matter); ACF also accepts one pointing at another sub-page,
+	 * or at a page registered elsewhere entirely, and neither is rejected here. `capability` sets the WordPress capability required to
 	 * access that page; defaults to `edit_posts` when not set. `admin_bar` (bool,
 	 * default off) adds an admin-bar shortcut to this page; set it on any entry —
 	 * including sub-pages — to surface a direct link under the site name. Multiple
@@ -293,8 +294,8 @@ class StarterBase extends Site {
 	 *     ['menu_slug'=>'dev','page_title'=>'Dev Settings','capability'=>'manage_options'],
 	 *   ];
 	 *
-	 * `post_id` (optional, top-level entries) sets the ACF storage namespace for
-	 * the page. Omitted, ACF applies its own default of `'options'`, so values
+	 * `post_id` (optional, any entry) sets the ACF storage namespace for the
+	 * page. Omitted, ACF applies its own default of `'options'`, so values
 	 * land in `wp_options` as `options_<field_name>` — keyed by field name, not
 	 * by page. That is invisible right up until a second options page exists on
 	 * the install (a plugin's, or one created through ACF's admin UI, which lives
@@ -309,12 +310,15 @@ class StarterBase extends Site {
 	 * reads them with `Helpers::formatFields('mytheme_settings')`.
 	 *
 	 * **A sub-page inherits its parent's `post_id`** unless it declares its own.
-	 * ACF does not do this — `acf_validate_options_page()` defaults every page to
-	 * `'options'` independently, parent or not — so a namespaced parent with
-	 * unmarked children would split one theme's settings across two namespaces
-	 * and `formatFields()` would return only half of them. Within a single
+	 * ACF does not do this — `acf_options_page::validate_page()` applies
+	 * `'post_id' => 'options'` through `wp_parse_args` to every page
+	 * independently, parent or not — so a namespaced parent with unmarked
+	 * children would split one theme's settings across two namespaces and
+	 * `formatFields()` would return only half of them. Within a single
 	 * `$options_pages` list a sub-page is visibly part of the same store, so it
-	 * is treated as one; declare `post_id` on the child to opt out.
+	 * is treated as one; declare `post_id` on the child to opt out. Inheritance
+	 * is transitive — a sub-page under a sub-page takes the namespace of its
+	 * nearest ancestor that declares one.
 	 *
 	 * Adopting `post_id` on a live site is a **data migration**: existing values
 	 * stay behind under the old prefix and must be copied to the new one. New
@@ -2241,18 +2245,77 @@ class StarterBase extends Site {
 		}
 
 		if ( function_exists( 'acf_add_options_sub_page' ) ) {
+			// Resolve inheritance for the whole list before registering anything:
+			// ACF's add_sub_page() accepts a parent_slug pointing at another
+			// sub-page, so a namespace can have to travel more than one level and
+			// a single pass over the list would depend on declaration order.
+			$resolved = $this->resolve_options_page_namespaces( $parent_post_ids );
+
 			foreach ( $this->options_pages as $page ) {
 				if ( isset( $page['parent_slug'] ) ) {
-					// Inherit the parent's storage namespace — see $options_pages.
-					// ACF itself does not: every page defaults to 'options'
-					// independently, which would split one theme's settings in two.
-					if ( ! isset( $page['post_id'] ) && isset( $parent_post_ids[ $page['parent_slug'] ] ) ) {
-						$page['post_id'] = $parent_post_ids[ $page['parent_slug'] ];
+					if ( ! isset( $page['post_id'] ) && isset( $resolved[ $page['menu_slug'] ] ) ) {
+						$page['post_id'] = $resolved[ $page['menu_slug'] ];
 					}
 					$this->register_options_page( $page );
 				}
 			}
 		}
+	}
+
+	/**
+	 * Walk the sub-page hierarchy and give every entry the storage namespace it
+	 * inherits from its nearest ancestor that declares one.
+	 *
+	 * Inheritance exists because ACF does not do it: `validate_page()` applies
+	 * `'post_id' => 'options'` through `wp_parse_args` to every page
+	 * independently, parent or not. A namespaced parent with unmarked children
+	 * would therefore split one theme's settings across two namespaces, and
+	 * `Helpers::formatFields()` would return only the half that matched — the
+	 * silent-half-empty failure this feature exists to prevent, reintroduced one
+	 * level down.
+	 *
+	 * Repeated passes rather than recursion: the list is a handful of entries,
+	 * and a pass that resolves nothing terminates the loop, so a `parent_slug`
+	 * cycle (`a` → `b` → `a`, which ACF itself would also not untangle) settles
+	 * instead of overflowing the stack.
+	 *
+	 * @param array<string, string> $seed menu_slug => post_id for entries that declare one.
+	 * @return array<string, string> menu_slug => inherited post_id, for sub-pages only.
+	 */
+	private function resolve_options_page_namespaces( array $seed ): array {
+		$known = $seed;
+		$children = [];
+
+		foreach ( $this->options_pages as $page ) {
+			if ( ! isset( $page['parent_slug'], $page['menu_slug'] ) ) {
+				continue;
+			}
+			// A child's own declaration wins and becomes inheritable in turn.
+			if ( isset( $page['post_id'] ) ) {
+				$known[ $page['menu_slug'] ] = $page['post_id'];
+				continue;
+			}
+			$children[ $page['menu_slug'] ] = $page['parent_slug'];
+		}
+
+		$resolved = [];
+		do {
+			$progress = false;
+			foreach ( $children as $slug => $parent_slug ) {
+				if ( ! isset( $known[ $parent_slug ] ) ) {
+					continue;
+				}
+				// An ancestor outside $options_pages (a plugin's page) is never in
+				// $known, so its descendants keep ACF's default — correct, since
+				// this class has no idea what namespace that page registered with.
+				$resolved[ $slug ] = $known[ $parent_slug ];
+				$known[ $slug ]    = $known[ $parent_slug ];
+				unset( $children[ $slug ] );
+				$progress = true;
+			}
+		} while ( $progress && $children );
+
+		return $resolved;
 	}
 
 	/**
@@ -2317,21 +2380,60 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Clear Breeze cache when the ACF options page is saved.
+	 * Clear Breeze cache when an ACF options page is saved.
+	 *
+	 * Matches any post id that decodes to an OPTIONS namespace, not the literal
+	 * string `'options'`. ACF's admin controller saves via
+	 * `acf_save_post( $this->page['post_id'] )`, so a page registered with a
+	 * custom `post_id` (see $options_pages) fires this hook with that id — an
+	 * equality check against `'options'` would silently stop purging the cache
+	 * for exactly the projects that namespace their storage. The same applies
+	 * under WPML, where `acf_get_valid_post_id()` may append a language suffix
+	 * before the save.
+	 *
+	 * The purge is site-wide either way, so widening the match cannot flush too
+	 * narrowly; it can only flush on another page's save, which is the safe
+	 * direction for a cache.
 	 *
 	 * Hooked to `acf/save_post`.
 	 *
-	 * @param int|string $post_id The post ID or 'options' for the options page.
+	 * @param int|string $post_id The post ID, or an options-page post id.
 	 * @return void
 	 */
 	public function clear_cache_on_options_save( $post_id ) {
-		if ( $post_id !== 'options' ) {
+		if ( ! $this->is_options_post_id( $post_id ) ) {
 			return;
 		}
 
 		if ( has_action( 'breeze_clear_all_cache' ) ) {
 			do_action( 'breeze_clear_all_cache' );
 		}
+	}
+
+	/**
+	 * Whether a post id refers to an ACF options page of any namespace.
+	 *
+	 * Delegates to ACF's own `acf_decode_post_id()` so every id ACF recognises
+	 * counts — `'options'`, the `'option'` alias, a custom `post_id`, and their
+	 * WPML language-suffixed forms. Falls back to the two literals when ACF
+	 * isn't loaded, which keeps the pre-ACF behaviour rather than matching
+	 * nothing.
+	 *
+	 * @param int|string $post_id
+	 * @return bool
+	 */
+	private function is_options_post_id( $post_id ): bool {
+		if ( ! is_string( $post_id ) ) {
+			return false;
+		}
+
+		if ( ! function_exists( 'acf_decode_post_id' ) ) {
+			return $post_id === 'options' || $post_id === 'option';
+		}
+
+		$decoded = acf_decode_post_id( $post_id );
+
+		return is_array( $decoded ) && ( $decoded['type'] ?? '' ) === 'option';
 	}
 
 	/**
