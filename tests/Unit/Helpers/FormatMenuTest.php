@@ -200,4 +200,25 @@ class FormatMenuTest extends HelpersTestCase {
 
 		$this->assertNull( $result->menu_icon );
 	}
+
+	/**
+	 * `formatMenu()` must compute the menu's term id exactly once and reuse
+	 * that single value both for the ACF lookup and for the `id` metadata
+	 * entry. A menu stub exposing only `term_id` (no `id`) exercises the case
+	 * where a future Timber version, test double, or WPML shim desyncs the
+	 * two — before the fix, `$result->id` fell back to 0 while the ACF
+	 * lookup still correctly resolved against the real term id.
+	 */
+	public function test_id_metadata_falls_back_to_term_id_when_id_is_absent(): void {
+		$menu = new \stdClass();
+		$menu->term_id = 7;
+		$menu->name = 'Footer Channels';
+		$menu->slug = 'footer-channels';
+		$menu->description = '';
+		$menu->items = [ $this->makeItem( 11, 'A', '/a/' ) ];
+
+		$result = Helpers::formatMenu( $menu );
+
+		$this->assertSame( 7, $result->id );
+	}
 }

@@ -1627,7 +1627,7 @@ class Helpers {
 		}
 
 		return new MenuData( $items, [
-			'id'          => $menu->id ?? 0,
+			'id'          => $menu_id,
 			'title'       => $menu->name ?? '',
 			'name'        => $menu->name ?? '',
 			'slug'        => $menu->slug ?? '',

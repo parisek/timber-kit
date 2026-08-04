@@ -46,6 +46,11 @@ final class MenuData implements \IteratorAggregate, \ArrayAccess, \Countable, \J
 	 * @param array<int, array<string, mixed>> $items Formatted menu items.
 	 * @param array<string, mixed>             $meta  Menu metadata; unknown keys
 	 *                                                become __get()-reachable.
+	 *
+	 * @internal Metadata values are coerced ( (int)/(string) ), not validated —
+	 *           safe today only because the sole caller, `Helpers::formatMenu()`,
+	 *           passes scalars sourced from a `Timber\Menu`. A future second call
+	 *           site must not assume this coercion protects it from bad input.
 	 */
 	public function __construct( array $items, array $meta = [] ) {
 		$this->items = $items;
