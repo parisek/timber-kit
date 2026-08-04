@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.28.0] - 2026-08-04
+
 ### Added
 
 - **Menu-level metadata from `formatMenu()`** — the returned value now carries the
