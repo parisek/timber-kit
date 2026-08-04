@@ -128,4 +128,47 @@ class FormatMenuTest extends HelpersTestCase {
 
 		$this->assertArrayHasKey( 'icon', $result[0] );
 	}
+
+	public function test_exposes_menu_metadata(): void {
+		$menu = $this->makeMenu( [ $this->makeItem( 11, 'A', '/a/' ) ], [
+			'name'        => 'Kanály',
+			'slug'        => 'footer-kanaly',
+			'description' => 'Footer column',
+		] );
+
+		$result = Helpers::formatMenu( $menu );
+
+		$this->assertSame( 'Kanály', $result->title );
+		$this->assertSame( 'Kanály', $result->name );
+		$this->assertSame( 'footer-kanaly', $result->slug );
+		$this->assertSame( 'Footer column', $result->description );
+		$this->assertSame( 7, $result->id );
+	}
+
+	public function test_items_are_reachable_both_ways(): void {
+		$menu = $this->makeMenu( [ $this->makeItem( 11, 'A', '/a/' ) ] );
+
+		$result = Helpers::formatMenu( $menu );
+
+		$this->assertSame( 11, $result->items[0]['id'] );
+		$this->assertSame( 11, $result[0]['id'] );
+	}
+
+	public function test_below_stays_a_plain_array(): void {
+		$child = $this->makeItem( 22, 'Child', '/c/' );
+		$parent = $this->makeItem( 11, 'Parent', '/p/', [ 'children' => [ $child ] ] );
+
+		$result = Helpers::formatMenu( $this->makeMenu( [ $parent ] ) );
+
+		// Sub-levels are not menus — wrapping them would change item.below
+		// for every consumer and add an object per node.
+		$this->assertIsArray( $result[0]['below'] );
+	}
+
+	public function test_empty_menu_still_returns_a_plain_array(): void {
+		$result = Helpers::formatMenu( $this->makeMenu( [] ) );
+
+		$this->assertIsArray( $result );
+		$this->assertFalse( (bool) $result );
+	}
 }

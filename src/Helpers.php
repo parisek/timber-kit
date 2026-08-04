@@ -1513,8 +1513,11 @@ class Helpers {
 	 * @param \Timber\MenuItem|null $parent_item When null the root items of the menu are processed;
 	 *                                            otherwise the children of this item are processed
 	 *                                            (used for recursive calls).
-	 * @return array<int, array{id: int, title: string, url: string, description: string, attributes: array{target: string|null, class: string}, in_active_trail: bool, is_active: bool, below: array}>
-	 *               Indexed list of menu item arrays with nested `below` lists.
+	 * @return MenuData|array<int, array<string, mixed>>
+	 *               A MenuData object wrapping the indexed list of menu item arrays
+	 *               (with nested `below` lists) when the menu resolves with items;
+	 *               a plain empty array for an empty/missing menu; a plain array for
+	 *               recursive `below` sub-level calls.
 	 */
 	public static function formatMenu( $menu_or_name, $parent_item = null ) {
 
@@ -1571,7 +1574,27 @@ class Helpers {
 			] + $acf_fields;
 		}
 
-		return $items;
+		// Sub-levels are not menus: they carry no term metadata, so the
+		// recursive branch keeps returning a plain array. Wrapping them would
+		// change `item.below` for every consumer.
+		if ( $parent_item !== null ) {
+			return $items;
+		}
+
+		// Empty menus keep returning a plain array. An object is always truthy
+		// in PHP, so an empty MenuData would flip every `{% if menu %}` guard
+		// in consuming templates. See the design spec.
+		if ( $items === [] ) {
+			return $items;
+		}
+
+		return new MenuData( $items, [
+			'id'          => $menu->id ?? 0,
+			'title'       => $menu->name ?? '',
+			'name'        => $menu->name ?? '',
+			'slug'        => $menu->slug ?? '',
+			'description' => $menu->description ?? '',
+		] );
 	}
 
 	/**
