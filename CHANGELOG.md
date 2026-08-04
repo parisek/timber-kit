@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`Acfml\LoadReferenceGuard` + `Wpml\CopyFieldSync`** — sync Copy-marked
+  custom fields to translations in a loop without the two costs that make the
+  obvious implementation unusable.
+
+  ACFML 2.2.4 leaks a filter callback per synced meta key:
+  `WPML_ACF_Worker::getFieldObjectWithFilteredReference()` adds a closure to
+  `acf/load_reference` and then removes `'acf/$metaKey'` — single-quoted, so a
+  literal hook name that never exists. Every later `get_field_object()` walks
+  the accumulated list, and the per-post cost rises with the iteration ordinal:
+  the same post measured 0.092s alone in a fresh process and 4.64s at ordinal
+  40. Sweeping restores what ACFML itself intends, so the guard becomes a no-op
+  once upstream corrects the typo.
+
+  `CopyFieldSync::push()` additionally syncs only the named keys instead of the
+  whole `custom_fields_translation` dictionary, which is site-wide, monotonic
+  and quadratic to walk. Over 24 posts with 807 Copy keys the combination went
+  from 16.33s to 0.95s and — more to the point — flattened the growth curve
+  from 22x to none.
+
 ## [1.28.0] - 2026-08-04
 
 ### Added

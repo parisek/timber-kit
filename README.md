@@ -342,6 +342,59 @@ Applying newly-translatable keys triggers WPML's ProcessNewTranslatableFields
 background task — affected translations get flagged as needing update, which
 is the point: translators see the previously invisible backlog.
 
+### Syncing Copy fields in a loop
+
+**Never call `wpml_sync_all_custom_fields` per post in a loop.** It walks the
+whole dictionary each time, and that dictionary is site-wide and monotonic —
+ACFML registers one entry per *flattened* meta key, so a repeater contributes
+one per row index that has ever existed. A site with 23 declared fields
+measured 807 Copy entries. Two costs stack on top of each other:
+
+1. `WPML_Sync_Custom_Fields::sync_all_custom_fields()` loops the N keys and
+   each `sync_to_translations()` runs `in_array()` over the same N-element
+   list — quadratic. Measured on the `in_array` alone, per post: 2 000 keys
+   0.004s, 10 000 keys 0.094s, 50 000 keys 2.617s.
+2. ACFML leaks one `acf/load_reference` filter callback per synced key
+   (`WPML_ACF_Worker::getFieldObjectWithFilteredReference()` removes
+   `'acf/$metaKey'` in single quotes — a literal hook name that never exists —
+   instead of `'acf/load_reference'`), so the per-post cost also climbs with
+   every post already processed. Reproduced on acfml **2.2.4**.
+
+`CopyFieldSync` avoids both: it syncs only the keys you name, and sweeps the
+leaked callbacks afterwards.
+
+```php
+use Parisek\TimberKit\Wpml\CopyFieldSync;
+
+$sync = new CopyFieldSync();
+
+foreach ( $rows as $row ) {
+    $post_id = $this->write( $row );
+    $sync->push( $post_id, [ 'price', 'status', 'floor' ] );   // + `_price`, … companions
+}
+
+// Non-zero means the installed ACFML still leaks; 0 once upstream fixes it.
+$logger->info( sprintf( 'swept %d leaked callbacks', $sync->sweptTotal() ) );
+```
+
+Pass only the keys actually written — listing every field of the post brings
+back cost 1 in miniature and syncs values nothing touched.
+
+Measured on 24 posts with 807 Copy keys in one process:
+
+| | first post | last post | total |
+|---|---|---|---|
+| `wpml_sync_all_custom_fields`, no sweep | 0.060s | 1.327s (22x) | 16.33s |
+| same, swept after each post | 0.047s | 0.040s (0.8x) | 0.95s |
+
+The point is less the 17x than the flat curve: cost stops depending on the
+iteration ordinal.
+
+`Acfml\LoadReferenceGuard` is available on its own for code that syncs some
+other way — construct it immediately before the loop (it only removes
+callbacks registered after construction, so filters the theme added at boot
+survive) and call `sweep()` per iteration, or wrap the work in `around()`.
+
 ## Usage
 
 Create a `Base` class in your theme that extends `StarterBase`:

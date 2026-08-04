@@ -130,3 +130,42 @@ if ( ! class_exists( 'WP_User' ) ) {
 		}
 	}
 }
+
+// Minimal WP_Hook stub so production code can guard with `instanceof \WP_Hook`
+// and use the real add_filter/remove_filter API (cf. the wpdb stub above).
+// Only the members Acfml\LoadReferenceGuard touches are modelled: the public
+// `$callbacks` map and callback registration keyed the way core keys it —
+// `spl_object_hash` for closures, the string itself for named functions.
+if ( ! class_exists( 'WP_Hook' ) ) {
+	class WP_Hook {
+		/** @var array<int, array<string, array{function: callable, accepted_args: int}>> */
+		public array $callbacks = [];
+
+		public function add_filter( string $tag, callable $function, int $priority = 10, int $accepted_args = 1 ): void {
+			$this->callbacks[ $priority ][ self::unique_id( $function ) ] = [
+				'function'      => $function,
+				'accepted_args' => $accepted_args,
+			];
+		}
+
+		public function remove_filter( string $tag, callable $function, int $priority ): bool {
+			$id = self::unique_id( $function );
+
+			if ( ! isset( $this->callbacks[ $priority ][ $id ] ) ) {
+				return false;
+			}
+
+			unset( $this->callbacks[ $priority ][ $id ] );
+
+			return true;
+		}
+
+		public function count(): int {
+			return array_sum( array_map( 'count', $this->callbacks ) );
+		}
+
+		private static function unique_id( callable $function ): string {
+			return is_object( $function ) ? spl_object_hash( $function ) : (string) $function;
+		}
+	}
+}
