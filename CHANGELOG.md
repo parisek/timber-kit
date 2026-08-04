@@ -25,6 +25,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   dedicated resolver — ACF addresses a taxonomy term as `term_<id>`, which the
   generic `formatFields()` id resolution does not produce.
 
+### Fixed
+
+- **`Helpers::formatFields()` resolved taxonomy terms (and users) against post
+  ids** — the id-resolution branch handed `get_field_objects()` a bare integer
+  (`$post->term_id` / `$post->ID`) for a term or user object, which ACF reads
+  as a post id, silently resolving against whatever post happens to share that
+  number instead of the actual term/user. Fixed by detecting term and user
+  objects *before* the generic `->ID` fallback — `Timber\Term` aliases `->ID`
+  to `->term_id`, and `Timber\User` exposes `->ID` just like a post, so both
+  previously always matched the post branch first — and passing ACF's own
+  `"term_<id>"` / `"user_<id>"` id forms. Detection prefers the `object_type`
+  discriminator Timber's own `Term`/`User`/`Post` classes set, with an
+  `instanceof \WP_Term` / `instanceof \WP_User` check and (for terms) a
+  duck-typed `term_id`-without-`post_type` fallback for plain-object shims
+  that don't extend either core class. No known call site is affected: an
+  audit of ~90 `formatFields()` call sites across 26 consuming themes found
+  none passing a term or user object today.
+  ([#103](https://github.com/parisek/timber-kit/issues/103))
+
 ## [1.27.0] - 2026-08-02
 
 ### Added

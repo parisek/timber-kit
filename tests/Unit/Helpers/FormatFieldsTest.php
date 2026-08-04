@@ -36,10 +36,12 @@ class FormatFieldsTest extends HelpersTestCase {
 	}
 
 	public function test_with_term_object(): void {
+		// Regression for #103: ACF addresses a taxonomy term as "term_<id>",
+		// never a bare integer — a bare int reads as a post id to ACF.
 		$term = (object) [ 'term_id' => 15 ];
 
 		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
-			if ( $id === 15 ) {
+			if ( $id === 'term_15' ) {
 				return [
 					'color' => [ 'type' => 'color_picker', 'value' => '#ff0000' ],
 				];
@@ -50,6 +52,126 @@ class FormatFieldsTest extends HelpersTestCase {
 		$result = Helpers::formatFields( $term );
 
 		$this->assertSame( '#ff0000', $result['color'] );
+	}
+
+	public function test_with_wp_term_instance_resolves_term_prefixed_id(): void {
+		// #103: a real WP_Term instance must resolve identically to the
+		// duck-typed plain-object case above.
+		$term = new \WP_Term( [ 'term_id' => 15, 'taxonomy' => 'category' ] );
+
+		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
+			if ( $id === 'term_15' ) {
+				return [
+					'color' => [ 'type' => 'color_picker', 'value' => '#ff0000' ],
+				];
+			}
+			return false;
+		} );
+
+		$result = Helpers::formatFields( $term );
+
+		$this->assertSame( '#ff0000', $result['color'] );
+	}
+
+	public function test_with_timber_style_term_object_resolves_term_prefixed_id(): void {
+		// #103: Timber\Term does not extend WP_Term in Timber 2 — it wraps
+		// one via CoreEntity — so a Timber-shaped plain object (ID, term_id,
+		// taxonomy, no post_type) must still be detected as a term, not fall
+		// through to the bare ->ID branch.
+		$term = (object) [ 'ID' => 15, 'term_id' => 15, 'taxonomy' => 'category' ];
+
+		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
+			if ( $id === 'term_15' ) {
+				return [
+					'color' => [ 'type' => 'color_picker', 'value' => '#ff0000' ],
+				];
+			}
+			return false;
+		} );
+
+		$result = Helpers::formatFields( $term );
+
+		$this->assertSame( '#ff0000', $result['color'] );
+	}
+
+	public function test_with_user_object_resolves_user_prefixed_id(): void {
+		// #103: users have the identical bug — ACF addresses a user as
+		// "user_<id>", never a bare integer.
+		$user = new \WP_User( [ 'ID' => 8 ] );
+
+		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
+			if ( $id === 'user_8' ) {
+				return [
+					'bio_color' => [ 'type' => 'color_picker', 'value' => '#00ff00' ],
+				];
+			}
+			return false;
+		} );
+
+		$result = Helpers::formatFields( $user );
+
+		$this->assertSame( '#00ff00', $result['bio_color'] );
+	}
+
+	public function test_with_timber_style_user_object_resolves_user_prefixed_id(): void {
+		// #103: a Timber\User-shaped plain object (object_type === 'user'),
+		// mirroring how Timber\User discriminates itself from Timber\Post —
+		// both expose ->ID, so object_type is the reliable signal.
+		$user = (object) [ 'ID' => 8, 'object_type' => 'user' ];
+
+		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
+			if ( $id === 'user_8' ) {
+				return [
+					'bio_color' => [ 'type' => 'color_picker', 'value' => '#00ff00' ],
+				];
+			}
+			return false;
+		} );
+
+		$result = Helpers::formatFields( $user );
+
+		$this->assertSame( '#00ff00', $result['bio_color'] );
+	}
+
+	public function test_normal_post_still_resolves_to_bare_id(): void {
+		// #103 regression guard: the fix must not change post resolution.
+		$post = (object) [ 'ID' => 42 ];
+
+		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
+			if ( $id === 42 ) {
+				return [
+					'title' => [ 'type' => 'text', 'value' => 'Hello' ],
+				];
+			}
+			return false;
+		} );
+
+		$result = Helpers::formatFields( $post );
+
+		$this->assertSame( 'Hello', $result['title'] );
+	}
+
+	public function test_options_string_still_routes_to_options_resolver(): void {
+		// #103 regression guard: string options-page ids must not be
+		// reinterpreted as term/user objects — they were never objects to
+		// begin with, but pin the behaviour alongside the other guards.
+		Functions\when( 'acf_get_options_pages' )->justReturn( [
+			[ 'post_id' => 'options', 'menu_slug' => 'theme-options' ],
+		] );
+		Functions\when( 'acf_decode_post_id' )->alias( function ( $id ) {
+			return in_array( $id, [ 'option', 'options' ], true ) ? [ 'type' => 'option', 'id' => $id ] : false;
+		} );
+		Functions\when( 'acf_get_field_groups' )->justReturn( [ [ 'key' => 'group_options' ] ] );
+		Functions\when( 'acf_get_fields' )->justReturn( [
+			[ 'key' => 'field_site_logo', 'name' => 'site_logo', 'type' => 'text' ],
+		] );
+		Functions\when( 'get_field' )->alias( function ( $name, $id ) {
+			return $name === 'site_logo' && $id === 'option' ? 'logo.svg' : null;
+		} );
+
+		$result = Helpers::formatFields( 'option' );
+
+		$this->assertSame( 'logo.svg', $result['site_logo'] );
 	}
 
 	public function test_with_numeric_id(): void {
@@ -68,6 +190,13 @@ class FormatFieldsTest extends HelpersTestCase {
 	}
 
 	public function test_with_string_options_page(): void {
+		// Defensive stub: acf_decode_post_id() may already be "defined" for
+		// Brain\Monkey's function_exists() once any test in the suite mocks
+		// it (process-wide patch), so isOptionsPostId()'s function_exists()
+		// gate can no longer be relied on to short-circuit here. Force it to
+		// a non-array result so isOptionsPostId() returns false and this
+		// test still exercises the plain get_field_objects() fallback.
+		Functions\when( 'acf_decode_post_id' )->justReturn( false );
 		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
 			if ( $id === 'options' ) {
 				return [
@@ -208,6 +337,8 @@ class FormatFieldsTest extends HelpersTestCase {
 	}
 
 	public function test_with_string_option_singular(): void {
+		// Defensive stub — see test_with_string_options_page() above for why.
+		Functions\when( 'acf_decode_post_id' )->justReturn( false );
 		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
 			if ( $id === 'option' ) {
 				return [
@@ -572,8 +703,12 @@ class FormatFieldsTest extends HelpersTestCase {
 		Functions\when( 'wp_get_post_terms' )->alias( function () {
 			throw new \RuntimeException( 'nav_menu_item path must not run for term objects' );
 		} );
+		// The resolved post id is now the string "term_225" — isOptionsPostId()
+		// asks ACF to classify it; a real acf_decode_post_id() reports 'term',
+		// not 'option', so the options-resolver path is correctly skipped.
+		Functions\when( 'acf_decode_post_id' )->justReturn( [ 'type' => 'term', 'id' => 225 ] );
 		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
-			return $id === 225
+			return $id === 'term_225'
 				? [ 'category_color' => [ 'type' => 'color_picker', 'value' => '#abc' ] ]
 				: false;
 		} );
@@ -605,8 +740,9 @@ class FormatFieldsTest extends HelpersTestCase {
 		Functions\when( 'acf_get_field_groups' )->alias( function () {
 			throw new \RuntimeException( 'menu-item resolver must not run for WP_Term instances' );
 		} );
+		Functions\when( 'acf_decode_post_id' )->justReturn( [ 'type' => 'term', 'id' => 225 ] );
 		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
-			return $id === 225
+			return $id === 'term_225'
 				? [ 'category_color' => [ 'type' => 'color_picker', 'value' => '#abc' ] ]
 				: false;
 		} );

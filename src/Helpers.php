@@ -783,7 +783,20 @@ class Helpers {
 
 		$post_id = null;
 
-		if ( is_object( $post ) && ! empty( $post->ID ) ) {
+		if ( is_object( $post ) && self::isTermObject( $post ) ) {
+			// ACF addresses a taxonomy term as the string "term_<id>" —  never
+			// a bare integer, which ACF reads as a post id, silently resolving
+			// against whatever post happens to share that number. Detection
+			// must run before the generic ->ID fallback below: Timber\Term
+			// aliases ->ID to ->term_id, so a term would otherwise always hit
+			// the ->ID branch first.
+			$post_id = 'term_' . ( $post->term_id ?? $post->ID );
+		} elseif ( is_object( $post ) && self::isUserObject( $post ) ) {
+			// Same bug, same fix, for users: ACF addresses a user as
+			// "user_<id>". Must also run before the ->ID fallback below —
+			// Timber\User exposes ->ID just like a post.
+			$post_id = 'user_' . $post->ID;
+		} elseif ( is_object( $post ) && ! empty( $post->ID ) ) {
 			$post_id = $post->ID;
 		} elseif ( is_object( $post ) && ! empty( $post->term_id ) ) {
 			$post_id = $post->term_id;
@@ -844,6 +857,59 @@ class Helpers {
 	}
 
 	/**
+	 * Whether an object passed to {@see formatFields()} represents a taxonomy
+	 * term rather than a post.
+	 *
+	 * `Timber\Term` does not extend `WP_Term` in Timber 2 — it wraps one via
+	 * `CoreEntity` — so an `instanceof \WP_Term` check alone misses it. Three
+	 * complementary signals, checked cheapest-and-most-specific first:
+	 *   1. `->object_type === 'term'` — the discriminator Timber entities
+	 *      themselves expose (`Term`, `User`, `Post` all set it in their own
+	 *      constructor). Preferred over duck-typing where available: it's an
+	 *      explicit, single-property check that can't collide with a post's
+	 *      shape, whereas `Timber\Post` also carries no `term_id` today but
+	 *      isn't guaranteed to stay that way forever.
+	 *   2. Explicit `WP_Term` instance check covers WordPress-shaped term
+	 *      objects regardless of which extra properties they carry (a term
+	 *      with a coincidental `post_type` meta wouldn't slip through a
+	 *      duck-typed check).
+	 *   3. Property-presence fallback (`term_id` without `post_type`) covers
+	 *      term-like plain objects from `(object)` casts and third-party
+	 *      shims that don't extend `WP_Term` and don't set `object_type`.
+	 *
+	 * @param object $post Original object input passed to {@see formatFields()}.
+	 */
+	private static function isTermObject( object $post ): bool {
+		if ( isset( $post->object_type ) && $post->object_type === 'term' ) {
+			return true;
+		}
+		if ( $post instanceof \WP_Term ) {
+			return true;
+		}
+		return isset( $post->term_id ) && ! isset( $post->post_type );
+	}
+
+	/**
+	 * Whether an object passed to {@see formatFields()} represents a user
+	 * rather than a post.
+	 *
+	 * `Timber\User` exposes `->ID` exactly like `Timber\Post`, so — like
+	 * {@see isTermObject()} — detection must happen before the generic
+	 * `->ID` fallback resolves it as a post id. Two signals: the
+	 * `->object_type === 'user'` discriminator Timber's own `User` class
+	 * sets, and an explicit `WP_User` instance check for plain WordPress
+	 * user objects.
+	 *
+	 * @param object $post Original object input passed to {@see formatFields()}.
+	 */
+	private static function isUserObject( object $post ): bool {
+		if ( isset( $post->object_type ) && $post->object_type === 'user' ) {
+			return true;
+		}
+		return $post instanceof \WP_User;
+	}
+
+	/**
 	 * Whether the resolved post id refers to a `nav_menu_item` post.
 	 *
 	 * Detection prefers the in-memory object (avoids an extra DB hit) and
@@ -856,19 +922,11 @@ class Helpers {
 		// Term objects (`formatFields($category)`) must never enter the
 		// menu-item path — otherwise a numeric `term_id` that happens to equal
 		// an unrelated `nav_menu_item` post id would route the term through
-		// the wrong resolver. Two complementary guards:
-		//   1. Explicit `WP_Term` instance check covers WordPress-shaped
-		//      term objects regardless of which extra properties they carry
-		//      (a term with a coincidental `post_type` meta wouldn't slip
-		//      through a duck-typed check).
-		//   2. Property-presence fallback (`term_id` without `post_type`)
-		//      covers term-like plain objects from `(object)` casts and
-		//      third-party shims that don't extend `WP_Term`.
+		// the wrong resolver. {@see isTermObject()} is the same discriminator
+		// the id-resolution branch above already uses, so this guard stays in
+		// lockstep with which objects resolve to `term_<id>`.
 		if ( is_object( $post ) ) {
-			if ( $post instanceof \WP_Term ) {
-				return false;
-			}
-			if ( isset( $post->term_id ) && ! isset( $post->post_type ) ) {
+			if ( self::isTermObject( $post ) ) {
 				return false;
 			}
 			if ( isset( $post->post_type ) && $post->post_type === 'nav_menu_item' ) {
