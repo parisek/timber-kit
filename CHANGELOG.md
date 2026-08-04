@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **Menu-level metadata from `formatMenu()`** — the returned value now carries the
+  menu's own `title`, `name`, `slug`, `description` and `id`, plus any ACF fields
+  attached to the `nav_menu` term. A footer column can take its heading from the
+  menu name instead of a hardcoded template string, which also makes it
+  translatable through WPML's normal per-language menu assignment.
+
+  Backward compatible by construction: the return value is a `MenuData` object
+  that iterates, counts, indexes and JSON-encodes exactly as the item list it
+  replaced, and empty or missing menus still return a plain `[]` so template
+  truthiness guards keep their meaning. An audit of 26 consuming themes found
+  140 call sites, 461 `{% if %}` guards and 6 filter uses — none require a change.
+
+  New ACF surface: attach a field group to the **Menu** location and its fields
+  appear as properties on the menu (`{{ menu.menu_icon }}`). This needed a
+  dedicated resolver — ACF addresses a taxonomy term as `term_<id>`, which the
+  generic `formatFields()` id resolution does not produce.
+
 ## [1.27.0] - 2026-08-02
 
 ### Added

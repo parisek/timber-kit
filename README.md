@@ -28,7 +28,7 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
 - `formatFields()`, `fieldFormatter()` — ACF field processing
 - `formatLink()` — link/button formatting
 - `remapWpmlReference( $value, array $field, string $target_lang )` — remaps an ACF reference field's id(s) to a target WPML language via `wpml_object_id`, with the element type resolved per ACF field type (`image`/`file`/`gallery` → attachment, `post_object`/`relationship`/`page_link` → post, `taxonomy` → term; non-reference and non-numeric values pass through). Shared formatting-layer primitive that `WpmlBlockOverride` delegates to, reusable by any field formatter
-- `formatMenu()` — navigation menus
+- `formatMenu( $menu_or_name )` — navigation menus. Returns a `MenuData` object exposing the menu's own metadata (`title`, `name`, `slug`, `description`, `id`) alongside `items`, **plus any ACF fields attached to the `nav_menu` term** — so a project can give a menu an icon, a colour or a visibility flag without a kit release. The object iterates, counts, indexes and JSON-encodes exactly as the plain item list it replaced, so existing `{% for item in menu %}` call sites need no change. An empty or missing menu returns a plain `[]`, keeping `{% if menu %}` guards falsy. Note: `id`, `title`, `name`, `slug`, `description` and `items` are reserved metadata keys — an ACF field on the `nav_menu` term with one of those names is silently dropped in favour of the built-in value
 - `formatTerms()` — taxonomy terms
 - `formatLanguageSwitcher()` — WPML language switcher
 - `resizeImage()` — responsive image variants
