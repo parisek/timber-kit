@@ -916,6 +916,31 @@ class Helpers {
 	}
 
 	/**
+	 * Resolve ACF field objects for a `nav_menu` term.
+	 *
+	 * The term counterpart to {@see getFieldObjectsForNavMenuItem()}. Two
+	 * details make the hand-built screen necessary rather than a plain
+	 * `formatFields( $menu )` call:
+	 *
+	 *  1. ACF addresses a taxonomy term as the string `"term_<id>"`. The id
+	 *     resolution inside `formatFields()` yields a bare integer, which ACF
+	 *     reads as a *post* id — a menu would silently resolve against an
+	 *     unrelated post.
+	 *  2. Menu field groups are located by the `nav_menu` rule, which the
+	 *     default screen detection does not reach from a bare id.
+	 *
+	 * @param int $term_id `nav_menu` term id.
+	 * @return array<string, array<string, mixed>>|false False when ACF isn't
+	 *         loaded or no field group targets this menu.
+	 */
+	private static function getFieldObjectsForNavMenu( int $term_id ) {
+		return self::getFieldObjectsByScreen(
+			[ 'nav_menu' => $term_id ],
+			'term_' . $term_id
+		);
+	}
+
+	/**
 	 * Whether the resolved post id refers to an ACF options page.
 	 *
 	 * Reuses ACF's own `acf_decode_post_id()` to classify the string so any
@@ -1513,8 +1538,11 @@ class Helpers {
 	 * @param \Timber\MenuItem|null $parent_item When null the root items of the menu are processed;
 	 *                                            otherwise the children of this item are processed
 	 *                                            (used for recursive calls).
-	 * @return array<int, array{id: int, title: string, url: string, description: string, attributes: array{target: string|null, class: string}, in_active_trail: bool, is_active: bool, below: array}>
-	 *               Indexed list of menu item arrays with nested `below` lists.
+	 * @return MenuData|array<int, array<string, mixed>>
+	 *               A MenuData object wrapping the indexed list of menu item arrays
+	 *               (with nested `below` lists) when the menu resolves with items;
+	 *               a plain empty array for an empty/missing menu; a plain array for
+	 *               recursive `below` sub-level calls.
 	 */
 	public static function formatMenu( $menu_or_name, $parent_item = null ) {
 
@@ -1571,7 +1599,40 @@ class Helpers {
 			] + $acf_fields;
 		}
 
-		return $items;
+		// Sub-levels are not menus: they carry no term metadata, so the
+		// recursive branch keeps returning a plain array. Wrapping them would
+		// change `item.below` for every consumer.
+		if ( $parent_item !== null ) {
+			return $items;
+		}
+
+		// Empty menus keep returning a plain array. An object is always truthy
+		// in PHP, so an empty MenuData would flip every `{% if menu %}` guard
+		// in consuming templates. See the design spec.
+		if ( $items === [] ) {
+			return $items;
+		}
+
+		$menu_id = (int) ( $menu->term_id ?? $menu->id ?? 0 );
+		$menu_fields = $menu_id > 0 ? self::getFieldObjectsForNavMenu( $menu_id ) : false;
+
+		$extra = [];
+		if ( is_array( $menu_fields ) ) {
+			foreach ( $menu_fields as $key => $field ) {
+				$value = self::fieldFormatter( $field, 'term_' . $menu_id );
+				if ( ! empty( $value ) ) {
+					$extra[ $key ] = $value;
+				}
+			}
+		}
+
+		return new MenuData( $items, [
+			'id'          => $menu_id,
+			'title'       => $menu->name ?? '',
+			'name'        => $menu->name ?? '',
+			'slug'        => $menu->slug ?? '',
+			'description' => $menu->description ?? '',
+		] + $extra );
 	}
 
 	/**
