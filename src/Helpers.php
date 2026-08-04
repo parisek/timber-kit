@@ -916,6 +916,31 @@ class Helpers {
 	}
 
 	/**
+	 * Resolve ACF field objects for a `nav_menu` term.
+	 *
+	 * The term counterpart to {@see getFieldObjectsForNavMenuItem()}. Two
+	 * details make the hand-built screen necessary rather than a plain
+	 * `formatFields( $menu )` call:
+	 *
+	 *  1. ACF addresses a taxonomy term as the string `"term_<id>"`. The id
+	 *     resolution inside `formatFields()` yields a bare integer, which ACF
+	 *     reads as a *post* id — a menu would silently resolve against an
+	 *     unrelated post.
+	 *  2. Menu field groups are located by the `nav_menu` rule, which the
+	 *     default screen detection does not reach from a bare id.
+	 *
+	 * @param int $term_id `nav_menu` term id.
+	 * @return array<string, array<string, mixed>>|false False when ACF isn't
+	 *         loaded or no field group targets this menu.
+	 */
+	private static function getFieldObjectsForNavMenu( int $term_id ) {
+		return self::getFieldObjectsByScreen(
+			[ 'nav_menu' => $term_id ],
+			'term_' . $term_id
+		);
+	}
+
+	/**
 	 * Whether the resolved post id refers to an ACF options page.
 	 *
 	 * Reuses ACF's own `acf_decode_post_id()` to classify the string so any
@@ -1588,13 +1613,26 @@ class Helpers {
 			return $items;
 		}
 
+		$menu_id = (int) ( $menu->term_id ?? $menu->id ?? 0 );
+		$menu_fields = $menu_id > 0 ? self::getFieldObjectsForNavMenu( $menu_id ) : false;
+
+		$extra = [];
+		if ( is_array( $menu_fields ) ) {
+			foreach ( $menu_fields as $key => $field ) {
+				$value = self::fieldFormatter( $field, 'term_' . $menu_id );
+				if ( ! empty( $value ) ) {
+					$extra[ $key ] = $value;
+				}
+			}
+		}
+
 		return new MenuData( $items, [
 			'id'          => $menu->id ?? 0,
 			'title'       => $menu->name ?? '',
 			'name'        => $menu->name ?? '',
 			'slug'        => $menu->slug ?? '',
 			'description' => $menu->description ?? '',
-		] );
+		] + $extra );
 	}
 
 	/**

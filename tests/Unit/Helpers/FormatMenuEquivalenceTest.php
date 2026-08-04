@@ -28,6 +28,10 @@ class FormatMenuEquivalenceTest extends HelpersTestCase {
 		// resets the expectation. Mock it explicitly so this file doesn't depend
 		// on suite execution order (same pattern as FormatMenuTest::setUp()).
 		Functions\when( 'is_plugin_active' )->justReturn( false );
+		// Same rationale, for getFieldObjectsForNavMenu()'s acf_get_field_groups()
+		// call: default to "no menu-level field groups" so this file doesn't
+		// depend on whether another test already mocked it process-wide.
+		Functions\when( 'acf_get_field_groups' )->justReturn( [] );
 	}
 
 	private function makeMenu( int $count ): object {

@@ -27,6 +27,12 @@ class FormatMenuTest extends HelpersTestCase {
 		// (Brain\Monkey's function patching is global, not per-test); mock it explicitly
 		// so this test doesn't depend on suite execution order.
 		Functions\when( 'is_plugin_active' )->justReturn( false );
+		// getFieldObjectsForNavMenu() runs for every menu; once a later test in
+		// this file (or an earlier one in the same process) mocks
+		// acf_get_field_groups(), function_exists() stays true for the rest of
+		// the run. Default to "no menu-level field groups" so tests that don't
+		// care about menu ACF fields aren't coupled to suite execution order.
+		Functions\when( 'acf_get_field_groups' )->justReturn( [] );
 	}
 
 	/**
@@ -170,5 +176,28 @@ class FormatMenuTest extends HelpersTestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertFalse( (bool) $result );
+	}
+
+	public function test_merges_acf_fields_from_the_nav_menu_term(): void {
+		// ACF addresses a taxonomy term as "term_<id>", never a bare int —
+		// a bare int would resolve against the post with the same number.
+		Functions\when( 'acf_get_field_groups' )->justReturn( [ [ 'key' => 'group_menu' ] ] );
+		Functions\when( 'acf_get_fields' )->justReturn( [
+			[ 'name' => 'menu_icon', 'type' => 'text' ],
+		] );
+		Functions\expect( 'get_field' )
+			->once()
+			->with( 'menu_icon', 'term_7' )
+			->andReturn( 'ico-channels' );
+
+		$result = Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11, 'A', '/a/' ) ] ) );
+
+		$this->assertSame( 'ico-channels', $result->menu_icon );
+	}
+
+	public function test_menu_without_acf_fields_exposes_no_extras(): void {
+		$result = Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11, 'A', '/a/' ) ] ) );
+
+		$this->assertNull( $result->menu_icon );
 	}
 }
