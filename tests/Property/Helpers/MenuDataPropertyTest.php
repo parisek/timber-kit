@@ -23,13 +23,34 @@ use Tests\Property\Support\PropertyTestCase;
 class MenuDataPropertyTest extends PropertyTestCase {
 
 	private function itemsGenerator(): \Eris\Generator {
-		return Generator\seq(
-			Generator\associative( [
-				'id'    => Generator\nat(),
-				'title' => Generator\string(),
-				'url'   => Generator\string(),
-			] )
+		return Generator\oneOf(
+			Generator\constant( [] ),
+			Generator\seq(
+				Generator\associative( [
+					'id'    => Generator\nat(),
+					'title' => Generator\string(),
+					'url'   => Generator\string(),
+				] )
+			)
 		);
+	}
+
+	/**
+	 * The empty/non-empty boundary is where formatMenu()'s dual return type
+	 * lives (MenuData object vs. plain []), and 461 audited Twig
+	 * `{% if menu %}` guards depend on it — so it must not be left to the
+	 * probabilistic draw of itemsGenerator()'s oneOf(). This deterministic
+	 * pass guarantees the invariants above also hold for the empty case on
+	 * every run, not just when Eris happens to draw it.
+	 */
+	public function test_invariants_hold_for_the_empty_item_list(): void {
+		$menu = new MenuData( [] );
+
+		$this->assertSame( [], array_values( iterator_to_array( $menu ) ) );
+		$this->assertSame( 0, count( $menu ) );
+		$this->assertSame( json_encode( [] ), json_encode( $menu ) );
+		$this->assertTrue( is_iterable( $menu ) );
+		$this->assertInstanceOf( \Countable::class, $menu );
 	}
 
 	public function test_iteration_always_yields_the_item_list(): void {
