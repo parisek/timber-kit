@@ -114,3 +114,19 @@ if ( ! class_exists( 'WP_Term' ) ) {
 		}
 	}
 }
+
+// Minimal WP_User stub for tests that need an instance to satisfy `instanceof WP_User`.
+// `#[\AllowDynamicProperties]` mirrors WordPress core, which annotates `WP_User`
+// the same way (dynamic props are hydrated from the `$data` user row).
+if ( ! class_exists( 'WP_User' ) ) {
+	#[\AllowDynamicProperties]
+	class WP_User {
+		public int $ID = 0;
+
+		public function __construct( array|object $props = [] ) {
+			foreach ( (array) $props as $key => $value ) {
+				$this->$key = $value;
+			}
+		}
+	}
+}
