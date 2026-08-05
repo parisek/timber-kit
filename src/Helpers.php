@@ -1873,25 +1873,36 @@ class Helpers {
 	 * Resolve a normalized (lowercased, trimmed) language code for the current context.
 	 *
 	 * The return value may include a region or script subtag (e.g. `pt-br`,
-	 * `zh-hans`) when WPML provides one — see the WPML normalization note below
-	 * for details.
+	 * `zh-hans`, `de_ch`) when WPML or `get_locale()` provides one — see the
+	 * normalization note below for details.
 	 *
 	 * Lookup order:
 	 *   1. Per-post WPML metadata when a post is supplied (`wpml_post_language_details`).
-	 *   2. Current WPML site language (`wpml_current_language`).
-	 *   3. First two characters of `get_locale()` as a final fallback (always 2 letters).
+	 *   2. Current WPML site language (`wpml_current_language`) — WPML's own
+	 *      config typically returns a bare language code here (`cs`, `de`),
+	 *      not a region-qualified one; this branch is what most WPML sites
+	 *      actually hit.
+	 *   3. `get_locale()` as a final fallback, kept in full (not truncated
+	 *      to the base language — see below).
 	 *
 	 * Intended as the single source of truth for language detection across the kit,
 	 * so any helper that needs to vary behavior by language (read time, breadcrumbs,
 	 * SEO meta, hreflang, …) can call this without duplicating the WPML probe logic.
 	 *
-	 * WPML values are returned verbatim except for case + whitespace normalization,
-	 * so locale-region codes like `pt-br` or `zh-hans` survive for hreflang/SEO use
-	 * cases. Consumers that only care about the base language (e.g. read-time WPM
-	 * map lookups) should take the first two characters of the result.
+	 * Values are returned verbatim except for case + whitespace normalization
+	 * (underscores are left as-is, e.g. `de_ch`), so locale-region codes like
+	 * `pt-br`, `zh-hans`, or `de_ch` survive for hreflang/SEO use cases —
+	 * and for `parisek/twig-typography`'s per-language typographic tables,
+	 * which key some entries by region (`de-CH` Swiss guillemets, `en-GB`
+	 * spaced en-dash) precisely so they don't fall back to the bare
+	 * language; truncating here would make those entries unreachable from
+	 * every WordPress site using this method as a locale resolver.
+	 * Consumers that only care about the base language (e.g. the read-time
+	 * WPM map lookup below) take the first two characters of the result
+	 * themselves.
 	 *
 	 * @param \WP_Post|int|null $post Post or post ID whose language to detect, or null for the current site language.
-	 * @return string Language code, lowercased (e.g. `cs`, `en`, `pt-br`).
+	 * @return string Language code, lowercased (e.g. `cs`, `en`, `pt-br`, `de_ch`).
 	 */
 	public static function getLanguage( \WP_Post|int|null $post = null ): string {
 		if ( is_int( $post ) ) {
@@ -1918,7 +1929,7 @@ class Helpers {
 
 		$locale = function_exists( 'get_locale' ) ? get_locale() : 'en_US';
 
-		return strtolower( substr( $locale, 0, 2 ) );
+		return strtolower( trim( $locale ) );
 	}
 
 	/**

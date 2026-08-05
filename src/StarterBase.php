@@ -1271,20 +1271,30 @@ class StarterBase extends Site {
 	 * only falls back to `get_locale()` when WPML is inactive.
 	 *
 	 * That fallback is `get_locale()`, deliberately not `determine_locale()`.
-	 * Both return the *admin user's own* locale while `is_admin()` is true,
-	 * which is already the wrong signal here (a Czech editor previewing an
-	 * English post would get Czech typography rules). But `determine_locale()`
-	 * goes further and also substitutes the user's locale for any JSON
-	 * request (`wp_is_json_request()`) — and the Gutenberg block-preview
-	 * endpoint (`wp-json/wp/v2/block-renderer/...`) is exactly that: a JSON
-	 * request with `is_admin()` false, hit while previewing a block whose
-	 * post language may differ from the logged-in editor's own UI language.
-	 * `get_locale()` doesn't special-case JSON requests, so on that request
-	 * it still reflects the site/post's own locale (and stays reachable by
-	 * WPML's `locale` filter, which `determine_locale()`'s early-return
-	 * branches bypass). Outside of admin/JSON requests the two functions
-	 * agree, so this only matters for admin-side previews — which is exactly
-	 * where it matters most.
+	 * Per WP core (`wp-includes/l10n.php`):
+	 *
+	 *     $determined_locale = get_locale();
+	 *     if ( is_admin() ) {
+	 *         $determined_locale = get_user_locale();
+	 *     }
+	 *     if ( isset( $_GET['_locale'] ) && 'user' === $_GET['_locale'] && wp_is_json_request() ) {
+	 *         $determined_locale = get_user_locale();
+	 *     }
+	 *
+	 * `determine_locale()` substitutes the *logged-in editor's own* locale
+	 * whenever `is_admin()` is true — every wp-admin screen, including the
+	 * block editor and its block-preview requests — and, separately, for any
+	 * JSON request that explicitly opts in via `?_locale=user`. Neither
+	 * branch is what we want: the content being rendered (a post, a block
+	 * preview) has its own language, which can differ from the editor's
+	 * personal UI-locale preference — a Czech editor previewing an English
+	 * post would otherwise get Czech typography rules. `get_locale()` never
+	 * makes that substitution itself; it only ever returns the site's
+	 * configured locale (through the `locale` filter, which WPML hooks to
+	 * reflect the current front-end language), the same value on the front
+	 * end and in wp-admin alike. Outside of admin contexts the two functions
+	 * agree, so this only diverges for admin-side rendering — exactly where
+	 * getting it wrong would be most visible (every block-editor preview).
 	 *
 	 * Declared as an overridable method (mirroring the `$typography_config`
 	 * property already available for the settings-file path) so a theme
@@ -1292,9 +1302,17 @@ class StarterBase extends Site {
 	 * multilingual plugin, a custom per-post language field — can swap in
 	 * its own resolver without forking `timber_twig()`.
 	 *
+	 * `protected`, not `public`: it's an extension point for a subclassing
+	 * theme's `Base`, not a Twig-callable — unlike the `twig_*` methods
+	 * nearby (`twig_xt()`, `twig_resizer_filter()`, …), which must be
+	 * `public` because Twig invokes them as `[$this, 'method']` from outside
+	 * the class. This method is only ever called from within `timber_twig()`
+	 * itself; only the *closure it returns* crosses into Twig, so there's no
+	 * external-call requirement forcing `public` here.
+	 *
 	 * @return callable(): string Zero-argument callable returning the current locale.
 	 */
-	public function typography_locale_resolver(): callable {
+	protected function typography_locale_resolver(): callable {
 		return static fn (): string => Helpers::getLanguage();
 	}
 

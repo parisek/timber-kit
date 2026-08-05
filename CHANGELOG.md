@@ -16,9 +16,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   falling back to `get_locale()`) and is exposed as the overridable
   `StarterBase::typography_locale_resolver()` for themes that detect language
   through something other than WPML.
-- Bumped the `parisek/twig-typography` floor to `^1.3` — the second
-  `TypographyExtension` constructor argument added in 1.3.0 fatals
-  (`ArgumentCountError`) against 1.0–1.2.
+- **`Helpers::getLanguage()`'s `get_locale()` fallback no longer truncates to
+  the bare two-letter language.** `de_CH` now resolves to `de_ch` (was `de`)
+  — a region subtag WPML doesn't usually supply itself, but `get_locale()`
+  does, and `parisek/twig-typography`'s `LocaleResolver` needs it to reach
+  region-qualified typographic tables (`de-CH` Swiss guillemets, `en-GB`
+  spaced en-dash) that would otherwise be permanently unreachable. Callers
+  that only ever wanted the base language already narrow the result
+  themselves (e.g. the read-time WPM map lookup takes the first two
+  characters), so this is additive for them and unlocks the region-specific
+  path for everyone else.
+- Bumped the `parisek/twig-typography` floor from `^1.0` to `^1.3`. Passing the
+  new second constructor argument to 1.0–1.2 does **not** fatal — PHP only
+  errors on excess arguments to *internal* functions, and this constructor
+  is user-land with a default value, so the extra argument is silently
+  discarded. That silence is precisely why the floor has to move: an
+  under-versioned consumer would get no error, no warning, and no language
+  layer, with nothing to signal that per-language typesetting never
+  actually engaged.
 
 ## [1.28.0] - 2026-08-04
 
