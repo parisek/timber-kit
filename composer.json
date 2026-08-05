@@ -14,7 +14,7 @@
         "ext-gd": "*",
         "parisek/twig-attribute": "^1.0",
         "parisek/twig-common": "^1.0",
-        "parisek/twig-typography": "^1.0",
+        "parisek/twig-typography": "^1.3",
         "spatie/image": "^3.8",
         "symfony/twig-bridge": "^5.4 || ^6.2 || ^7.0",
         "symfony/var-dumper": "^5.4 || ^6.2 || ^7.0",

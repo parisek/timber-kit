@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **`timber_twig()` wires a locale resolver into `TypographyExtension`** so
+  `|typography` picks up per-language settings (quote style, dash convention,
+  single-character word spacing, …) shipped by `parisek/twig-typography`
+  ^1.3, instead of only the language-neutral house defaults. The resolver
+  delegates to `Helpers::getLanguage()` (WPML post/current-language filters,
+  falling back to `get_locale()`) and is exposed as the overridable
+  `StarterBase::typography_locale_resolver()` for themes that detect language
+  through something other than WPML.
+- **`Helpers::getLanguage()`'s `get_locale()` fallback no longer truncates to
+  the bare two-letter language.** `de_CH` now resolves to `de_ch` (was `de`)
+  — a region subtag WPML doesn't usually supply itself, but `get_locale()`
+  does, and `parisek/twig-typography`'s `LocaleResolver` needs it to reach
+  region-qualified typographic tables (`de-CH` Swiss guillemets, `en-GB`
+  spaced en-dash) that would otherwise be permanently unreachable. Callers
+  that only ever wanted the base language already narrow the result
+  themselves (e.g. the read-time WPM map lookup takes the first two
+  characters), so this is additive for them and unlocks the region-specific
+  path for everyone else.
+- Bumped the `parisek/twig-typography` floor from `^1.0` to `^1.3`. Passing the
+  new second constructor argument to 1.0–1.2 does **not** fatal — PHP only
+  errors on excess arguments to *internal* functions, and this constructor
+  is user-land with a default value, so the extra argument is silently
+  discarded. That silence is precisely why the floor has to move: an
+  under-versioned consumer would get no error, no warning, and no language
+  layer, with nothing to signal that per-language typesetting never
+  actually engaged.
+
 ## [1.28.0] - 2026-08-04
 
 ### Added

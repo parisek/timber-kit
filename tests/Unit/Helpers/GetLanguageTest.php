@@ -16,7 +16,28 @@ class GetLanguageTest extends HelpersTestCase {
 		} );
 		Functions\when( 'get_locale' )->justReturn( 'cs_CZ' );
 
-		$this->assertSame( 'cs', Helpers::getLanguage() );
+		// `get_locale()` is kept in full (lowercased), not truncated to the
+		// base language — see test_preserves_region_subtag_from_locale_fallback
+		// below for why the region subtag matters to callers.
+		$this->assertSame( 'cs_cz', Helpers::getLanguage() );
+	}
+
+	/**
+	 * The `get_locale()` fallback must keep the region subtag (`de_CH`, not
+	 * truncated to `de`) — `parisek/twig-typography`'s `LocaleResolver`
+	 * parses either underscore or hyphen form and needs the region to reach
+	 * region-qualified tables (Swiss guillemets for `de-CH`, spaced en-dash
+	 * for `en-GB`). A truncating fallback would make those entries
+	 * permanently unreachable from every WordPress site using this method
+	 * as a locale resolver.
+	 */
+	public function test_preserves_region_subtag_from_locale_fallback(): void {
+		Functions\when( 'apply_filters' )->alias( function ( $filter, $value ) {
+			return $value;
+		} );
+		Functions\when( 'get_locale' )->justReturn( 'de_CH' );
+
+		$this->assertSame( 'de_ch', Helpers::getLanguage() );
 	}
 
 	public function test_uses_wpml_current_language_when_set(): void {
@@ -105,6 +126,6 @@ class GetLanguageTest extends HelpersTestCase {
 
 		$post = new \WP_Post( [ 'ID' => 1 ] );
 
-		$this->assertSame( 'fr', Helpers::getLanguage( $post ) );
+		$this->assertSame( 'fr_fr', Helpers::getLanguage( $post ) );
 	}
 }

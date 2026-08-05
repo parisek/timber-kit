@@ -1259,6 +1259,75 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * Locale resolver passed to `TypographyExtension` (parisek/twig-typography
+	 * ^1.3+) so `|typography` applies per-language settings (quote style,
+	 * dash convention, single-character word spacing, …) for the language of
+	 * the content actually being rendered.
+	 *
+	 * Delegates to `Helpers::getLanguage()` — the kit's existing single
+	 * source of truth for language detection — rather than duplicating its
+	 * WPML probe logic here. That, in turn, prefers WPML's
+	 * `wpml_post_language_details` / `wpml_current_language` filters and
+	 * only falls back to `get_locale()` when WPML is inactive.
+	 *
+	 * That fallback is `get_locale()`, deliberately not `determine_locale()`.
+	 * Per WP core (`wp-includes/l10n.php`):
+	 *
+	 *     $determined_locale = get_locale();
+	 *     if ( is_admin() ) {
+	 *         $determined_locale = get_user_locale();
+	 *     }
+	 *     if ( isset( $_GET['_locale'] ) && 'user' === $_GET['_locale'] && wp_is_json_request() ) {
+	 *         $determined_locale = get_user_locale();
+	 *     }
+	 *
+	 * `determine_locale()` substitutes the *logged-in editor's own* locale
+	 * via two distinct branches, and they cover different requests:
+	 *
+	 *   - `is_admin()` — classic wp-admin page loads (the post-edit screen
+	 *     chrome itself, options pages, admin list tables). This branch is
+	 *     `false` for a REST request, even one made *from* wp-admin.
+	 *   - a JSON request carrying `?_locale=user` — this is the one that
+	 *     actually matters here. The block editor's own REST calls (Gutenberg's
+	 *     `apiFetch`, including the block-renderer endpoint used for
+	 *     `wp-json/wp/v2/block-renderer/...` previews) are sent with
+	 *     `_locale=user` precisely so core UI strings translate in the
+	 *     editor's own admin language — which is `is_admin()` **false**
+	 *     territory, so only this second branch catches it.
+	 *
+	 * Either substitution is wrong for us: the content being rendered (a
+	 * post, a block preview) has its own language, which can differ from the
+	 * editor's personal UI-locale preference — a Czech editor previewing an
+	 * English post would otherwise get Czech typography rules from either
+	 * branch. `get_locale()` makes neither substitution; it only ever
+	 * returns the site's configured locale (through the `locale` filter,
+	 * which WPML hooks to reflect the current front-end language), the same
+	 * value on the front end, in wp-admin, and on a block-preview REST call
+	 * alike. Both branches diverge from it — the JSON one is the one that
+	 * actually fires during ordinary block-editor use, which is exactly
+	 * where getting it wrong would be most visible.
+	 *
+	 * Declared as an overridable method (mirroring the `$typography_config`
+	 * property already available for the settings-file path) so a theme
+	 * whose language detection doesn't go through WPML — a different
+	 * multilingual plugin, a custom per-post language field — can swap in
+	 * its own resolver without forking `timber_twig()`.
+	 *
+	 * `protected`, not `public`: it's an extension point for a subclassing
+	 * theme's `Base`, not a Twig-callable — unlike the `twig_*` methods
+	 * nearby (`twig_xt()`, `twig_resizer_filter()`, …), which must be
+	 * `public` because Twig invokes them as `[$this, 'method']` from outside
+	 * the class. This method is only ever called from within `timber_twig()`
+	 * itself; only the *closure it returns* crosses into Twig, so there's no
+	 * external-call requirement forcing `public` here.
+	 *
+	 * @return callable(): string Zero-argument callable returning the current locale.
+	 */
+	protected function typography_locale_resolver(): callable {
+		return static fn (): string => Helpers::getLanguage();
+	}
+
+	/**
 	 * Register Twig extensions, filters, and functions (component_*, page_*, template_exists, etc.).
 	 *
 	 * Hooked to `timber/twig`.
@@ -1271,7 +1340,7 @@ class StarterBase extends Site {
 		$twig->addExtension( new CommonExtension() );
 		$twig->addExtension( new AttributeExtension() );
 		$typography_settings = get_template_directory() . '/static/' . $this->typography_config;
-		$twig->addExtension( new TypographyExtension( $typography_settings ) );
+		$twig->addExtension( new TypographyExtension( $typography_settings, $this->typography_locale_resolver() ) );
 		$twig->addExtension( new StringExtension() );
 		$cloner = new VarCloner();
 		$twig->addExtension( new DumpExtension( $cloner ) );
