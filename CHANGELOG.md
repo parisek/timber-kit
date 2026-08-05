@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.29.0] - 2026-08-05
+
 ### Changed
 
 - **`timber_twig()` wires a locale resolver into `TypographyExtension`** so
