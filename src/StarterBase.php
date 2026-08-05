@@ -1282,19 +1282,30 @@ class StarterBase extends Site {
 	 *     }
 	 *
 	 * `determine_locale()` substitutes the *logged-in editor's own* locale
-	 * whenever `is_admin()` is true — every wp-admin screen, including the
-	 * block editor and its block-preview requests — and, separately, for any
-	 * JSON request that explicitly opts in via `?_locale=user`. Neither
-	 * branch is what we want: the content being rendered (a post, a block
-	 * preview) has its own language, which can differ from the editor's
-	 * personal UI-locale preference — a Czech editor previewing an English
-	 * post would otherwise get Czech typography rules. `get_locale()` never
-	 * makes that substitution itself; it only ever returns the site's
-	 * configured locale (through the `locale` filter, which WPML hooks to
-	 * reflect the current front-end language), the same value on the front
-	 * end and in wp-admin alike. Outside of admin contexts the two functions
-	 * agree, so this only diverges for admin-side rendering — exactly where
-	 * getting it wrong would be most visible (every block-editor preview).
+	 * via two distinct branches, and they cover different requests:
+	 *
+	 *   - `is_admin()` — classic wp-admin page loads (the post-edit screen
+	 *     chrome itself, options pages, admin list tables). This branch is
+	 *     `false` for a REST request, even one made *from* wp-admin.
+	 *   - a JSON request carrying `?_locale=user` — this is the one that
+	 *     actually matters here. The block editor's own REST calls (Gutenberg's
+	 *     `apiFetch`, including the block-renderer endpoint used for
+	 *     `wp-json/wp/v2/block-renderer/...` previews) are sent with
+	 *     `_locale=user` precisely so core UI strings translate in the
+	 *     editor's own admin language — which is `is_admin()` **false**
+	 *     territory, so only this second branch catches it.
+	 *
+	 * Either substitution is wrong for us: the content being rendered (a
+	 * post, a block preview) has its own language, which can differ from the
+	 * editor's personal UI-locale preference — a Czech editor previewing an
+	 * English post would otherwise get Czech typography rules from either
+	 * branch. `get_locale()` makes neither substitution; it only ever
+	 * returns the site's configured locale (through the `locale` filter,
+	 * which WPML hooks to reflect the current front-end language), the same
+	 * value on the front end, in wp-admin, and on a block-preview REST call
+	 * alike. Both branches diverge from it — the JSON one is the one that
+	 * actually fires during ordinary block-editor use, which is exactly
+	 * where getting it wrong would be most visible.
 	 *
 	 * Declared as an overridable method (mirroring the `$typography_config`
 	 * property already available for the settings-file path) so a theme

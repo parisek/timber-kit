@@ -106,29 +106,18 @@ class TypographyLocaleResolverTest extends StarterBaseTestCase {
 	/**
 	 * End-to-end proof that `get_locale() === 'de_CH'` reaches the Swiss
 	 * (`de-CH`) typographic table (Swiss guillemets `«…»`), not just the
-	 * bare `de` one, is **not** part of this suite: `PHP_Typography`'s DOM
-	 * walker passes nodes by reference internally, and Brain\Monkey's
-	 * Patchwork interceptor rewrites that call in a way that turns every
-	 * traversal step into a "must be passed by reference, value given"
-	 * warning — for real prose this floods to thousands of warnings and
-	 * the test never completes in practice (confirmed: killed after >90s).
-	 * This is the same class of Patchwork/vendor-internals conflict noted
-	 * in AGENTS.md for the Property suite (`ERIS_SEED` / bootstrap
-	 * isolation) — that suite works around it by never having Brain\Monkey
-	 * active; this one has no such option since it's testing the resolver
-	 * that WPML/`get_locale()`-mocking requires. Verified manually instead,
-	 * outside PHPUnit, against the real `parisek/twig-typography` install:
-	 *
-	 *     $ext = new TypographyExtension('', fn () => 'de_CH');
-	 *     $ext->applyTypography('Er sagte "Hallo"');
-	 *     // => 'Er sagte «Hallo»'   (Swiss guillemets)
-	 *
-	 *     $ext = new TypographyExtension('', fn () => 'de_DE');
-	 *     $ext->applyTypography('Er sagte "Hallo"');
-	 *     // => 'Er sagte „Hallo“'  (German low/high quotes, no guillemet)
-	 *
-	 * confirming the region subtag reaches `TypographyExtension`'s
-	 * language-table lookup, not just the resolver's own return value.
+	 * bare `de` one, is deliberately **not** in this suite:
+	 * `PHP_Typography`'s DOM walker passes nodes by reference internally,
+	 * and Brain\Monkey's Patchwork interceptor rewrites that call in a way
+	 * that turns every traversal step into a "must be passed by reference,
+	 * value given" warning — for real prose this floods to thousands of
+	 * warnings and the test never completes under this suite (confirmed:
+	 * killed after >90s). The render happens instead in
+	 * `Tests\Property\Helpers\TypographyLocaleRenderTest`, run under
+	 * `phpunit.property.xml`'s Brain\Monkey-free bootstrap — the resolver
+	 * under test is a plain closure returning a constant locale, so no
+	 * WordPress function needs mocking there and the Patchwork conflict
+	 * never arises.
 	 */
 
 	/**
