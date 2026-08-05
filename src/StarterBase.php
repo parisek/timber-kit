@@ -1259,6 +1259,46 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * Locale resolver passed to `TypographyExtension` (parisek/twig-typography
+	 * ^1.3+) so `|typography` applies per-language settings (quote style,
+	 * dash convention, single-character word spacing, …) for the language of
+	 * the content actually being rendered.
+	 *
+	 * Delegates to `Helpers::getLanguage()` — the kit's existing single
+	 * source of truth for language detection — rather than duplicating its
+	 * WPML probe logic here. That, in turn, prefers WPML's
+	 * `wpml_post_language_details` / `wpml_current_language` filters and
+	 * only falls back to `get_locale()` when WPML is inactive.
+	 *
+	 * That fallback is `get_locale()`, deliberately not `determine_locale()`.
+	 * Both return the *admin user's own* locale while `is_admin()` is true,
+	 * which is already the wrong signal here (a Czech editor previewing an
+	 * English post would get Czech typography rules). But `determine_locale()`
+	 * goes further and also substitutes the user's locale for any JSON
+	 * request (`wp_is_json_request()`) — and the Gutenberg block-preview
+	 * endpoint (`wp-json/wp/v2/block-renderer/...`) is exactly that: a JSON
+	 * request with `is_admin()` false, hit while previewing a block whose
+	 * post language may differ from the logged-in editor's own UI language.
+	 * `get_locale()` doesn't special-case JSON requests, so on that request
+	 * it still reflects the site/post's own locale (and stays reachable by
+	 * WPML's `locale` filter, which `determine_locale()`'s early-return
+	 * branches bypass). Outside of admin/JSON requests the two functions
+	 * agree, so this only matters for admin-side previews — which is exactly
+	 * where it matters most.
+	 *
+	 * Declared as an overridable method (mirroring the `$typography_config`
+	 * property already available for the settings-file path) so a theme
+	 * whose language detection doesn't go through WPML — a different
+	 * multilingual plugin, a custom per-post language field — can swap in
+	 * its own resolver without forking `timber_twig()`.
+	 *
+	 * @return callable(): string Zero-argument callable returning the current locale.
+	 */
+	public function typography_locale_resolver(): callable {
+		return static fn (): string => Helpers::getLanguage();
+	}
+
+	/**
 	 * Register Twig extensions, filters, and functions (component_*, page_*, template_exists, etc.).
 	 *
 	 * Hooked to `timber/twig`.
@@ -1271,7 +1311,7 @@ class StarterBase extends Site {
 		$twig->addExtension( new CommonExtension() );
 		$twig->addExtension( new AttributeExtension() );
 		$typography_settings = get_template_directory() . '/static/' . $this->typography_config;
-		$twig->addExtension( new TypographyExtension( $typography_settings ) );
+		$twig->addExtension( new TypographyExtension( $typography_settings, $this->typography_locale_resolver() ) );
 		$twig->addExtension( new StringExtension() );
 		$cloner = new VarCloner();
 		$twig->addExtension( new DumpExtension( $cloner ) );

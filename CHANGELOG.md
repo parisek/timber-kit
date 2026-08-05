@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **`timber_twig()` wires a locale resolver into `TypographyExtension`** so
+  `|typography` picks up per-language settings (quote style, dash convention,
+  single-character word spacing, …) shipped by `parisek/twig-typography`
+  ^1.3, instead of only the language-neutral house defaults. The resolver
+  delegates to `Helpers::getLanguage()` (WPML post/current-language filters,
+  falling back to `get_locale()`) and is exposed as the overridable
+  `StarterBase::typography_locale_resolver()` for themes that detect language
+  through something other than WPML.
+- Bumped the `parisek/twig-typography` floor to `^1.3` — the second
+  `TypographyExtension` constructor argument added in 1.3.0 fatals
+  (`ArgumentCountError`) against 1.0–1.2.
+
 ## [1.28.0] - 2026-08-04
 
 ### Added
