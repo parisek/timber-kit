@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Helpers::formatFields()` no longer drops a field with a meaningful falsy
+  value.** Previously any formatted value that failed `!empty()` was omitted
+  from the result — for an ACF `true_false` field, an unchecked box formats
+  to `false`, which is `empty()`, so the key disappeared entirely. Consumers
+  reading the switch via `array_key_exists()` / `isset()` / `??` (a common
+  `?? true` "default on" pattern) could not tell "explicitly turned off"
+  from "field does not exist". Measured downstream: a page-header component
+  used exactly that pattern, and 280 published blocks with the switch
+  explicitly off rendered as if it were on.
+
+  `formatFields()` now keeps `false`, `0`, `0.0` and `"0"` as real values,
+  while still dropping `null`, `''`, and `[]`. `fieldFormatter()` also
+  returns literal `false` as its own "no such field" sentinel (empty field
+  definition, missing `value` key, unfilled repeater/flexible_content
+  outside preview) — the fix disambiguates the two `false`s by checking
+  whether the source field actually carried a non-null `value` key; only
+  then is a `false` result kept.
+
+  **Blast radius:** consumers using Twig truthiness (`{% if content.x %}`)
+  are unaffected — `false`/`0`/`"0"` were already falsy there whether the
+  key existed or not. Consumers using `isset()` / `array_key_exists()` / `??`
+  against a `formatFields()` result will now see a key that was previously
+  absent whenever the underlying field's raw value is `false`, `0`, `0.0`,
+  or `"0"`. Any such consumer relying on the old (buggy) absent-key behavior
+  as "off" would need to re-check its default logic — this is the reason
+  the change ships as a **major** version bump rather than a patch, despite
+  being a straightforward bug fix.
+
 ## [1.29.0] - 2026-08-05
 
 ### Changed

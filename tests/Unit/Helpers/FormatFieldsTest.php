@@ -268,6 +268,69 @@ class FormatFieldsTest extends HelpersTestCase {
 		$this->assertArrayNotHasKey( 'empty', $result );
 	}
 
+	/**
+	 * Regression: an unchecked `true_false` field must survive as an
+	 * explicit `false`, not be dropped as if the field did not exist.
+	 * A consumer that reads the switch via `array_key_exists()` (a common
+	 * `?? true` "default on" pattern) cannot otherwise tell "explicitly off"
+	 * from "field not present" — see CHANGELOG for the measured fallout.
+	 */
+	public function test_true_false_switch_off_is_kept_as_explicit_false(): void {
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'is_enabled' => [ 'type' => 'true_false', 'value' => false ],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayHasKey( 'is_enabled', $result );
+		$this->assertSame( false, $result['is_enabled'] );
+	}
+
+	public function test_true_false_switch_on_is_kept_as_true(): void {
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'is_enabled' => [ 'type' => 'true_false', 'value' => true ],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertSame( true, $result['is_enabled'] );
+	}
+
+	/**
+	 * Companion to the true_false case: a `number` field explicitly set to
+	 * `0` (or ACF's string-typed `"0"`) must also survive — `0` is not
+	 * "field absent" any more than `false` is.
+	 */
+	public function test_numeric_zero_value_is_kept(): void {
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'count'      => [ 'type' => 'number', 'value' => 0 ],
+			'raw_string' => [ 'type' => 'text', 'value' => '0' ],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertSame( 0, $result['count'] );
+		$this->assertSame( '0', $result['raw_string'] );
+	}
+
+	/**
+	 * A field with no saved value at all (missing `value` key entirely —
+	 * the shape `fieldFormatter()` treats as "no such field") must still be
+	 * dropped, even though `fieldFormatter()`'s sentinel return is also the
+	 * literal `false` that a real true_false-off value formats to. This is
+	 * the disambiguation the fix relies on: only a field that genuinely
+	 * carried a non-null `value` key produces a kept `false`.
+	 */
+	public function test_field_missing_value_key_is_dropped_not_kept_as_false(): void {
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'ghost' => [ 'type' => 'true_false' ], // no 'value' key at all
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayNotHasKey( 'ghost', $result );
+	}
+
 	public function test_wysiwyg_tinymce_artifacts_excluded_automatically(): void {
 		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
 			return $content;

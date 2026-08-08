@@ -847,13 +847,59 @@ class Helpers {
 			foreach ( $fields as $key => $field ) {
 				$value = self::fieldFormatter( $field, $post_id, $is_preview );
 
-				if ( ! empty( $value ) ) {
+				if ( self::isFormattedFieldPresent( $field, $value ) ) {
 					$content[ $key ] = $value;
 				}
 			}
 		}
 
 		return $content;
+	}
+
+	/**
+	 * Whether a {@see fieldFormatter()} result should survive into the
+	 * `formatFields()` output, or be dropped as "no such field".
+	 *
+	 * A plain `!empty( $value )` check (the pre-1.30 behaviour) conflates two
+	 * different things whenever the formatted value is falsy: a field that
+	 * genuinely carries a falsy value (a `true_false` switch left off, a
+	 * `number` field set to `0`) and a field that simply is not there
+	 * (missing definition, unfilled repeater outside preview). Both used to
+	 * come out as an absent array key, so `array_key_exists()` /
+	 * `isset()` / `??` on the `formatFields()` result could never tell an
+	 * explicit "off" from "never set" — see CHANGELOG for the measured
+	 * downstream fallout (a `true_false` default implemented via
+	 * `array_key_exists()` rendered 280 blocks as if the switch were still
+	 * on).
+	 *
+	 * `false` is the only ambiguous case: {@see fieldFormatter()} also
+	 * returns literal `false` as its own "no such field" sentinel (empty
+	 * field definition, missing `value` key, unfilled repeater/flexible_content
+	 * outside preview). None of the type-specific branches in
+	 * `fieldFormatter()` ever assign `false` to `$field['value']` themselves
+	 * — a raw ACF `false` (e.g. an off `true_false` field) only ever reaches
+	 * the final `return $field['value'];` unmodified, which requires the
+	 * field to have carried a non-null `value` key to begin with. That is
+	 * exactly the condition this method uses to tell the two `false`s apart.
+	 *
+	 * Every other falsy scalar (`0`, `0.0`, `"0"`) has no such ambiguity —
+	 * `fieldFormatter()` never uses them as a sentinel — so they are kept
+	 * unconditionally. Empty string, empty array, and `null` keep being
+	 * dropped, matching the pre-1.30 behaviour for those.
+	 *
+	 * @param mixed $field ACF field definition array as read from `$fields` in {@see formatFields()}.
+	 * @param mixed $value Return value of {@see fieldFormatter()} for that field.
+	 */
+	private static function isFormattedFieldPresent( $field, $value ): bool {
+		if ( $value === false ) {
+			return is_array( $field ) && array_key_exists( 'value', $field ) && $field['value'] !== null;
+		}
+
+		if ( is_scalar( $value ) ) {
+			return $value !== '';
+		}
+
+		return ! empty( $value );
 	}
 
 	/**
