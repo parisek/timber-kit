@@ -1271,7 +1271,13 @@ class Helpers {
 	 *                                  `type` and `value` keys.
 	 * @param int|string|null $post_id  Post ID used by nested formatters (may be a block ID string).
 	 * @param bool         $is_preview True when rendering inside a Gutenberg block preview.
-	 * @return mixed Formatted field value, or false when `$field` is empty.
+	 * @return mixed Formatted field value, or literal `false` as a "no such
+	 *               field" sentinel — not only when `$field` itself is
+	 *               empty, but also for a non-empty field definition whose
+	 *               `value` key is missing entirely, or present but `null`
+	 *               (except `repeater`/`flexible_content` during preview,
+	 *               which instead pass the definition through unchanged so
+	 *               a preview can read its `sub_fields`/`layouts`).
 	 */
 	public static function fieldFormatter( $field, $post_id = null, $is_preview = false ) {
 
