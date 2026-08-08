@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.30.0] - 2026-08-08
+
 ### Fixed
 
 - **`Helpers::formatFields()` no longer drops a field with a meaningful falsy
