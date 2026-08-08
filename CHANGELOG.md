@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
-## [Unreleased]
+## [1.30.0] - 2026-08-08
 
 ### Fixed
 
@@ -18,7 +18,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   used exactly that pattern, and 280 published blocks with the switch
   explicitly off rendered as if it were on.
 
-  `formatFields()` now keeps `0`, `0.0` and `"0"` as real values for every
+  A falsy field now surfaces in the result as a real key — `formatFields()`
+  keeps `0`, `0.0` and `"0"` as real values for every
   field type, while still dropping `null`, `''`, and `[]`. `false` is kept
   **only for `true_false` fields** — that is the one ACF type whose stored
   value is always boolean, with no third "empty" state distinct from
@@ -59,11 +60,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   explicit `null` value) or `array_key_exists()` (which is not — it treats
   a stored `null` value as present) against a `formatFields()` result will
   now see a key that was previously absent whenever the underlying field is
-  a `true_false` field, or its formatted value is `0`, `0.0`, or `"0"`. Any
-  such consumer relying on the old (buggy) absent-key behavior as "off"
-  would need to re-check its default logic — this is the reason the change
-  ships as a **major** version bump rather than a patch, despite being a
-  straightforward bug fix.
+  a `true_false` field, or its formatted value is `0`, `0.0`, or `"0"`.
 
 ## [1.29.0] - 2026-08-05
 
