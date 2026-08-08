@@ -865,12 +865,15 @@ class Helpers {
 	 * genuinely carries a falsy value (a `true_false` switch left off, a
 	 * `number` field set to `0`) and a field that simply is not there
 	 * (missing definition, unfilled repeater outside preview). Both used to
-	 * come out as an absent array key, so `array_key_exists()` /
-	 * `isset()` / `??` on the `formatFields()` result could never tell an
-	 * explicit "off" from "never set" — see CHANGELOG for the measured
-	 * downstream fallout (a `true_false` default implemented via
-	 * `array_key_exists()` rendered 280 blocks as if the switch were still
-	 * on).
+	 * come out as an absent array key, so `isset()` / `??` on the
+	 * `formatFields()` result could never tell an explicit "off" from
+	 * "never set" — see CHANGELOG for the measured downstream fallout (a
+	 * `true_false` default implemented via `array_key_exists()` rendered
+	 * 280 blocks as if the switch were still on). `array_key_exists()` is
+	 * not identical to the other two here: it sees an explicit `null`
+	 * value as present, where `isset()` / `??` do not — but a genuinely
+	 * absent key defeats all three alike, which is the case this fix
+	 * targets.
 	 *
 	 * `false` is the only ambiguous case, and the ambiguity is **not**
 	 * resolved by asking whether the source field carried a non-null
