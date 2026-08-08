@@ -18,23 +18,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   used exactly that pattern, and 280 published blocks with the switch
   explicitly off rendered as if it were on.
 
-  `formatFields()` now keeps `false`, `0`, `0.0` and `"0"` as real values,
-  while still dropping `null`, `''`, and `[]`. `fieldFormatter()` also
-  returns literal `false` as its own "no such field" sentinel (empty field
-  definition, missing `value` key, unfilled repeater/flexible_content
-  outside preview) — the fix disambiguates the two `false`s by checking
-  whether the source field actually carried a non-null `value` key; only
-  then is a `false` result kept.
+  `formatFields()` now keeps `0`, `0.0` and `"0"` as real values for every
+  field type, while still dropping `null`, `''`, and `[]`. `false` is kept
+  **only for `true_false` fields** — that is the one ACF type whose stored
+  value is always boolean, with no third "empty" state distinct from
+  `false`, so an unfilled switch and an explicitly-off one are the same
+  value by design and both are meaningfully "off". Every other type's
+  `false` keeps being dropped: ACF itself uses literal `false` as an
+  "empty" sentinel for a `relationship`, `gallery`, `image`, `file`,
+  `link`, `date_picker`, nullable `select`, or an unfilled `repeater` /
+  `flexible_content` outside preview — none of those carry a `false` that
+  a consumer would ever want to distinguish from "not set", so disambiguating
+  by field type (rather than by whether the source field merely carried a
+  `value` key, which is true for the empty cases above too) keeps them
+  absent, matching the pre-1.30 behaviour and this fix's own promise that
+  an unfilled repeater stays absent. This also covers a `false` produced by
+  the `field_formatter_{type}` filter, not just the raw ACF value — the
+  survive/drop decision is made on the field's declared `type`, regardless
+  of what set `value` to `false`.
 
   **Blast radius:** consumers using Twig truthiness (`{% if content.x %}`)
   are unaffected — `false`/`0`/`"0"` were already falsy there whether the
   key existed or not. Consumers using `isset()` / `array_key_exists()` / `??`
   against a `formatFields()` result will now see a key that was previously
-  absent whenever the underlying field's raw value is `false`, `0`, `0.0`,
-  or `"0"`. Any such consumer relying on the old (buggy) absent-key behavior
-  as "off" would need to re-check its default logic — this is the reason
-  the change ships as a **major** version bump rather than a patch, despite
-  being a straightforward bug fix.
+  absent whenever the underlying field is a `true_false` field, or its raw
+  value is `0`, `0.0`, or `"0"`. Any such consumer relying on the old
+  (buggy) absent-key behavior as "off" would need to re-check its default
+  logic — this is the reason the change ships as a **major** version bump
+  rather than a patch, despite being a straightforward bug fix.
 
 ## [1.29.0] - 2026-08-05
 

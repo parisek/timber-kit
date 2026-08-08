@@ -331,6 +331,41 @@ class FormatFieldsTest extends HelpersTestCase {
 		$this->assertArrayNotHasKey( 'ghost', $result );
 	}
 
+	/**
+	 * The `false`-keeping exception is scoped to `true_false` by field
+	 * *type*, not by "does the field carry a `value` key" — ACF sets
+	 * `value => false` on an empty `repeater` too (see the sentinel
+	 * pass-through in {@see fieldFormatter()}), so a key-presence test
+	 * would wrongly keep it. If the predicate were inverted back to a bare
+	 * key-presence check, this would fail: `array_key_exists( 'value',
+	 * $field )` is true here, only the type restriction saves it.
+	 */
+	public function test_empty_repeater_false_value_is_dropped_not_kept(): void {
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'items' => [ 'type' => 'repeater', 'value' => false, 'sub_fields' => [] ],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayNotHasKey( 'items', $result );
+	}
+
+	/**
+	 * Same disambiguation, for an empty `relationship` field — ACF also
+	 * represents "nothing selected" as `value => false` here. If the
+	 * predicate were inverted back to a bare key-presence check, this would
+	 * fail the same way as the repeater case above.
+	 */
+	public function test_empty_relationship_false_value_is_dropped_not_kept(): void {
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'related' => [ 'type' => 'relationship', 'value' => false ],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayNotHasKey( 'related', $result );
+	}
+
 	public function test_wysiwyg_tinymce_artifacts_excluded_automatically(): void {
 		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
 			return $content;

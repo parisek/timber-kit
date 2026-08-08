@@ -872,27 +872,48 @@ class Helpers {
 	 * `array_key_exists()` rendered 280 blocks as if the switch were still
 	 * on).
 	 *
-	 * `false` is the only ambiguous case: {@see fieldFormatter()} also
-	 * returns literal `false` as its own "no such field" sentinel (empty
-	 * field definition, missing `value` key, unfilled repeater/flexible_content
-	 * outside preview). None of the type-specific branches in
-	 * `fieldFormatter()` ever assign `false` to `$field['value']` themselves
-	 * — a raw ACF `false` (e.g. an off `true_false` field) only ever reaches
-	 * the final `return $field['value'];` unmodified, which requires the
-	 * field to have carried a non-null `value` key to begin with. That is
-	 * exactly the condition this method uses to tell the two `false`s apart.
+	 * `false` is the only ambiguous case, and the ambiguity is **not**
+	 * resolved by asking whether the source field carried a non-null
+	 * `value` key — that key is present just as often for a field that is
+	 * genuinely empty. ACF's own field-load layer uses literal `false` as
+	 * an "empty" sentinel for a wide range of types with a `value` key
+	 * still set to `false`: an empty `relationship`, `gallery`, `image`,
+	 * `file`, `link`, or `date_picker`, a nullable `select` with nothing
+	 * chosen, and (per {@see fieldFormatter()}'s own preview-only
+	 * pass-through) an unfilled `repeater`/`flexible_content` outside
+	 * preview. None of `fieldFormatter()`'s type branches rewrite `false`
+	 * for any of those types, so a "carried a `value` key" test would keep
+	 * every one of them — directly contradicting this very CHANGELOG entry,
+	 * which promises an unfilled repeater stays absent.
+	 *
+	 * The disambiguation is by field **semantics**, not by key presence:
+	 * `true_false` is the one ACF type whose stored value is *always*
+	 * boolean — it has no third "empty" state distinct from `false`, so an
+	 * unfilled `true_false` and an explicitly-off one are the same value by
+	 * design, and treating that `false` as meaningful is exactly the
+	 * intended fix. `select` / `checkbox` / `radio` are deliberately left
+	 * out even though `false` is meaningless noise there too (ACF returns
+	 * `false` for "nothing chosen") — for choice fields "nothing chosen" is
+	 * not a distinguishable state consumers watch for the way an "off"
+	 * switch is, and every other field type's `false` is unambiguously
+	 * "empty", so it keeps being dropped.
 	 *
 	 * Every other falsy scalar (`0`, `0.0`, `"0"`) has no such ambiguity —
-	 * `fieldFormatter()` never uses them as a sentinel — so they are kept
-	 * unconditionally. Empty string, empty array, and `null` keep being
-	 * dropped, matching the pre-1.30 behaviour for those.
+	 * `fieldFormatter()` never uses them as a sentinel for any type — so
+	 * they are kept unconditionally regardless of field type. Empty
+	 * string, empty array, and `null` keep being dropped, matching the
+	 * pre-1.30 behaviour for those.
 	 *
 	 * @param mixed $field ACF field definition array as read from `$fields` in {@see formatFields()}.
 	 * @param mixed $value Return value of {@see fieldFormatter()} for that field.
 	 */
 	private static function isFormattedFieldPresent( $field, $value ): bool {
 		if ( $value === false ) {
-			return is_array( $field ) && array_key_exists( 'value', $field ) && $field['value'] !== null;
+			return is_array( $field )
+				&& isset( $field['type'] )
+				&& $field['type'] === 'true_false'
+				&& array_key_exists( 'value', $field )
+				&& $field['value'] !== null;
 		}
 
 		if ( is_scalar( $value ) ) {
