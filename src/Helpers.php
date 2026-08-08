@@ -847,13 +847,83 @@ class Helpers {
 			foreach ( $fields as $key => $field ) {
 				$value = self::fieldFormatter( $field, $post_id, $is_preview );
 
-				if ( ! empty( $value ) ) {
+				if ( self::isFormattedFieldPresent( $field, $value ) ) {
 					$content[ $key ] = $value;
 				}
 			}
 		}
 
 		return $content;
+	}
+
+	/**
+	 * Whether a {@see fieldFormatter()} result should survive into the
+	 * `formatFields()` output, or be dropped as "no such field".
+	 *
+	 * A plain `!empty( $value )` check (the pre-1.30 behaviour) conflates two
+	 * different things whenever the formatted value is falsy: a field that
+	 * genuinely carries a falsy value (a `true_false` switch left off, a
+	 * `number` field set to `0`) and a field that simply is not there
+	 * (missing definition, unfilled repeater outside preview). Both used to
+	 * come out as an absent array key, so `isset()` / `??` on the
+	 * `formatFields()` result could never tell an explicit "off" from
+	 * "never set" — see CHANGELOG for the measured downstream fallout (a
+	 * `true_false` default implemented via `array_key_exists()` rendered
+	 * 280 blocks as if the switch were still on). `array_key_exists()` is
+	 * not identical to the other two here: it sees an explicit `null`
+	 * value as present, where `isset()` / `??` do not — but a genuinely
+	 * absent key defeats all three alike, which is the case this fix
+	 * targets.
+	 *
+	 * `false` is the only ambiguous case, and the ambiguity is **not**
+	 * resolved by asking whether the source field carried a non-null
+	 * `value` key — that key is present just as often for a field that is
+	 * genuinely empty. ACF's own field-load layer uses literal `false` as
+	 * an "empty" sentinel for a wide range of types with a `value` key
+	 * still set to `false`: an empty `relationship`, `gallery`, `image`,
+	 * `file`, `link`, or `date_picker`, a nullable `select` with nothing
+	 * chosen, and (per {@see fieldFormatter()}'s own preview-only
+	 * pass-through) an unfilled `repeater`/`flexible_content` outside
+	 * preview. None of `fieldFormatter()`'s type branches rewrite `false`
+	 * for any of those types, so a "carried a `value` key" test would keep
+	 * every one of them — directly contradicting this very CHANGELOG entry,
+	 * which promises an unfilled repeater stays absent.
+	 *
+	 * The disambiguation is by field **semantics**, not by key presence:
+	 * `true_false` is the one ACF type whose stored value is *always*
+	 * boolean — it has no third "empty" state distinct from `false`, so an
+	 * unfilled `true_false` and an explicitly-off one are the same value by
+	 * design, and treating that `false` as meaningful is exactly the
+	 * intended fix. `select` / `checkbox` / `radio` are deliberately left
+	 * out even though `false` is meaningless noise there too (ACF returns
+	 * `false` for "nothing chosen") — for choice fields "nothing chosen" is
+	 * not a distinguishable state consumers watch for the way an "off"
+	 * switch is, and every other field type's `false` is unambiguously
+	 * "empty", so it keeps being dropped.
+	 *
+	 * Every other falsy scalar (`0`, `0.0`, `"0"`) has no such ambiguity —
+	 * `fieldFormatter()` never uses them as a sentinel for any type — so
+	 * they are kept unconditionally regardless of field type. Empty
+	 * string, empty array, and `null` keep being dropped, matching the
+	 * pre-1.30 behaviour for those.
+	 *
+	 * @param mixed $field ACF field definition array as read from `$fields` in {@see formatFields()}.
+	 * @param mixed $value Return value of {@see fieldFormatter()} for that field.
+	 */
+	private static function isFormattedFieldPresent( $field, $value ): bool {
+		if ( $value === false ) {
+			return is_array( $field )
+				&& isset( $field['type'] )
+				&& $field['type'] === 'true_false'
+				&& array_key_exists( 'value', $field )
+				&& $field['value'] !== null;
+		}
+
+		if ( is_scalar( $value ) ) {
+			return $value !== '';
+		}
+
+		return ! empty( $value );
 	}
 
 	/**
@@ -1204,7 +1274,25 @@ class Helpers {
 	 *                                  `type` and `value` keys.
 	 * @param int|string|null $post_id  Post ID used by nested formatters (may be a block ID string).
 	 * @param bool         $is_preview True when rendering inside a Gutenberg block preview.
-	 * @return mixed Formatted field value, or false when `$field` is empty.
+	 * @return mixed Formatted field value. Literal `false` is ambiguous by
+	 *               design and carries two different meanings a caller must
+	 *               tell apart before trusting it:
+	 *               1. A "no such field" sentinel — not only when `$field`
+	 *                  itself is empty, but also for a non-empty field
+	 *                  definition whose `value` key is missing entirely, or
+	 *                  present but `null` (except `repeater`/
+	 *                  `flexible_content` during preview, which instead
+	 *                  pass the definition through unchanged so a preview
+	 *                  can read its `sub_fields`/`layouts`).
+	 *               2. The legitimate formatted value of a present
+	 *                  `true_false` field (an off switch, including one
+	 *                  produced by a `field_formatter_true_false` filter
+	 *                  override) — `false` by design there, not a sentinel
+	 *                  at all.
+	 *               This method does not disambiguate the two on its own —
+	 *               see {@see isFormattedFieldPresent()}, which does, by
+	 *               checking `$field['type'] === 'true_false'` against the
+	 *               original field definition alongside the returned value.
 	 */
 	public static function fieldFormatter( $field, $post_id = null, $is_preview = false ) {
 

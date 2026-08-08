@@ -6,6 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Helpers::formatFields()` no longer drops a field with a meaningful falsy
+  value.** Previously any formatted value that failed `!empty()` was omitted
+  from the result — for an ACF `true_false` field, an unchecked box formats
+  to `false`, which is `empty()`, so the key disappeared entirely. Consumers
+  reading the switch via `array_key_exists()` / `isset()` / `??` (a common
+  `?? true` "default on" pattern) could not tell "explicitly turned off"
+  from "field does not exist". Measured downstream: a page-header component
+  used exactly that pattern, and 280 published blocks with the switch
+  explicitly off rendered as if it were on.
+
+  A falsy field now surfaces in the result as a real key — `formatFields()`
+  keeps `0`, `0.0` and `"0"` as real values for every
+  field type, while still dropping `null`, `''`, and `[]`. `false` is kept
+  **only for `true_false` fields** — that is the one ACF type whose stored
+  value is always boolean, with no third "empty" state distinct from
+  `false`, so an unfilled switch and an explicitly-off one are the same
+  value by design and both are meaningfully "off". Every other type's
+  `false` keeps being dropped: ACF itself uses literal `false` as an
+  "empty" sentinel for a `relationship`, `gallery`, `image`, `file`,
+  `link`, `date_picker`, nullable `select`, or an unfilled `repeater` /
+  `flexible_content` outside preview — none of those carry a `false` that
+  a consumer would ever want to distinguish from "not set", so disambiguating
+  by field type (rather than by whether the source field merely carried a
+  `value` key, which is true for the empty cases above too) keeps them
+  absent, matching the pre-1.30 behaviour and this fix's own promise that
+  an unfilled repeater stays absent. This also covers a `false` produced by
+  the `field_formatter_{type}` filter, not just the raw ACF value — the
+  survive/drop decision is made on the field's declared `type` and the
+  *formatted* return value, regardless of what set that value to `false`:
+  a filter that forces a non-`true_false` field to `false` still gets
+  dropped, and — the converse, more consequential case — a filter that
+  forces a `true_false` field to `false` (even from a non-falsy raw value
+  like `true`) still survives, the same as a raw off-switch would.
+
+  **Also fixed on the ACF block path specifically:** `formatFields()`
+  resolves an ACF block's fields via a `block_<hash>` id, then swaps in the
+  block's real post id before formatting (`str_starts_with( (string)
+  $post_id, 'block_' )` in `formatFields()`) — the id-swap happens *after*
+  `get_field_objects()` runs but *before* `fieldFormatter()` and the
+  `field_formatter_{type}` filter see `$post_id`. The keep/drop decision
+  itself never depended on this swap (it only inspects the field
+  definition and the formatted value), but the swap path is exercised by
+  its own regression test, since fields sourced from a block behave
+  identically to fields sourced from a plain post only if the swap runs
+  correctly.
+
+  **Blast radius:** consumers using Twig truthiness (`{% if content.x %}`)
+  are unaffected — `false`/`0`/`"0"` were already falsy there whether the
+  key existed or not. Consumers using `isset()` / `??` (both blind to an
+  explicit `null` value) or `array_key_exists()` (which is not — it treats
+  a stored `null` value as present) against a `formatFields()` result will
+  now see a key that was previously absent whenever the underlying field is
+  a `true_false` field, or its formatted value is `0`, `0.0`, or `"0"`.
+
 ## [1.29.0] - 2026-08-05
 
 ### Changed

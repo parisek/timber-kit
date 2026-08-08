@@ -268,6 +268,94 @@ class FormatFieldsTest extends HelpersTestCase {
 		$this->assertArrayNotHasKey( 'empty', $result );
 	}
 
+	/**
+	 * Regression: an unchecked `true_false` field must survive as an
+	 * explicit `false`, not be dropped as if the field did not exist.
+	 * A consumer that reads the switch via `array_key_exists()` (a common
+	 * `?? true` "default on" pattern) cannot otherwise tell "explicitly off"
+	 * from "field not present" — see CHANGELOG for the measured fallout.
+	 */
+	public function test_true_false_switch_off_is_kept_as_explicit_false(): void {
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'is_enabled' => [ 'type' => 'true_false', 'value' => false ],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayHasKey( 'is_enabled', $result );
+		$this->assertSame( false, $result['is_enabled'] );
+	}
+
+	/**
+	 * Companion to the true_false case: a `number` field explicitly set to
+	 * `0` (or ACF's string-typed `"0"`) must also survive — `0` is not
+	 * "field absent" any more than `false` is.
+	 */
+	public function test_numeric_zero_value_is_kept(): void {
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'count'      => [ 'type' => 'number', 'value' => 0 ],
+			'raw_string' => [ 'type' => 'text', 'value' => '0' ],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertSame( 0, $result['count'] );
+		$this->assertSame( '0', $result['raw_string'] );
+	}
+
+	/**
+	 * A field with no saved value at all (missing `value` key entirely —
+	 * the shape `fieldFormatter()` treats as "no such field") must still be
+	 * dropped, even though `fieldFormatter()`'s sentinel return is also the
+	 * literal `false` that a real true_false-off value formats to. This is
+	 * the disambiguation the fix relies on: only a field that genuinely
+	 * carried a non-null `value` key produces a kept `false`.
+	 */
+	public function test_field_missing_value_key_is_dropped_not_kept_as_false(): void {
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'ghost' => [ 'type' => 'true_false' ], // no 'value' key at all
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayNotHasKey( 'ghost', $result );
+	}
+
+	/**
+	 * The `false`-keeping exception is scoped to `true_false` by field
+	 * *type*, not by "does the field carry a `value` key" — ACF sets
+	 * `value => false` on an empty `repeater` too (see the sentinel
+	 * pass-through in {@see fieldFormatter()}), so a key-presence test
+	 * would wrongly keep it. If the predicate were inverted back to a bare
+	 * key-presence check, this would fail: `array_key_exists( 'value',
+	 * $field )` is true here, only the type restriction saves it.
+	 */
+	public function test_empty_repeater_false_value_is_dropped_not_kept(): void {
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'items' => [ 'type' => 'repeater', 'value' => false, 'sub_fields' => [] ],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayNotHasKey( 'items', $result );
+	}
+
+	/**
+	 * Same disambiguation, for an empty `relationship` field — ACF also
+	 * represents "nothing selected" as `value => false` here. If the
+	 * predicate were inverted back to a bare key-presence check, this would
+	 * fail the same way as the repeater case above.
+	 */
+	public function test_empty_relationship_false_value_is_dropped_not_kept(): void {
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'related' => [ 'type' => 'relationship', 'value' => false ],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayNotHasKey( 'related', $result );
+	}
+
 	public function test_wysiwyg_tinymce_artifacts_excluded_automatically(): void {
 		Functions\when( 'do_shortcode' )->alias( function ( $content ) {
 			return $content;
@@ -429,7 +517,32 @@ class FormatFieldsTest extends HelpersTestCase {
 		}
 	}
 
-	public function test_block_prefix_uses_global_post(): void {
+	/**
+	 * `get_field_objects()` is called with the raw `block_<hash>` id — the
+	 * swap to the real post id (§ `str_starts_with( (string) $post_id,
+	 * 'block_' )` in `formatFields()`) only takes effect for what gets
+	 * passed *downstream*, to `fieldFormatter()` and, through it, to the
+	 * `field_formatter_{type}` filter as that filter's second argument.
+	 * That is the only externally observable signal the swap happened —
+	 * asserting on the *result* alone (as an earlier version of this test
+	 * did) does not prove the swap ran, because a formatted `text` value
+	 * does not depend on `$post_id` at all; the test would stay green even
+	 * if the swap block were deleted. Spy on `apply_filters` to capture the
+	 * `$post_id` it actually received.
+	 */
+	public function test_block_prefix_swaps_to_real_post_id_before_field_formatter(): void {
+		$this->define_wp_post_if_needed();
+		global $post;
+		$post = new \WP_Post( (object) [ 'ID' => 99, 'post_type' => 'page' ] );
+
+		$captured_post_id = 'not captured';
+		Functions\when( 'apply_filters' )->alias( function ( $filter, ...$args ) use ( &$captured_post_id ) {
+			if ( $filter === 'field_formatter_text' ) {
+				$captured_post_id = $args[1] ?? 'missing';
+			}
+			return $args[0] ?? null;
+		} );
+
 		Functions\when( 'get_queried_object_id' )->justReturn( 0 );
 		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
 			if ( str_starts_with( (string) $id, 'block_' ) ) {
@@ -447,6 +560,129 @@ class FormatFieldsTest extends HelpersTestCase {
 		$result = Helpers::formatFields( 'block_abc123' );
 
 		$this->assertSame( 'Block heading', $result['heading'] );
+		// The real signal that the swap ran: fieldFormatter() (and the
+		// filter it applies) received the real post id, not the raw block
+		// id string that was used to call get_field_objects().
+		$this->assertSame( 99, $captured_post_id );
+	}
+
+	/**
+	 * Regression for the bug that motivated this whole fix, exercised
+	 * through the path it actually happened on: an ACF block, whose
+	 * `formatFields()` call resolves through the `block_<hash>` id-swap,
+	 * not through a plain post object. This proves two things together,
+	 * both required for the original bug to be considered fixed on the
+	 * block path specifically:
+	 *
+	 * 1. The block-id-to-real-post-id swap actually ran (observed the same
+	 *    way as {@see test_block_prefix_swaps_to_real_post_id_before_field_
+	 *    formatter()} above — via the `$post_id` the `field_formatter_{type}`
+	 *    filter receives).
+	 * 2. `true_false`-off still survives once fields are sourced from a
+	 *    `block_<hash>` lookup rather than a plain post object.
+	 *
+	 * `isFormattedFieldPresent()` in fact only inspects the field
+	 * definition from `$fields` (captured before the swap), so (2) does
+	 * not actually depend on (1) — but a test that only asserted (2) would
+	 * stay green even if the swap block were deleted entirely, which is
+	 * exactly the false confidence the previous version of this test gave.
+	 * Asserting the captured post id closes that gap.
+	 */
+	public function test_true_false_switch_off_survives_block_id_resolution(): void {
+		$this->define_wp_post_if_needed();
+		global $post;
+		$post = new \WP_Post( (object) [ 'ID' => 77, 'post_type' => 'page' ] );
+
+		$captured_post_id = 'not captured';
+		Functions\when( 'apply_filters' )->alias( function ( $filter, ...$args ) use ( &$captured_post_id ) {
+			if ( $filter === 'field_formatter_true_false' ) {
+				$captured_post_id = $args[1] ?? 'missing';
+			}
+			return $args[0] ?? null;
+		} );
+
+		Functions\when( 'get_queried_object_id' )->justReturn( 0 );
+		Functions\when( 'get_field_objects' )->alias( function ( $id ) {
+			if ( str_starts_with( (string) $id, 'block_' ) ) {
+				return [
+					'is_enabled' => [ 'type' => 'true_false', 'value' => false ],
+				];
+			}
+			return false;
+		} );
+
+		$result = Helpers::formatFields( 'block_deadbeef' );
+
+		$this->assertArrayHasKey( 'is_enabled', $result );
+		$this->assertSame( false, $result['is_enabled'] );
+		$this->assertSame( 77, $captured_post_id );
+	}
+
+	/**
+	 * CHANGELOG.md documents that a `false` produced by the public
+	 * `field_formatter_{type}` filter follows the same type-based rule as a
+	 * raw ACF value — kept only for `true_false`, dropped otherwise, even
+	 * when the raw value it overwrote was non-empty. This is untested
+	 * elsewhere: `setUp()`'s default `apply_filters` stub is a pass-through
+	 * that never rewrites `value`, so nothing exercises a filter that
+	 * actually flips a non-empty value to `false`.
+	 *
+	 * If `isFormattedFieldPresent()` ever went back to deciding on "did the
+	 * source field carry a `value` key" instead of on declared type, this
+	 * would fail: the source field here carries a non-null `value` key
+	 * (`'Chosen'`), so a key-presence predicate would wrongly keep it.
+	 */
+	public function test_filter_forced_false_is_dropped_for_non_true_false_type(): void {
+		Functions\when( 'apply_filters' )->alias( function ( $filter, ...$args ) {
+			if ( $filter === 'field_formatter_select' ) {
+				$field = $args[0];
+				$field['value'] = false;
+				return $field;
+			}
+			return $args[0] ?? null;
+		} );
+
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'choice' => [ 'type' => 'select', 'value' => 'Chosen' ],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayNotHasKey( 'choice', $result );
+	}
+
+	/**
+	 * Converse of the case above, and the more consequential half of the
+	 * CHANGELOG's `field_formatter_{type}` promise: a filter that turns a
+	 * *non-falsy* `true_false` value into `false` must still survive as an
+	 * explicit `false`, exactly like a raw ACF off-switch does. An
+	 * implementation that keyed the survive/drop decision on the raw
+	 * source value (`$field['value']` before the filter ran) rather than
+	 * the formatted return value would pass every other test in this file
+	 * while breaking this one — the raw value here is `true`, non-falsy,
+	 * so a source-keyed predicate would incorrectly see nothing to guard
+	 * against and let the type check run against the wrong signal, or
+	 * (in another plausible-but-wrong implementation) drop the field
+	 * because the *raw* value never equalled `false`.
+	 */
+	public function test_filter_forced_false_on_true_false_type_stays_present(): void {
+		Functions\when( 'apply_filters' )->alias( function ( $filter, ...$args ) {
+			if ( $filter === 'field_formatter_true_false' ) {
+				$field = $args[0];
+				$field['value'] = false;
+				return $field;
+			}
+			return $args[0] ?? null;
+		} );
+
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'is_enabled' => [ 'type' => 'true_false', 'value' => true ],
+		] );
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 1 ] );
+
+		$this->assertArrayHasKey( 'is_enabled', $result );
+		$this->assertSame( false, $result['is_enabled'] );
 	}
 
 	public function test_nav_menu_item_resolves_fields_via_explicit_screen(): void {
