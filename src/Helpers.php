@@ -1274,13 +1274,25 @@ class Helpers {
 	 *                                  `type` and `value` keys.
 	 * @param int|string|null $post_id  Post ID used by nested formatters (may be a block ID string).
 	 * @param bool         $is_preview True when rendering inside a Gutenberg block preview.
-	 * @return mixed Formatted field value, or literal `false` as a "no such
-	 *               field" sentinel — not only when `$field` itself is
-	 *               empty, but also for a non-empty field definition whose
-	 *               `value` key is missing entirely, or present but `null`
-	 *               (except `repeater`/`flexible_content` during preview,
-	 *               which instead pass the definition through unchanged so
-	 *               a preview can read its `sub_fields`/`layouts`).
+	 * @return mixed Formatted field value. Literal `false` is ambiguous by
+	 *               design and carries two different meanings a caller must
+	 *               tell apart before trusting it:
+	 *               1. A "no such field" sentinel — not only when `$field`
+	 *                  itself is empty, but also for a non-empty field
+	 *                  definition whose `value` key is missing entirely, or
+	 *                  present but `null` (except `repeater`/
+	 *                  `flexible_content` during preview, which instead
+	 *                  pass the definition through unchanged so a preview
+	 *                  can read its `sub_fields`/`layouts`).
+	 *               2. The legitimate formatted value of a present
+	 *                  `true_false` field (an off switch, including one
+	 *                  produced by a `field_formatter_true_false` filter
+	 *                  override) — `false` by design there, not a sentinel
+	 *                  at all.
+	 *               This method does not disambiguate the two on its own —
+	 *               see {@see isFormattedFieldPresent()}, which does, by
+	 *               checking `$field['type'] === 'true_false'` against the
+	 *               original field definition alongside the returned value.
 	 */
 	public static function fieldFormatter( $field, $post_id = null, $is_preview = false ) {
 
