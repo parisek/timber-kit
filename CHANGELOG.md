@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The breadcrumb's listing step is no longer dropped on a theme that
+  namespaces its ACF options page.** `Breadcrumb::get_global_links()` read
+  `get_field( 'links', 'option' )` unconditionally, while
+  `StarterBase::register_options_page()` honours an explicit `'post_id'` in
+  `$options_pages` (e.g. `'mytheme_settings'`) and writes there. The package
+  therefore wrote the listing links to one store and read them from another:
+  `get_field()` returned `null`, `build_for_singular()` appended no listing
+  item, and every singular of a `list_page_map` post type rendered a trail one
+  step short — with nothing logged and no error anywhere.
+
+  `Breadcrumb` gains an `options_post_id` config key (default `'option'`, so
+  un-namespaced projects are byte-identical), and `StarterBase` passes the
+  namespace it actually registered, derived from the first `$options_pages`
+  entry declaring a `post_id`. Override with `$breadcrumb_options_post_id` when
+  the `links` group lives on a different page than the first.
+
+  Found downstream on a five-language WPML site whose seven listing links were
+  all populated and none of which reached the breadcrumb. The failure is easy
+  to misread as "the fields are empty": a term filter had been supplying a
+  middle step, so the trail looked complete (`Home > AI > title`) while the
+  listing step it should have carried was silently absent.
+
+  **Not fixed here, deliberately:** the `links` group is still addressed by the
+  literal selector `'links'`. Making the group name configurable is a wider
+  change to `list_page_map`'s contract and no downstream project needs it yet.
+
 ## [1.30.0] - 2026-08-08
 
 ### Fixed

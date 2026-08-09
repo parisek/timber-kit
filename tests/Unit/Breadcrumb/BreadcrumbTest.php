@@ -380,6 +380,42 @@ final class BreadcrumbTest extends BreadcrumbTestCase {
 		$this->assertSame( [], $result );
 	}
 
+	public function test_get_global_links_reads_the_configured_options_namespace(): void {
+		// Regression: the namespace was hardcoded to 'option'. A theme whose
+		// options page declares `post_id => 'mytheme_settings'` wrote its listing
+		// links to that store, the breadcrumb read a different one, get_field()
+		// returned null, and every singular silently lost its listing step.
+		$seen = [];
+		Functions\when( 'get_field' )->alias( function ( $selector, $post_id = false ) use ( &$seen ) {
+			$seen[] = [ $selector, $post_id ];
+			return 'mytheme_settings' === $post_id
+				? [ 'article_list' => [ 'url' => 'https://example.test/blog/', 'title' => 'Blog' ] ]
+				: null;
+		} );
+		Functions\when( 'url_to_postid' )->justReturn( 42 );
+		Functions\when( 'get_permalink' )->justReturn( 'https://example.test/blog/' );
+		\Brain\Monkey\Filters\expectApplied( 'wpml_object_id' )->andReturn( 42 );
+
+		$bc = new Breadcrumb([ 'options_post_id' => 'mytheme_settings' ]);
+		$result = $this->invoke_protected( $bc, 'get_global_links' );
+
+		$this->assertSame( [ [ 'links', 'mytheme_settings' ] ], $seen );
+		$this->assertArrayHasKey( 'article_list', $result );
+	}
+
+	public function test_get_global_links_defaults_to_the_option_store(): void {
+		$seen = [];
+		Functions\when( 'get_field' )->alias( function ( $selector, $post_id = false ) use ( &$seen ) {
+			$seen[] = [ $selector, $post_id ];
+			return null;
+		} );
+
+		$bc = new Breadcrumb();
+		$this->invoke_protected( $bc, 'get_global_links' );
+
+		$this->assertSame( [ [ 'links', 'option' ] ], $seen );
+	}
+
 	public function test_get_global_links_normalises_array_entry_with_post_resolution(): void {
 		Functions\when( 'get_field' )->justReturn( [
 			'article_list' => [

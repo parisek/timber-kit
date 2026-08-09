@@ -66,6 +66,60 @@ final class StarterBaseBreadcrumbTest extends TestCase {
 		$this->assertSame( [], $context['breadcrumb'] );
 	}
 
+	public function test_breadcrumb_options_namespace_comes_from_the_registered_options_page(): void {
+		// The theme's own settings page supplies the namespace, so a project that
+		// namespaces its store does not also have to remember a second setting.
+		$namespace = $this->resolve_namespace_for( [
+			'options_pages' => [
+				[ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings', 'post_id' => 'mytheme_settings' ],
+			],
+		] );
+
+		$this->assertSame( 'mytheme_settings', $namespace );
+	}
+
+	public function test_breadcrumb_options_namespace_defaults_to_option_when_none_declared(): void {
+		// Pre-1.31 behaviour, preserved: a theme that never namespaces its options
+		// page keeps reading ACF's own store.
+		$namespace = $this->resolve_namespace_for( [
+			'options_pages' => [
+				[ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings' ],
+			],
+		] );
+
+		$this->assertSame( 'option', $namespace );
+	}
+
+	public function test_explicit_breadcrumb_options_post_id_wins_over_the_options_page(): void {
+		// Escape hatch for a theme whose `links` group lives on a second,
+		// differently namespaced page.
+		$namespace = $this->resolve_namespace_for( [
+			'options_pages' => [
+				[ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings', 'post_id' => 'mytheme_settings' ],
+			],
+			'breadcrumb_options_post_id' => 'mytheme_other_store',
+		] );
+
+		$this->assertSame( 'mytheme_other_store', $namespace );
+	}
+
+	/**
+	 * @param array<string, mixed> $properties Protected properties to set before resolving.
+	 */
+	private function resolve_namespace_for( array $properties ): string {
+		$reflection = new ReflectionClass( StarterBase::class );
+		$instance = $reflection->newInstanceWithoutConstructor();
+
+		foreach ( $properties as $name => $value ) {
+			$property = $reflection->getProperty( $name );
+			$property->setValue( $instance, $value );
+		}
+
+		$method = new ReflectionMethod( $instance, 'resolve_breadcrumb_options_post_id' );
+
+		return (string) $method->invoke( $instance );
+	}
+
 	/**
 	 * Stub the WordPress functions that timber_context() calls unconditionally.
 	 * These must be wired before invoke_timber_context() is called.
