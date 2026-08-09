@@ -156,6 +156,25 @@ class StarterBase extends Site {
 	/** @var bool Whether to add "Page N" item on paginated views */
 	protected bool $breadcrumb_include_pagination = false;
 
+	/**
+	 * ACF storage namespace the breadcrumb reads its `links` group from.
+	 *
+	 * `null` (default) derives it from `$options_pages` — the first entry that
+	 * declares a `post_id` wins, falling back to ACF's `'option'` store when no
+	 * entry declares one. Set explicitly only when a theme registers several
+	 * namespaced options pages and the `links` group does not live in the first.
+	 *
+	 * Why this needs to exist at all: `$options_pages` may namespace the store
+	 * (`'post_id' => 'mytheme_settings'`), and the breadcrumb used to read
+	 * `'option'` unconditionally. A namespaced theme therefore wrote its listing
+	 * links to one store and read them from another, `get_field()` returned
+	 * null, and `Breadcrumb::build_for_singular()` appended no listing item —
+	 * every singular rendered a trail one step short, with nothing logged.
+	 *
+	 * @var string|null
+	 */
+	protected ?string $breadcrumb_options_post_id = null;
+
 	/** @var array{home: string, '404': string, search: string, pagination: string, author: string} Default English labels */
 	protected array $breadcrumb_labels = [
 		'home'       => 'Home',
@@ -1179,6 +1198,7 @@ class StarterBase extends Site {
 				'list_page_map'         => $this->breadcrumb_list_page_map,
 				'menu_trail_post_types' => $this->breadcrumb_menu_trail_post_types,
 				'include_pagination'    => $this->breadcrumb_include_pagination,
+				'options_post_id'       => $this->resolve_breadcrumb_options_post_id(),
 				'labels'                => $this->breadcrumb_labels,
 			] );
 			$context['breadcrumb'] = $bc->get();
@@ -2477,6 +2497,32 @@ class StarterBase extends Site {
 		if ( has_action( 'breeze_clear_all_cache' ) ) {
 			do_action( 'breeze_clear_all_cache' );
 		}
+	}
+
+	/**
+	 * The ACF storage namespace the breadcrumb should read the `links` group from.
+	 *
+	 * Explicit `$breadcrumb_options_post_id` wins. Otherwise the first
+	 * `$options_pages` entry declaring a `post_id` supplies it — that entry is
+	 * the theme's own settings page in every shipped layout, and a sub-page
+	 * without its own `post_id` inherits the same namespace anyway
+	 * ({@see resolve_options_page_namespaces()}). With nothing declared the
+	 * result is `'option'`, i.e. exactly the pre-1.31 behaviour.
+	 *
+	 * @return string
+	 */
+	private function resolve_breadcrumb_options_post_id(): string {
+		if ( is_string( $this->breadcrumb_options_post_id ) && $this->breadcrumb_options_post_id !== '' ) {
+			return $this->breadcrumb_options_post_id;
+		}
+
+		foreach ( $this->options_pages as $page ) {
+			if ( isset( $page['post_id'] ) && is_string( $page['post_id'] ) && $page['post_id'] !== '' ) {
+				return $page['post_id'];
+			}
+		}
+
+		return 'option';
 	}
 
 	/**

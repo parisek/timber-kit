@@ -19,6 +19,7 @@ namespace Parisek\TimberKit;
  *     'list_page_map'         => ['post' => 'article_list'],
  *     'menu_trail_post_types' => null,
  *     'include_pagination'    => false,
+ *     'options_post_id'       => 'mytheme_settings',
  *     'labels'                => [
  *         'home'       => _x('Home', 'theme', 'theme'),
  *         '404'        => _x('Page not found', 'theme', 'theme'),
@@ -48,6 +49,22 @@ class Breadcrumb {
 
 	/** @var bool Whether to add "Page N" item on paginated views */
 	protected bool $include_pagination = false;
+
+	/**
+	 * ACF storage namespace holding the `links` group that `list_page_map`
+	 * indexes into.
+	 *
+	 * Defaults to ACF's own `'option'` store. A theme that registers its
+	 * options page under a namespace (`$options_pages` entry with an explicit
+	 * `post_id`, e.g. `'mytheme_settings'`) MUST pass that namespace here, or
+	 * the listing step is silently dropped from every singular breadcrumb:
+	 * the values are written to one store and read from another, `get_field()`
+	 * returns null, and `build_for_singular()` simply appends no item. Nothing
+	 * errors. {@see StarterBase::timber_context()} wires this automatically.
+	 *
+	 * @var string
+	 */
+	protected string $options_post_id = 'option';
 
 	/** @var array{'home': string, '404': string, 'search': string, 'pagination': string, 'author': string} Label dict; pre-translated by the caller */
 	protected array $labels = [
@@ -406,6 +423,11 @@ class Breadcrumb {
 	 * URLs are resolved through `wpml_object_id` so a Czech site rendering
 	 * the English breadcrumb gets the English article-list page link.
 	 *
+	 * Reads from {@see $options_post_id}, NOT unconditionally from `'option'`.
+	 * The two differ whenever a theme namespaces its options page, and the
+	 * mismatch is invisible: `get_field()` returns null, the listing item is
+	 * never appended, and the trail still renders — one step shorter.
+	 *
 	 * @return array<string, array{id: int, title: string, url: string}>
 	 */
 	protected function get_global_links(): array {
@@ -414,7 +436,7 @@ class Breadcrumb {
 		}
 
 		$data = [];
-		$links = get_field( 'links', 'option' );
+		$links = get_field( 'links', $this->options_post_id );
 
 		if ( ! is_countable( $links ) ) {
 			return $data;
