@@ -655,7 +655,7 @@ class StarterBase extends Site {
 		\WP_CLI::add_command( 'timber-kit updates', \Parisek\TimberKit\Cli\UpdatesCommand::class );
 		\WP_CLI::add_command( 'timber-kit acfml-sync-preferences', \Parisek\TimberKit\Cli\AcfmlSyncPreferencesCommand::class );
 		\WP_CLI::add_command( 'timber-kit wpml-cleanup-theme-domain', \Parisek\TimberKit\Cli\WpmlCleanupThemeDomainCommand::class );
-		\WP_CLI::add_command( 'timber-kit outage-drop-ins', \Parisek\TimberKit\Cli\OutageDropInsCommand::class );
+		\WP_CLI::add_command( 'timber-kit outage-screen', \Parisek\TimberKit\Cli\OutageScreenCommand::class );
 	}
 
 	/**

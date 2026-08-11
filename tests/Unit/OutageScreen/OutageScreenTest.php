@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Parisek\TimberKit\Tests\Unit\OutageDropIns;
+namespace Parisek\TimberKit\Tests\Unit\OutageScreen;
 
-use Parisek\TimberKit\OutageDropIns;
+use Parisek\TimberKit\OutageScreen;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -13,7 +13,7 @@ use PHPUnit\Framework\TestCase;
  * no dependency, no early return, and a status header the drop-in sends
  * itself because WordPress sends none on this path.
  */
-final class OutageDropInsTest extends TestCase {
+final class OutageScreenTest extends TestCase {
 
 	private string $content_dir;
 
@@ -35,7 +35,7 @@ final class OutageDropInsTest extends TestCase {
 
 	public function test_source_is_valid_php(): void {
 		$path = $this->content_dir . '/probe.php';
-		file_put_contents( $path, OutageDropIns::source( 'sloneek' ) );
+		file_put_contents( $path, OutageScreen::source( 'sloneek' ) );
 
 		exec( sprintf( 'php -l %s 2>&1', escapeshellarg( $path ) ), $output, $status );
 
@@ -45,7 +45,7 @@ final class OutageDropInsTest extends TestCase {
 	public function test_source_sends_its_own_503_and_retry_after(): void {
 		// wp_maintenance() and wpdb::dead_db() both require_once the drop-in
 		// and then die() without sending a status line of their own.
-		$source = OutageDropIns::source( 'sloneek' );
+		$source = OutageScreen::source( 'sloneek' );
 
 		self::assertStringContainsString( 'http_response_code( 503 )', $source );
 		self::assertStringContainsString( "header( 'Retry-After: 600' )", $source );
@@ -54,11 +54,11 @@ final class OutageDropInsTest extends TestCase {
 	public function test_source_never_returns_early(): void {
 		// Control does not go back to WordPress after this file — it goes to
 		// die(). A return would serve a blank page.
-		self::assertStringNotContainsString( 'return;', OutageDropIns::source( 'sloneek' ) );
+		self::assertStringNotContainsString( 'return;', OutageScreen::source( 'sloneek' ) );
 	}
 
 	public function test_source_needs_nothing_but_a_constant(): void {
-		$source = OutageDropIns::source( 'sloneek' );
+		$source = OutageScreen::source( 'sloneek' );
 
 		self::assertStringNotContainsString( 'autoload', $source );
 		self::assertStringNotContainsString( 'get_template_directory', $source );
@@ -68,7 +68,7 @@ final class OutageDropInsTest extends TestCase {
 	}
 
 	public function test_install_writes_both_drop_ins(): void {
-		$results = OutageDropIns::install( $this->content_dir, 'sloneek' );
+		$results = OutageScreen::install( $this->content_dir, 'sloneek' );
 
 		self::assertSame(
 			array(
@@ -82,21 +82,21 @@ final class OutageDropInsTest extends TestCase {
 	}
 
 	public function test_install_is_idempotent(): void {
-		OutageDropIns::install( $this->content_dir, 'sloneek' );
+		OutageScreen::install( $this->content_dir, 'sloneek' );
 
 		self::assertSame(
 			array(
 				'maintenance.php' => 'unchanged',
 				'db-error.php'    => 'unchanged',
 			),
-			OutageDropIns::install( $this->content_dir, 'sloneek' )
+			OutageScreen::install( $this->content_dir, 'sloneek' )
 		);
 	}
 
 	public function test_install_rewrites_its_own_stale_output(): void {
-		OutageDropIns::install( $this->content_dir, 'oldtheme' );
+		OutageScreen::install( $this->content_dir, 'oldtheme' );
 
-		$results = OutageDropIns::install( $this->content_dir, 'newtheme' );
+		$results = OutageScreen::install( $this->content_dir, 'newtheme' );
 
 		self::assertSame( 'written', $results['maintenance.php'] );
 		self::assertStringContainsString(
@@ -111,7 +111,7 @@ final class OutageDropInsTest extends TestCase {
 		$own = "<?php\necho 'mine';\n";
 		file_put_contents( $this->content_dir . '/db-error.php', $own );
 
-		$results = OutageDropIns::install( $this->content_dir, 'sloneek' );
+		$results = OutageScreen::install( $this->content_dir, 'sloneek' );
 
 		self::assertSame( 'foreign', $results['db-error.php'] );
 		self::assertSame( $own, (string) file_get_contents( $this->content_dir . '/db-error.php' ) );
@@ -120,10 +120,10 @@ final class OutageDropInsTest extends TestCase {
 
 	public function test_remove_takes_only_its_own(): void {
 		$own = "<?php\necho 'mine';\n";
-		OutageDropIns::install( $this->content_dir, 'sloneek' );
+		OutageScreen::install( $this->content_dir, 'sloneek' );
 		file_put_contents( $this->content_dir . '/db-error.php', $own );
 
-		$results = OutageDropIns::remove( $this->content_dir );
+		$results = OutageScreen::remove( $this->content_dir );
 
 		self::assertSame( 'removed', $results['maintenance.php'] );
 		self::assertSame( 'foreign', $results['db-error.php'] );
@@ -133,8 +133,8 @@ final class OutageDropInsTest extends TestCase {
 
 	public function test_the_drop_in_serves_the_screen_when_it_exists(): void {
 		$theme_root = $this->content_dir . '/themes/sloneek';
-		mkdir( dirname( $theme_root . '/' . OutageDropIns::SCREEN_RELATIVE ), 0777, true );
-		file_put_contents( $theme_root . '/' . OutageDropIns::SCREEN_RELATIVE, '<h1>Odstavka</h1>' );
+		mkdir( dirname( $theme_root . '/' . OutageScreen::SCREEN_RELATIVE ), 0777, true );
+		file_put_contents( $theme_root . '/' . OutageScreen::SCREEN_RELATIVE, '<h1>Odstavka</h1>' );
 
 		$output = $this->runDropIn( $theme_root );
 
@@ -157,7 +157,7 @@ final class OutageDropInsTest extends TestCase {
 		file_put_contents(
 			$path,
 			"<?php define( 'WP_CONTENT_DIR', " . var_export( dirname( $theme_root, 2 ), true ) . " );\n"
-			. '?>' . OutageDropIns::source( basename( $theme_root ) )
+			. '?>' . OutageScreen::source( basename( $theme_root ) )
 		);
 
 		exec( sprintf( 'php %s 2>&1', escapeshellarg( $path ) ), $output );

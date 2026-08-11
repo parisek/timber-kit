@@ -32,7 +32,7 @@ namespace Parisek\TimberKit;
  * The screen they serve is prerendered by `parisek/styleguide`'s
  * `maintenance:render`. See the theme's own outage documentation.
  */
-class OutageDropIns {
+class OutageScreen {
 
 	/**
 	 * Drop-in filename => the state it covers, for messages.
@@ -77,7 +77,7 @@ class OutageDropIns {
 
 		$marker  = self::MARKER;
 		$retry   = self::RETRY_AFTER;
-		$command = 'wp timber-kit outage-drop-ins install';
+		$command = 'wp timber-kit outage-screen install';
 
 		return <<<PHP
 			<?php

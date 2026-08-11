@@ -4,20 +4,20 @@ declare(strict_types=1);
 
 namespace Parisek\TimberKit\Cli;
 
-use Parisek\TimberKit\OutageDropIns;
+use Parisek\TimberKit\OutageScreen;
 
 /**
- * `wp timber-kit outage-drop-ins` — install, inspect or remove the two
+ * `wp timber-kit outage-screen` — install, inspect or remove the two
  * drop-ins that serve the theme's prerendered outage screen.
  *
- * Thin adapter over {@see OutageDropIns}, which owns the generated source and
+ * Thin adapter over {@see OutageScreen}, which owns the generated source and
  * is unit-tested. The WP_CLI I/O here is intentionally not unit-tested.
  *
  * The screen itself is rendered by the theme, ahead of time, with
  * `vendor/bin/styleguide maintenance:render`. This command only wires it to
  * the two moments WordPress needs it.
  */
-class OutageDropInsCommand {
+class OutageScreenCommand {
 
 	/**
 	 * Install, inspect or remove the outage drop-ins.
@@ -33,9 +33,9 @@ class OutageDropInsCommand {
 	 *
 	 * ## EXAMPLES
 	 *
-	 *     wp timber-kit outage-drop-ins install
-	 *     wp timber-kit outage-drop-ins status
-	 *     wp timber-kit outage-drop-ins remove
+	 *     wp timber-kit outage-screen install
+	 *     wp timber-kit outage-screen status
+	 *     wp timber-kit outage-screen remove
 	 *
 	 * @param array<int, string>    $args       Positional args.
 	 * @param array<string, string> $assoc_args Associative args.
@@ -43,7 +43,7 @@ class OutageDropInsCommand {
 	 */
 	public function __invoke( $args, $assoc_args ) {
 		$action = $args[0] ?? '';
-		$screen = isset( $assoc_args['screen'] ) ? (string) $assoc_args['screen'] : OutageDropIns::SCREEN_RELATIVE;
+		$screen = isset( $assoc_args['screen'] ) ? (string) $assoc_args['screen'] : OutageScreen::SCREEN_RELATIVE;
 		$theme  = basename( (string) get_template_directory() );
 
 		if ( 'status' === $action ) {
@@ -52,7 +52,7 @@ class OutageDropInsCommand {
 		}
 
 		if ( 'remove' === $action ) {
-			foreach ( OutageDropIns::remove( WP_CONTENT_DIR ) as $filename => $result ) {
+			foreach ( OutageScreen::remove( WP_CONTENT_DIR ) as $filename => $result ) {
 				$this->report( $filename, $result );
 			}
 			return;
@@ -73,7 +73,7 @@ class OutageDropInsCommand {
 			) );
 		}
 
-		foreach ( OutageDropIns::install( WP_CONTENT_DIR, $theme, $screen ) as $filename => $result ) {
+		foreach ( OutageScreen::install( WP_CONTENT_DIR, $theme, $screen ) as $filename => $result ) {
 			$this->report( $filename, $result );
 		}
 	}
@@ -82,9 +82,9 @@ class OutageDropInsCommand {
 	 * @return void
 	 */
 	private function status( string $theme, string $screen ) {
-		$expected = OutageDropIns::source( $theme, $screen );
+		$expected = OutageScreen::source( $theme, $screen );
 
-		foreach ( OutageDropIns::DROP_INS as $filename => $covers ) {
+		foreach ( OutageScreen::DROP_INS as $filename => $covers ) {
 			$path = WP_CONTENT_DIR . '/' . $filename;
 
 			if ( ! file_exists( $path ) ) {
@@ -94,7 +94,7 @@ class OutageDropInsCommand {
 
 			$contents = (string) file_get_contents( $path );
 
-			if ( ! str_contains( $contents, OutageDropIns::MARKER ) ) {
+			if ( ! str_contains( $contents, OutageScreen::MARKER ) ) {
 				\WP_CLI::line( sprintf( '%-16s not ours        (%s)', $filename, $covers ) );
 				continue;
 			}

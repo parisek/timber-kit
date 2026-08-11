@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- **`wp timber-kit outage-drop-ins`** installs the two WordPress drop-ins that
+- **`wp timber-kit outage-screen`** installs the two WordPress drop-ins that
   serve the theme's prerendered outage screen: `wp-content/maintenance.php`
   (a `.maintenance` file in the site root — written by
   `wp maintenance-mode activate`, and by core itself during every core and
