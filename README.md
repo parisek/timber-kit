@@ -24,7 +24,15 @@ Extends `Timber\Site` with dozens of configurable properties. Handles theme setu
 
 Static methods for formatting ACF data into clean arrays for Twig templates:
 
-- `formatImage()`, `formatFile()`, `formatVideo()` — media formatting
+- `formatImage()`, `formatFile()`, `formatVideo()` — media formatting. `formatVideo()`
+  derives the `codecs=` part of the `type` attribute through `VideoCodecs::codecsString()`,
+  which sniffs the file rather than trusting the container extension — a browser
+  skips a `<source>` whose codec string is wrong, so guessing it means a video
+  that silently never plays.
+- `formatMenu()` returns a `MenuData`, which behaves as its item list under every
+  array-shaped operation — iteration, `count()`, index access, JSON encoding —
+  while exposing the menu's own metadata as properties. That equivalence is what
+  let the return value gain metadata without touching a single call site.
 - `formatFields()`, `fieldFormatter()` — ACF field processing
 - `formatLink()` — link/button formatting
 - `remapWpmlReference( $value, array $field, string $target_lang )` — remaps an ACF reference field's id(s) to a target WPML language via `wpml_object_id`, with the element type resolved per ACF field type (`image`/`file`/`gallery` → attachment, `post_object`/`relationship`/`page_link` → post, `taxonomy` → term; non-reference and non-numeric values pass through). Shared formatting-layer primitive that `WpmlBlockOverride` delegates to, reusable by any field formatter
@@ -341,6 +349,105 @@ of the current site; on multisite run per-site via `wp --url=…`.
 Applying newly-translatable keys triggers WPML's ProcessNewTranslatableFields
 background task — affected translations get flagged as needing update, which
 is the point: translators see the previously invisible backlog.
+
+## Command-line
+
+Every command `StarterBase` registers, in one place. A command missing from this
+table is visibly missing; a command missing from prose is not, which is how two
+of these went undocumented for several releases.
+
+| Command | What it does |
+|---|---|
+| `wp timber-kit updates` | Runs pending block-data migrations. See § Block data migrations. |
+| `wp timber-kit prune-originals` | Deletes preserved full-resolution originals of `-scaled` images. See § Media processing. |
+| `wp timber-kit convert-utf8mb4` | Converts legacy `utf8` tables and columns to `utf8mb4`. |
+| `wp timber-kit acfml-sync-preferences` | Reconciles WPML translation preferences for programmatically written ACF meta. See § ACFML preference sync. |
+| `wp timber-kit wpml-cleanup-theme-domain` | Purges WPML String Translation rows and compiled files left behind for a text domain that is no longer registered with ST. See § WPML theme-domain cleanup. |
+| `wp timber-kit outage-screen` | Installs the drop-ins that serve the theme's prerendered outage screen. See § Outage screen. |
+
+---
+
+## Outage screen
+
+WordPress shows a fallback screen in two states, and in neither is a theme
+loaded:
+
+| State | Entry point | What is alive |
+|---|---|---|
+| A `.maintenance` file in the site root — written by `wp maintenance-mode activate`, **and by core itself during every core and plugin update** | `wp_maintenance()` in `wp-settings.php`, before plugins and theme | PHP and the filesystem |
+| The database is unreachable | `wpdb::dead_db()` | PHP and the filesystem. No options, no translations |
+
+Both `require_once` a drop-in in `wp-content/` and then call `die()`, and
+neither sends a status header first. This command generates those two files:
+
+```bash
+wp timber-kit outage-screen install   # write wp-content/maintenance.php + db-error.php
+wp timber-kit outage-screen status    # installed / stale / not ours / absent, and is the screen there
+wp timber-kit outage-screen remove    # take back only the files it generated
+```
+
+The generated files send `503` + `Retry-After` + no-cache headers and
+`readfile()` the screen the **theme** rendered ahead of time — with
+`parisek/styleguide` >= 1.13's `vendor/bin/styleguide maintenance:render`, which
+writes `static/templates/component/maintenance/maintenance.html`. This package
+serves the file; it does not produce it.
+
+Two properties of the generated files are load-bearing, which is why they are
+generated rather than described in a wiki somewhere:
+
+- **They depend on nothing** — no Composer autoloader, no WordPress function
+  beyond the `WP_CONTENT_DIR` constant, no database. At the moment they run,
+  that is all there is.
+- **They never return early.** Control goes to `die()`, not back to WordPress,
+  so a drop-in that returns when the screen is missing serves a blank page.
+  Every path prints something; without the theme's screen, one plain sentence.
+
+`install` is idempotent, writes atomically (a live request can be reading the
+file — reinstalling during an active outage is normal), and refuses to touch a
+drop-in it did not generate.
+
+**Multisite:** `wp-content/` is shared across the network while the theme is
+per-site, and no drop-in can resolve the current site — `db-error.php` has no
+database to ask. Every site therefore serves the screen of whichever site the
+command ran against, and `install` says so rather than leaving it to be found
+during an outage.
+
+**The 10-minute expiry.** WordPress ignores `.maintenance` once its timestamp is
+600 seconds old. That cannot be extended from a drop-in or from the
+`enable_maintenance_mode` filter — `wp_is_maintenance_mode()` checks the expiry
+before both, and the filter can only turn maintenance mode *off*. The only lever
+is the timestamp itself, which is the deploy script's business (`wordpress-base`
+writes it forward-dated).
+
+---
+
+## WPML theme-domain cleanup
+
+Once a project runs with `$wpml_theme_domain_authoritative` on — the default —
+WPML stops registering the theme's own strings with String Translation, and the
+`.mo` files the theme ships become the single source. Rows registered before
+that switch stay behind, and a stale ST row can still win at runtime.
+
+```bash
+wp timber-kit wpml-cleanup-theme-domain             # dry-run report
+wp timber-kit wpml-cleanup-theme-domain --apply     # delete the rows and compiled files
+```
+
+---
+
+## Cache warm-up (Breeze)
+
+`BreezeWarmupSitemap` feeds Breeze's Cache Warmup preloader with every URL from
+the site's XML sitemap via the `breeze_preload_urls` filter.
+
+Breeze 2.5 re-warms the cache after a full purge, but its own URL sources are
+the homepage, a few auto-detected pages, and a manual list capped at 30 entries
+— so on a real site most pages are rebuilt by the first visitor to ask for them.
+The class discovers the sitemap (AIOSEO's `/sitemap.xml` when active, otherwise
+core's `/wp-sitemap.xml`), follows a sitemap index recursively within bounded
+limits, and merges the result in.
+
+---
 
 ## Usage
 
