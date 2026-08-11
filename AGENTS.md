@@ -48,6 +48,16 @@ Always work test-first. The discipline, not just the coverage:
 ## Per-PR conventions
 
 - **CHANGELOG.md**: every behavior-affecting PR adds an entry under `## [Unreleased]` with [Keep a Changelog](https://keepachangelog.com/) categories (`### Added`, `### Changed`, `### Deprecated`, `### Removed`, `### Fixed`, `### Security`). The release workflow relies on this.
+- **README.md coverage**: a PR that adds a CLI command, a public class, or a
+  public method updates `README.md` in the same PR. The changelog records that
+  something changed; the README is where a consumer finds out the thing exists
+  at all. An undocumented feature is not merely undocumented — it is
+  re-implemented by hand in a theme, because the package did not appear to
+  offer it. Two commands and four classes went missing this way before the rule
+  existed (#112). Where a feature needs more than ~20 lines to explain, the
+  README gets the short entry plus a pointer, and the depth goes in `docs/`.
+  Command tables are the enforcement mechanism worth copying: a missing row is
+  visible, a missing paragraph is not.
 - **Squash-merge PRs** into `main` so the merge commit subject ends with `(#N)`. The auto-release workflow scrapes `(#N)` suffixes from `git log <prev_tag>..<tag>` to assemble the release's Pull Requests section. Merge commits without the suffix won't show up.
 - **Stacked PRs**: when a PR depends on another, target the parent branch (not main). After the parent merges, GitHub auto-retargets — but if `--delete-branch` runs on the parent merge, the child PR auto-closes (chicken-and-egg, recovery requires recreating the deleted branch). Either skip `--delete-branch` until the whole stack lands, or retarget the child to `main` *before* merging the parent.
 

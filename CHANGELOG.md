@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Documentation
+
+- **README covers the package again.** Two CLI commands
+  (`wp timber-kit wpml-cleanup-theme-domain`, `wp timber-kit outage-screen`) and
+  four classes (`BreezeWarmupSitemap`, `VideoCodecs`, `MenuData`, `OutageScreen`)
+  had shipped without ever reaching the file a consumer reads first. Adds a
+  single command table — a missing row is visible where a missing paragraph is
+  not — plus sections for the outage screen, the WPML theme-domain cleanup and
+  the Breeze cache warm-up. `AGENTS.md` now requires README coverage in the same
+  PR that adds a public surface.
+
 ## [1.31.0] - 2026-08-11
 
 ### Added
