@@ -46,6 +46,14 @@ class OutageScreenCommand {
 		$screen = isset( $assoc_args['screen'] ) ? (string) $assoc_args['screen'] : OutageScreen::SCREEN_RELATIVE;
 		$theme  = basename( (string) get_template_directory() );
 
+		// The screen path is baked into a file that runs with no WordPress
+		// around it, so a `..` segment is not a permission question — nothing
+		// is there to ask — it is a typo that silently serves whatever it
+		// lands on during an outage.
+		if ( str_contains( $screen, '..' ) ) {
+			\WP_CLI::error( '--screen must stay inside the theme: no `..` segments.' );
+		}
+
 		if ( 'status' === $action ) {
 			$this->status( $theme, $screen );
 			return;
@@ -60,6 +68,19 @@ class OutageScreenCommand {
 
 		if ( 'install' !== $action ) {
 			\WP_CLI::error( 'Action must be install, status, or remove.' );
+		}
+
+		// Drop-ins are per-INSTALLATION; the theme is per-SITE. On multisite
+		// with more than one theme in play, every site gets whichever screen
+		// was baked in here — and no drop-in can resolve the current site,
+		// because `db-error.php` runs with no database to ask. Say so rather
+		// than let one network's screen quietly speak for another's.
+		if ( is_multisite() ) {
+			\WP_CLI::warning( sprintf(
+				'Multisite: wp-content/ is shared, so every site will serve %s\'s screen. '
+				. 'Run this against the site whose branding should win.',
+				$theme
+			) );
 		}
 
 		// Warn, do not refuse. Installing before the first render is a

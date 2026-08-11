@@ -24,10 +24,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   return would serve a blank page — and they print a plain 503 sentence when
   the theme has not rendered its screen yet.
 
-  `install` is idempotent and refuses to overwrite a drop-in it did not
-  generate; `status` reports installed/stale/absent/not-ours plus whether the
-  screen exists; `remove` takes only its own files back out. Refs
-  portadesign/tailwind-base#569.
+  `install` is idempotent, writes atomically (a live request can be reading
+  the file — reinstalling during an active outage is normal), and refuses to
+  overwrite a drop-in it did not generate, keyed on a machine-shaped marker
+  rather than a prose attribution line anyone might copy. `status` reports
+  installed/stale/absent/not-ours plus whether the screen exists; `remove`
+  takes only its own files back out.
+
+  **Multisite:** `wp-content/` is shared across the network while the theme is
+  per-site, and no drop-in can resolve the current site (`db-error.php` runs
+  with no database to ask). Every site therefore serves the screen of whichever
+  site the command ran against; `install` says so rather than leaving it to be
+  discovered during an outage. Refs portadesign/tailwind-base#569.
 
 ## [1.30.1] - 2026-08-09
 
