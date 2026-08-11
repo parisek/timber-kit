@@ -6,6 +6,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`wp timber-kit outage-screen`** installs the two WordPress drop-ins that
+  serve the theme's prerendered outage screen: `wp-content/maintenance.php`
+  (a `.maintenance` file in the site root — written by
+  `wp maintenance-mode activate`, and by core itself during every core and
+  plugin update) and `wp-content/db-error.php` (database unreachable). Both
+  states run before plugins and the theme, and the second has no database at
+  all, so the screen cannot be rendered at that moment — it is prerendered by
+  the theme with `parisek/styleguide`'s `maintenance:render`, and these files
+  only send `503` + `Retry-After` and `readfile()` it.
+
+  The generated files depend on nothing: no Composer autoloader, no WordPress
+  function beyond the `WP_CONTENT_DIR` constant, no database. They also never
+  return early — WordPress `require_once`s them and then calls `die()`, so a
+  return would serve a blank page — and they print a plain 503 sentence when
+  the theme has not rendered its screen yet.
+
+  `install` is idempotent, writes atomically (a live request can be reading
+  the file — reinstalling during an active outage is normal), and refuses to
+  overwrite a drop-in it did not generate, keyed on a machine-shaped marker
+  rather than a prose attribution line anyone might copy. `status` reports
+  installed/stale/absent/not-ours plus whether the screen exists; `remove`
+  takes only its own files back out.
+
+  **Multisite:** `wp-content/` is shared across the network while the theme is
+  per-site, and no drop-in can resolve the current site (`db-error.php` runs
+  with no database to ask). Every site therefore serves the screen of whichever
+  site the command ran against; `install` says so rather than leaving it to be
+  discovered during an outage. Refs portadesign/tailwind-base#569.
+
 ## [1.30.1] - 2026-08-09
 
 ### Fixed
@@ -93,6 +124,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   a stored `null` value as present) against a `formatFields()` result will
   now see a key that was previously absent whenever the underlying field is
   a `true_false` field, or its formatted value is `0`, `0.0`, or `"0"`.
+||||||| parent of 0693631 (feat(outage): install the drop-ins that serve the theme's outage screen)
 
 ## [1.29.0] - 2026-08-05
 
