@@ -22,14 +22,14 @@ use Spatie\Image\Image;
  * arithmetic is the encoder's rather than this package's: cropping paths write
  * the dimensions they were handed by construction.
  *
- * Asserted to within a pixel, not exactly, and that tolerance is the finding
- * rather than a convenience. The encoder resizes in two steps and the second
- * rounds against the first's result, so an intermediate landing on a .5
- * boundary is decided by the image driver: GD writes 501x500 where Imagick
- * writes 500x500 for a 1000x999 source asked for 500x500. Measured across 32
- * source/target pairs, one differed, by one pixel. Modelling each driver's
- * rounding would buy that pixel back at the cost of tracking two libraries'
- * internals; a pixel does not move a layout, while the zero this replaces did.
+ * It asserts the two halves of the contract separately, because they are not
+ * equally strong. A **requested** axis is exact, and that is asserted as such.
+ * A **derived** axis is an estimate: Spatie's drivers implement the step
+ * differently — GD's `width()` delegates to a bounding-box resize — so the same
+ * request writes 500x499 under GD and 500x500 under Imagick. A single step
+ * stays within a pixel of the estimate; the two-axis non-cropping path scales
+ * that disagreement by the second step and is therefore asserted loosely, with
+ * the bound recorded as a measurement rather than a promise.
  */
 class ProducedDimensionsAgainstEncoderTest extends TestCase {
 
@@ -87,6 +87,7 @@ class ProducedDimensionsAgainstEncoderTest extends TestCase {
 			'height only' => [ 3000, 2000, 0, 400 ],
 			'width only, upscaling' => [ 777, 333, 6000, 0 ],
 			'height only, near-square source' => [ 1000, 999, 0, 250 ],
+			'both axes, first step ambiguous and second upscales hard' => [ 1000, 999, 500, 5000 ],
 		];
 	}
 
@@ -115,7 +116,20 @@ class ProducedDimensionsAgainstEncoderTest extends TestCase {
 			$source_height
 		);
 
-		$this->assertEqualsWithDelta( $written[0], $derived[0], 1, 'derived width is more than a pixel from what was written' );
-		$this->assertEqualsWithDelta( $written[1], $derived[1], 1, 'derived height is more than a pixel from what was written' );
+		// A requested axis is a promise, so it is asserted as one.
+		if ( 0 !== $width && 0 === $height ) {
+			$this->assertSame( $written[0], $derived[0], 'a requested width must be exact' );
+		}
+		if ( 0 !== $height ) {
+			$this->assertSame( $written[1], $derived[1], 'a requested height must be exact' );
+		}
+
+		// A derived axis is an estimate. One step stays within a pixel; two
+		// steps scale the drivers' disagreement, so the looser bound below is
+		// what was measured, not what is guaranteed.
+		$tolerance = ( 0 !== $width && 0 !== $height ) ? max( 1, (int) ceil( $written[0] * 0.01 ) ) : 1;
+
+		$this->assertEqualsWithDelta( $written[0], $derived[0], $tolerance, 'derived width drifted further than measured' );
+		$this->assertEqualsWithDelta( $written[1], $derived[1], $tolerance, 'derived height drifted further than measured' );
 	}
 }

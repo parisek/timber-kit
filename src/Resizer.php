@@ -668,11 +668,21 @@ class Resizer {
 	 * array, so this costs no file read; every rule below was checked against
 	 * the real encoder before it was written here.
 	 *
-	 * Accurate to within a pixel rather than exactly. The plain-resize path
-	 * rounds twice, and an intermediate landing on a .5 boundary is decided by
-	 * the image driver — GD and Imagick disagree there. One pair in 32 measured
-	 * differed, by one pixel. That does not move a layout; the zero this
-	 * replaces did.
+	 * What is promised, and what is not. **A requested axis is exact** — ask for
+	 * 1200 wide and the file is 1200 wide, verified across every source and
+	 * target measured. **A derived axis is an estimate.** Spatie's GD and
+	 * Imagick drivers do not merely round differently, they implement the step
+	 * differently: GD's `width()` delegates to a bounding-box resize, so a
+	 * 1000x999 source asked for 500 wide comes out 500x499 there and 500x500
+	 * under Imagick. A single step is within a pixel; the two-axis
+	 * non-cropping path applies two steps and the second scales the first's
+	 * disagreement, so a 500x5000 request off that source came out 10px wide of
+	 * this estimate under GD.
+	 *
+	 * Modelling both drivers would mean tracking two implementations that are
+	 * free to change. An estimate that is right to a pixel in the shapes
+	 * templates actually use beats the alternative it replaces, which was a
+	 * literal zero.
 	 *
 	 * A source of unknown size yields 0 for anything that would have to be
 	 * derived from it. Guessing would be worse: a consumer can test for zero,
