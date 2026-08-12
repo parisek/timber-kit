@@ -652,6 +652,67 @@ class Resizer {
 	}
 
 	/**
+	 * The dimensions a variant's file actually has.
+	 *
+	 * `processVariant()` used to return the requested width and height, which
+	 * are a restatement of the request rather than a description of the file.
+	 * Three of the encoder's branches do not produce them: a scale-only variant
+	 * leaves the other axis at 0, a non-cropping style with both axes set lets
+	 * the last one win, and `smart-crop` skips the crop entirely when the source
+	 * is smaller than the target. Consumers read these values as the file's own
+	 * — `<img width height>`, aspect-ratio boxes, anything checking it got what
+	 * it asked for — and `height="0"` is exactly the attribute that exists to
+	 * stop layout shift.
+	 *
+	 * Derived, not measured. The source dimensions are already in the image
+	 * array, so this costs no file read; every rule below was checked against
+	 * the real encoder on a 4000x2250 source before it was written here.
+	 *
+	 * A source of unknown size yields 0 for anything that would have to be
+	 * derived from it. Guessing would be worse: a consumer can test for zero,
+	 * but cannot tell a made-up number from a measured one.
+	 *
+	 * @param array<string, mixed> $variant       Normalized variant.
+	 * @param int                  $source_width  Source width, 0 when unknown.
+	 * @param int                  $source_height Source height, 0 when unknown.
+	 * @return array{0: int, 1: int} Width and height of the written file.
+	 */
+	public static function producedDimensions( array $variant, int $source_width, int $source_height ): array {
+		$width = (int) ( $variant['width'] ?? 0 );
+		$height = (int) ( $variant['height'] ?? 0 );
+		$style = (string) ( $variant['image_style'] ?? 'center' );
+		$has_source = $source_width > 0 && $source_height > 0;
+
+		if ( $width > 0 && $height > 0 ) {
+			// smart-crop skips the crop when neither axis exceeds the source,
+			// re-encoding it at its own size instead of upscaling. Its own test
+			// is `>` on either axis, not both.
+			if ( 'smart-crop' === $style && $has_source && $source_width <= $width && $source_height <= $height ) {
+				return [ $source_width, $source_height ];
+			}
+
+			if ( in_array( $style, [ 'smart-crop', 'crop', 'center', 'top', 'bottom', 'left', 'right' ], true ) ) {
+				return [ $width, $height ];
+			}
+
+			// Any other style falls through to the encoder's plain-resize
+			// branch, which sets width and then height — so height decides the
+			// ratio and the requested width is discarded.
+			return [ $has_source ? (int) round( $source_width * $height / $source_height ) : 0, $height ];
+		}
+
+		if ( $height > 0 ) {
+			return [ $has_source ? (int) round( $source_width * $height / $source_height ) : 0, $height ];
+		}
+
+		if ( $width > 0 ) {
+			return [ $width, $has_source ? (int) round( $source_height * $width / $source_width ) : 0 ];
+		}
+
+		return $has_source ? [ $source_width, $source_height ] : [ 0, 0 ];
+	}
+
+	/**
 	 * Cache directory segment for a variant.
 	 *
 	 * Quality is absent from the key by default, which is a real defect:
@@ -804,11 +865,17 @@ class Resizer {
 		$filetype = wp_check_filetype( $target_path );
 		$actual_mime = $filetype['type'] ?? 'image/' . $target_format;
 
+		[ $produced_width, $produced_height ] = self::producedDimensions(
+			$variant,
+			(int) ( $default_image['width'] ?? 0 ),
+			(int) ( $default_image['height'] ?? 0 )
+		);
+
 		return [
 			'src' => $target_url,
 			'type' => $actual_mime,
-			'width' => $variant['width'],
-			'height' => $variant['height'],
+			'width' => $produced_width,
+			'height' => $produced_height,
 			'media' => ( ! empty( $variant['media'] ) ) ? '(min-width: ' . $variant['media'] . 'px)' : '',
 			'alt' => $default_image['alt'],
 			'caption' => $default_image['caption'],
