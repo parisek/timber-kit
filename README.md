@@ -65,6 +65,32 @@ Caller passes the variant tuples directly, in order. Each tuple is `[width, heig
 }) }}
 ```
 
+#### Named-variant mode (associative)
+
+A variant may name its values instead of ordering them. Both shapes work, and mix in one call:
+
+```twig
+{{ component_picture({
+    image: item.image|resizer(
+        ['960', '720', '1280', 'crop'],
+        { width: 480, height: 360, crop: 'top', quality: 82 },
+    ),
+}) }}
+```
+
+Recognised keys: `width`, `height`, `media`, `image_style` (or `crop`), `quality`, `format`. Anything omitted falls back to the same defaults the positional form uses.
+
+`format` is reachable only this way — deliberately not a sixth positional slot. Use it when a consumer needs a specific encoding rather than the project default:
+
+```php
+// og:image — scrapers read JPEG, PNG, GIF and WebP, but not the AVIF written by default.
+$variants = ( new Resizer() )->resizer( $image, [
+    [ 'width' => 1200, 'height' => 630, 'crop' => 'center', 'quality' => 95, 'format' => 'jpeg' ],
+] );
+```
+
+An unrecognised format falls back to the request-wide one rather than throwing, so one bad variant cannot take down a page render.
+
 #### Orientation-aware mode (single map arg)
 
 When the single argument is an associative array carrying at least one of `landscape` / `portrait` / `square` keys, the filter classifies the source image's aspect (±10 % tolerance band around 1:1, overridable via the `timber_kit_resizer_aspect_tolerance` WP filter) and dispatches the matching tuple set to the standard resize pipeline:

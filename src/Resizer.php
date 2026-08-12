@@ -47,6 +47,17 @@ class Resizer {
 	private const string DEFAULT_FORMAT = 'avif';
 
 	/**
+	 * Output formats a variant may ask for.
+	 *
+	 * Narrower than the input allow-list on purpose: this is what the encoder
+	 * writes, not what it reads. `jpeg` and `jpg` both appear because callers
+	 * spell it either way and the value doubles as the file extension.
+	 *
+	 * @var array<int, string>
+	 */
+	private const array OUTPUT_FORMATS = [ 'avif', 'webp', 'jpeg', 'jpg', 'png', 'gif' ];
+
+	/**
 	 * Cache directory path relative to WP_CONTENT_DIR
 	 */
 	private const string CACHE_DIR_PATH = '/cache/image';
@@ -508,6 +519,19 @@ class Resizer {
 	/**
 	 * Normalize variant specifications into consistent format
 	 *
+	 * Accepts two shapes per variant, mixable in one call:
+	 *
+	 *   - positional — `[ width, height, media, image_style, quality ]`, the
+	 *     historic form, unchanged.
+	 *   - associative — `[ 'width' => …, 'height' => …, 'media' => …,
+	 *     'image_style' | 'crop' => …, 'quality' => …, 'format' => … ]`.
+	 *
+	 * The output format is only reachable through the associative form. It was
+	 * deliberately not added as a sixth positional slot: five is already at the
+	 * edge of what a reader can hold, and the format is the one value a caller
+	 * sets for compatibility rather than for art direction, so it benefits most
+	 * from being named at the call site.
+	 *
 	 * @param array $variants Raw variant specifications.
 	 * @return array Normalized variants.
 	 */
@@ -515,13 +539,17 @@ class Resizer {
 		$normalized = [];
 
 		foreach ( $variants as $variant ) {
-			$normalized[] = [
-				'width' => ( isset( $variant[0] ) && ! empty( $variant[0] ) ) ? intval( $variant[0] ) : 0,
-				'height' => ( isset( $variant[1] ) && ! empty( $variant[1] ) ) ? intval( $variant[1] ) : 0,
-				'media' => ( isset( $variant[2] ) && ! empty( $variant[2] ) ) ? intval( $variant[2] ) : 0,
-				'image_style' => ( isset( $variant[3] ) && ! empty( $variant[3] ) ) ? $variant[3] : 'center',
-				'quality' => ( isset( $variant[4] ) && ! empty( $variant[4] ) ) ? intval( $variant[4] ) : $this->target_quality,
-			];
+			// A non-array variant is garbage, but it still produced a row
+			// before (indexing into a string), so it keeps producing one —
+			// an all-defaults variant. Dropping it here would silently change
+			// the returned count, which callers zip against their own lists.
+			if ( ! is_array( $variant ) ) {
+				$variant = [];
+			}
+
+			$normalized[] = $this->isPositionalVariant( $variant )
+				? $this->normalizePositionalVariant( $variant )
+				: $this->normalizeAssociativeVariant( $variant );
 		}
 
 		// Sort by media value (largest first)
@@ -530,6 +558,102 @@ class Resizer {
 		} );
 
 		return $normalized;
+	}
+
+	/**
+	 * Whether a variant uses the positional tuple form rather than named keys.
+	 *
+	 * Keyed on index 0 alone: every positional variant carries a width there,
+	 * and no associative variant can, since its keys are strings. A variant
+	 * that is neither (an empty array) reads as associative and picks up the
+	 * defaults, which matches what the positional branch did for it before.
+	 *
+	 * @param array<mixed, mixed> $variant Raw variant specification.
+	 * @return bool
+	 */
+	private function isPositionalVariant( array $variant ): bool {
+		return array_key_exists( 0, $variant );
+	}
+
+	/**
+	 * @param array<int, mixed> $variant Positional variant specification.
+	 * @return array{width: int, height: int, media: int, image_style: string, quality: int, format: string}
+	 */
+	private function normalizePositionalVariant( array $variant ): array {
+		return [
+			'width' => ( isset( $variant[0] ) && ! empty( $variant[0] ) ) ? intval( $variant[0] ) : 0,
+			'height' => ( isset( $variant[1] ) && ! empty( $variant[1] ) ) ? intval( $variant[1] ) : 0,
+			'media' => ( isset( $variant[2] ) && ! empty( $variant[2] ) ) ? intval( $variant[2] ) : 0,
+			'image_style' => ( isset( $variant[3] ) && ! empty( $variant[3] ) ) ? $variant[3] : 'center',
+			'quality' => ( isset( $variant[4] ) && ! empty( $variant[4] ) ) ? intval( $variant[4] ) : $this->target_quality,
+			'format' => $this->target_format,
+		];
+	}
+
+	/**
+	 * @param array<string, mixed> $variant Associative variant specification.
+	 * @return array{width: int, height: int, media: int, image_style: string, quality: int, format: string}
+	 */
+	private function normalizeAssociativeVariant( array $variant ): array {
+		// `crop` is accepted alongside `image_style` because that is the word
+		// callers reach for; `image_style` stays canonical and wins when both
+		// are given.
+		$style = $variant['image_style'] ?? $variant['crop'] ?? null;
+
+		return [
+			'width' => ( ! empty( $variant['width'] ) ) ? intval( $variant['width'] ) : 0,
+			'height' => ( ! empty( $variant['height'] ) ) ? intval( $variant['height'] ) : 0,
+			'media' => ( ! empty( $variant['media'] ) ) ? intval( $variant['media'] ) : 0,
+			'image_style' => ( ! empty( $style ) ) ? $style : 'center',
+			'quality' => ( ! empty( $variant['quality'] ) ) ? intval( $variant['quality'] ) : $this->target_quality,
+			'format' => $this->normalizeFormat( $variant['format'] ?? null ),
+		];
+	}
+
+	/**
+	 * Resolve a requested output format against the encodable allow-list.
+	 *
+	 * Falls back to the request-wide format rather than throwing: a variant
+	 * carrying a format the encoder cannot write would otherwise take down a
+	 * whole page render over one image.
+	 *
+	 * @param mixed $format Requested format, e.g. `jpeg`.
+	 * @return string A format this resizer will encode.
+	 */
+	private function normalizeFormat( $format ): string {
+		if ( ! is_string( $format ) ) {
+			return $this->target_format;
+		}
+
+		$format = strtolower( trim( $format ) );
+
+		return in_array( $format, self::OUTPUT_FORMATS, true ) ? $format : $this->target_format;
+	}
+
+	/**
+	 * Cache directory segment for a variant.
+	 *
+	 * The quality only appears once it differs from the package default, so a
+	 * project that never touched quality keeps its existing cache paths and
+	 * regenerates nothing on upgrade. Before this, quality was absent from the
+	 * key entirely: re-cutting the same dimensions at a new quality silently
+	 * served the previously generated file, which reads as "the setting does
+	 * nothing".
+	 *
+	 * The format stays out — it is the file extension, so it already separates
+	 * variants without a second copy of it here.
+	 *
+	 * @param array<string, mixed> $variant Normalized variant.
+	 * @return string Directory segment, e.g. `1200x630-center-q82`.
+	 */
+	private function variantDirname( array $variant ): string {
+		$dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
+
+		if ( (int) $variant['quality'] !== self::DEFAULT_QUALITY ) {
+			$dirname .= '-q' . (int) $variant['quality'];
+		}
+
+		return $dirname;
 	}
 
 	/**
@@ -542,16 +666,17 @@ class Resizer {
 	 * @return array|null Processed image data or null on failure.
 	 */
 	protected function processVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
-		$target_dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
+		$target_format = $variant['format'];
+		$target_dirname = $this->variantDirname( $variant );
 		$target_dir = $this->image_cache_dir . '/' . $target_dirname;
-		$target_path = $target_dir . '/' . $filename . '.' . $this->target_format;
+		$target_path = $target_dir . '/' . $filename . '.' . $target_format;
 		// Derive URL from the configured cache directory relative to WP_CONTENT_DIR
 		$relative_cache_dir = $this->image_cache_dir;
 		if ( defined( 'WP_CONTENT_DIR' ) && strpos( $relative_cache_dir, WP_CONTENT_DIR ) === 0 ) {
 			$relative_cache_dir = substr( $relative_cache_dir, strlen( WP_CONTENT_DIR ) );
 		}
 		$relative_cache_dir = ltrim( (string) $relative_cache_dir, '/\\' );
-		$target_url = content_url( $relative_cache_dir . '/' . $target_dirname . '/' . $filename . '.' . $this->target_format );
+		$target_url = content_url( $relative_cache_dir . '/' . $target_dirname . '/' . $filename . '.' . $target_format );
 
 		// Skip processing if target file already exists (unless force regenerate is enabled)
 		if ( ! file_exists( $target_path ) || $this->force_regenerate ) {
@@ -596,7 +721,7 @@ class Resizer {
 							$imagick->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
 						}
 						$imagick->cropImage( $cropRect['width'], $cropRect['height'], $cropRect['x'], $cropRect['y'] );
-						$imagick->setImageFormat( $this->target_format );
+						$imagick->setImageFormat( $target_format );
 						$imagick->setImageCompressionQuality( $variant['quality'] );
 						$imagick->writeImage( $target_path );
 						$imagick->clear();
@@ -604,7 +729,7 @@ class Resizer {
 					} else {
 						// Image is smaller than target, just resize without cropping
 						imagedestroy( $gdImage );
-						$imageGenerator->format( $this->target_format );
+						$imageGenerator->format( $target_format );
 						$imageGenerator->quality( $variant['quality'] );
 						$imageGenerator->save( $target_path );
 					}
@@ -620,7 +745,7 @@ class Resizer {
 					// Then crop to exact dimensions at the specified position
 					$imageGenerator->crop( $variant['width'], $variant['height'], $position );
 
-					$imageGenerator->format( $this->target_format );
+					$imageGenerator->format( $target_format );
 					$imageGenerator->quality( $variant['quality'] );
 
 					$imageGenerator->save( $target_path );
@@ -633,7 +758,7 @@ class Resizer {
 						$imageGenerator->height( $variant['height'] );
 					}
 
-					$imageGenerator->format( $this->target_format );
+					$imageGenerator->format( $target_format );
 					$imageGenerator->quality( $variant['quality'] );
 
 					$imageGenerator->save( $target_path );
@@ -647,7 +772,7 @@ class Resizer {
 
 		// Derive MIME from target extension instead of accessing a protected property
 		$filetype = wp_check_filetype( $target_path );
-		$actual_mime = $filetype['type'] ?? 'image/' . $this->target_format;
+		$actual_mime = $filetype['type'] ?? 'image/' . $target_format;
 
 		return [
 			'src' => $target_url,
@@ -929,9 +1054,22 @@ class Resizer {
 	 *
 	 * Accepts the image array produced by Timber's `formatImage` helper (or a
 	 * plain associative array with at least a `src` key) and a list of variant
-	 * specifications. Each variant is a numerically-indexed array of the form
-	 * `[width, height, media_breakpoint, image_style, quality]`. Missing values
-	 * fall back to 0 / `'center'` / the configured default quality.
+	 * specifications, in either of two shapes, mixable in one call:
+	 *
+	 *   - positional — `[width, height, media_breakpoint, image_style, quality]`
+	 *   - associative — `['width' => …, 'height' => …, 'media' => …,
+	 *     'image_style' | 'crop' => …, 'quality' => …, 'format' => …]`
+	 *
+	 * Missing values fall back to 0 / `'center'` / the configured default
+	 * quality / the request-wide output format.
+	 *
+	 * `format` is reachable only through the associative shape. Set it when a
+	 * consumer needs a specific encoding rather than the project's default:
+	 * link-preview scrapers, for instance, read JPEG, PNG, GIF and WebP but not
+	 * the AVIF written here by default, so an `og:image` cut wants
+	 * `'format' => 'jpeg'`. An unrecognised format falls back to the
+	 * request-wide one rather than throwing — one bad variant should not take
+	 * down a page render.
 	 *
 	 * Returns an array where each entry has the keys `src`, `type`, `width`,
 	 * `height`, `media`, `alt`, `caption`, and `description`. The last entry
@@ -941,8 +1079,9 @@ class Resizer {
 	 * @param array|mixed $image    Timber/WordPress image data. When an indexed
 	 *                              array is passed (multiple sizes), the last
 	 *                              element is used as the source image.
-	 * @param array       $variants List of variant spec arrays
-	 *                              `[width, height, media, image_style, quality]`.
+	 * @param array       $variants List of variant specs, positional
+	 *                              `[width, height, media, image_style, quality]`
+	 *                              or associative (see above).
 	 * @return array Processed image variants, each with src/type/width/height/media/alt/caption/description keys.
 	 */
 	public function resizer( $image, array $variants ): array {

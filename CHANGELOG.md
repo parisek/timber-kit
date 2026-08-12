@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `Resizer` variants may be written as associative arrays — `['width' => …, 'height' => …, 'media' => …, 'image_style' | 'crop' => …, 'quality' => …, 'format' => …]` — alongside the positional tuples, and the two shapes mix in one call. Both the `|resizer` Twig filter and `Resizer::resizer()` accept either.
+- `format` per variant, reachable only through the associative shape. The output format used to be request-wide, read once in the constructor from `timber_kit_resizer_target_format`, so a caller needing a different encoding had to add that filter immediately before constructing the instance and remove it straight after. Consumers that are not browsers need this: link-preview scrapers read JPEG, PNG, GIF and WebP but not the AVIF written by default, so an `og:image` routed through the resizer produced a preview card with no image at all. An unrecognised format falls back to the request-wide one rather than throwing.
+
+### Fixed
+
+- Variant quality is part of the cache key. It was absent entirely, so re-cutting the same dimensions at a different quality served the previously generated file and the setting appeared to do nothing. Quality enters the directory segment only once it differs from the package default (`1200x630-center-q82`), so a project that never changed quality keeps its existing paths and regenerates nothing; a project that did re-cuts those variants once.
+
 ## [1.31.1] - 2026-08-11
 
 ### Documentation

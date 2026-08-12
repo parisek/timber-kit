@@ -11,8 +11,9 @@ use Tests\Property\Support\PropertyTestCase;
 /**
  * Property tests for the private Resizer::normalizeVariants() transformer.
  *
- * Input domain: list of indexed tuples (raw variant specs).
- * Output domain: list of associative dicts with five typed keys.
+ * Input domain: list of raw variant specs, positional tuples or associative
+ * maps, freely mixed.
+ * Output domain: list of associative dicts with six typed keys.
  * The domains differ, so classic idempotence (f(f(x))===f(x)) does not apply.
  * What does hold: type stability, ordering, count preservation, determinism.
  */
@@ -46,14 +47,63 @@ class NormalizeVariantsPropertyTest extends PropertyTestCase {
 	}
 
 	/**
-	 * Generates a bounded list (0–8 elements) of raw variant tuples.
+	 * Generates a single raw variant in the associative shape, with an
+	 * arbitrary subset of the recognised keys present.
+	 */
+	private function rawAssociativeVariantGenerator(): \Eris\Generator {
+		return Generator\bind(
+			Generator\tuple(
+				Generator\choose( 0, 4000 ),
+				Generator\choose( 0, 4000 ),
+				Generator\choose( 0, 4000 ),
+				Generator\elements( 'center', 'crop', 'smart-crop', 'top' ),
+				Generator\choose( 1, 100 ),
+				Generator\elements( 'avif', 'webp', 'jpeg', 'png', 'nonsense' ),
+				Generator\choose( 0, 63 )
+			),
+			function ( array $t ): \Eris\Generator {
+				[ $w, $h, $m, $style, $q, $format, $mask ] = $t;
+
+				$all = [
+					'width' => $w,
+					'height' => $h,
+					'media' => $m,
+					'image_style' => $style,
+					'quality' => $q,
+					'format' => $format,
+				];
+
+				// The mask decides which keys are present, so the domain covers
+				// every partial spec a caller might write, not just full ones.
+				$variant = [];
+				$bit = 1;
+				foreach ( $all as $key => $value ) {
+					if ( $mask & $bit ) {
+						$variant[ $key ] = $value;
+					}
+					$bit <<= 1;
+				}
+
+				return Generator\constant( $variant );
+			}
+		);
+	}
+
+	/**
+	 * Generates a bounded list (0–8 elements) of raw variants, either shape.
 	 */
 	private function variantsGenerator(): \Eris\Generator {
 		return Generator\bind(
 			Generator\choose( 0, 8 ),
 			fn ( int $n ) => 0 === $n
 				? Generator\constant( [] )
-				: Generator\vector( $n, $this->rawVariantGenerator() )
+				: Generator\vector(
+					$n,
+					Generator\oneOf(
+						$this->rawVariantGenerator(),
+						$this->rawAssociativeVariantGenerator()
+					)
+				)
 		);
 	}
 
@@ -67,7 +117,7 @@ class NormalizeVariantsPropertyTest extends PropertyTestCase {
 				foreach ( $result as $row ) {
 					$this->assertIsArray( $row );
 					$this->assertEqualsCanonicalizing(
-						[ 'width', 'height', 'media', 'image_style', 'quality' ],
+						[ 'width', 'height', 'media', 'image_style', 'quality', 'format' ],
 						array_keys( $row )
 					);
 					$this->assertIsInt( $row['width'] );
@@ -75,6 +125,10 @@ class NormalizeVariantsPropertyTest extends PropertyTestCase {
 					$this->assertIsInt( $row['media'] );
 					$this->assertIsString( $row['image_style'] );
 					$this->assertIsInt( $row['quality'] );
+					$this->assertIsString( $row['format'] );
+					// A variant never carries a format the encoder cannot write:
+					// an unrecognised request falls back to the request-wide one.
+					$this->assertContains( $row['format'], [ 'avif', 'webp', 'jpeg', 'jpg', 'png', 'gif' ] );
 				}
 			} );
 	}
