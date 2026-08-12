@@ -26,9 +26,9 @@ namespace Parisek\TimberKit;
  *
  * Policy lives here; the mechanism stays in `Resizer`, which this composes.
  *
- * Deliberately stops at the image. Wiring it to a particular SEO plugin's hook
- * needs a post type and a field name, which are project facts, not package
- * ones. A project's own `og:image` filter callback is two lines on top of this.
+ * `get()` takes an image; `forPost()` finds one, from a post-type → field map.
+ * Handing the result to a particular SEO plugin is `SocialImageBridge`, kept
+ * separate so no plugin's vocabulary reaches this class.
  */
 class SocialImage {
 
@@ -204,18 +204,30 @@ class SocialImage {
 			return null;
 		}
 
-		$image = self::imageForPost( $post );
+		// Every candidate is tried until one yields a usable cut, not until one
+		// merely looks like an image. Resolving and cutting are separate steps,
+		// and a value can pass the first and fail the second — an SVG, a
+		// missing file, a format the backend cannot decode. Stopping at the
+		// first plausible candidate would throw away the rest of the chain and
+		// the featured image for a picture that was never going to work.
+		foreach ( self::imageCandidates( $post ) as $candidate ) {
+			$preview = self::get( $candidate, $options, $resizer );
 
-		return null === $image ? null : self::get( $image, $options, $resizer );
+			if ( null !== $preview ) {
+				return $preview;
+			}
+		}
+
+		return null;
 	}
 
 	/**
-	 * The image a post's preview should be cut from, or null.
+	 * The images a post's preview could be cut from, best first.
 	 *
 	 * @param \WP_Post $post Post to resolve.
-	 * @return array<string, mixed>|null
+	 * @return array<int, array<string, mixed>>
 	 */
-	private static function imageForPost( \WP_Post $post ): ?array {
+	private static function imageCandidates( \WP_Post $post ): array {
 		/**
 		 * Filter the post-type → preview-image field map.
 		 *
@@ -223,6 +235,7 @@ class SocialImage {
 		 */
 		$map = apply_filters( 'timber_kit_social_image_fields', [] );
 		$names = self::fieldNamesFor( (string) get_post_type( $post ), is_array( $map ) ? $map : [] );
+		$candidates = [];
 
 		if ( [] !== $names ) {
 			/**
@@ -242,21 +255,24 @@ class SocialImage {
 					continue;
 				}
 
-				// Non-empty is not the same as usable: a gallery, a repeater or
-				// a group is all three of those and none of them is an image.
-				// Returning here on a failed coercion would swallow the rest of
-				// the chain and the featured-image fallback with it.
+				// Non-empty is not the same as an image: a gallery, a repeater
+				// or a group is all three of those and none of them is one.
 				$image = self::asImage( $fields[ $name ] );
 
 				if ( null !== $image ) {
-					return $image;
+					$candidates[] = $image;
 				}
 			}
 		}
 
 		$thumbnail_id = (int) get_post_thumbnail_id( $post );
+		$featured = $thumbnail_id > 0 ? self::asImage( $thumbnail_id ) : null;
 
-		return $thumbnail_id > 0 ? self::asImage( $thumbnail_id ) : null;
+		if ( null !== $featured ) {
+			$candidates[] = $featured;
+		}
+
+		return $candidates;
 	}
 
 	/**
@@ -324,11 +340,36 @@ class SocialImage {
 		}
 
 		if ( isset( $value[0] ) && is_array( $value[0] ) ) {
-			$last = end( $value );
-			return is_array( $last ) && ! empty( $last['src'] ) ? $last : null;
+			$value = end( $value );
+
+			if ( ! is_array( $value ) ) {
+				return null;
+			}
 		}
 
-		return ! empty( $value['src'] ) ? $value : null;
+		return self::isImageRecord( $value ) ? $value : null;
+	}
+
+	/**
+	 * Whether a formatted record describes an image.
+	 *
+	 * `src` alone does not say so: `Helpers::formatFile()` and `formatVideo()`
+	 * produce records with the same key, and a mapped file or video field would
+	 * otherwise be handed to the resizer as a picture. A record with no `type`
+	 * at all is accepted — that is a formatter that could not read the mime,
+	 * not evidence against, and the resizer refuses what it cannot decode.
+	 *
+	 * @param array<string, mixed> $record Candidate record.
+	 * @return bool
+	 */
+	private static function isImageRecord( array $record ): bool {
+		if ( empty( $record['src'] ) ) {
+			return false;
+		}
+
+		$type = $record['type'] ?? null;
+
+		return ! is_string( $type ) || $type === '' || str_starts_with( strtolower( $type ), 'image/' );
 	}
 
 	/**

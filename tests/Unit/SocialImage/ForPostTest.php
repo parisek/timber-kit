@@ -66,6 +66,17 @@ class ForPostTest extends TestCase {
 		return $stub;
 	}
 
+	/**
+	 * A resizer answering differently per call, for candidate-order assertions.
+	 *
+	 * @param array<int, array<int, array<string, mixed>>> $answers
+	 */
+	private function resizerAnswering( array $answers ): Resizer {
+		$stub = $this->createStub( Resizer::class );
+		$stub->method( 'resizer' )->willReturnOnConsecutiveCalls( ...$answers );
+		return $stub;
+	}
+
 	public function test_reads_the_field_the_map_names_for_the_post_type(): void {
 		$this->wire(
 			[ 'project' => 'hero_image' ],
@@ -85,7 +96,7 @@ class ForPostTest extends TestCase {
 
 		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
 
-		$this->assertIsArray( $result );
+		$this->assertSame( $this->variant['src'], $result['src'] );
 	}
 
 	public function test_falls_back_to_the_featured_image_when_the_map_has_no_entry(): void {
@@ -170,6 +181,74 @@ class ForPostTest extends TestCase {
 		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
 
 		$this->assertIsArray( $result );
+	}
+
+	public function test_a_mapped_file_field_is_not_mistaken_for_an_image(): void {
+		// formatFile() and formatVideo() also produce records with a `src` key,
+		// so `src` alone cannot decide. A PDF must not reach the resizer as a
+		// picture, and must not consume the chain either.
+		$this->wire(
+			[ 'project' => [ 'brochure', 'hero_image' ] ],
+			[
+				'brochure' => [ [ 'src' => 'https://example.com/brochure.pdf', 'type' => 'application/pdf' ] ],
+				'hero_image' => [ [ 'id' => 9, 'src' => 'https://example.com/hero.jpg', 'type' => 'image/jpeg' ] ],
+			]
+		);
+
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+
+		$this->assertSame( $this->variant['src'], $result['src'] );
+	}
+
+	public function test_a_record_without_a_type_is_still_tried(): void {
+		// A formatter that could not read the mime is not evidence against the
+		// value; the resizer refuses what it cannot decode anyway.
+		$this->wire(
+			[ 'project' => 'hero_image' ],
+			[ 'hero_image' => [ [ 'id' => 9, 'src' => 'https://example.com/hero.jpg' ] ] ]
+		);
+
+		$this->assertIsArray( SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) ) );
+	}
+
+	public function test_a_candidate_that_yields_no_usable_cut_moves_on_to_the_next(): void {
+		// Resolving and cutting are separate steps and a value can pass the
+		// first while failing the second — an SVG, a missing file, a format the
+		// backend cannot decode. The chain must survive that.
+		$this->wire(
+			[ 'project' => [ 'vector', 'hero_image' ] ],
+			[
+				'vector' => [ [ 'src' => 'https://example.com/logo.svg', 'type' => 'image/svg+xml' ] ],
+				'hero_image' => [ [ 'id' => 9, 'src' => 'https://example.com/hero.jpg', 'type' => 'image/jpeg' ] ],
+			]
+		);
+
+		// First call: the resizer hands back the source untouched, which get()
+		// refuses. Second call: a real cut.
+		$resizer = $this->resizerAnswering( [
+			[ [ 'src' => 'https://example.com/logo.svg', 'width' => 512, 'height' => 512 ] ],
+			[ $this->variant ],
+		] );
+
+		$result = SocialImage::forPost( $this->post(), [], $resizer );
+
+		$this->assertSame( $this->variant['src'], $result['src'] );
+	}
+
+	public function test_the_featured_image_is_the_last_candidate_not_the_first(): void {
+		$this->wire(
+			[ 'project' => 'hero_image' ],
+			[ 'hero_image' => [ [ 'id' => 9, 'src' => 'https://example.com/hero.jpg', 'type' => 'image/jpeg' ] ] ],
+			42
+		);
+		Functions\when( 'acf_get_attachment' )->justReturn( [ 'url' => 'https://example.com/featured.jpg', 'width' => 4000, 'height' => 2250, 'mime_type' => 'image/jpeg' ] );
+
+		$featured_cut = [ 'src' => 'https://example.com/c/1200x630-center/featured.jpeg', 'type' => 'image/jpeg', 'width' => 1200, 'height' => 630 ];
+		$resizer = $this->resizerAnswering( [ [ $this->variant ], [ $featured_cut ] ] );
+
+		$result = SocialImage::forPost( $this->post(), [], $resizer );
+
+		$this->assertSame( $this->variant['src'], $result['src'] );
 	}
 
 	public function test_options_are_passed_through(): void {

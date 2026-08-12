@@ -122,7 +122,7 @@ protected array $social_image_fields = array(
 );
 ```
 
-A post type left out of the map falls back to its featured image. Fields are read through `Helpers::formatFields()`; `timber_kit_social_image_post_fields` overrides that reader for projects storing this outside ACF.
+A post type left out of the map falls back to its featured image. Every candidate is tried until one yields a usable cut, not until one merely looks like an image — resolving and cutting are separate steps, and an SVG or an undecodable format passes the first while failing the second. Fields are read through `Helpers::formatFields()`; `timber_kit_social_image_post_fields` overrides that reader for projects storing this outside ACF.
 
 #### Wiring it to an SEO plugin
 
