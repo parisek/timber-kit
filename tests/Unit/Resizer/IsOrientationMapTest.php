@@ -135,6 +135,10 @@ final class IsOrientationMapTest extends TestCase {
 		// An associative array with unrelated keys is not an orientation
 		// map — the predicate gates on the presence of at least one of the
 		// three recognised strings.
+		//
+		// Load-bearing now that a variant itself may be associative: a single
+		// `image|resizer({width: …, format: 'jpeg'})` call arrives here as one
+		// associative arg and must route to resizer(), not resizerAspect().
 		$variants = [
 			[
 				'width'  => 960,

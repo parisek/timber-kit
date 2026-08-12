@@ -581,6 +581,23 @@ class StarterBase extends Site {
 	protected bool $resizer_skip_animated = true;
 
 	/**
+	 * Whether a Resizer variant's quality is part of its cache key.
+	 *
+	 * The cache key is dimensions and crop style. Quality is absent, so
+	 * re-cutting the same dimensions at a different quality serves the file
+	 * generated the first time and the new quality appears to do nothing.
+	 *
+	 * Set **true** to include it. Off by default because switching it on
+	 * relocates every variant whose quality is not the package default: the
+	 * previously generated files orphan in the cache directory and the public
+	 * URLs change. A project that never set a custom quality sees no difference
+	 * either way.
+	 *
+	 * @var bool
+	 */
+	protected bool $resizer_quality_in_cache_key = false;
+
+	/**
 	 * Slim orchestrator — resolves theme identity, delegates hook registration
 	 * to concern-focused private methods, then hands off to Timber\Site.
 	 *
@@ -953,6 +970,11 @@ class StarterBase extends Site {
 		if ( $this->resizer_format_health ) {
 			add_filter( 'site_status_tests', array( $this, 'site_health_register_resizer_formats_test' ) );
 			add_filter( 'debug_information', array( $this, 'site_health_resizer_formats_debug' ) );
+		}
+		if ( $this->resizer_quality_in_cache_key ) {
+			// Default is false (quality absent from the key, the historic paths).
+			// Opting in relocates every non-default-quality variant.
+			add_filter( 'timber_kit_resizer_quality_in_cache_key', '__return_true' );
 		}
 		if ( ! $this->resizer_skip_animated ) {
 			// Default is true (animated sources pass through untouched). Opting out
