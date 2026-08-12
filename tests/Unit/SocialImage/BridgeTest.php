@@ -53,6 +53,9 @@ class BridgeTest extends TestCase {
 		SocialImageBridge::register( 'aioseo' );
 
 		$this->assertArrayHasKey( 'aioseo_opengraph_default_image', $registered );
+		// Twitter resolves separately, so one hook is half the feature.
+		$this->assertArrayHasKey( 'aioseo_twitter_tags', $registered );
+		$this->assertSame( [ SocialImageBridge::class, 'filterTwitterTags' ], $registered['aioseo_twitter_tags']['callback'] );
 		$hook = $registered['aioseo_opengraph_default_image'];
 		// The post arrives in the second argument, so one accepted arg would
 		// hand the callback an image and no way to resolve anything for it.
@@ -147,6 +150,50 @@ class BridgeTest extends TestCase {
 
 		// No field map is wired, so reaching resolution at all would fail the
 		// test with a missing-mock error rather than silently passing.
+		$this->assertSame( $image, SocialImageBridge::filterOpengraphImage( $image, [ $post, 'article' ] ) );
+	}
+
+	public function test_twitter_defers_when_the_card_reuses_the_open_graph_image(): void {
+		// "Use Data from Facebook Tab" makes AIOSEO return the OG image for
+		// Twitter, so the tag already carries what the og:image filter decided,
+		// deferral included. Replacing it here would run that decision again
+		// without the deferral and undo it. The per-post value defaults from the
+		// global setting, so on a site with it on this is every post.
+		$this->stubAioseoMeta( [ 'twitter_use_og' => true, 'og_image_type' => 'custom_image', 'twitter_image_type' => 'default' ] );
+		Functions\when( 'is_singular' )->justReturn( true );
+		Functions\when( 'get_queried_object' )->justReturn( new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] ) );
+
+		$meta = [ 'twitter:image' => 'https://example.com/what-the-editor-picked.jpg' ];
+
+		$this->assertSame( $meta, SocialImageBridge::filterTwitterTags( $meta ) );
+	}
+
+	public function test_twitter_defers_to_an_editor_chosen_twitter_image(): void {
+		$this->stubAioseoMeta( [ 'twitter_use_og' => false, 'twitter_image_type' => 'custom_image' ] );
+		Functions\when( 'is_singular' )->justReturn( true );
+		Functions\when( 'get_queried_object' )->justReturn( new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] ) );
+
+		$meta = [ 'twitter:image' => 'https://example.com/what-the-editor-picked.jpg' ];
+
+		$this->assertSame( $meta, SocialImageBridge::filterTwitterTags( $meta ) );
+	}
+
+	public function test_twitter_tags_are_untouched_outside_a_singular_view(): void {
+		Functions\when( 'is_singular' )->justReturn( false );
+
+		$meta = [ 'twitter:image' => 'https://example.com/site-default.png' ];
+
+		$this->assertSame( $meta, SocialImageBridge::filterTwitterTags( $meta ) );
+	}
+
+	public function test_unreadable_plugin_metadata_means_defer(): void {
+		// The contract is never to override an editor's choice, and an
+		// unreadable state is not evidence that they made none.
+		Functions\when( 'aioseo' )->justReturn( (object) [] );
+
+		$image = 'https://example.com/what-the-plugin-resolved.jpg';
+		$post = new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] );
+
 		$this->assertSame( $image, SocialImageBridge::filterOpengraphImage( $image, [ $post, 'article' ] ) );
 	}
 

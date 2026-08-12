@@ -137,7 +137,7 @@ Two separate claims worth keeping apart. **Leaving the bridge off changes nothin
 
 **A post whose social image the editor chose by hand is left alone.** AIOSEO's filter is named for the *default* image but fires at the end of resolution, so it also sees an explicit per-post choice; overwriting that would be the plugin equivalent of ignoring the editor, and silent, since the panel still shows their pick.
 
-Both `og:image` and `twitter:image` are covered. Twitter resolves on a separate path with no filter of its own, so without that second hook the feature only half works and the rest has to be clicked together in the admin.
+Both `og:image` and `twitter:image` are covered. Twitter resolves on a separate path with no filter of its own, so without that second hook the feature only half works and the rest has to be clicked together in the admin. With AIOSEO's "Use Data from Facebook Tab" enabled the Twitter tag already carries the Open Graph result, so the bridge leaves it alone rather than deciding twice.
 
 Why it is needed for AIOSEO specifically: it resolves the OG image from one global source option plus a per-post override, with no per-post-type layer in between, so without this every post of a type shares one image.
 

@@ -168,7 +168,7 @@ class SocialImageBridge {
 	public static function filterOpengraphImage( $image, $args ) {
 		$post = is_array( $args ) ? ( $args[0] ?? null ) : null;
 
-		if ( ! $post instanceof \WP_Post || self::defersToEditor( self::imageType( $post, 'og_image_type' ) ) ) {
+		if ( ! $post instanceof \WP_Post || self::standsAside( $post, 'og_image_type' ) ) {
 			return $image;
 		}
 
@@ -191,7 +191,17 @@ class SocialImageBridge {
 
 		$post = get_queried_object();
 
-		if ( ! $post instanceof \WP_Post || self::defersToEditor( self::imageType( $post, 'twitter_image_type' ) ) ) {
+		if ( ! $post instanceof \WP_Post ) {
+			return $meta;
+		}
+
+		// With "Use Data from Facebook Tab" on, AIOSEO returns the Open Graph
+		// image for Twitter too — so the tag already carries whatever the
+		// og:image filter decided, deferral included. Touching it here would
+		// run that decision a second time without the deferral and undo it.
+		// The setting is per post but defaults from the global one, so on a
+		// site with it enabled this is every post, not an edge case.
+		if ( self::usesOpengraphData( $post ) || self::standsAside( $post, 'twitter_image_type' ) ) {
 			return $meta;
 		}
 
@@ -240,13 +250,70 @@ class SocialImageBridge {
 	 * @return string|null
 	 */
 	private static function imageType( \WP_Post $post, string $key ): ?string {
+		$meta = self::postMeta( $post );
+
+		return isset( $meta->{$key} ) && is_string( $meta->{$key} ) ? $meta->{$key} : null;
+	}
+
+	/**
+	 * Whether the bridge should leave this post's tag alone.
+	 *
+	 * Deferring is the safe answer when the plugin's metadata cannot be read at
+	 * all: the contract is never to override an editor's choice, and an
+	 * unreadable state is not evidence that they made none.
+	 *
+	 * @param \WP_Post $post Post being rendered.
+	 * @param string   $key  Meta property, `og_image_type` or `twitter_image_type`.
+	 * @return bool
+	 */
+	private static function standsAside( \WP_Post $post, string $key ): bool {
+		if ( null === self::postMeta( $post ) ) {
+			return true;
+		}
+
+		return self::defersToEditor( self::imageType( $post, $key ) );
+	}
+
+	/**
+	 * Whether this post's Twitter card reuses the Open Graph image.
+	 *
+	 * @param \WP_Post $post Post being rendered.
+	 * @return bool
+	 */
+	private static function usesOpengraphData( \WP_Post $post ): bool {
+		$meta = self::postMeta( $post );
+
+		return null !== $meta && ! empty( $meta->twitter_use_og );
+	}
+
+	/**
+	 * AIOSEO's per-post metadata, or null when it cannot be reached.
+	 *
+	 * Every hop is checked rather than assumed: this walks another plugin's
+	 * internals, and a partial bootstrap or a refactor upstream should cost the
+	 * feature, not the request.
+	 *
+	 * @param \WP_Post $post Post being rendered.
+	 * @return object|null
+	 */
+	private static function postMeta( \WP_Post $post ): ?object {
 		if ( ! function_exists( 'aioseo' ) ) {
 			return null;
 		}
 
-		$meta = aioseo()->meta->metaData->getMetaData( $post );
+		$aioseo = aioseo();
 
-		return isset( $meta->{$key} ) && is_string( $meta->{$key} ) ? $meta->{$key} : null;
+		if ( ! is_object( $aioseo ) || ! isset( $aioseo->meta->metaData ) || ! is_object( $aioseo->meta->metaData ) ) {
+			return null;
+		}
+
+		if ( ! method_exists( $aioseo->meta->metaData, 'getMetaData' ) ) {
+			return null;
+		}
+
+		$meta = $aioseo->meta->metaData->getMetaData( $post );
+
+		return is_object( $meta ) ? $meta : null;
 	}
 
 	/**
