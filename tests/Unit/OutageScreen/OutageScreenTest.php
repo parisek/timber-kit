@@ -132,12 +132,17 @@ final class OutageScreenTest extends TestCase {
 		);
 	}
 
-	public function test_the_fatal_drop_in_sets_500_and_promises_nothing(): void {
+	public function test_the_fatal_drop_in_sets_500(): void {
 		// Read the status back out of a real run, not out of the source: a
 		// substring assertion would still pass if the call moved after an exit.
+		//
+		// The absence of Retry-After cannot be checked the same way — these run
+		// under the CLI SAPI, where header() is a no-op and headers_list() is
+		// always empty. That half is asserted over the written file, in
+		// test_install_writes_each_drop_in_its_own_source().
 		$output = $this->runDropIn(
 			$this->content_dir . '/themes/sloneek',
-			'echo "|STATUS:" . http_response_code() . "|RETRY:" . (int) headers_sent();',
+			'echo "|STATUS:" . http_response_code();',
 			'php-error.php'
 		);
 
@@ -223,7 +228,12 @@ final class OutageScreenTest extends TestCase {
 
 		self::assertSame( 'removed', $results['maintenance.php'] );
 		self::assertSame( 'foreign', $results['db-error.php'] );
+		// Named explicitly rather than left to the loop: a drop-in dropped from
+		// remove() leaves a file behind that install() then reports as ours and
+		// nobody looks at again.
+		self::assertSame( 'removed', $results['php-error.php'] );
 		self::assertFileDoesNotExist( $this->content_dir . '/maintenance.php' );
+		self::assertFileDoesNotExist( $this->content_dir . '/php-error.php' );
 		self::assertFileExists( $this->content_dir . '/db-error.php' );
 	}
 
@@ -237,12 +247,21 @@ final class OutageScreenTest extends TestCase {
 		self::assertStringContainsString( 'Odstavka', $output );
 	}
 
-	public function test_the_drop_in_prints_a_fallback_when_the_screen_is_missing(): void {
-		// A blank 503 reads as a broken server. The theme may simply not have
-		// rendered its screen yet.
-		$output = $this->runDropIn( $this->content_dir . '/themes/sloneek' );
+	public function test_every_drop_in_prints_a_fallback_when_the_screen_is_missing(): void {
+		// A blank error page reads as a broken server. The theme may simply not
+		// have rendered its screen yet — and the drop-in still has to keep its
+		// own status while saying so, which is the half a "did it print
+		// something" check on one file would miss.
+		foreach ( OutageScreen::DROP_INS as $filename => $contract ) {
+			$output = $this->runDropIn(
+				$this->content_dir . '/themes/sloneek',
+				'echo "|STATUS:" . http_response_code();',
+				$filename
+			);
 
-		self::assertStringContainsString( 'briefly unavailable', $output );
+			self::assertStringContainsString( 'briefly unavailable', $output, $filename );
+			self::assertStringContainsString( '|STATUS:' . $contract['status'], $output, $filename );
+		}
 	}
 
 	/**
