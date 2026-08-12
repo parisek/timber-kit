@@ -110,7 +110,36 @@ Returns `null` rather than something unusable: a caller falling back to its own 
 
 Options: `width`, `height`, `crop`, `quality`, `format` — unknown keys are dropped, a format no scraper reads falls back to JPEG, and `crop` is restricted to the styles that cut to exact dimensions (`center`, `crop`, `top`, `bottom`, `left`, `right`). `smart-crop` is not among them: it degrades to a plain resize when the source is smaller than the target, while the resizer still reports the dimensions that were asked for, so the entry would claim a cut it did not make. `SocialImage::spec()` returns what would be cut, without touching an image.
 
-It stops at the image on purpose. Wiring it to an SEO plugin's `og:image` hook needs a post type and a field name, which are project facts; that callback is two lines on top of this.
+#### Resolving a post's image
+
+`SocialImage::forPost( $post )` finds the image itself, from a map of post type to field:
+
+```php
+// In the theme's Base class.
+protected array $social_image_fields = array(
+    'project' => 'hero_image',
+    'post'    => array( 'lead_image', 'hero_image' ),  // first usable cut wins
+);
+```
+
+A post type left out of the map falls back to its featured image. Every candidate is tried until one yields a usable cut, not until one merely looks like an image — resolving and cutting are separate steps, and an SVG or an undecodable format passes the first while failing the second. Fields are read through `Helpers::formatFields()`; `timber_kit_social_image_post_fields` overrides that reader for projects storing this outside ACF.
+
+#### Wiring it to an SEO plugin
+
+```php
+protected string|bool $social_image_bridge = true;      // detect the active plugin
+protected string|bool $social_image_bridge = 'aioseo';  // or name it
+```
+
+The plugin keeps rendering its own tags; the bridge only supplies the image, and only when there is one — otherwise the plugin's own resolution stands, because a working card from the site default beats a wrong one.
+
+Two separate claims worth keeping apart. **Leaving the bridge off changes nothing on upgrade**, since no hook is registered. **Turning it on changes the tag** — that is the point — and with an empty map it hands over the featured image, replacing whatever the plugin resolved. Fill the map for the post types that keep their hero elsewhere. `true` detects the SEO plugin active on the site — one per site is the norm, so naming it is configuration the package can derive. `SocialImageBridge::supported()` lists the keys if you would rather be explicit.
+
+**A post whose social image the editor chose by hand is left alone.** AIOSEO's filter is named for the *default* image but fires at the end of resolution, so it also sees an explicit per-post choice; overwriting that would be the plugin equivalent of ignoring the editor, and silent, since the panel still shows their pick.
+
+Both `og:image` and `twitter:image` are covered. Twitter resolves on a separate path with no filter of its own, so without that second hook the feature only half works and the rest has to be clicked together in the admin. With AIOSEO's "Use Data from Facebook Tab" enabled the Twitter tag already carries the Open Graph result, so the bridge leaves it alone rather than deciding twice.
+
+Why it is needed for AIOSEO specifically: it resolves the OG image from one global source option plus a per-post override, with no per-post-type layer in between, so without this every post of a type shares one image.
 
 Filters:
 

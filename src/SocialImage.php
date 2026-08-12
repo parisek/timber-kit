@@ -26,9 +26,9 @@ namespace Parisek\TimberKit;
  *
  * Policy lives here; the mechanism stays in `Resizer`, which this composes.
  *
- * Deliberately stops at the image. Wiring it to a particular SEO plugin's hook
- * needs a post type and a field name, which are project facts, not package
- * ones. A project's own `og:image` filter callback is two lines on top of this.
+ * `get()` takes an image; `forPost()` finds one, from a post-type → field map.
+ * Handing the result to a particular SEO plugin is `SocialImageBridge`, kept
+ * separate so no plugin's vocabulary reaches this class.
  */
 class SocialImage {
 
@@ -180,6 +180,200 @@ class SocialImage {
 		}
 
 		return is_string( $image['src'] ?? null ) ? $image['src'] : '';
+	}
+
+	/**
+	 * Cut the preview image for a post.
+	 *
+	 * The half every project was writing by hand. The only project-specific
+	 * facts are a post type and a field name, so those are configuration and
+	 * the rest lives here.
+	 *
+	 * Candidate order: the fields the map names for this post type, in that
+	 * order, then the featured image. The first candidate that yields a usable
+	 * cut wins — not the first that merely resolves to an image. A post type
+	 * absent from the map falls back to the featured image alone, which is what
+	 * it did before the map existed.
+	 *
+	 * @param \WP_Post|mixed       $post    Post to resolve an image for.
+	 * @param array<string, mixed> $options See `spec()`.
+	 * @param Resizer|null         $resizer See `get()`.
+	 * @return array<string, mixed>|null
+	 */
+	public static function forPost( $post, array $options = [], ?Resizer $resizer = null ): ?array {
+		if ( ! $post instanceof \WP_Post ) {
+			return null;
+		}
+
+		// Every candidate is tried until one yields a usable cut, not until one
+		// merely looks like an image. Resolving and cutting are separate steps,
+		// and a value can pass the first and fail the second — an SVG, a
+		// missing file, a format the backend cannot decode. Stopping at the
+		// first plausible candidate would throw away the rest of the chain and
+		// the featured image for a picture that was never going to work.
+		foreach ( self::imageCandidates( $post ) as $candidate ) {
+			$preview = self::get( $candidate, $options, $resizer );
+
+			if ( null !== $preview ) {
+				return $preview;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * The images a post's preview could be cut from, best first.
+	 *
+	 * @param \WP_Post $post Post to resolve.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function imageCandidates( \WP_Post $post ): array {
+		/**
+		 * Filter the post-type → preview-image field map.
+		 *
+		 * @param array<string, mixed> $map Post type => field name or list of names.
+		 */
+		$map = apply_filters( 'timber_kit_social_image_fields', [] );
+		$names = self::fieldNamesFor( (string) get_post_type( $post ), is_array( $map ) ? $map : [] );
+		$candidates = [];
+
+		if ( [] !== $names ) {
+			/**
+			 * Filter how a post's fields are read.
+			 *
+			 * Returning an array skips `Helpers::formatFields()` entirely, for
+			 * projects that keep this data somewhere other than ACF.
+			 *
+			 * @param array<string, mixed>|null $fields Null to use the default reader.
+			 * @param \WP_Post                  $post   Post being resolved.
+			 */
+			$fields = apply_filters( 'timber_kit_social_image_post_fields', null, $post );
+			$fields = is_array( $fields ) ? $fields : Helpers::formatFields( $post );
+
+			foreach ( $names as $name ) {
+				if ( empty( $fields[ $name ] ) ) {
+					continue;
+				}
+
+				// Non-empty is not the same as an image: a gallery, a repeater
+				// or a group is all three of those and none of them is one.
+				$image = self::asImage( $fields[ $name ] );
+
+				if ( null !== $image ) {
+					$candidates[ $image['src'] ] = $image;
+				}
+			}
+		}
+
+		$thumbnail_id = (int) get_post_thumbnail_id( $post );
+		$featured = $thumbnail_id > 0 ? self::asImage( $thumbnail_id ) : null;
+
+		if ( null !== $featured && ! isset( $candidates[ $featured['src'] ] ) ) {
+			$candidates[ $featured['src'] ] = $featured;
+		}
+
+		// Keyed by URL while collecting: the featured image is very often also
+		// the mapped field, and two entries for one picture means encoding it
+		// twice to learn the same answer.
+		return array_values( $candidates );
+	}
+
+	/**
+	 * The field names to try for a post type, in order.
+	 *
+	 * Pure, and public because it is the whole of the map's semantics: a string
+	 * is a one-item chain, a list is tried in order, anything else is not a
+	 * field name and is dropped rather than passed on to fail later.
+	 *
+	 * @param string              $post_type Post type to look up.
+	 * @param array<string, mixed> $map      Post type => field name or list of names.
+	 * @return array<int, string>
+	 */
+	public static function fieldNamesFor( string $post_type, array $map ): array {
+		$entry = $map[ $post_type ] ?? null;
+
+		if ( is_string( $entry ) ) {
+			$entry = [ $entry ];
+		}
+
+		if ( ! is_array( $entry ) ) {
+			return [];
+		}
+
+		$names = [];
+		foreach ( $entry as $name ) {
+			if ( is_string( $name ) && trim( $name ) !== '' ) {
+				$names[] = trim( $name );
+			}
+		}
+
+		return $names;
+	}
+
+	/**
+	 * Coerce a field value or attachment id into the image shape `get()` takes.
+	 *
+	 * @param mixed $value Field value, attachment id, or already-formatted image.
+	 * @return array<string, mixed>|null
+	 */
+	private static function asImage( $value ): ?array {
+		// A field read through formatFields() is already formatted, and running
+		// it through formatImage() again would look for ACF's raw `url` key,
+		// find nothing, and return null. That is the shape the common case
+		// actually takes: formatImage() normalises even a single image into an
+		// indexed list, so `src` sits at [0], not at the root. An attachment id
+		// or a raw ACF array still needs the trip.
+		$image = self::formattedImage( $value ) ?? Helpers::formatImage( $value );
+
+		return self::formattedImage( $image );
+	}
+
+	/**
+	 * The image record inside an already-formatted value, or null.
+	 *
+	 * Accepts both shapes `formatImage()` produces: the indexed list, where the
+	 * last entry is the source, and a bare record.
+	 *
+	 * @param mixed $value Candidate value.
+	 * @return array<string, mixed>|null
+	 */
+	private static function formattedImage( $value ): ?array {
+		if ( ! is_array( $value ) ) {
+			return null;
+		}
+
+		if ( isset( $value[0] ) && is_array( $value[0] ) ) {
+			$value = end( $value );
+
+			if ( ! is_array( $value ) ) {
+				return null;
+			}
+		}
+
+		return self::isImageRecord( $value ) ? $value : null;
+	}
+
+	/**
+	 * Whether a formatted record describes an image.
+	 *
+	 * `src` alone does not say so: `Helpers::formatFile()` and `formatVideo()`
+	 * produce records with the same key, and a mapped file or video field would
+	 * otherwise be handed to the resizer as a picture. A record with no `type`
+	 * at all is accepted — that is a formatter that could not read the mime,
+	 * not evidence against, and the resizer refuses what it cannot decode.
+	 *
+	 * @param array<string, mixed> $record Candidate record.
+	 * @return bool
+	 */
+	private static function isImageRecord( array $record ): bool {
+		if ( empty( $record['src'] ) ) {
+			return false;
+		}
+
+		$type = $record['type'] ?? null;
+
+		return ! is_string( $type ) || $type === '' || str_starts_with( strtolower( $type ), 'image/' );
 	}
 
 	/**
