@@ -666,7 +666,13 @@ class Resizer {
 	 *
 	 * Derived, not measured. The source dimensions are already in the image
 	 * array, so this costs no file read; every rule below was checked against
-	 * the real encoder on a 4000x2250 source before it was written here.
+	 * the real encoder before it was written here.
+	 *
+	 * Accurate to within a pixel rather than exactly. The plain-resize path
+	 * rounds twice, and an intermediate landing on a .5 boundary is decided by
+	 * the image driver — GD and Imagick disagree there. One pair in 32 measured
+	 * differed, by one pixel. That does not move a layout; the zero this
+	 * replaces did.
 	 *
 	 * A source of unknown size yields 0 for anything that would have to be
 	 * derived from it. Guessing would be worse: a consumer can test for zero,
@@ -686,7 +692,10 @@ class Resizer {
 		if ( $width > 0 && $height > 0 ) {
 			// smart-crop skips the crop when neither axis exceeds the source,
 			// re-encoding it at its own size instead of upscaling. Its own test
-			// is `>` on either axis, not both.
+			// is `>` on either axis, not both. It reads those dimensions off the
+			// file with GD while this reads them from the image array, so stale
+			// metadata picks the wrong branch here — the one case in this method
+			// that trusts the caller rather than the encoder.
 			if ( 'smart-crop' === $style && $has_source && $source_width <= $width && $source_height <= $height ) {
 				return [ $source_width, $source_height ];
 			}
@@ -694,22 +703,64 @@ class Resizer {
 			if ( in_array( $style, [ 'smart-crop', 'crop', 'center', 'top', 'bottom', 'left', 'right' ], true ) ) {
 				return [ $width, $height ];
 			}
+		}
 
-			// Any other style falls through to the encoder's plain-resize
-			// branch, which sets width and then height — so height decides the
-			// ratio and the requested width is discarded.
-			return [ $has_source ? (int) round( $source_width * $height / $source_height ) : 0, $height ];
+		if ( ! $has_source ) {
+			// Nothing can be derived, so nothing is invented. Only an exact crop
+			// gets an answer without a source size, and it returned above.
+			return [ $width, $height ];
+		}
+
+		// The plain-resize branch applies width and then height as two separate
+		// operations, and the second computes its ratio from the result of the
+		// first — not from the source. Modelling it as one calculation off the
+		// source ratio is wrong by a pixel often enough to matter: a 1000x999
+		// source asked for 500x500 really produces 500x500, while the one-step
+		// arithmetic says 501.
+		$current_width = $source_width;
+		$current_height = $source_height;
+
+		if ( $width > 0 ) {
+			[ $current_width, $current_height ] = self::scaleToWidth( $width, $current_width, $current_height );
 		}
 
 		if ( $height > 0 ) {
-			return [ $has_source ? (int) round( $source_width * $height / $source_height ) : 0, $height ];
+			[ $current_width, $current_height ] = self::scaleToHeight( $height, $current_width, $current_height );
 		}
 
-		if ( $width > 0 ) {
-			return [ $width, $has_source ? (int) round( $source_height * $width / $source_width ) : 0 ];
+		return [ $current_width, $current_height ];
+	}
+
+	/**
+	 * One `width()` step: the encoder's own arithmetic, including its floor of 1.
+	 *
+	 * @param int $target Requested width.
+	 * @param int $width  Current width.
+	 * @param int $height Current height.
+	 * @return array{0: int, 1: int}
+	 */
+	private static function scaleToWidth( int $target, int $width, int $height ): array {
+		if ( $width <= 0 || $height <= 0 ) {
+			return [ $target, 0 ];
 		}
 
-		return $has_source ? [ $source_width, $source_height ] : [ 0, 0 ];
+		return [ $target, max( 1, (int) round( $target * $height / $width ) ) ];
+	}
+
+	/**
+	 * One `height()` step. Mirror of `scaleToWidth()`.
+	 *
+	 * @param int $target Requested height.
+	 * @param int $width  Current width.
+	 * @param int $height Current height.
+	 * @return array{0: int, 1: int}
+	 */
+	private static function scaleToHeight( int $target, int $width, int $height ): array {
+		if ( $width <= 0 || $height <= 0 ) {
+			return [ 0, $target ];
+		}
+
+		return [ max( 1, (int) round( $target * $width / $height ) ), $target ];
 	}
 
 	/**
@@ -855,7 +906,11 @@ class Resizer {
 					$imageGenerator->save( $target_path );
 				}
 
-			} catch (\Exception $e) {
+			} catch (\Throwable $e) {
+				// Throwable, not Exception: the encoder raises a DivisionByZeroError
+				// on some extreme targets (a 1x1 off a 777x333 source), and an
+				// Error slipping past this catch takes the whole page down over
+				// one image.
 				error_log( sprintf( 'Resizer: failed to process "%s" to "%s": %s', $source_path, $target_path, $e->getMessage() ) );
 				return null;
 			}

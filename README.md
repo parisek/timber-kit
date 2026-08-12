@@ -65,7 +65,7 @@ Caller passes the variant tuples directly, in order. Each tuple is `[width, heig
 }) }}
 ```
 
-Each returned entry's `width` and `height` describe the file that was written, not the values that were requested — they differ whenever the variant scales rather than crops, so `['1200', '', …]` reports the derived height instead of `0`. They are derived from the source dimensions, not measured, so nothing extra is read; a source of unknown size yields `0` rather than a guess. `Resizer::producedDimensions()` exposes the same derivation.
+Each returned entry's `width` and `height` describe the file that was written, not the values that were requested — they differ whenever the variant scales rather than crops, so `['1200', '', …]` reports the derived height instead of `0`. They are derived from the source dimensions, not measured, so nothing extra is read, and are accurate to within a pixel (the plain-resize path rounds twice, and GD and Imagick decide a .5 intermediate differently); a source of unknown size yields `0` rather than a guess. `Resizer::producedDimensions()` exposes the same derivation.
 
 #### Named-variant mode (associative)
 
