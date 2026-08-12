@@ -614,17 +614,19 @@ class StarterBase extends Site {
 	/**
 	 * Hand the resolved preview image to an SEO plugin's og:image.
 	 *
-	 * Empty (default) wires nothing. Set to a key from
-	 * `SocialImageBridge::supported()` — currently `'aioseo'` — to let the
-	 * plugin render its own tags while this supplies the image.
+	 * `false` (default) wires nothing. `true` detects the SEO plugin active on
+	 * the site — one per site is the norm, so naming it is configuration the
+	 * package can derive. A key from `SocialImageBridge::supported()` forces
+	 * one, for the rare site where detection would pick the wrong plugin.
 	 *
 	 * Off by default because it changes a rendered tag on every post of a
 	 * mapped type, which is exactly the kind of surprise a consumer should opt
-	 * into.
+	 * into. A post whose social image the editor chose by hand in the plugin's
+	 * own panel is left alone either way.
 	 *
-	 * @var string
+	 * @var string|bool
 	 */
-	protected string $social_image_bridge = '';
+	protected string|bool $social_image_bridge = false;
 
 	/**
 	 * Slim orchestrator — resolves theme identity, delegates hook registration
@@ -1008,7 +1010,7 @@ class StarterBase extends Site {
 				}
 			);
 		}
-		if ( '' !== $this->social_image_bridge ) {
+		if ( false !== $this->social_image_bridge && '' !== $this->social_image_bridge ) {
 			SocialImageBridge::register( $this->social_image_bridge );
 		}
 		if ( $this->resizer_quality_in_cache_key ) {

@@ -127,12 +127,17 @@ A post type left out of the map falls back to its featured image. Every candidat
 #### Wiring it to an SEO plugin
 
 ```php
-protected string $social_image_bridge = 'aioseo';
+protected string|bool $social_image_bridge = true;      // detect the active plugin
+protected string|bool $social_image_bridge = 'aioseo';  // or name it
 ```
 
 The plugin keeps rendering its own tags; the bridge only supplies the image, and only when there is one — otherwise the plugin's own resolution stands, because a working card from the site default beats a wrong one.
 
-Two separate claims worth keeping apart. **Leaving the bridge off changes nothing on upgrade**, since no hook is registered. **Turning it on changes the tag** — that is the point — and with an empty map it hands over the featured image, replacing whatever the plugin resolved. Fill the map for the post types that keep their hero elsewhere. `SocialImageBridge::supported()` lists the accepted values; adding another plugin is one method next to `registerAioseo()`.
+Two separate claims worth keeping apart. **Leaving the bridge off changes nothing on upgrade**, since no hook is registered. **Turning it on changes the tag** — that is the point — and with an empty map it hands over the featured image, replacing whatever the plugin resolved. Fill the map for the post types that keep their hero elsewhere. `true` detects the SEO plugin active on the site — one per site is the norm, so naming it is configuration the package can derive. `SocialImageBridge::supported()` lists the keys if you would rather be explicit.
+
+**A post whose social image the editor chose by hand is left alone.** AIOSEO's filter is named for the *default* image but fires at the end of resolution, so it also sees an explicit per-post choice; overwriting that would be the plugin equivalent of ignoring the editor, and silent, since the panel still shows their pick.
+
+Both `og:image` and `twitter:image` are covered. Twitter resolves on a separate path with no filter of its own, so without that second hook the feature only half works and the rest has to be clicked together in the admin.
 
 Why it is needed for AIOSEO specifically: it resolves the OG image from one global source option plus a per-post override, with no per-post-type layer in between, so without this every post of a type shares one image.
 

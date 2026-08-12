@@ -21,6 +21,29 @@ class BridgeTest extends TestCase {
 		parent::tearDown();
 	}
 
+	/**
+	 * Stub AIOSEO's object graph down to the per-post meta.
+	 *
+	 * Needed in every test that reaches `imageType()`, because Brain\Monkey
+	 * keeps function definitions for the whole run: once any earlier test
+	 * defines `aioseo`, `function_exists()` is true everywhere after it.
+	 *
+	 * @param array<string, mixed> $props Meta properties, e.g. og_image_type.
+	 */
+	private function stubAioseoMeta( array $props = [] ): void {
+		$meta = (object) $props;
+		$metaData = new class( $meta ) {
+			public function __construct( private object $meta ) {}
+			public function getMetaData( $post = null ) {
+				unset( $post );
+				return $this->meta;
+			}
+		};
+		$aioseo = (object) [ 'meta' => (object) [ 'metaData' => $metaData ] ];
+
+		Functions\when( 'aioseo' )->justReturn( $aioseo );
+	}
+
 	public function test_aioseo_hook_is_registered_with_both_arguments(): void {
 		$registered = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, $callback, $priority = 10, $args = 1 ) use ( &$registered ) {
@@ -47,6 +70,84 @@ class BridgeTest extends TestCase {
 		SocialImageBridge::register( 'not-a-plugin' );
 
 		$this->assertSame( [], $filters );
+	}
+
+	public function test_an_explicit_plugin_key_resolves_to_itself(): void {
+		$this->assertSame( 'aioseo', SocialImageBridge::resolve( 'aioseo' ) );
+	}
+
+	public function test_an_unsupported_plugin_key_resolves_to_nothing(): void {
+		$this->assertNull( SocialImageBridge::resolve( 'not-a-plugin' ) );
+	}
+
+	public function test_the_flag_off_resolves_to_nothing(): void {
+		$this->assertNull( SocialImageBridge::resolve( false ) );
+		$this->assertNull( SocialImageBridge::resolve( '' ) );
+	}
+
+	public function test_true_asks_for_detection(): void {
+		// The site runs one SEO plugin, so naming it is configuration the
+		// package can work out for itself.
+		Functions\when( 'aioseo' )->justReturn( true );
+
+		$this->assertSame( 'aioseo', SocialImageBridge::resolve( true ) );
+	}
+
+	public function test_an_explicit_key_wins_over_detection(): void {
+		Functions\when( 'aioseo' )->justReturn( true );
+
+		$this->assertSame( 'aioseo', SocialImageBridge::resolve( 'aioseo' ) );
+	}
+
+	public function test_an_explicit_per_post_choice_is_left_alone(): void {
+		// The filter is named `default_image` but fires last, so it also sees
+		// the image an editor picked by hand in the plugin's own panel.
+		// Overwriting that is the plugin equivalent of ignoring the editor.
+		$this->assertTrue( SocialImageBridge::defersToEditor( 'custom_image' ) );
+		$this->assertTrue( SocialImageBridge::defersToEditor( 'featured' ) );
+	}
+
+	public function test_no_per_post_choice_leaves_the_field_free(): void {
+		$this->assertFalse( SocialImageBridge::defersToEditor( 'default' ) );
+		$this->assertFalse( SocialImageBridge::defersToEditor( '' ) );
+		$this->assertFalse( SocialImageBridge::defersToEditor( null ) );
+	}
+
+	public function test_twitter_image_is_replaced_when_a_preview_resolves(): void {
+		$meta = [ 'twitter:card' => 'summary_large_image', 'twitter:image' => 'https://example.com/site-default.png' ];
+		$preview = [ 'src' => 'https://example.com/c/1200x630-center/hero.jpeg', 'width' => 1200, 'height' => 630 ];
+
+		$result = SocialImageBridge::withTwitterImage( $meta, $preview );
+
+		$this->assertSame( 'https://example.com/c/1200x630-center/hero.jpeg', $result['twitter:image'] );
+		$this->assertSame( 'summary_large_image', $result['twitter:card'] );
+	}
+
+	public function test_twitter_meta_is_untouched_without_a_preview(): void {
+		$meta = [ 'twitter:image' => 'https://example.com/site-default.png' ];
+
+		$this->assertSame( $meta, SocialImageBridge::withTwitterImage( $meta, null ) );
+	}
+
+	public function test_twitter_image_is_a_bare_url_not_a_tuple(): void {
+		// twitter:image is a URL string; AIOSEO reads og:image's width and
+		// height from separate keys, Twitter's has no such pair.
+		$preview = [ 'src' => 'https://example.com/hero.jpeg', 'width' => 1200, 'height' => 630 ];
+
+		$result = SocialImageBridge::withTwitterImage( [], $preview );
+
+		$this->assertIsString( $result['twitter:image'] );
+	}
+
+	public function test_a_post_with_an_editor_chosen_image_is_skipped_entirely(): void {
+		$this->stubAioseoMeta( [ 'og_image_type' => 'custom_image' ] );
+
+		$image = 'https://example.com/what-the-editor-picked.jpg';
+		$post = new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] );
+
+		// No field map is wired, so reaching resolution at all would fail the
+		// test with a missing-mock error rather than silently passing.
+		$this->assertSame( $image, SocialImageBridge::filterOpengraphImage( $image, [ $post, 'article' ] ) );
 	}
 
 	public function test_supported_plugins_are_discoverable(): void {
@@ -88,6 +189,7 @@ class BridgeTest extends TestCase {
 	public function test_an_unresolvable_post_leaves_the_image_untouched(): void {
 		// Falling through to whatever the plugin resolved is the whole contract:
 		// a working card beats a wrong one.
+		$this->stubAioseoMeta( [ 'og_image_type' => 'default' ] );
 		Functions\when( 'get_post_type' )->justReturn( 'page' );
 		Functions\when( 'get_post_thumbnail_id' )->justReturn( 0 );
 		Functions\when( 'apply_filters' )->alias( function ( $filter, $default, ...$args ) {
