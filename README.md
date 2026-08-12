@@ -91,6 +91,32 @@ $variants = ( new Resizer() )->resizer( $image, [
 
 An unrecognised format falls back to the request-wide one rather than throwing, so one bad variant cannot take down a page render.
 
+### SocialImage
+
+The one image variant a link-preview scraper can use. `Resizer` writes AVIF by default and Facebook, LinkedIn and X do not read it, so an `og:image` cut through the resizer alone is a preview card with no image — and nothing looks broken until someone shares a link.
+
+```php
+use Parisek\TimberKit\SocialImage;
+
+$preview = SocialImage::get( $image );              // 1200x630 JPEG, quality 85
+$preview = SocialImage::get( $image, [ 'quality' => 95 ] );
+
+if ( $preview ) {
+    $url = $preview['src'];
+}
+```
+
+Returns `null` rather than something unusable: a caller falling back to its own default still has a working card, while a wrong or oversized image only looks like an answer. A variant is accepted only when it is the requested cut in a format scrapers read, which is also what rejects the untouched original (`resizer()` returns the source alone when it cannot process it).
+
+Options: `width`, `height`, `crop`, `quality`, `format` — unknown keys are dropped, a format no scraper reads falls back to JPEG, and `crop` is restricted to the styles that cut to exact dimensions (`center`, `crop`, `top`, `bottom`, `left`, `right`). `smart-crop` is not among them: it degrades to a plain resize when the source is smaller than the target, while the resizer still reports the dimensions that were asked for, so the entry would claim a cut it did not make. `SocialImage::spec()` returns what would be cut, without touching an image.
+
+It stops at the image on purpose. Wiring it to an SEO plugin's `og:image` hook needs a post type and a field name, which are project facts; that callback is two lines on top of this.
+
+Filters:
+
+- `timber_kit_social_image_defaults` — project-wide width/height/crop/quality/format
+- `timber_kit_social_image_formats` — the formats considered scraper-readable, for the day a platform adds AVIF
+
 #### Orientation-aware mode (single map arg)
 
 When the single argument is an associative array carrying at least one of `landscape` / `portrait` / `square` keys, the filter classifies the source image's aspect (±10 % tolerance band around 1:1, overridable via the `timber_kit_resizer_aspect_tolerance` WP filter) and dispatches the matching tuple set to the standard resize pipeline:
