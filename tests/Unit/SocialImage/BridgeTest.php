@@ -197,6 +197,31 @@ class BridgeTest extends TestCase {
 		$this->assertSame( $image, SocialImageBridge::filterOpengraphImage( $image, [ $post, 'article' ] ) );
 	}
 
+	public function test_unreadable_plugin_metadata_means_defer_on_twitter_too(): void {
+		Functions\when( 'aioseo' )->justReturn( (object) [] );
+		Functions\when( 'is_singular' )->justReturn( true );
+		Functions\when( 'get_queried_object' )->justReturn( new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] ) );
+
+		$meta = [ 'twitter:image' => 'https://example.com/what-the-plugin-resolved.jpg' ];
+
+		$this->assertSame( $meta, SocialImageBridge::filterTwitterTags( $meta ) );
+	}
+
+	public function test_a_throwing_plugin_costs_the_feature_not_the_page(): void {
+		$exploding = new class() {
+			public function getMetaData( $post = null ) {
+				unset( $post );
+				throw new \RuntimeException( 'plugin internals moved' );
+			}
+		};
+		Functions\when( 'aioseo' )->justReturn( (object) [ 'meta' => (object) [ 'metaData' => $exploding ] ] );
+
+		$image = 'https://example.com/what-the-plugin-resolved.jpg';
+		$post = new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] );
+
+		$this->assertSame( $image, SocialImageBridge::filterOpengraphImage( $image, [ $post, 'article' ] ) );
+	}
+
 	public function test_supported_plugins_are_discoverable(): void {
 		// A caller configuring the flag should be able to see what it accepts
 		// without reading the source.

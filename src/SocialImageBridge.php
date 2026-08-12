@@ -245,13 +245,11 @@ class SocialImageBridge {
 	/**
 	 * A post's AIOSEO image-source override, if the plugin can tell us.
 	 *
-	 * @param \WP_Post $post Post being rendered.
-	 * @param string   $key  Meta property, `og_image_type` or `twitter_image_type`.
+	 * @param object|null $meta AIOSEO's per-post metadata, or null.
+	 * @param string      $key  Meta property, `og_image_type` or `twitter_image_type`.
 	 * @return string|null
 	 */
-	private static function imageType( \WP_Post $post, string $key ): ?string {
-		$meta = self::postMeta( $post );
-
+	private static function imageType( ?object $meta, string $key ): ?string {
 		return isset( $meta->{$key} ) && is_string( $meta->{$key} ) ? $meta->{$key} : null;
 	}
 
@@ -267,11 +265,16 @@ class SocialImageBridge {
 	 * @return bool
 	 */
 	private static function standsAside( \WP_Post $post, string $key ): bool {
-		if ( null === self::postMeta( $post ) ) {
+		// One read decides both questions. Reading twice leaves a gap where the
+		// second lookup fails and its null reads as "the editor chose nothing",
+		// which is the opposite of what an unreadable state means here.
+		$meta = self::postMeta( $post );
+
+		if ( null === $meta ) {
 			return true;
 		}
 
-		return self::defersToEditor( self::imageType( $post, $key ) );
+		return self::defersToEditor( self::imageType( $meta, $key ) );
 	}
 
 	/**
@@ -307,11 +310,20 @@ class SocialImageBridge {
 			return null;
 		}
 
-		if ( ! method_exists( $aioseo->meta->metaData, 'getMetaData' ) ) {
+		if ( ! is_callable( [ $aioseo->meta->metaData, 'getMetaData' ] ) ) {
 			return null;
 		}
 
-		$meta = $aioseo->meta->metaData->getMetaData( $post );
+		// is_callable() over method_exists(): the latter is true for a private
+		// method the call would then fail on, and false for one reachable only
+		// through __call(). The try/catch covers what neither can see — this
+		// walks another plugin's internals, and anything thrown there should
+		// cost the feature, not the page.
+		try {
+			$meta = $aioseo->meta->metaData->getMetaData( $post );
+		} catch ( \Throwable $e ) {
+			return null;
+		}
 
 		return is_object( $meta ) ? $meta : null;
 	}
