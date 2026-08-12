@@ -113,6 +113,19 @@ class GetTest extends TestCase {
 		$this->assertSame( 1200, $result['width'] );
 	}
 
+	public function test_refuses_the_source_even_when_it_matches_the_requested_cut(): void {
+		// The source happens to be exactly 1200x630 JPEG already. resizer()
+		// returns it untouched when it cannot process the image, and serving it
+		// would break the class's "never the original" contract on the one input
+		// where the dimension check cannot notice.
+		$image = [ 'src' => 'https://example.com/already-a-card.jpeg', 'alt' => '' ];
+		$resizer = $this->resizerReturning( [
+			[ 'src' => 'https://example.com/already-a-card.jpeg', 'type' => 'image/jpeg', 'width' => 1200, 'height' => 630 ],
+		] );
+
+		$this->assertNull( SocialImage::get( $image, [], $resizer ) );
+	}
+
 	public function test_honours_a_custom_size(): void {
 		$resizer = $this->resizerReturning( [
 			[ 'src' => 'https://example.com/cache/1000x1000-center/hero.jpeg', 'type' => 'image/jpeg', 'width' => 1000, 'height' => 1000 ],

@@ -102,9 +102,9 @@ class SocialImage {
 		$options = array_intersect_key( $options, self::DEFAULTS );
 		$spec = array_merge( $defaults, $options );
 
-		$spec['width'] = self::positiveInt( $spec['width'], (int) $defaults['width'] );
-		$spec['height'] = self::positiveInt( $spec['height'], (int) $defaults['height'] );
-		$spec['quality'] = max( 1, min( 100, self::positiveInt( $spec['quality'], (int) $defaults['quality'] ) ) );
+		$spec['width'] = self::positiveInt( $spec['width'], $defaults['width'], (int) self::DEFAULTS['width'] );
+		$spec['height'] = self::positiveInt( $spec['height'], $defaults['height'], (int) self::DEFAULTS['height'] );
+		$spec['quality'] = min( 100, self::positiveInt( $spec['quality'], $defaults['quality'], (int) self::DEFAULTS['quality'] ) );
 		$spec['crop'] = self::exactCropStyle( $spec['crop'], (string) $defaults['crop'] );
 		$spec['format'] = self::scraperFormat( $spec['format'], (string) $defaults['format'] );
 
@@ -138,11 +138,25 @@ class SocialImage {
 		$resizer = $resizer ?? new Resizer();
 
 		$variants = $resizer->resizer( $image, [ $spec ] );
+		$source_src = is_string( $image['src'] ?? null ) ? $image['src'] : '';
 
 		foreach ( $variants as $variant ) {
-			if ( is_array( $variant ) && self::isUsable( $variant, $spec ) ) {
-				return $variant;
+			if ( ! is_array( $variant ) || ! self::isUsable( $variant, $spec ) ) {
+				continue;
 			}
+
+			// resizer() appends the source untouched and returns it alone when
+			// it cannot process the image. Today that entry carries no `type`
+			// and so fails isUsable() anyway, but that is a fact about another
+			// class's return shape, not a decision this one made: the day
+			// prepareDefaultImage() gains a `type`, a source that happens to
+			// already be 1200x630 JPEG would start being served as a preview.
+			// Compare the URLs and the guarantee stops depending on that.
+			if ( $source_src !== '' && $variant['src'] === $source_src ) {
+				continue;
+			}
+
+			return $variant;
 		}
 
 		return null;
@@ -151,9 +165,10 @@ class SocialImage {
 	/**
 	 * Whether a produced variant is the requested cut in a readable format.
 	 *
-	 * The dimension check is what rejects the untouched original: `resizer()`
-	 * appends the source as its last entry and returns it alone when it cannot
-	 * process the image, and that entry keeps the source's own dimensions.
+	 * The dimension check rejects the untouched original in the ordinary case,
+	 * since `resizer()` appends the source as its last entry and that entry
+	 * keeps the source's own dimensions. It cannot catch a source that already
+	 * happens to be the requested size — `get()` compares the URLs for that.
 	 *
 	 * @param array<string, mixed> $variant Variant as returned by `Resizer`.
 	 * @param array<string, mixed> $spec    Spec the variant was cut from.
@@ -219,7 +234,12 @@ class SocialImage {
 			return $fallback;
 		}
 
-		return (string) self::DEFAULTS['format'];
+		// The package default is a candidate like the others, not an escape
+		// hatch: a project that filtered `jpeg` out of the readable list would
+		// otherwise get a spec the class then rejects its own output for.
+		$package = (string) self::DEFAULTS['format'];
+
+		return in_array( $package, $readable, true ) ? $package : (string) reset( $readable );
 	}
 
 	/**
@@ -249,13 +269,28 @@ class SocialImage {
 	}
 
 	/**
-	 * @param mixed $value    Candidate value.
-	 * @param int   $fallback Value to use when the candidate is not positive.
+	 * First positive integer of request, filtered default, package default.
+	 *
+	 * The filtered default is a candidate, not a floor: a project pointing
+	 * `timber_kit_social_image_defaults` at a zero or nonsense width would
+	 * otherwise put that straight into the spec, and a zero dimension routes
+	 * the resizer into proportional resizing while it still reports the
+	 * dimensions it was handed — the same "claims a cut it did not make" trap
+	 * the crop allow-list closes.
+	 *
+	 * @param mixed $value    Requested value.
+	 * @param mixed $filtered Project-wide default.
+	 * @param int   $package  Package default, already known positive.
 	 * @return int
 	 */
-	private static function positiveInt( $value, int $fallback ): int {
-		$value = is_numeric( $value ) ? (int) $value : 0;
+	private static function positiveInt( $value, $filtered, int $package ): int {
+		foreach ( [ $value, $filtered ] as $candidate ) {
+			$candidate = is_numeric( $candidate ) ? (int) $candidate : 0;
+			if ( $candidate > 0 ) {
+				return $candidate;
+			}
+		}
 
-		return $value > 0 ? $value : $fallback;
+		return $package;
 	}
 }

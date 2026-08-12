@@ -76,6 +76,39 @@ class FilteredDefaultsTest extends TestCase {
 		$this->assertSame( 'center', SocialImage::spec()['crop'] );
 	}
 
+	public function test_an_invalid_filtered_default_dimension_cannot_take_hold(): void {
+		// A zero dimension routes the resizer into proportional resizing while it
+		// still reports the dimensions it was handed, so an invalid default here
+		// would produce a spec whose result cannot be checked.
+		$this->withDefaults( [ 'width' => 0, 'height' => 'nonsense' ] );
+
+		$spec = SocialImage::spec();
+
+		$this->assertSame( 1200, $spec['width'] );
+		$this->assertSame( 630, $spec['height'] );
+	}
+
+	public function test_an_invalid_filtered_default_dimension_is_not_used_as_a_fallback_either(): void {
+		$this->withDefaults( [ 'width' => -10 ] );
+
+		$this->assertSame( 1200, SocialImage::spec( [ 'width' => 0 ] )['width'] );
+	}
+
+	public function test_the_package_format_is_not_used_when_filtered_out_of_the_readable_list(): void {
+		// Both filters at once: the allow-list drops jpeg, so the package default
+		// is no longer a valid answer and the spec must land inside the list the
+		// project actually declared.
+		Functions\when( 'apply_filters' )->alias( function ( $filter, $default, ...$args ) {
+			unset( $args );
+			if ( 'timber_kit_social_image_formats' === $filter ) {
+				return array( 'png', 'webp' );
+			}
+			return $default;
+		} );
+
+		$this->assertContains( SocialImage::spec( [ 'format' => 'avif' ] )['format'], array( 'png', 'webp' ) );
+	}
+
 	public function test_a_non_array_filter_return_is_ignored(): void {
 		Functions\when( 'apply_filters' )->alias( function ( $filter, $default, ...$args ) {
 			unset( $args );
