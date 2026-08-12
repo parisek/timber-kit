@@ -67,17 +67,6 @@ class ForPostTest extends TestCase {
 	}
 
 	/**
-	 * A resizer answering differently per call, for candidate-order assertions.
-	 *
-	 * @param array<int, array<int, array<string, mixed>>> $answers
-	 */
-	private function resizerAnswering( array $answers ): Resizer {
-		$stub = $this->createStub( Resizer::class );
-		$stub->method( 'resizer' )->willReturnOnConsecutiveCalls( ...$answers );
-		return $stub;
-	}
-
-	/**
 	 * A resizer whose answer names the image it was given.
 	 *
 	 * A stub that succeeds whatever it receives cannot tell "the right
@@ -112,9 +101,9 @@ class ForPostTest extends TestCase {
 			[ 'hero_image' => [ [ 'id' => 9, 'src' => 'https://example.com/hero.jpg' ] ] ]
 		);
 
-		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerCutting() );
 
-		$this->assertSame( $this->variant['src'], $result['src'] );
+		$this->assertSame( 'cut:https://example.com/hero.jpg', $result['src'] );
 	}
 
 	public function test_a_field_chain_takes_the_first_non_empty(): void {
@@ -123,9 +112,9 @@ class ForPostTest extends TestCase {
 			[ 'lead_image' => null, 'hero_image' => [ [ 'id' => 9, 'src' => 'https://example.com/hero.jpg' ] ] ]
 		);
 
-		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerCutting() );
 
-		$this->assertSame( $this->variant['src'], $result['src'] );
+		$this->assertSame( 'cut:https://example.com/hero.jpg', $result['src'] );
 	}
 
 	public function test_falls_back_to_the_featured_image_when_the_map_has_no_entry(): void {
@@ -185,9 +174,9 @@ class ForPostTest extends TestCase {
 			]
 		);
 
-		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerCutting() );
 
-		$this->assertIsArray( $result );
+		$this->assertSame( 'cut:https://example.com/hero.jpg', $result['src'] );
 	}
 
 	public function test_a_non_empty_but_unusable_field_still_reaches_the_featured_image(): void {
@@ -198,18 +187,18 @@ class ForPostTest extends TestCase {
 		);
 		Functions\when( 'acf_get_attachment' )->justReturn( [ 'url' => 'https://example.com/featured.jpg', 'width' => 4000, 'height' => 2250, 'mime_type' => 'image/jpeg' ] );
 
-		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerCutting() );
 
-		$this->assertIsArray( $result );
+		$this->assertSame( 'cut:https://example.com/featured.jpg', $result['src'] );
 	}
 
 	public function test_an_attachment_id_in_the_field_resolves(): void {
 		$this->wire( [ 'project' => 'hero_image' ], [ 'hero_image' => 9 ] );
 		Functions\when( 'acf_get_attachment' )->justReturn( [ 'url' => 'https://example.com/hero.jpg', 'width' => 4000, 'height' => 2250, 'mime_type' => 'image/jpeg' ] );
 
-		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerCutting() );
 
-		$this->assertIsArray( $result );
+		$this->assertSame( 'cut:https://example.com/hero.jpg', $result['src'] );
 	}
 
 	public function test_a_mapped_file_field_is_not_mistaken_for_an_image(): void {
@@ -239,7 +228,9 @@ class ForPostTest extends TestCase {
 			[ 'hero_image' => [ [ 'id' => 9, 'src' => 'https://example.com/hero.jpg' ] ] ]
 		);
 
-		$this->assertIsArray( SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) ) );
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerCutting() );
+
+		$this->assertSame( 'cut:https://example.com/hero.jpg', $result['src'] );
 	}
 
 	public function test_a_candidate_that_yields_no_usable_cut_moves_on_to_the_next(): void {
