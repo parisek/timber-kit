@@ -468,11 +468,20 @@ final class DevMediaProxy {
 		$filetype = wp_check_filetype( $filename . '.' . $target_format );
 		$actual_mime = $filetype['type'] ?? 'image/' . $target_format;
 
+		// Same derivation as the local writer, from the same source dimensions:
+		// a remote variant describes the same file the Resizer would have
+		// written here, so it must not describe it differently.
+		[ $produced_width, $produced_height ] = Resizer::producedDimensions(
+			$variant,
+			(int) ( $default_image['width'] ?? 0 ),
+			(int) ( $default_image['height'] ?? 0 )
+		);
+
 		return [
 			'src' => $remote_cache_base_url . '/' . $target_dirname . '/' . $filename . '.' . $target_format,
 			'type' => $actual_mime,
-			'width' => $variant['width'],
-			'height' => $variant['height'],
+			'width' => $produced_width,
+			'height' => $produced_height,
 			'media' => ! empty( $variant['media'] ) ? '(min-width: ' . $variant['media'] . 'px)' : '',
 			'alt' => $default_image['alt'] ?? '',
 			'caption' => $default_image['caption'] ?? '',

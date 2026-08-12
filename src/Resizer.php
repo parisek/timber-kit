@@ -652,6 +652,128 @@ class Resizer {
 	}
 
 	/**
+	 * The dimensions a variant's file actually has.
+	 *
+	 * `processVariant()` used to return the requested width and height, which
+	 * are a restatement of the request rather than a description of the file.
+	 * Three of the encoder's branches do not produce them: a scale-only variant
+	 * leaves the other axis at 0, a non-cropping style with both axes set lets
+	 * the last one win, and `smart-crop` skips the crop entirely when the source
+	 * is smaller than the target. Consumers read these values as the file's own
+	 * — `<img width height>`, aspect-ratio boxes, anything checking it got what
+	 * it asked for — and `height="0"` is exactly the attribute that exists to
+	 * stop layout shift.
+	 *
+	 * Derived, not measured. The source dimensions are already in the image
+	 * array, so this costs no file read; every rule below was checked against
+	 * the real encoder before it was written here.
+	 *
+	 * What is promised, and what is not. **A requested axis is exact** — ask for
+	 * 1200 wide and the file is 1200 wide, verified across every source and
+	 * target measured. **A derived axis is an estimate.** Spatie's GD and
+	 * Imagick drivers do not merely round differently, they implement the step
+	 * differently: GD's `width()` delegates to a bounding-box resize, so a
+	 * 1000x999 source asked for 500 wide comes out 500x499 there and 500x500
+	 * under Imagick. A single step is within a pixel; the two-axis
+	 * non-cropping path applies two steps and the second scales the first's
+	 * disagreement, so a 500x5000 request off that source came out 10px wide of
+	 * this estimate under GD.
+	 *
+	 * Modelling both drivers would mean tracking two implementations that are
+	 * free to change. An estimate that is right to a pixel in the shapes
+	 * templates actually use beats the alternative it replaces, which was a
+	 * literal zero.
+	 *
+	 * A source of unknown size yields 0 for anything that would have to be
+	 * derived from it. Guessing would be worse: a consumer can test for zero,
+	 * but cannot tell a made-up number from a measured one.
+	 *
+	 * @param array<string, mixed> $variant       Normalized variant.
+	 * @param int                  $source_width  Source width, 0 when unknown.
+	 * @param int                  $source_height Source height, 0 when unknown.
+	 * @return array{0: int, 1: int} Width and height of the written file.
+	 */
+	public static function producedDimensions( array $variant, int $source_width, int $source_height ): array {
+		$width = (int) ( $variant['width'] ?? 0 );
+		$height = (int) ( $variant['height'] ?? 0 );
+		$style = (string) ( $variant['image_style'] ?? 'center' );
+		$has_source = $source_width > 0 && $source_height > 0;
+
+		if ( $width > 0 && $height > 0 ) {
+			// smart-crop skips the crop when neither axis exceeds the source,
+			// re-encoding it at its own size instead of upscaling. Its own test
+			// is `>` on either axis, not both. It reads those dimensions off the
+			// file with GD while this reads them from the image array, so stale
+			// metadata picks the wrong branch here — the one case in this method
+			// that trusts the caller rather than the encoder.
+			if ( 'smart-crop' === $style && $has_source && $source_width <= $width && $source_height <= $height ) {
+				return [ $source_width, $source_height ];
+			}
+
+			if ( in_array( $style, [ 'smart-crop', 'crop', 'center', 'top', 'bottom', 'left', 'right' ], true ) ) {
+				return [ $width, $height ];
+			}
+		}
+
+		if ( ! $has_source ) {
+			// Nothing can be derived, so nothing is invented. Only an exact crop
+			// gets an answer without a source size, and it returned above.
+			return [ $width, $height ];
+		}
+
+		// The plain-resize branch applies width and then height as two separate
+		// operations, and the second computes its ratio from the result of the
+		// first — not from the source. Modelling it as one calculation off the
+		// source ratio is wrong by a pixel often enough to matter: a 1000x999
+		// source asked for 500x500 really produces 500x500, while the one-step
+		// arithmetic says 501.
+		$current_width = $source_width;
+		$current_height = $source_height;
+
+		if ( $width > 0 ) {
+			[ $current_width, $current_height ] = self::scaleToWidth( $width, $current_width, $current_height );
+		}
+
+		if ( $height > 0 ) {
+			[ $current_width, $current_height ] = self::scaleToHeight( $height, $current_width, $current_height );
+		}
+
+		return [ $current_width, $current_height ];
+	}
+
+	/**
+	 * One `width()` step: the encoder's own arithmetic, including its floor of 1.
+	 *
+	 * @param int $target Requested width.
+	 * @param int $width  Current width.
+	 * @param int $height Current height.
+	 * @return array{0: int, 1: int}
+	 */
+	private static function scaleToWidth( int $target, int $width, int $height ): array {
+		if ( $width <= 0 || $height <= 0 ) {
+			return [ $target, 0 ];
+		}
+
+		return [ $target, max( 1, (int) round( $target * $height / $width ) ) ];
+	}
+
+	/**
+	 * One `height()` step. Mirror of `scaleToWidth()`.
+	 *
+	 * @param int $target Requested height.
+	 * @param int $width  Current width.
+	 * @param int $height Current height.
+	 * @return array{0: int, 1: int}
+	 */
+	private static function scaleToHeight( int $target, int $width, int $height ): array {
+		if ( $width <= 0 || $height <= 0 ) {
+			return [ 0, $target ];
+		}
+
+		return [ max( 1, (int) round( $target * $width / $height ) ), $target ];
+	}
+
+	/**
 	 * Cache directory segment for a variant.
 	 *
 	 * Quality is absent from the key by default, which is a real defect:
@@ -794,7 +916,11 @@ class Resizer {
 					$imageGenerator->save( $target_path );
 				}
 
-			} catch (\Exception $e) {
+			} catch (\Throwable $e) {
+				// Throwable, not Exception: the encoder raises a DivisionByZeroError
+				// on some extreme targets (a 1x1 off a 777x333 source), and an
+				// Error slipping past this catch takes the whole page down over
+				// one image.
 				error_log( sprintf( 'Resizer: failed to process "%s" to "%s": %s', $source_path, $target_path, $e->getMessage() ) );
 				return null;
 			}
@@ -804,11 +930,17 @@ class Resizer {
 		$filetype = wp_check_filetype( $target_path );
 		$actual_mime = $filetype['type'] ?? 'image/' . $target_format;
 
+		[ $produced_width, $produced_height ] = self::producedDimensions(
+			$variant,
+			(int) ( $default_image['width'] ?? 0 ),
+			(int) ( $default_image['height'] ?? 0 )
+		);
+
 		return [
 			'src' => $target_url,
 			'type' => $actual_mime,
-			'width' => $variant['width'],
-			'height' => $variant['height'],
+			'width' => $produced_width,
+			'height' => $produced_height,
 			'media' => ( ! empty( $variant['media'] ) ) ? '(min-width: ' . $variant['media'] . 'px)' : '',
 			'alt' => $default_image['alt'],
 			'caption' => $default_image['caption'],
