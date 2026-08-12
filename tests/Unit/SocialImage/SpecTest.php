@@ -77,6 +77,29 @@ class SpecTest extends TestCase {
 		$this->assertSame( 630, $spec['height'] );
 	}
 
+	public function test_a_crop_style_that_does_not_cut_exactly_is_refused(): void {
+		// smart-crop silently degrades to a plain resize when the source is
+		// smaller than the target, while the resizer still reports the requested
+		// dimensions — so the entry would claim a cut it did not make.
+		$this->assertSame( 'center', SocialImage::spec( [ 'crop' => 'smart-crop' ] )['crop'] );
+	}
+
+	public function test_an_unrecognised_crop_style_is_refused(): void {
+		// A typo would otherwise route into the resizer's plain-resize branch,
+		// which also reports dimensions it did not produce.
+		$this->assertSame( 'center', SocialImage::spec( [ 'crop' => 'centre' ] )['crop'] );
+	}
+
+	public function test_every_exact_crop_style_is_honoured(): void {
+		foreach ( [ 'center', 'crop', 'top', 'bottom', 'left', 'right' ] as $crop ) {
+			$this->assertSame( $crop, SocialImage::spec( [ 'crop' => $crop ] )['crop'] );
+		}
+	}
+
+	public function test_crop_is_lowercased_and_trimmed(): void {
+		$this->assertSame( 'top', SocialImage::spec( [ 'crop' => ' TOP ' ] )['crop'] );
+	}
+
 	public function test_quality_above_the_encoder_range_is_clamped(): void {
 		$this->assertSame( 100, SocialImage::spec( [ 'quality' => 500 ] )['quality'] );
 	}

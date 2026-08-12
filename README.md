@@ -108,7 +108,7 @@ if ( $preview ) {
 
 Returns `null` rather than something unusable: a caller falling back to its own default still has a working card, while a wrong or oversized image only looks like an answer. A variant is accepted only when it is the requested cut in a format scrapers read, which is also what rejects the untouched original (`resizer()` returns the source alone when it cannot process it).
 
-Options: `width`, `height`, `crop`, `quality`, `format` — unknown keys are dropped, a format no scraper reads falls back to JPEG. `SocialImage::spec()` returns what would be cut, without touching an image.
+Options: `width`, `height`, `crop`, `quality`, `format` — unknown keys are dropped, a format no scraper reads falls back to JPEG, and `crop` is restricted to the styles that cut to exact dimensions (`center`, `crop`, `top`, `bottom`, `left`, `right`). `smart-crop` is not among them: it degrades to a plain resize when the source is smaller than the target, while the resizer still reports the dimensions that were asked for, so the entry would claim a cut it did not make. `SocialImage::spec()` returns what would be cut, without touching an image.
 
 It stops at the image on purpose. Wiring it to an SEO plugin's `og:image` hook needs a post type and a field name, which are project facts; that callback is two lines on top of this.
 

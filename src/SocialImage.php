@@ -44,6 +44,23 @@ class SocialImage {
 	private const array SCRAPER_FORMATS = [ 'jpeg', 'jpg', 'png', 'gif', 'webp' ];
 
 	/**
+	 * Crop styles that produce exactly the requested pixels.
+	 *
+	 * Narrower than the styles `Resizer` accepts, and deliberately so. The
+	 * resizer reports the width and height that were *asked for*, not the ones
+	 * it wrote, and two of its branches do not produce the exact cut: an
+	 * unrecognised style resizes without cropping, and `smart-crop` falls back
+	 * to a plain resize when the source is smaller than the target. Either way
+	 * the entry claims 1200x630 while the file is something else, and the whole
+	 * value of this class is that its answer can be trusted. Restricting the
+	 * style to the branch that crops to exact dimensions is the one check that
+	 * does not depend on the resizer's own reporting.
+	 *
+	 * @var array<int, string>
+	 */
+	private const array EXACT_CROP_STYLES = [ 'center', 'crop', 'top', 'bottom', 'left', 'right' ];
+
+	/**
 	 * The cut the platforms document: 1200x630, a 1.91:1 card.
 	 *
 	 * Quality 85 rather than the resizer's 100: a preview card is a thumbnail
@@ -88,7 +105,7 @@ class SocialImage {
 		$spec['width'] = self::positiveInt( $spec['width'], (int) $defaults['width'] );
 		$spec['height'] = self::positiveInt( $spec['height'], (int) $defaults['height'] );
 		$spec['quality'] = max( 1, min( 100, self::positiveInt( $spec['quality'], (int) $defaults['quality'] ) ) );
-		$spec['crop'] = is_string( $spec['crop'] ) && $spec['crop'] !== '' ? $spec['crop'] : (string) $defaults['crop'];
+		$spec['crop'] = self::exactCropStyle( $spec['crop'], (string) $defaults['crop'] );
 		$spec['format'] = self::scraperFormat( $spec['format'], (string) $defaults['format'] );
 
 		return $spec;
@@ -176,18 +193,59 @@ class SocialImage {
 	}
 
 	/**
+	 * Resolve a requested format to one a scraper can read.
+	 *
+	 * The fallback is itself checked: a project that points
+	 * `timber_kit_social_image_defaults` at an unreadable format would otherwise
+	 * turn the guarantee off for every call, which is exactly the failure this
+	 * class exists to prevent. The package default is the last resort.
+	 *
 	 * @param mixed  $format   Requested format.
 	 * @param string $fallback Format to use when the request is unreadable.
 	 * @return string
 	 */
 	private static function scraperFormat( $format, string $fallback ): string {
-		if ( ! is_string( $format ) ) {
+		$readable = self::scraperFormats();
+
+		if ( is_string( $format ) ) {
+			$format = strtolower( trim( $format ) );
+			if ( in_array( $format, $readable, true ) ) {
+				return $format;
+			}
+		}
+
+		$fallback = strtolower( trim( $fallback ) );
+		if ( in_array( $fallback, $readable, true ) ) {
 			return $fallback;
 		}
 
-		$format = strtolower( trim( $format ) );
+		return (string) self::DEFAULTS['format'];
+	}
 
-		return in_array( $format, self::scraperFormats(), true ) ? $format : $fallback;
+	/**
+	 * Resolve a requested crop style to one that yields exact dimensions.
+	 *
+	 * Same last-resort chain as the format: a project-wide default that does not
+	 * crop exactly would silently weaken every call.
+	 *
+	 * @param mixed  $crop     Requested crop style.
+	 * @param string $fallback Style to use when the request is not exact.
+	 * @return string
+	 */
+	private static function exactCropStyle( $crop, string $fallback ): string {
+		if ( is_string( $crop ) ) {
+			$crop = strtolower( trim( $crop ) );
+			if ( in_array( $crop, self::EXACT_CROP_STYLES, true ) ) {
+				return $crop;
+			}
+		}
+
+		$fallback = strtolower( trim( $fallback ) );
+		if ( in_array( $fallback, self::EXACT_CROP_STYLES, true ) ) {
+			return $fallback;
+		}
+
+		return (string) self::DEFAULTS['crop'];
 	}
 
 	/**
