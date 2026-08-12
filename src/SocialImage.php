@@ -183,6 +183,124 @@ class SocialImage {
 	}
 
 	/**
+	 * Cut the preview image for a post.
+	 *
+	 * The half every project was writing by hand. The only project-specific
+	 * facts are a post type and a field name, so those are configuration and
+	 * the rest lives here.
+	 *
+	 * Resolution order: the fields the map names for this post type, first
+	 * non-empty wins; then the featured image. A post type absent from the map
+	 * therefore behaves exactly as before the map existed, which is what makes
+	 * an empty map a no-op rather than a regression.
+	 *
+	 * @param \WP_Post|mixed       $post    Post to resolve an image for.
+	 * @param array<string, mixed> $options See `spec()`.
+	 * @param Resizer|null         $resizer See `get()`.
+	 * @return array<string, mixed>|null
+	 */
+	public static function forPost( $post, array $options = [], ?Resizer $resizer = null ): ?array {
+		if ( ! $post instanceof \WP_Post ) {
+			return null;
+		}
+
+		$image = self::imageForPost( $post );
+
+		return null === $image ? null : self::get( $image, $options, $resizer );
+	}
+
+	/**
+	 * The image a post's preview should be cut from, or null.
+	 *
+	 * @param \WP_Post $post Post to resolve.
+	 * @return array<string, mixed>|null
+	 */
+	private static function imageForPost( \WP_Post $post ): ?array {
+		/**
+		 * Filter the post-type → preview-image field map.
+		 *
+		 * @param array<string, mixed> $map Post type => field name or list of names.
+		 */
+		$map = apply_filters( 'timber_kit_social_image_fields', [] );
+		$names = self::fieldNamesFor( (string) get_post_type( $post ), is_array( $map ) ? $map : [] );
+
+		if ( [] !== $names ) {
+			/**
+			 * Filter how a post's fields are read.
+			 *
+			 * Returning an array skips `Helpers::formatFields()` entirely, for
+			 * projects that keep this data somewhere other than ACF.
+			 *
+			 * @param array<string, mixed>|null $fields Null to use the default reader.
+			 * @param \WP_Post                  $post   Post being resolved.
+			 */
+			$fields = apply_filters( 'timber_kit_social_image_post_fields', null, $post );
+			$fields = is_array( $fields ) ? $fields : Helpers::formatFields( $post );
+
+			foreach ( $names as $name ) {
+				if ( ! empty( $fields[ $name ] ) ) {
+					return self::asImage( $fields[ $name ] );
+				}
+			}
+		}
+
+		$thumbnail_id = (int) get_post_thumbnail_id( $post );
+
+		return $thumbnail_id > 0 ? self::asImage( $thumbnail_id ) : null;
+	}
+
+	/**
+	 * The field names to try for a post type, in order.
+	 *
+	 * Pure, and public because it is the whole of the map's semantics: a string
+	 * is a one-item chain, a list is tried in order, anything else is not a
+	 * field name and is dropped rather than passed on to fail later.
+	 *
+	 * @param string              $post_type Post type to look up.
+	 * @param array<string, mixed> $map      Post type => field name or list of names.
+	 * @return array<int, string>
+	 */
+	public static function fieldNamesFor( string $post_type, array $map ): array {
+		$entry = $map[ $post_type ] ?? null;
+
+		if ( is_string( $entry ) ) {
+			$entry = [ $entry ];
+		}
+
+		if ( ! is_array( $entry ) ) {
+			return [];
+		}
+
+		$names = [];
+		foreach ( $entry as $name ) {
+			if ( is_string( $name ) && trim( $name ) !== '' ) {
+				$names[] = trim( $name );
+			}
+		}
+
+		return $names;
+	}
+
+	/**
+	 * Coerce a field value or attachment id into the image shape `get()` takes.
+	 *
+	 * @param mixed $value Field value, attachment id, or already-formatted image.
+	 * @return array<string, mixed>|null
+	 */
+	private static function asImage( $value ): ?array {
+		// A field read through formatFields() is already formatted, and running
+		// it through formatImage() again would look for ACF's raw `url` key and
+		// find nothing. An attachment id or a raw ACF array still needs the trip.
+		$image = ( is_array( $value ) && ! empty( $value['src'] ) ) ? $value : Helpers::formatImage( $value );
+
+		if ( is_array( $image ) && isset( $image[0] ) && is_array( $image[0] ) ) {
+			$image = end( $image );
+		}
+
+		return is_array( $image ) && ! empty( $image['src'] ) ? $image : null;
+	}
+
+	/**
 	 * Whether a produced variant is the requested cut in a readable format.
 	 *
 	 * The dimension check rejects the untouched original in the ordinary case,

@@ -146,6 +146,74 @@ class RegisterPerformanceHooksTest extends StarterBaseTestCase {
 		$this->assertContains( 'timber_kit_resizer_skip_animated', $filters );
 	}
 
+	public function test_social_image_fields_not_wired_when_the_map_is_empty(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'speculation_rules', null );
+		$this->setProperty( $instance, 'warn_speculation_rules_plugin_redundant', false );
+		$this->setProperty( $instance, 'resizer_format_health', false );
+		$this->setProperty( $instance, 'social_image_fields', [] );
+
+		$this->invokeRegisterPerformanceHooks( $instance );
+
+		$this->assertNotContains( 'timber_kit_social_image_fields', $filters );
+	}
+
+	public function test_social_image_fields_wired_when_the_map_is_filled(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'speculation_rules', null );
+		$this->setProperty( $instance, 'warn_speculation_rules_plugin_redundant', false );
+		$this->setProperty( $instance, 'resizer_format_health', false );
+		$this->setProperty( $instance, 'social_image_fields', [ 'project' => 'hero_image' ] );
+
+		$this->invokeRegisterPerformanceHooks( $instance );
+
+		$this->assertContains( 'timber_kit_social_image_fields', $filters );
+	}
+
+	public function test_social_image_bridge_not_wired_by_default(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'speculation_rules', null );
+		$this->setProperty( $instance, 'warn_speculation_rules_plugin_redundant', false );
+		$this->setProperty( $instance, 'resizer_format_health', false );
+		$this->setProperty( $instance, 'social_image_bridge', '' );
+
+		$this->invokeRegisterPerformanceHooks( $instance );
+
+		$this->assertNotContains( 'aioseo_opengraph_default_image', $filters );
+	}
+
+	public function test_social_image_bridge_wired_when_a_plugin_is_named(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'speculation_rules', null );
+		$this->setProperty( $instance, 'warn_speculation_rules_plugin_redundant', false );
+		$this->setProperty( $instance, 'resizer_format_health', false );
+		$this->setProperty( $instance, 'social_image_bridge', 'aioseo' );
+
+		$this->invokeRegisterPerformanceHooks( $instance );
+
+		$this->assertContains( 'aioseo_opengraph_default_image', $filters );
+	}
+
 	public function test_resizer_quality_in_cache_key_no_override_by_default(): void {
 		$filters = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {

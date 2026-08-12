@@ -1,0 +1,132 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Unit\SocialImage;
+
+use Brain\Monkey;
+use Brain\Monkey\Functions;
+use Parisek\TimberKit\Resizer;
+use Parisek\TimberKit\SocialImage;
+use PHPUnit\Framework\TestCase;
+
+/**
+ * Resolving a post's preview image is the half every project was writing by
+ * hand. The only project-specific facts in it are a post type and a field name.
+ */
+class ForPostTest extends TestCase {
+
+	/** @var array<string, mixed> */
+	private array $variant = [
+		'src' => 'https://example.com/cache/1200x630-center/hero.jpeg',
+		'type' => 'image/jpeg',
+		'width' => 1200,
+		'height' => 630,
+	];
+
+	protected function setUp(): void {
+		parent::setUp();
+		Monkey\setUp();
+	}
+
+	protected function tearDown(): void {
+		Monkey\tearDown();
+		parent::tearDown();
+	}
+
+	private function post(): \WP_Post {
+		return new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] );
+	}
+
+	/**
+	 * @param array<string, mixed> $map     Post-type → field map.
+	 * @param array<string, mixed> $fields  What the field reader returns.
+	 * @param int                  $thumb   Featured-image id, 0 for none.
+	 */
+	private function wire( array $map, array $fields, int $thumb = 0 ): void {
+		Functions\when( 'get_post_type' )->justReturn( 'project' );
+		Functions\when( 'get_post_thumbnail_id' )->justReturn( $thumb );
+		Functions\when( 'apply_filters' )->alias(
+			function ( $filter, $default, ...$args ) use ( $map, $fields ) {
+				unset( $args );
+				if ( 'timber_kit_social_image_fields' === $filter ) {
+					return $map;
+				}
+				if ( 'timber_kit_social_image_post_fields' === $filter ) {
+					return $fields;
+				}
+				return $default;
+			}
+		);
+	}
+
+	private function resizerReturning( array $variants ): Resizer {
+		$stub = $this->createStub( Resizer::class );
+		$stub->method( 'resizer' )->willReturn( $variants );
+		return $stub;
+	}
+
+	public function test_reads_the_field_the_map_names_for_the_post_type(): void {
+		$this->wire(
+			[ 'project' => 'hero_image' ],
+			[ 'hero_image' => [ 'src' => 'https://example.com/hero.jpg' ] ]
+		);
+
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+
+		$this->assertSame( $this->variant['src'], $result['src'] );
+	}
+
+	public function test_a_field_chain_takes_the_first_non_empty(): void {
+		$this->wire(
+			[ 'project' => [ 'lead_image', 'hero_image' ] ],
+			[ 'lead_image' => null, 'hero_image' => [ 'src' => 'https://example.com/hero.jpg' ] ]
+		);
+
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+
+		$this->assertIsArray( $result );
+	}
+
+	public function test_falls_back_to_the_featured_image_when_the_map_has_no_entry(): void {
+		// An empty map is today's behaviour, so adopting this changes nothing
+		// until a project fills one in.
+		$this->wire( [], [], 42 );
+		Functions\when( 'acf_get_attachment' )->justReturn( [ 'url' => 'https://example.com/featured.jpg', 'width' => 4000, 'height' => 2250, 'mime_type' => 'image/jpeg' ] );
+
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+
+		$this->assertIsArray( $result );
+	}
+
+	public function test_falls_back_to_the_featured_image_when_every_mapped_field_is_empty(): void {
+		$this->wire( [ 'project' => 'hero_image' ], [ 'hero_image' => null ], 42 );
+		Functions\when( 'acf_get_attachment' )->justReturn( [ 'url' => 'https://example.com/featured.jpg', 'width' => 4000, 'height' => 2250, 'mime_type' => 'image/jpeg' ] );
+
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+
+		$this->assertIsArray( $result );
+	}
+
+	public function test_returns_null_when_nothing_resolves(): void {
+		$this->wire( [ 'project' => 'hero_image' ], [ 'hero_image' => null ], 0 );
+
+		$this->assertNull( SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) ) );
+	}
+
+	public function test_returns_null_for_a_non_post(): void {
+		$this->wire( [], [] );
+
+		$this->assertNull( SocialImage::forPost( null, [], $this->resizerReturning( [ $this->variant ] ) ) );
+		$this->assertNull( SocialImage::forPost( 'not a post', [], $this->resizerReturning( [ $this->variant ] ) ) );
+	}
+
+	public function test_options_are_passed_through(): void {
+		$this->wire( [ 'project' => 'hero_image' ], [ 'hero_image' => [ 'src' => 'https://example.com/hero.jpg' ] ] );
+		$square = [ 'src' => 'https://example.com/c/1000x1000-center/hero.jpeg', 'type' => 'image/jpeg', 'width' => 1000, 'height' => 1000 ];
+
+		$result = SocialImage::forPost( $this->post(), [ 'width' => 1000, 'height' => 1000 ], $this->resizerReturning( [ $square ] ) );
+
+		$this->assertSame( 1000, $result['width'] );
+	}
+}

@@ -110,7 +110,29 @@ Returns `null` rather than something unusable: a caller falling back to its own 
 
 Options: `width`, `height`, `crop`, `quality`, `format` — unknown keys are dropped, a format no scraper reads falls back to JPEG, and `crop` is restricted to the styles that cut to exact dimensions (`center`, `crop`, `top`, `bottom`, `left`, `right`). `smart-crop` is not among them: it degrades to a plain resize when the source is smaller than the target, while the resizer still reports the dimensions that were asked for, so the entry would claim a cut it did not make. `SocialImage::spec()` returns what would be cut, without touching an image.
 
-It stops at the image on purpose. Wiring it to an SEO plugin's `og:image` hook needs a post type and a field name, which are project facts; that callback is two lines on top of this.
+#### Resolving a post's image
+
+`SocialImage::forPost( $post )` finds the image itself, from a map of post type to field:
+
+```php
+// In the theme's Base class.
+protected array $social_image_fields = array(
+    'project' => 'hero_image',
+    'post'    => array( 'lead_image', 'hero_image' ),  // first non-empty wins
+);
+```
+
+A post type left out of the map falls back to its featured image, so an empty map is the behaviour you already had. Fields are read through `Helpers::formatFields()`; `timber_kit_social_image_post_fields` overrides that reader for projects storing this outside ACF.
+
+#### Wiring it to an SEO plugin
+
+```php
+protected string $social_image_bridge = 'aioseo';
+```
+
+The plugin keeps rendering its own tags; the bridge only supplies the image, and only when there is one — otherwise the plugin's own resolution stands, because a working card from the site default beats a wrong one. `SocialImageBridge::supported()` lists the accepted values; adding another plugin is one method next to `registerAioseo()`.
+
+Why it is needed for AIOSEO specifically: it resolves the OG image from one global source option plus a per-post override, with no per-post-type layer in between, so without this every post of a type shares one image.
 
 Filters:
 

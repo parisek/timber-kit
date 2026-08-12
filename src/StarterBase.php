@@ -598,6 +598,35 @@ class StarterBase extends Site {
 	protected bool $resizer_quality_in_cache_key = false;
 
 	/**
+	 * Which field holds each post type's social preview image.
+	 *
+	 * `[ 'project' => 'hero_image' ]`, or a list to try in order:
+	 * `[ 'post' => [ 'lead_image', 'hero_image' ] ]`. A post type left out
+	 * falls back to its featured image, so an empty map is today's behaviour.
+	 *
+	 * Consumed by `SocialImage::forPost()`, which the `$social_image_bridge`
+	 * flag below wires into an SEO plugin.
+	 *
+	 * @var array<string, string|array<int, string>>
+	 */
+	protected array $social_image_fields = array();
+
+	/**
+	 * Hand the resolved preview image to an SEO plugin's og:image.
+	 *
+	 * Empty (default) wires nothing. Set to a key from
+	 * `SocialImageBridge::supported()` — currently `'aioseo'` — to let the
+	 * plugin render its own tags while this supplies the image.
+	 *
+	 * Off by default because it changes a rendered tag on every post of a
+	 * mapped type, which is exactly the kind of surprise a consumer should opt
+	 * into.
+	 *
+	 * @var string
+	 */
+	protected string $social_image_bridge = '';
+
+	/**
 	 * Slim orchestrator — resolves theme identity, delegates hook registration
 	 * to concern-focused private methods, then hands off to Timber\Site.
 	 *
@@ -970,6 +999,17 @@ class StarterBase extends Site {
 		if ( $this->resizer_format_health ) {
 			add_filter( 'site_status_tests', array( $this, 'site_health_register_resizer_formats_test' ) );
 			add_filter( 'debug_information', array( $this, 'site_health_resizer_formats_debug' ) );
+		}
+		if ( array() !== $this->social_image_fields ) {
+			add_filter(
+				'timber_kit_social_image_fields',
+				function () {
+					return $this->social_image_fields;
+				}
+			);
+		}
+		if ( '' !== $this->social_image_bridge ) {
+			SocialImageBridge::register( $this->social_image_bridge );
 		}
 		if ( $this->resizer_quality_in_cache_key ) {
 			// Default is false (quality absent from the key, the historic paths).
