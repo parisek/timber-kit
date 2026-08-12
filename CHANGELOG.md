@@ -16,10 +16,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 - `StarterBase::$resizer_quality_in_cache_key` / `timber_kit_resizer_quality_in_cache_key` (default `false`) puts a variant's quality in its cache key. Quality is absent from the key today, so re-cutting the same dimensions at a different quality serves the previously generated file and the setting appears to do nothing. Opt-in rather than on by default: switching it on relocates every non-default-quality variant, orphaning the old files and changing public URLs. Once on, quality enters the directory segment only when it differs from the package default (`1200x630-center-q82`), so paths at default quality never move.
 
+- **`outage-screen` now covers the fatal-error state.** `install` writes a third
+  drop-in, `wp-content/php-error.php`, which `WP_Fatal_Error_Handler` loads in
+  place of core's "There has been a critical error on this website". It serves
+  the same prerendered screen as its two siblings — the state a visitor sees is
+  different, what they need from it is not: a way to reach an application that
+  is still running.
+
+  It sends **`500` and no `Retry-After`**, where the other two send `503` and
+  `Retry-After: 600`. `503` means a planned, bounded outage and monitoring reads
+  it that way, some of it suppressing alerts on a `503` carrying `Retry-After`.
+  A crash is neither planned nor bounded, and must not look routine.
+
+  **The recovery-mode e-mail is unaffected.** `php-error.php` replaces the error
+  *template*; core sends the mail in `handle()` before reaching the template.
+  The drop-in that could cost an administrator that way back in is
+  `fatal-error-handler.php`, which this package does not touch.
+
+### Changed
+
+- **`OutageScreen::DROP_INS` maps to a contract, not a string.** Each entry is
+  now `array{covers, status, retry, context}`; it was the prose description
+  alone. Consumers reading the old shape need updating — inside this package
+  only `outage-screen status` did. `OutageScreen::source()` takes the drop-in
+  filename as a third argument, defaulting to `maintenance.php`, and throws on
+  a name it does not generate.
+
+  This exists because the three files are no longer byte-identical. `install()`
+  and `status()` each computed one source above their loop, which was correct
+  while they were; both now compute per file. Hoisting either back out writes —
+  or reports — one drop-in with another's status, and the `status` case is the
+  quiet one: it would name a correct file stale, and a reinstall would not fix
+  it.
+
+- **Projects that ran `install` before this release show `php-error.php absent`
+  in `status`** until they run it again. A drop-in of that name written by
+  somebody else is reported `not ours` and left alone, as with the other two.
+
 ### Fixed
 
 - `DevMediaProxy` probes the origin for the variant the Resizer would actually have written. It rebuilt the cache directory name and took the output format from the request rather than from the variant, so with per-variant formats it probed for a file that was never written, and it could not see a quality-keyed directory at all. Both values now come off the variant, which carries the cache key the Resizer resolved; the request-wide format survives only as the fallback for a variant that carries none.
 - A variant's `image_style` is stripped to path-safe characters before it becomes a directory name. It reaches `wp_mkdir_p()`, so a caller could previously walk out of the cache directory with it. Every style the pipeline recognises consists of such characters already, so recognised values are untouched.
+
 
 ## [1.31.1] - 2026-08-11
 

@@ -34,12 +34,15 @@ final class OutageScreenTest extends TestCase {
 	}
 
 	public function test_source_is_valid_php(): void {
-		$path = $this->content_dir . '/probe.php';
-		file_put_contents( $path, OutageScreen::source( 'sloneek' ) );
+		foreach ( array_keys( OutageScreen::DROP_INS ) as $filename ) {
+			$path = $this->content_dir . '/probe.php';
+			file_put_contents( $path, OutageScreen::source( 'sloneek', OutageScreen::SCREEN_RELATIVE, $filename ) );
 
-		exec( sprintf( 'php -l %s 2>&1', escapeshellarg( $path ) ), $output, $status );
+			exec( sprintf( 'php -l %s 2>&1', escapeshellarg( $path ) ), $output, $status );
 
-		self::assertSame( 0, $status, implode( "\n", $output ) );
+			self::assertSame( 0, $status, $filename . ': ' . implode( "\n", $output ) );
+			unlink( $path );
+		}
 	}
 
 	public function test_it_sets_503_when_executed(): void {
@@ -81,18 +84,20 @@ final class OutageScreenTest extends TestCase {
 		self::assertStringNotContainsString( '\\"theme', $source );
 	}
 
-	public function test_install_writes_both_drop_ins(): void {
+	public function test_install_writes_every_drop_in(): void {
 		$results = OutageScreen::install( $this->content_dir, 'sloneek' );
 
 		self::assertSame(
 			array(
 				'maintenance.php' => 'written',
 				'db-error.php'    => 'written',
+				'php-error.php'   => 'written',
 			),
 			$results
 		);
 		self::assertFileExists( $this->content_dir . '/maintenance.php' );
 		self::assertFileExists( $this->content_dir . '/db-error.php' );
+		self::assertFileExists( $this->content_dir . '/php-error.php' );
 	}
 
 	public function test_install_is_idempotent(): void {
@@ -102,9 +107,67 @@ final class OutageScreenTest extends TestCase {
 			array(
 				'maintenance.php' => 'unchanged',
 				'db-error.php'    => 'unchanged',
+				'php-error.php'   => 'unchanged',
 			),
 			OutageScreen::install( $this->content_dir, 'sloneek' )
 		);
+	}
+
+	public function test_install_writes_each_drop_in_its_own_source(): void {
+		// The regression this file exists to prevent. install() once computed
+		// one source above the loop, which was correct while every drop-in was
+		// byte-identical. Hoisting it back out now writes php-error.php with a
+		// 503 and a Retry-After — a crash that presents itself as planned
+		// maintenance, which is precisely what monitoring must not be told.
+		OutageScreen::install( $this->content_dir, 'sloneek' );
+
+		$fatal = (string) file_get_contents( $this->content_dir . '/php-error.php' );
+
+		self::assertStringContainsString( 'http_response_code( 500 )', $fatal );
+		self::assertStringNotContainsString( 'Retry-After', $fatal );
+		self::assertSame(
+			(string) file_get_contents( $this->content_dir . '/maintenance.php' ),
+			(string) file_get_contents( $this->content_dir . '/db-error.php' ),
+			'The two planned-outage drop-ins still share one source.'
+		);
+	}
+
+	public function test_the_fatal_drop_in_sets_500_and_promises_nothing(): void {
+		// Read the status back out of a real run, not out of the source: a
+		// substring assertion would still pass if the call moved after an exit.
+		$output = $this->runDropIn(
+			$this->content_dir . '/themes/sloneek',
+			'echo "|STATUS:" . http_response_code() . "|RETRY:" . (int) headers_sent();',
+			'php-error.php'
+		);
+
+		self::assertStringContainsString( '|STATUS:500', $output );
+	}
+
+	public function test_source_refuses_a_filename_it_does_not_generate(): void {
+		// A typo here would otherwise produce a file with maintenance.php's
+		// contract under some other name.
+		$this->expectException( \InvalidArgumentException::class );
+
+		OutageScreen::source( 'sloneek', OutageScreen::SCREEN_RELATIVE, 'advanced-cache.php' );
+	}
+
+	public function test_every_drop_in_needs_nothing_but_a_constant(): void {
+		// test_it_needs_nothing_but_a_constant() proves this for the default
+		// file. php-error.php is the one that runs inside a loaded WordPress,
+		// where a WP function call would appear to work — so it is the one
+		// most likely to grow one by accident.
+		$theme_root = $this->content_dir . '/themes/sloneek';
+		mkdir( dirname( $theme_root . '/' . OutageScreen::SCREEN_RELATIVE ), 0777, true );
+		file_put_contents( $theme_root . '/' . OutageScreen::SCREEN_RELATIVE, 'screen' );
+
+		foreach ( array_keys( OutageScreen::DROP_INS ) as $filename ) {
+			$output = $this->runDropIn( $theme_root, 'echo "|EXIT-OK";', $filename );
+
+			self::assertStringNotContainsString( 'Fatal error', $output, $filename );
+			self::assertStringNotContainsString( 'Warning', $output, $filename );
+			self::assertStringContainsString( '|EXIT-OK', $output, $filename );
+		}
 	}
 
 	public function test_install_rewrites_its_own_stale_output(): void {
@@ -185,12 +248,12 @@ final class OutageScreenTest extends TestCase {
 	/**
 	 * Executes a generated drop-in in a subprocess, the way WordPress would.
 	 */
-	private function runDropIn( string $theme_root, string $append = '' ): string {
+	private function runDropIn( string $theme_root, string $append = '', string $filename = 'maintenance.php' ): string {
 		$path = $this->content_dir . '/run.php';
 		file_put_contents(
 			$path,
 			"<?php define( 'WP_CONTENT_DIR', " . var_export( dirname( $theme_root, 2 ), true ) . " );\n"
-			. '?>' . OutageScreen::source( basename( $theme_root ) )
+			. '?>' . OutageScreen::source( basename( $theme_root ), OutageScreen::SCREEN_RELATIVE, $filename )
 			// The generated file opens PHP and never closes it, so the extra
 			// line is appended inside the same block.
 			. ( '' === $append ? '' : "\n{$append}\n" )

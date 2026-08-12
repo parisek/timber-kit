@@ -450,24 +450,45 @@ of these went undocumented for several releases.
 
 ## Outage screen
 
-WordPress shows a fallback screen in two states, and in neither is a theme
-loaded:
+WordPress shows a fallback screen in three states, and in none of them can the
+theme render one:
 
-| State | Entry point | What is alive |
-|---|---|---|
-| A `.maintenance` file in the site root — written by `wp maintenance-mode activate`, **and by core itself during every core and plugin update** | `wp_maintenance()` in `wp-settings.php`, before plugins and theme | PHP and the filesystem |
-| The database is unreachable | `wpdb::dead_db()` | PHP and the filesystem. No options, no translations |
+| State | Entry point | Status | What is alive |
+|---|---|---|---|
+| A `.maintenance` file in the site root — written by `wp maintenance-mode activate`, **and by core itself during every core and plugin update** | `wp_maintenance()` in `wp-settings.php`, before plugins and theme | `503` + `Retry-After` | PHP and the filesystem |
+| The database is unreachable | `wpdb::dead_db()` | `503` + `Retry-After` | PHP and the filesystem. No options, no translations |
+| A fatal PHP error | `WP_Fatal_Error_Handler::display_error_template()` | `500`, no `Retry-After` | A crashed WordPress — which the drop-in still does not use |
 
-Both `require_once` a drop-in in `wp-content/` and then call `die()`, and
-neither sends a status header first. This command generates those two files:
+All three `require_once` a drop-in in `wp-content/`, and none sends a status
+header first. This command generates those three files:
 
 ```bash
-wp timber-kit outage-screen install   # write wp-content/maintenance.php + db-error.php
+wp timber-kit outage-screen install   # write maintenance.php + db-error.php + php-error.php
 wp timber-kit outage-screen status    # installed / stale / not ours / absent, and is the screen there
 wp timber-kit outage-screen remove    # take back only the files it generated
 ```
 
-The generated files send `503` + `Retry-After` + no-cache headers and
+### Why the fatal-error state carries a different status
+
+`503` means a planned, bounded outage, and monitoring reads it that way — some
+of it suppresses alerts on a `503` that carries `Retry-After`. A crash is
+neither planned nor bounded, and the one thing it must not do is look routine.
+`Retry-After` is dropped for the same reason: nobody knows when a crash clears,
+so the header would be a guess presented as a promise.
+
+The three states cannot collide. `WP_Fatal_Error_Handler::handle()` returns
+immediately while `wp_is_maintenance_mode()` holds, so an update always serves
+`maintenance.php` and never a `500`.
+
+### The recovery e-mail survives
+
+`php-error.php` replaces the error **template**, not the handler. Core sends the
+recovery-mode mail in `handle()` before it reaches the template, so the drop-in
+cannot cost an administrator the way back in. Replacing
+`wp-content/fatal-error-handler.php` would be the change that could — this is
+not that change.
+
+The generated files send their status + no-cache headers and
 `readfile()` the screen the **theme** rendered ahead of time — with
 `parisek/styleguide` >= 1.13's `vendor/bin/styleguide maintenance:render`, which
 writes `static/templates/component/maintenance/maintenance.html`. This package
@@ -477,11 +498,14 @@ Two properties of the generated files are load-bearing, which is why they are
 generated rather than described in a wiki somewhere:
 
 - **They depend on nothing** — no Composer autoloader, no WordPress function
-  beyond the `WP_CONTENT_DIR` constant, no database. At the moment they run,
-  that is all there is.
-- **They never return early.** Control goes to `die()`, not back to WordPress,
-  so a drop-in that returns when the screen is missing serves a blank page.
-  Every path prints something; without the theme's screen, one plain sentence.
+  beyond the `WP_CONTENT_DIR` constant, no database. For two of the three that
+  is all there is. `php-error.php` runs inside a loaded WordPress, where a WP
+  function call would appear to work, and holds to the same rule anyway: an
+  outage screen may not depend on the thing that just crashed.
+- **They never return early.** WordPress prints nothing of its own after the
+  `require_once`, so a drop-in that returns when the screen is missing serves a
+  blank page. Every path prints something; without the theme's screen, one
+  plain sentence.
 
 `install` is idempotent, writes atomically (a live request can be reading the
 file — reinstalling during an active outage is normal), and refuses to touch a
