@@ -138,7 +138,7 @@ class SocialImage {
 		$resizer = $resizer ?? new Resizer();
 
 		$variants = $resizer->resizer( $image, [ $spec ] );
-		$source_src = is_string( $image['src'] ?? null ) ? $image['src'] : '';
+		$source_src = self::sourceUrl( $image );
 
 		foreach ( $variants as $variant ) {
 			if ( ! is_array( $variant ) || ! self::isUsable( $variant, $spec ) ) {
@@ -160,6 +160,26 @@ class SocialImage {
 		}
 
 		return null;
+	}
+
+	/**
+	 * The URL `Resizer` would treat as the source.
+	 *
+	 * Mirrors its own resolution: an indexed list is a set of sizes and the last
+	 * entry is the source. Reading `src` off the outer array would return
+	 * nothing for that shape, quietly disarming the source check in `get()` for
+	 * every caller who passes a list — which `Helpers::formatImage()` produces.
+	 *
+	 * @param array<mixed, mixed> $image Image data in either shape.
+	 * @return string Empty when no URL can be resolved.
+	 */
+	private static function sourceUrl( array $image ): string {
+		if ( isset( $image[0] ) ) {
+			$last = end( $image );
+			$image = is_array( $last ) ? $last : [];
+		}
+
+		return is_string( $image['src'] ?? null ) ? $image['src'] : '';
 	}
 
 	/**

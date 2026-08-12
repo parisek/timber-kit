@@ -109,6 +109,12 @@ class FilteredDefaultsTest extends TestCase {
 		$this->assertContains( SocialImage::spec( [ 'format' => 'avif' ] )['format'], array( 'png', 'webp' ) );
 	}
 
+	public function test_a_filtered_default_quality_above_the_encoder_range_is_clamped(): void {
+		$this->withDefaults( [ 'quality' => 500 ] );
+
+		$this->assertSame( 100, SocialImage::spec()['quality'] );
+	}
+
 	public function test_a_non_array_filter_return_is_ignored(): void {
 		Functions\when( 'apply_filters' )->alias( function ( $filter, $default, ...$args ) {
 			unset( $args );

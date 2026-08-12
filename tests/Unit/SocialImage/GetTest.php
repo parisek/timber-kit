@@ -126,6 +126,35 @@ class GetTest extends TestCase {
 		$this->assertNull( SocialImage::get( $image, [], $resizer ) );
 	}
 
+	public function test_refuses_the_source_of_an_indexed_image_list_too(): void {
+		// Helpers::formatImage() produces indexed lists, and Resizer takes the
+		// last entry as the source. Reading `src` off the outer array would find
+		// nothing here and quietly disarm the check for every such caller.
+		$image = [
+			[ 'src' => 'https://example.com/small.jpeg', 'width' => 300, 'height' => 158 ],
+			[ 'src' => 'https://example.com/already-a-card.jpeg', 'width' => 1200, 'height' => 630 ],
+		];
+		$resizer = $this->resizerReturning( [
+			[ 'src' => 'https://example.com/already-a-card.jpeg', 'type' => 'image/jpeg', 'width' => 1200, 'height' => 630 ],
+		] );
+
+		$this->assertNull( SocialImage::get( $image, [], $resizer ) );
+	}
+
+	public function test_an_indexed_image_list_still_yields_a_generated_variant(): void {
+		$image = [
+			[ 'src' => 'https://example.com/small.jpeg', 'width' => 300, 'height' => 158 ],
+			[ 'src' => 'https://example.com/hero.jpg', 'width' => 4000, 'height' => 2250 ],
+		];
+		$resizer = $this->resizerReturning( [
+			[ 'src' => 'https://example.com/cache/1200x630-center/hero.jpeg', 'type' => 'image/jpeg', 'width' => 1200, 'height' => 630 ],
+		] );
+
+		$result = SocialImage::get( $image, [], $resizer );
+
+		$this->assertSame( 'https://example.com/cache/1200x630-center/hero.jpeg', $result['src'] );
+	}
+
 	public function test_honours_a_custom_size(): void {
 		$resizer = $this->resizerReturning( [
 			[ 'src' => 'https://example.com/cache/1000x1000-center/hero.jpeg', 'type' => 'image/jpeg', 'width' => 1000, 'height' => 1000 ],
