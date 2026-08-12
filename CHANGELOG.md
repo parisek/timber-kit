@@ -192,7 +192,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   a stored `null` value as present) against a `formatFields()` result will
   now see a key that was previously absent whenever the underlying field is
   a `true_false` field, or its formatted value is `0`, `0.0`, or `"0"`.
-||||||| parent of 0693631 (feat(outage): install the drop-ins that serve the theme's outage screen)
 
 ## [1.29.0] - 2026-08-05
 
