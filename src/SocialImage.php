@@ -189,10 +189,11 @@ class SocialImage {
 	 * facts are a post type and a field name, so those are configuration and
 	 * the rest lives here.
 	 *
-	 * Resolution order: the fields the map names for this post type, first
-	 * non-empty wins; then the featured image. A post type absent from the map
-	 * therefore behaves exactly as before the map existed, which is what makes
-	 * an empty map a no-op rather than a regression.
+	 * Candidate order: the fields the map names for this post type, in that
+	 * order, then the featured image. The first candidate that yields a usable
+	 * cut wins — not the first that merely resolves to an image. A post type
+	 * absent from the map falls back to the featured image alone, which is what
+	 * it did before the map existed.
 	 *
 	 * @param \WP_Post|mixed       $post    Post to resolve an image for.
 	 * @param array<string, mixed> $options See `spec()`.
@@ -260,7 +261,7 @@ class SocialImage {
 				$image = self::asImage( $fields[ $name ] );
 
 				if ( null !== $image ) {
-					$candidates[] = $image;
+					$candidates[ $image['src'] ] = $image;
 				}
 			}
 		}
@@ -268,11 +269,14 @@ class SocialImage {
 		$thumbnail_id = (int) get_post_thumbnail_id( $post );
 		$featured = $thumbnail_id > 0 ? self::asImage( $thumbnail_id ) : null;
 
-		if ( null !== $featured ) {
-			$candidates[] = $featured;
+		if ( null !== $featured && ! isset( $candidates[ $featured['src'] ] ) ) {
+			$candidates[ $featured['src'] ] = $featured;
 		}
 
-		return $candidates;
+		// Keyed by URL while collecting: the featured image is very often also
+		// the mapped field, and two entries for one picture means encoding it
+		// twice to learn the same answer.
+		return array_values( $candidates );
 	}
 
 	/**

@@ -77,6 +77,35 @@ class ForPostTest extends TestCase {
 		return $stub;
 	}
 
+	/**
+	 * A resizer whose answer names the image it was given.
+	 *
+	 * A stub that succeeds whatever it receives cannot tell "the right
+	 * candidate won" from "any candidate won" — the assertion passes even when
+	 * the value under test never should have reached the encoder. Deriving the
+	 * result from the input makes the winning candidate visible.
+	 *
+	 * @param array<int, string> $unusable Source URLs that yield no usable cut.
+	 */
+	private function resizerCutting( array $unusable = [] ): Resizer {
+		$stub = $this->createStub( Resizer::class );
+		$stub->method( 'resizer' )->willReturnCallback(
+			function ( $image, $variants ) use ( $unusable ) {
+				unset( $variants );
+				$src = is_array( $image ) ? ( $image['src'] ?? '' ) : '';
+
+				if ( in_array( $src, $unusable, true ) ) {
+					// The shape resizer() returns when it cannot process a
+					// source: the original alone, which get() refuses.
+					return [ [ 'src' => $src, 'width' => 512, 'height' => 512 ] ];
+				}
+
+				return [ [ 'src' => 'cut:' . $src, 'type' => 'image/jpeg', 'width' => 1200, 'height' => 630 ] ];
+			}
+		);
+		return $stub;
+	}
+
 	public function test_reads_the_field_the_map_names_for_the_post_type(): void {
 		$this->wire(
 			[ 'project' => 'hero_image' ],
@@ -105,18 +134,18 @@ class ForPostTest extends TestCase {
 		$this->wire( [], [], 42 );
 		Functions\when( 'acf_get_attachment' )->justReturn( [ 'url' => 'https://example.com/featured.jpg', 'width' => 4000, 'height' => 2250, 'mime_type' => 'image/jpeg' ] );
 
-		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerCutting() );
 
-		$this->assertIsArray( $result );
+		$this->assertSame( 'cut:https://example.com/featured.jpg', $result['src'] );
 	}
 
 	public function test_falls_back_to_the_featured_image_when_every_mapped_field_is_empty(): void {
 		$this->wire( [ 'project' => 'hero_image' ], [ 'hero_image' => null ], 42 );
 		Functions\when( 'acf_get_attachment' )->justReturn( [ 'url' => 'https://example.com/featured.jpg', 'width' => 4000, 'height' => 2250, 'mime_type' => 'image/jpeg' ] );
 
-		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerCutting() );
 
-		$this->assertIsArray( $result );
+		$this->assertSame( 'cut:https://example.com/featured.jpg', $result['src'] );
 	}
 
 	public function test_returns_null_when_nothing_resolves(): void {
@@ -140,9 +169,9 @@ class ForPostTest extends TestCase {
 			[ 'hero_image' => [ 'id' => 9, 'src' => 'https://example.com/hero.jpg' ] ]
 		);
 
-		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerCutting() );
 
-		$this->assertIsArray( $result );
+		$this->assertSame( 'cut:https://example.com/hero.jpg', $result['src'] );
 	}
 
 	public function test_a_non_empty_but_unusable_field_does_not_swallow_the_chain(): void {
@@ -195,9 +224,11 @@ class ForPostTest extends TestCase {
 			]
 		);
 
-		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerCutting() );
 
-		$this->assertSame( $this->variant['src'], $result['src'] );
+		// Names the source that won: had the PDF reached the encoder, this
+		// would read cut:…/brochure.pdf instead.
+		$this->assertSame( 'cut:https://example.com/hero.jpg', $result['src'] );
 	}
 
 	public function test_a_record_without_a_type_is_still_tried(): void {
@@ -223,16 +254,11 @@ class ForPostTest extends TestCase {
 			]
 		);
 
-		// First call: the resizer hands back the source untouched, which get()
-		// refuses. Second call: a real cut.
-		$resizer = $this->resizerAnswering( [
-			[ [ 'src' => 'https://example.com/logo.svg', 'width' => 512, 'height' => 512 ] ],
-			[ $this->variant ],
-		] );
+		$resizer = $this->resizerCutting( [ 'https://example.com/logo.svg' ] );
 
 		$result = SocialImage::forPost( $this->post(), [], $resizer );
 
-		$this->assertSame( $this->variant['src'], $result['src'] );
+		$this->assertSame( 'cut:https://example.com/hero.jpg', $result['src'] );
 	}
 
 	public function test_the_featured_image_is_the_last_candidate_not_the_first(): void {
@@ -243,12 +269,33 @@ class ForPostTest extends TestCase {
 		);
 		Functions\when( 'acf_get_attachment' )->justReturn( [ 'url' => 'https://example.com/featured.jpg', 'width' => 4000, 'height' => 2250, 'mime_type' => 'image/jpeg' ] );
 
-		$featured_cut = [ 'src' => 'https://example.com/c/1200x630-center/featured.jpeg', 'type' => 'image/jpeg', 'width' => 1200, 'height' => 630 ];
-		$resizer = $this->resizerAnswering( [ [ $this->variant ], [ $featured_cut ] ] );
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerCutting() );
 
-		$result = SocialImage::forPost( $this->post(), [], $resizer );
+		$this->assertSame( 'cut:https://example.com/hero.jpg', $result['src'] );
+	}
 
-		$this->assertSame( $this->variant['src'], $result['src'] );
+	public function test_a_featured_image_that_is_also_the_mapped_field_is_tried_once(): void {
+		$calls = 0;
+		$stub = $this->createStub( Resizer::class );
+		$stub->method( 'resizer' )->willReturnCallback(
+			function () use ( &$calls ) {
+				++$calls;
+				return [ [ 'src' => 'https://example.com/hero.jpg', 'width' => 4000, 'height' => 2250 ] ];
+			}
+		);
+
+		$this->wire(
+			[ 'project' => 'hero_image' ],
+			[ 'hero_image' => [ [ 'id' => 42, 'src' => 'https://example.com/hero.jpg', 'type' => 'image/jpeg' ] ] ],
+			42
+		);
+		Functions\when( 'acf_get_attachment' )->justReturn( [ 'url' => 'https://example.com/hero.jpg', 'width' => 4000, 'height' => 2250, 'mime_type' => 'image/jpeg' ] );
+
+		SocialImage::forPost( $this->post(), [], $stub );
+
+		// One picture, one encode attempt. The featured image is very often the
+		// mapped field too.
+		$this->assertSame( 1, $calls );
 	}
 
 	public function test_options_are_passed_through(): void {
