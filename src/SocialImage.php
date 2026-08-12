@@ -238,8 +238,18 @@ class SocialImage {
 			$fields = is_array( $fields ) ? $fields : Helpers::formatFields( $post );
 
 			foreach ( $names as $name ) {
-				if ( ! empty( $fields[ $name ] ) ) {
-					return self::asImage( $fields[ $name ] );
+				if ( empty( $fields[ $name ] ) ) {
+					continue;
+				}
+
+				// Non-empty is not the same as usable: a gallery, a repeater or
+				// a group is all three of those and none of them is an image.
+				// Returning here on a failed coercion would swallow the rest of
+				// the chain and the featured-image fallback with it.
+				$image = self::asImage( $fields[ $name ] );
+
+				if ( null !== $image ) {
+					return $image;
 				}
 			}
 		}
@@ -289,15 +299,36 @@ class SocialImage {
 	 */
 	private static function asImage( $value ): ?array {
 		// A field read through formatFields() is already formatted, and running
-		// it through formatImage() again would look for ACF's raw `url` key and
-		// find nothing. An attachment id or a raw ACF array still needs the trip.
-		$image = ( is_array( $value ) && ! empty( $value['src'] ) ) ? $value : Helpers::formatImage( $value );
+		// it through formatImage() again would look for ACF's raw `url` key,
+		// find nothing, and return null. That is the shape the common case
+		// actually takes: formatImage() normalises even a single image into an
+		// indexed list, so `src` sits at [0], not at the root. An attachment id
+		// or a raw ACF array still needs the trip.
+		$image = self::formattedImage( $value ) ?? Helpers::formatImage( $value );
 
-		if ( is_array( $image ) && isset( $image[0] ) && is_array( $image[0] ) ) {
-			$image = end( $image );
+		return self::formattedImage( $image );
+	}
+
+	/**
+	 * The image record inside an already-formatted value, or null.
+	 *
+	 * Accepts both shapes `formatImage()` produces: the indexed list, where the
+	 * last entry is the source, and a bare record.
+	 *
+	 * @param mixed $value Candidate value.
+	 * @return array<string, mixed>|null
+	 */
+	private static function formattedImage( $value ): ?array {
+		if ( ! is_array( $value ) ) {
+			return null;
 		}
 
-		return is_array( $image ) && ! empty( $image['src'] ) ? $image : null;
+		if ( isset( $value[0] ) && is_array( $value[0] ) ) {
+			$last = end( $value );
+			return is_array( $last ) && ! empty( $last['src'] ) ? $last : null;
+		}
+
+		return ! empty( $value['src'] ) ? $value : null;
 	}
 
 	/**

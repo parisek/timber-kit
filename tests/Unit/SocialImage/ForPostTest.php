@@ -69,7 +69,7 @@ class ForPostTest extends TestCase {
 	public function test_reads_the_field_the_map_names_for_the_post_type(): void {
 		$this->wire(
 			[ 'project' => 'hero_image' ],
-			[ 'hero_image' => [ 'src' => 'https://example.com/hero.jpg' ] ]
+			[ 'hero_image' => [ [ 'id' => 9, 'src' => 'https://example.com/hero.jpg' ] ] ]
 		);
 
 		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
@@ -80,7 +80,7 @@ class ForPostTest extends TestCase {
 	public function test_a_field_chain_takes_the_first_non_empty(): void {
 		$this->wire(
 			[ 'project' => [ 'lead_image', 'hero_image' ] ],
-			[ 'lead_image' => null, 'hero_image' => [ 'src' => 'https://example.com/hero.jpg' ] ]
+			[ 'lead_image' => null, 'hero_image' => [ [ 'id' => 9, 'src' => 'https://example.com/hero.jpg' ] ] ]
 		);
 
 		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
@@ -121,8 +121,59 @@ class ForPostTest extends TestCase {
 		$this->assertNull( SocialImage::forPost( 'not a post', [], $this->resizerReturning( [ $this->variant ] ) ) );
 	}
 
+	public function test_a_bare_formatted_record_also_resolves(): void {
+		// formatImage() normalises to a list, but a project overriding the field
+		// reader may hand back a single record.
+		$this->wire(
+			[ 'project' => 'hero_image' ],
+			[ 'hero_image' => [ 'id' => 9, 'src' => 'https://example.com/hero.jpg' ] ]
+		);
+
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+
+		$this->assertIsArray( $result );
+	}
+
+	public function test_a_non_empty_but_unusable_field_does_not_swallow_the_chain(): void {
+		// A repeater is non-empty and is not an image. Returning on it would
+		// skip the next field name and the featured-image fallback alike.
+		$this->wire(
+			[ 'project' => [ 'rows', 'hero_image' ] ],
+			[
+				'rows' => [ [ 'label' => 'Investor', 'value' => 'PM' ] ],
+				'hero_image' => [ [ 'id' => 9, 'src' => 'https://example.com/hero.jpg' ] ],
+			]
+		);
+
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+
+		$this->assertIsArray( $result );
+	}
+
+	public function test_a_non_empty_but_unusable_field_still_reaches_the_featured_image(): void {
+		$this->wire(
+			[ 'project' => 'rows' ],
+			[ 'rows' => [ [ 'label' => 'Investor', 'value' => 'PM' ] ] ],
+			42
+		);
+		Functions\when( 'acf_get_attachment' )->justReturn( [ 'url' => 'https://example.com/featured.jpg', 'width' => 4000, 'height' => 2250, 'mime_type' => 'image/jpeg' ] );
+
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+
+		$this->assertIsArray( $result );
+	}
+
+	public function test_an_attachment_id_in_the_field_resolves(): void {
+		$this->wire( [ 'project' => 'hero_image' ], [ 'hero_image' => 9 ] );
+		Functions\when( 'acf_get_attachment' )->justReturn( [ 'url' => 'https://example.com/hero.jpg', 'width' => 4000, 'height' => 2250, 'mime_type' => 'image/jpeg' ] );
+
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerReturning( [ $this->variant ] ) );
+
+		$this->assertIsArray( $result );
+	}
+
 	public function test_options_are_passed_through(): void {
-		$this->wire( [ 'project' => 'hero_image' ], [ 'hero_image' => [ 'src' => 'https://example.com/hero.jpg' ] ] );
+		$this->wire( [ 'project' => 'hero_image' ], [ 'hero_image' => [ [ 'id' => 9, 'src' => 'https://example.com/hero.jpg' ] ] ] );
 		$square = [ 'src' => 'https://example.com/c/1000x1000-center/hero.jpeg', 'type' => 'image/jpeg', 'width' => 1000, 'height' => 1000 ];
 
 		$result = SocialImage::forPost( $this->post(), [ 'width' => 1000, 'height' => 1000 ], $this->resizerReturning( [ $square ] ) );

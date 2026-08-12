@@ -21,15 +21,21 @@ class BridgeTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_aioseo_hook_is_registered(): void {
-		$filters = [];
-		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
-			$filters[] = $hook;
+	public function test_aioseo_hook_is_registered_with_both_arguments(): void {
+		$registered = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, $callback, $priority = 10, $args = 1 ) use ( &$registered ) {
+			$registered[ $hook ] = [ 'callback' => $callback, 'priority' => $priority, 'args' => $args ];
 		} );
 
 		SocialImageBridge::register( 'aioseo' );
 
-		$this->assertContains( 'aioseo_opengraph_default_image', $filters );
+		$this->assertArrayHasKey( 'aioseo_opengraph_default_image', $registered );
+		$hook = $registered['aioseo_opengraph_default_image'];
+		// The post arrives in the second argument, so one accepted arg would
+		// hand the callback an image and no way to resolve anything for it.
+		$this->assertSame( 2, $hook['args'] );
+		$this->assertSame( 10, $hook['priority'] );
+		$this->assertSame( [ SocialImageBridge::class, 'filterOpengraphImage' ], $hook['callback'] );
 	}
 
 	public function test_an_unknown_plugin_registers_nothing(): void {
@@ -59,6 +65,24 @@ class BridgeTest extends TestCase {
 		$image = 'https://example.com/site-default.png';
 
 		$this->assertSame( $image, SocialImageBridge::filterOpengraphImage( $image, [] ) );
+	}
+
+	public function test_a_resolved_preview_is_handed_back_as_a_tuple(): void {
+		// AIOSEO reads index 1 and 2 for og:image:width / og:image:height and
+		// falls back to its globally configured dimensions when handed a bare
+		// string — which would then describe a different image than it serves.
+		$preview = [ 'src' => 'https://example.com/c/1200x630-center/hero.jpeg', 'width' => 1200, 'height' => 630 ];
+
+		$result = SocialImageBridge::toTuple( $preview, 'https://example.com/site-default.png' );
+
+		$this->assertSame( [ 'https://example.com/c/1200x630-center/hero.jpeg', 1200, 630 ], $result );
+	}
+
+	public function test_no_preview_keeps_what_the_plugin_resolved(): void {
+		$fallback = 'https://example.com/site-default.png';
+
+		$this->assertSame( $fallback, SocialImageBridge::toTuple( null, $fallback ) );
+		$this->assertSame( $fallback, SocialImageBridge::toTuple( [ 'src' => '' ], $fallback ) );
 	}
 
 	public function test_an_unresolvable_post_leaves_the_image_untouched(): void {

@@ -122,7 +122,7 @@ protected array $social_image_fields = array(
 );
 ```
 
-A post type left out of the map falls back to its featured image, so an empty map is the behaviour you already had. Fields are read through `Helpers::formatFields()`; `timber_kit_social_image_post_fields` overrides that reader for projects storing this outside ACF.
+A post type left out of the map falls back to its featured image. Fields are read through `Helpers::formatFields()`; `timber_kit_social_image_post_fields` overrides that reader for projects storing this outside ACF.
 
 #### Wiring it to an SEO plugin
 
@@ -130,7 +130,9 @@ A post type left out of the map falls back to its featured image, so an empty ma
 protected string $social_image_bridge = 'aioseo';
 ```
 
-The plugin keeps rendering its own tags; the bridge only supplies the image, and only when there is one — otherwise the plugin's own resolution stands, because a working card from the site default beats a wrong one. `SocialImageBridge::supported()` lists the accepted values; adding another plugin is one method next to `registerAioseo()`.
+The plugin keeps rendering its own tags; the bridge only supplies the image, and only when there is one — otherwise the plugin's own resolution stands, because a working card from the site default beats a wrong one.
+
+Two separate claims worth keeping apart. **Leaving the bridge off changes nothing on upgrade**, since no hook is registered. **Turning it on changes the tag** — that is the point — and with an empty map it hands over the featured image, replacing whatever the plugin resolved. Fill the map for the post types that keep their hero elsewhere. `SocialImageBridge::supported()` lists the accepted values; adding another plugin is one method next to `registerAioseo()`.
 
 Why it is needed for AIOSEO specifically: it resolves the OG image from one global source option plus a per-post override, with no per-post-type layer in between, so without this every post of a type shares one image.
 

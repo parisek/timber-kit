@@ -103,12 +103,24 @@ class SocialImageBridge {
 			return $image;
 		}
 
-		$preview = SocialImage::forPost( $post );
+		return self::toTuple( SocialImage::forPost( $post ), $image );
+	}
 
-		if ( null === $preview ) {
-			return $image;
+	/**
+	 * Shape a resolved preview for the plugin, or keep what it had.
+	 *
+	 * Pure, and separate from the filter so the shaping is testable without
+	 * going through the encoder.
+	 *
+	 * @param array<string, mixed>|null $preview  Resolved preview, or null.
+	 * @param string|array|mixed        $fallback What the plugin resolved.
+	 * @return string|array|mixed
+	 */
+	public static function toTuple( ?array $preview, $fallback ) {
+		if ( null === $preview || empty( $preview['src'] ) ) {
+			return $fallback;
 		}
 
-		return [ $preview['src'], $preview['width'], $preview['height'] ];
+		return [ $preview['src'], $preview['width'] ?? '', $preview['height'] ?? '' ];
 	}
 }
