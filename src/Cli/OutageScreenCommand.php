@@ -7,15 +7,15 @@ namespace Parisek\TimberKit\Cli;
 use Parisek\TimberKit\OutageScreen;
 
 /**
- * `wp timber-kit outage-screen` — install, inspect or remove the two
- * drop-ins that serve the theme's prerendered outage screen.
+ * `wp timber-kit outage-screen` — install, inspect or remove the drop-ins
+ * that serve the theme's prerendered outage screen.
  *
  * Thin adapter over {@see OutageScreen}, which owns the generated source and
  * is unit-tested. The WP_CLI I/O here is intentionally not unit-tested.
  *
  * The screen itself is rendered by the theme, ahead of time, with
  * `vendor/bin/styleguide maintenance:render`. This command only wires it to
- * the two moments WordPress needs it.
+ * the moments WordPress needs it.
  */
 class OutageScreenCommand {
 
@@ -103,10 +103,13 @@ class OutageScreenCommand {
 	 * @return void
 	 */
 	private function status( string $theme, string $screen ) {
-		$expected = OutageScreen::source( $theme, $screen );
-
-		foreach ( OutageScreen::DROP_INS as $filename => $covers ) {
-			$path = WP_CONTENT_DIR . '/' . $filename;
+		foreach ( OutageScreen::DROP_INS as $filename => $contract ) {
+			// Per file: the three drop-ins differ, and one expected source
+			// shared across them would report two of the three as permanently
+			// stale — which a reinstall would not fix, because they are not.
+			$expected = OutageScreen::source( $theme, $screen, $filename );
+			$covers   = $contract['covers'];
+			$path     = WP_CONTENT_DIR . '/' . $filename;
 
 			if ( ! file_exists( $path ) ) {
 				\WP_CLI::line( sprintf( '%-16s absent          (%s)', $filename, $covers ) );
