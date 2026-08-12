@@ -129,6 +129,17 @@ class Resizer {
 	private bool $skip_animated;
 
 	/**
+	 * Whether a variant's quality is part of its cache key.
+	 *
+	 * Off by default because turning it on moves every non-default-quality
+	 * variant to a new path: the old files orphan and the public URLs change.
+	 * Projects that never touched quality see no difference either way.
+	 *
+	 * @var bool
+	 */
+	private bool $quality_in_cache_key;
+
+	/**
 	 * Memoized allow-list of decodable input MIME types (per request).
 	 *
 	 * @var array<int, string>|null
@@ -144,6 +155,7 @@ class Resizer {
 	 *   - `timber_kit_resizer_image_cache_dir` — absolute path to cache directory
 	 *   - `timber_kit_resizer_force_regenerate` — skip cache and always regenerate
 	 *   - `timber_kit_resizer_skip_animated`   — pass animated sources through untouched (default: true)
+	 *   - `timber_kit_resizer_quality_in_cache_key` — put a variant's quality in its cache key (default: false)
 	 */
 	public function __construct() {
 		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );
@@ -151,6 +163,7 @@ class Resizer {
 		$this->image_cache_dir = apply_filters( 'timber_kit_resizer_image_cache_dir', WP_CONTENT_DIR . self::CACHE_DIR_PATH );
 		$this->force_regenerate = (bool) apply_filters( 'timber_kit_resizer_force_regenerate', self::FORCE_REGENERATE );
 		$this->skip_animated = (bool) apply_filters( 'timber_kit_resizer_skip_animated', true );
+		$this->quality_in_cache_key = (bool) apply_filters( 'timber_kit_resizer_quality_in_cache_key', false );
 	}
 
 	/**
@@ -547,9 +560,17 @@ class Resizer {
 				$variant = [];
 			}
 
-			$normalized[] = $this->isPositionalVariant( $variant )
+			$variant = $this->isPositionalVariant( $variant )
 				? $this->normalizePositionalVariant( $variant )
 				: $this->normalizeAssociativeVariant( $variant );
+
+			// Resolved here, once, and carried on the variant. Two consumers need
+			// it — processVariant() writes to it, DevMediaProxy probes the origin
+			// for it — and deriving it twice is exactly how they drifted apart
+			// before.
+			$variant['cache_key'] = $this->variantDirname( $variant );
+
+			$normalized[] = $variant;
 		}
 
 		// Sort by media value (largest first)
@@ -633,23 +654,32 @@ class Resizer {
 	/**
 	 * Cache directory segment for a variant.
 	 *
-	 * The quality only appears once it differs from the package default, so a
-	 * project that never touched quality keeps its existing cache paths and
-	 * regenerates nothing on upgrade. Before this, quality was absent from the
-	 * key entirely: re-cutting the same dimensions at a new quality silently
-	 * served the previously generated file, which reads as "the setting does
-	 * nothing".
+	 * Quality is absent from the key by default, which is a real defect:
+	 * re-cutting the same dimensions at a new quality serves the previously
+	 * generated file, so the setting appears to do nothing. Opting in via
+	 * `timber_kit_resizer_quality_in_cache_key` adds it, and only when it
+	 * differs from the package default, so paths at default quality never move.
+	 * It stays opt-in because switching it on relocates every non-default-quality
+	 * variant: old files orphan, public URLs change.
 	 *
 	 * The format stays out — it is the file extension, so it already separates
 	 * variants without a second copy of it here.
+	 *
+	 * The style is stripped to path-safe characters. Every style the pipeline
+	 * recognises already consists of them, so recognised values are untouched;
+	 * the strip exists because the value reaches `wp_mkdir_p()` and a caller
+	 * could otherwise walk out of the cache directory with it.
 	 *
 	 * @param array<string, mixed> $variant Normalized variant.
 	 * @return string Directory segment, e.g. `1200x630-center-q82`.
 	 */
 	private function variantDirname( array $variant ): string {
-		$dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
+		$style = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $variant['image_style'] );
+		$style = ( $style === '' || $style === null ) ? 'center' : $style;
 
-		if ( (int) $variant['quality'] !== self::DEFAULT_QUALITY ) {
+		$dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $style;
+
+		if ( $this->quality_in_cache_key && (int) $variant['quality'] !== self::DEFAULT_QUALITY ) {
 			$dirname .= '-q' . (int) $variant['quality'];
 		}
 
@@ -667,7 +697,7 @@ class Resizer {
 	 */
 	protected function processVariant( array $variant, string $source_path, string $filename, array $default_image ): ?array {
 		$target_format = $variant['format'];
-		$target_dirname = $this->variantDirname( $variant );
+		$target_dirname = $variant['cache_key'];
 		$target_dir = $this->image_cache_dir . '/' . $target_dirname;
 		$target_path = $target_dir . '/' . $filename . '.' . $target_format;
 		// Derive URL from the configured cache directory relative to WP_CONTENT_DIR

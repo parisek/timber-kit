@@ -137,6 +137,16 @@ class NormalizeVariantsTest extends ResizerTestCase {
 		$this->assertSame( 90, $result[0]['quality'] );
 	}
 
+	public function test_every_variant_carries_a_cache_key(): void {
+		$resizer = $this->createResizer();
+
+		$result = $this->callPrivate( $resizer, 'normalizeVariants', [
+			[ [ '800', '600', '768', 'crop' ] ],
+		] );
+
+		$this->assertSame( '800x600-crop', $result[0]['cache_key'] );
+	}
+
 	public function test_positional_variant_gets_the_request_format(): void {
 		$resizer = $this->createResizer();
 

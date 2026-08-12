@@ -446,13 +446,24 @@ final class DevMediaProxy {
 	 * @param array  $variant Normalized Resizer variant.
 	 * @param string $filename Sanitized filename.
 	 * @param array  $default_image Default image metadata.
-	 * @param string $target_format Target format.
+	 * @param string $target_format Request-wide target format; fallback for a
+	 *                              variant that carries no format of its own.
 	 * @param string $image_cache_dir Cache directory.
 	 * @param string $uploads_base_url Local uploads base URL.
 	 * @return array<string, mixed>
 	 */
 	private static function build_remote_resizer_variant( array $variant, string $filename, array $default_image, string $target_format, string $image_cache_dir, string $uploads_base_url ): array {
-		$target_dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
+		// Both come off the variant, which the Resizer already resolved. Deriving
+		// either one here again is what let this drift: a variant may carry its
+		// own output format, and its cache key may encode more than width, height
+		// and style. The request-wide format survives only as the fallback for a
+		// variant that predates carrying its own.
+		$target_format = ( isset( $variant['format'] ) && is_string( $variant['format'] ) && $variant['format'] !== '' )
+			? $variant['format']
+			: $target_format;
+		$target_dirname = ( isset( $variant['cache_key'] ) && is_string( $variant['cache_key'] ) && $variant['cache_key'] !== '' )
+			? $variant['cache_key']
+			: $variant['width'] . 'x' . $variant['height'] . '-' . $variant['image_style'];
 		$remote_cache_base_url = self::get_remote_cache_base_url( self::$origin_base_url, $uploads_base_url, $image_cache_dir );
 		$filetype = wp_check_filetype( $filename . '.' . $target_format );
 		$actual_mime = $filetype['type'] ?? 'image/' . $target_format;

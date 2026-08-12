@@ -13,7 +13,7 @@ use Tests\Property\Support\PropertyTestCase;
  *
  * Input domain: list of raw variant specs, positional tuples or associative
  * maps, freely mixed.
- * Output domain: list of associative dicts with six typed keys.
+ * Output domain: list of associative dicts with seven typed keys.
  * The domains differ, so classic idempotence (f(f(x))===f(x)) does not apply.
  * What does hold: type stability, ordering, count preservation, determinism.
  */
@@ -56,7 +56,7 @@ class NormalizeVariantsPropertyTest extends PropertyTestCase {
 				Generator\choose( 0, 4000 ),
 				Generator\choose( 0, 4000 ),
 				Generator\choose( 0, 4000 ),
-				Generator\elements( 'center', 'crop', 'smart-crop', 'top' ),
+				Generator\elements( 'center', 'crop', 'smart-crop', 'top', '../../outside' ),
 				Generator\choose( 1, 100 ),
 				Generator\elements( 'avif', 'webp', 'jpeg', 'png', 'nonsense' ),
 				Generator\choose( 0, 63 )
@@ -117,7 +117,7 @@ class NormalizeVariantsPropertyTest extends PropertyTestCase {
 				foreach ( $result as $row ) {
 					$this->assertIsArray( $row );
 					$this->assertEqualsCanonicalizing(
-						[ 'width', 'height', 'media', 'image_style', 'quality', 'format' ],
+						[ 'width', 'height', 'media', 'image_style', 'quality', 'format', 'cache_key' ],
 						array_keys( $row )
 					);
 					$this->assertIsInt( $row['width'] );
@@ -129,6 +129,11 @@ class NormalizeVariantsPropertyTest extends PropertyTestCase {
 					// A variant never carries a format the encoder cannot write:
 					// an unrecognised request falls back to the request-wide one.
 					$this->assertContains( $row['format'], [ 'avif', 'webp', 'jpeg', 'jpg', 'png', 'gif' ] );
+					$this->assertIsString( $row['cache_key'] );
+					// The key becomes a directory name, so it must never carry a
+					// path separator or a traversal segment out of the cache dir.
+					$this->assertStringNotContainsString( '/', $row['cache_key'] );
+					$this->assertStringNotContainsString( '..', $row['cache_key'] );
 				}
 			} );
 	}
