@@ -118,7 +118,7 @@ Options: `width`, `height`, `crop`, `quality`, `format` — unknown keys are dro
 // In the theme's Base class.
 protected array $social_image_fields = array(
     'project' => 'hero_image',
-    'post'    => array( 'lead_image', 'hero_image' ),  // first non-empty wins
+    'post'    => array( 'lead_image', 'hero_image' ),  // first usable cut wins
 );
 ```
 
