@@ -1,0 +1,182 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Unit\StarterBase;
+
+use Brain\Monkey\Functions;
+use Parisek\TimberKit\StarterBase;
+use Tests\Unit\StarterBaseTestCase;
+
+/**
+ * Verifies the opt-in site-icon tag set: the favicon files are discovered on
+ * disk by convention (no configured paths), an uploaded Site Icon wins over
+ * them, and the emitted markup replaces WordPress's four legacy tags.
+ */
+class SiteIconMetaTagsTest extends StarterBaseTestCase {
+
+	private string $themeDir;
+
+	protected function setUp(): void {
+		parent::setUp();
+
+		$this->themeDir = sys_get_temp_dir() . '/timber-kit-site-icon-' . uniqid();
+		@mkdir( $this->themeDir . '/static/images/touch', 0777, true );
+
+		Functions\when( 'get_template_directory' )->justReturn( $this->themeDir );
+		Functions\when( 'get_template_directory_uri' )->justReturn( 'https://example.test/theme' );
+		Functions\when( 'esc_url' )->returnArg();
+		Functions\when( 'esc_attr' )->returnArg();
+		Functions\when( 'get_bloginfo' )->justReturn( 'Example' );
+	}
+
+	protected function tearDown(): void {
+		foreach ( glob( $this->themeDir . '/static/images/touch/*' ) ?: [] as $file ) {
+			@unlink( $file );
+		}
+		parent::tearDown();
+	}
+
+	private function ship( string ...$files ): void {
+		foreach ( $files as $file ) {
+			file_put_contents( $this->themeDir . '/static/images/touch/' . $file, 'x' );
+		}
+	}
+
+	private function instance(): StarterBase {
+		$instance = ( new \ReflectionClass( StarterBase::class ) )->newInstanceWithoutConstructor();
+		$prop     = ( new \ReflectionClass( StarterBase::class ) )->getProperty( 'site_icon_tags' );
+		$prop->setValue( $instance, true );
+
+		return $instance;
+	}
+
+	private function tags( StarterBase $instance ): array {
+		return $instance->site_icon_meta_tags( [ '<link rel="icon" href="core.png" sizes="32x32" />' ] );
+	}
+
+	public function test_discovers_the_modern_favicon_set_without_configuration(): void {
+		Functions\when( 'get_option' )->justReturn( 0 );
+		$this->ship( 'favicon.svg', 'favicon-96x96.png', 'favicon.ico', 'apple-touch-icon.png' );
+
+		$markup = implode( "\n", $this->tags( $this->instance() ) );
+
+		$this->assertStringContainsString( 'type="image/svg+xml"', $markup );
+		$this->assertStringContainsString( 'favicon-96x96.png', $markup );
+		$this->assertStringContainsString( 'sizes="96x96"', $markup );
+		$this->assertStringContainsString( 'rel="shortcut icon"', $markup );
+	}
+
+	public function test_discovers_the_legacy_favicon_set_without_configuration(): void {
+		Functions\when( 'get_option' )->justReturn( 0 );
+		$this->ship( 'favicon-32x32.png', 'favicon.ico', 'apple-touch-icon.png' );
+
+		$markup = implode( "\n", $this->tags( $this->instance() ) );
+
+		$this->assertStringContainsString( 'favicon-32x32.png', $markup );
+		$this->assertStringContainsString( 'sizes="32x32"', $markup );
+		$this->assertStringNotContainsString( 'image/svg+xml', $markup );
+	}
+
+	public function test_apple_touch_icon_is_never_an_svg(): void {
+		Functions\when( 'get_option' )->justReturn( 0 );
+		$this->ship( 'favicon.svg' );
+
+		$markup = implode( "\n", $this->tags( $this->instance() ) );
+
+		$this->assertStringNotContainsString( 'apple-touch-icon', $markup );
+	}
+
+	public function test_drops_the_core_legacy_tags(): void {
+		Functions\when( 'get_option' )->justReturn( 0 );
+		$this->ship( 'favicon.svg' );
+
+		$markup = implode( "\n", $this->tags( $this->instance() ) );
+
+		$this->assertStringNotContainsString( 'core.png', $markup );
+		$this->assertStringNotContainsString( 'msapplication-TileImage', $markup );
+	}
+
+	public function test_reads_theme_color_and_app_title_from_the_manifest(): void {
+		Functions\when( 'get_option' )->justReturn( 0 );
+		$this->ship( 'favicon.svg' );
+		file_put_contents(
+			$this->themeDir . '/static/images/touch/site.webmanifest',
+			'{"short_name":"Sloneek","theme_color":"#123456"}'
+		);
+
+		$markup = implode( "\n", $this->tags( $this->instance() ) );
+
+		$this->assertStringContainsString( 'rel="manifest"', $markup );
+		$this->assertStringContainsString( 'name="theme-color" content="#123456"', $markup );
+		$this->assertStringContainsString( 'apple-mobile-web-app-title" content="Sloneek"', $markup );
+	}
+
+	public function test_leaves_core_alone_when_no_favicon_file_is_shipped(): void {
+		Functions\when( 'get_option' )->justReturn( 0 );
+
+		$core = [ '<link rel="icon" href="core.png" sizes="32x32" />' ];
+
+		$this->assertSame( $core, $this->instance()->site_icon_meta_tags( $core ) );
+	}
+
+	/**
+	 * Regression: an apple-only set discovered fine but answered no gate URL, so
+	 * has_site_icon() stayed false and wp_site_icon() returned before any tag
+	 * was written. Reported by Codex on PR #124.
+	 */
+	public function test_apple_only_set_still_answers_the_has_site_icon_gate(): void {
+		Functions\when( 'get_option' )->justReturn( 0 );
+		$this->ship( 'apple-touch-icon.png' );
+
+		$this->assertSame(
+			'https://example.test/theme/static/images/touch/apple-touch-icon.png',
+			$this->instance()->get_site_icon_url( '', 512, 0 )
+		);
+	}
+
+	/**
+	 * A manifest is not a picture. get_site_icon_url() is read by other code
+	 * (an SEO plugin's schema logo) that expects an image, so a manifest-only
+	 * theme must answer nothing rather than a .webmanifest.
+	 */
+	public function test_manifest_only_set_answers_no_gate_url(): void {
+		Functions\when( 'get_option' )->justReturn( 0 );
+		$this->ship( 'site.webmanifest' );
+
+		$this->assertSame( '', $this->instance()->get_site_icon_url( '', 512, 0 ) );
+	}
+
+	/**
+	 * Regression: a site_icon option pointing at a deleted attachment is truthy
+	 * but resolves to nothing, and deferring to it suppressed every tag despite
+	 * a valid theme set. Reported by Codex on PR #124.
+	 */
+	public function test_dangling_site_icon_does_not_suppress_the_theme_set(): void {
+		Functions\when( 'get_option' )->justReturn( 42 );
+		Functions\when( 'wp_get_attachment_url' )->justReturn( false );
+		$this->ship( 'favicon.svg', 'favicon-96x96.png' );
+
+		$markup = implode( "\n", $this->tags( $this->instance() ) );
+
+		$this->assertStringContainsString( 'favicon-96x96.png', $markup );
+		$this->assertSame(
+			'https://example.test/theme/static/images/touch/favicon.svg',
+			$this->instance()->get_site_icon_url( '', 512, 0 )
+		);
+	}
+
+	public function test_resolving_site_icon_still_wins_over_the_theme_set(): void {
+		Functions\when( 'get_option' )->justReturn( 42 );
+		Functions\when( 'wp_get_attachment_url' )->justReturn( 'https://example.test/uploads/icon.png' );
+		$this->ship( 'favicon.svg' );
+
+		$core = [ '<link rel="icon" href="core.png" sizes="32x32" />' ];
+
+		$this->assertSame( $core, $this->instance()->site_icon_meta_tags( $core ) );
+		$this->assertSame(
+			'https://example.test/uploads/icon.png',
+			$this->instance()->get_site_icon_url( 'https://example.test/uploads/icon.png', 512, 0 )
+		);
+	}
+}

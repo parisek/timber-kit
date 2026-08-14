@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `StarterBase::$site_icon_tags` (default off) replaces WordPress's four legacy site-icon tags with the favicon set the theme ships. Core asks `get_site_icon_url()` for 32, 192, 180 and 270 px and a theme answering with one SVG gets that SVG four times — including as `apple-touch-icon`, which iOS cannot read — plus an `msapplication-TileImage` for a Windows 8 tile. The flag probes `static/images/touch/` for known filenames and writes a tag only for a file that exists, so both RealFaviconGenerator output generations (modern `favicon.svg` + `favicon-96x96.png`, and the 2017-era 16/32 set) are handled with nothing configured; PNG `sizes` come from the filename rather than from opening the file, and `theme-color` plus `apple-mobile-web-app-title` are read from the manifest's `theme_color` and `short_name`. An uploaded Site Icon now wins over the theme's files — the off-path overrides it silently, which is why the fix is a flag and not a correction in place. `safari-pinned-tab.svg` is knowingly skipped: its `mask-icon` tag needs a tint colour no file states, and a guessed one renders worse than no pinned-tab icon.
+
 ## [1.32.0] - 2026-08-12
 
 ### Fixed
