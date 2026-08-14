@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.34.0] - 2026-08-14
+
 ### Added
 
 - **`Parisek\TimberKit\SvgDimensions` + `wp timber-kit svg-dimensions` + `StarterBase::$svg_dimensions`** — give SVG attachments the intrinsic `width`/`height` WordPress cannot measure for them, so an `<img>` reserves its box instead of shifting the layout. `getimagesize()` cannot parse SVG, so core stores no dimensions at all; the `svg-support` plugin fills part of the gap but its reader takes only the `width`/`height` attributes on the root element, so a `viewBox`-only export — the current Figma and Illustrator default — stores `intval( '' )`, i.e. `0`. Measured on one production library: 1519 of 3520 SVGs unsized, and the share **growing** by upload year (2022: 555 of 1673; 2025: 353 of 458) as export tooling moves to `viewBox`-only. All 1519 resolve, in 1.4 s.
