@@ -55,12 +55,24 @@ class SvgDimensionsCommand {
 		$dry_run = isset( $assoc_args['dry-run'] );
 		$force   = isset( $assoc_args['force'] );
 		$verbose = isset( $assoc_args['verbose'] );
-		$limit   = isset( $assoc_args['limit'] ) ? max( 0, (int) $assoc_args['limit'] ) : 0;
+		$limit   = 0;
+
+		if ( isset( $assoc_args['limit'] ) ) {
+			// `(int)` alone turns `bogus` and `-5` into 0, which this command
+			// reads as "no limit" — the opposite of what the operator asked for,
+			// on a command that writes to every attachment it visits.
+			if ( 1 !== preg_match( '/^[1-9][0-9]*$/', (string) $assoc_args['limit'] ) ) {
+				\WP_CLI::error( '--limit must be a positive whole number.' );
+			}
+
+			$limit = (int) $assoc_args['limit'];
+		}
 
 		$resolver = new SvgDimensions();
 
 		$derived    = 0;
 		$sized      = 0;
+		$unchanged  = 0;
 		$unreadable = 0;
 		$failed     = 0;
 		$seen       = 0;
@@ -112,6 +124,9 @@ class SvgDimensionsCommand {
 					case 'already_sized':
 						++$sized;
 						break;
+					case 'unchanged':
+						++$unchanged;
+						break;
 					case 'unreadable':
 						++$unreadable;
 						break;
@@ -138,15 +153,24 @@ class SvgDimensionsCommand {
 			);
 		}
 
-		\WP_CLI::success(
-			sprintf(
-				'%s dimensions for %d SVG(s) (%d already sized, %d unreadable, %d failed).',
-				$dry_run ? 'Would store' : 'Stored',
-				$derived,
-				$sized,
-				$unreadable,
-				$failed
-			)
+		$summary = sprintf(
+			'%s dimensions for %d SVG(s) (%d already sized, %d unchanged, %d unreadable, %d failed).',
+			$dry_run ? 'Would store' : 'Stored',
+			$derived,
+			$sized,
+			$unchanged,
+			$unreadable,
+			$failed
 		);
+
+		// A run that failed a write is not a success, and WP-CLI signals that with
+		// the exit code — a migration gate reads the code, not the wording. The
+		// earlier version printed a failure warning and `Success:` together, then
+		// exited 0.
+		if ( $failed > 0 ) {
+			\WP_CLI::error( $summary );
+		}
+
+		\WP_CLI::success( $summary );
 	}
 }

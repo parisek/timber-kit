@@ -109,6 +109,165 @@ class SvgDimensionsTest extends TestCase {
 		$this->assertSame( $expected, SvgDimensions::fromMarkup( $markup ) );
 	}
 
+	// --- root identification --------------------------------------------------
+
+	/**
+	 * Every case below was a wrong answer from the first implementation, which
+	 * searched for the first lexical `<svg` instead of walking the prolog. A
+	 * wrong number here is worse than none: the sweep stores it, and the next
+	 * run without --force reads it back as authoritative.
+	 *
+	 * @return array<string, array{0: string, 1: array{width: int, height: int}|null}>
+	 */
+	public static function rootProvider(): array {
+		$svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"></svg>';
+
+		return [
+			'processing instruction quoting an svg' => [
+				'<?probe fake="<svg viewBox=\'0 0 1 2\'>"?>' . $svg,
+				[ 'width' => 92, 'height' => 106 ],
+			],
+			'entity declaration quoting an svg' => [
+				'<!DOCTYPE svg [<!ENTITY fake "<svg viewBox=\'0 0 3 4\'>">]>' . $svg,
+				[ 'width' => 92, 'height' => 106 ],
+			],
+			'comment token inside a processing instruction' => [
+				'<?probe <!-- marker ?>' . $svg,
+				[ 'width' => 92, 'height' => 106 ],
+			],
+			'comment token inside an entity declaration' => [
+				'<!DOCTYPE svg [<!ENTITY fake "<!--">]>' . $svg,
+				[ 'width' => 92, 'height' => 106 ],
+			],
+			'xml declaration then doctype then root' => [
+				'<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "svg11.dtd">' . $svg,
+				[ 'width' => 92, 'height' => 106 ],
+			],
+			'cdata inside the root cannot be reached' => [
+				'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106">'
+					. '<![CDATA[<svg viewBox="0 0 5 6">]]></svg>',
+				[ 'width' => 92, 'height' => 106 ],
+			],
+			'prefixed root bound to the svg namespace' => [
+				'<svg:svg xmlns:svg="http://www.w3.org/2000/svg" viewBox="0 0 92 106"/>',
+				[ 'width' => 92, 'height' => 106 ],
+			],
+			'prefixed root in a foreign namespace is not an svg' => [
+				'<x:svg xmlns:x="http://example.com/not-svg" viewBox="0 0 92 106"/>',
+				null,
+			],
+			'a different root element' => [
+				'<html><body><svg viewBox="0 0 92 106"></svg></body></html>',
+				null,
+			],
+			'character data before the root' => [ 'oops' . $svg, null ],
+			'unterminated comment' => [ '<!-- never closed ' . $svg, null ],
+			'unterminated processing instruction' => [ '<?never closed ' . $svg, null ],
+			'unterminated internal subset' => [ '<!DOCTYPE svg [<!ENTITY a "b">' . $svg, null ],
+			'start tag that never closes' => [ '<svg viewBox="0 0 92 106"', null ],
+		];
+	}
+
+	#[DataProvider('rootProvider')]
+	public function test_fromMarkup_identifies_the_real_root( string $markup, ?array $expected ): void {
+		$this->assertSame( $expected, SvgDimensions::fromMarkup( $markup ) );
+	}
+
+	public function test_fromMarkup_reads_utf16_with_a_bom(): void {
+		if ( ! function_exists( 'mb_convert_encoding' ) ) {
+			$this->markTestSkipped( 'mbstring is required to decode UTF-16.' );
+		}
+
+		$utf8   = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"></svg>';
+		$utf16  = mb_convert_encoding( $utf8, 'UTF-16LE', 'UTF-8' );
+		$markup = "\xFF\xFE" . $utf16;
+
+		$this->assertSame( [ 'width' => 92, 'height' => 106 ], SvgDimensions::fromMarkup( $markup ) );
+	}
+
+	public function test_fromMarkup_reads_utf8_with_a_bom(): void {
+		$markup = "\xEF\xBB\xBF" . '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"/>';
+
+		$this->assertSame( [ 'width' => 92, 'height' => 106 ], SvgDimensions::fromMarkup( $markup ) );
+	}
+
+	// --- lengths --------------------------------------------------------------
+
+	/**
+	 * @return array<string, array{0: string, 1: array{width: int, height: int}|null}>
+	 */
+	public static function lengthProvider(): array {
+		return [
+			// 72pt and 25.4mm are both exactly 96px, so the pair is square --
+			// reading the viewBox instead would report 1:2.
+			'physical units convert to pixels' => [
+				'<svg width="72pt" height="25.4mm" viewBox="0 0 10 20"></svg>',
+				[ 'width' => 96, 'height' => 96 ],
+			],
+			'inches and picas' => [
+				'<svg width="2in" height="6pc"></svg>',
+				[ 'width' => 192, 'height' => 96 ],
+			],
+			'centimetres' => [
+				'<svg width="2.54cm" height="5.08cm"></svg>',
+				[ 'width' => 96, 'height' => 192 ],
+			],
+			'quarter-millimetres' => [
+				'<svg width="101.6q" height="203.2q"></svg>',
+				[ 'width' => 96, 'height' => 192 ],
+			],
+			'scientific notation' => [
+				'<svg width="1e3" height="2.5e2"></svg>',
+				[ 'width' => 1000, 'height' => 250 ],
+			],
+			'leading plus sign' => [
+				'<svg width="+92" height="+106"></svg>',
+				[ 'width' => 92, 'height' => 106 ],
+			],
+			'uppercase unit' => [
+				'<svg width="72PT" height="72PT"></svg>',
+				[ 'width' => 96, 'height' => 96 ],
+			],
+			'negative length is not a size' => [ '<svg width="-92" height="-106"></svg>', null ],
+			'em is context-dependent, not intrinsic' => [
+				'<svg width="10em" height="20em" viewBox="0 0 92 106"></svg>',
+				[ 'width' => 92, 'height' => 106 ],
+			],
+			'absurd value is refused rather than stored' => [
+				'<svg width="1e30" height="1e30"></svg>',
+				null,
+			],
+		];
+	}
+
+	#[DataProvider('lengthProvider')]
+	public function test_fromMarkup_converts_absolute_lengths( string $markup, ?array $expected ): void {
+		$this->assertSame( $expected, SvgDimensions::fromMarkup( $markup ) );
+	}
+
+	public function test_fromMarkup_combines_one_explicit_axis_with_the_viewbox_ratio(): void {
+		// The author stated 60. Reporting the viewBox's 120x52 would claim a size
+		// the file does not; 60x26 keeps both the stated axis and the ratio.
+		$this->assertSame(
+			[ 'width' => 60, 'height' => 26 ],
+			SvgDimensions::fromMarkup( '<svg width="60" viewBox="0 0 120 52"></svg>' )
+		);
+	}
+
+	public function test_fromMarkup_combines_an_explicit_height_with_the_viewbox_ratio(): void {
+		$this->assertSame(
+			[ 'width' => 60, 'height' => 26 ],
+			SvgDimensions::fromMarkup( '<svg height="26" viewBox="0 0 120 52"></svg>' )
+		);
+	}
+
+	public function test_fromMarkup_refuses_a_one_pixel_result(): void {
+		// Indistinguishable from the bogus 1px core reports for SVG (#26256),
+		// which Helpers discards on sight -- storing it writes a number the rest
+		// of the stack refuses to use.
+		$this->assertNull( SvgDimensions::fromMarkup( '<svg viewBox="0 0 1 1"></svg>' ) );
+	}
+
 	public function test_fromMarkup_ignores_a_nested_svg_element(): void {
 		// The outer element defines the intrinsic size; an inner <svg> is content.
 		$markup = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106">'
@@ -123,10 +282,19 @@ class SvgDimensionsTest extends TestCase {
 			. '<!DOCTYPE svg [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>'
 			. '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"><desc>&xxe;</desc></svg>';
 
-		// Either it parses without expanding the entity, or it refuses. Never
-		// the file's contents.
-		$result = SvgDimensions::fromMarkup( $markup );
-		$this->assertContains( $result, [ null, [ 'width' => 92, 'height' => 106 ] ] );
+		// The earlier version of this test accepted null OR the dimensions, which
+		// made it unable to fail. The contract is exact: the root is read, the
+		// entity is never expanded, and the DOCTYPE never reaches the parser.
+		$this->assertSame( [ 'width' => 92, 'height' => 106 ], SvgDimensions::fromMarkup( $markup ) );
+	}
+
+	public function test_fromMarkup_does_not_read_a_dimension_out_of_an_entity(): void {
+		// A file could declare `<!ENTITY w "92">` and use `width="&w;"`. Resolving
+		// it is the XXE vector; refusing is the documented answer.
+		$markup = '<!DOCTYPE svg [<!ENTITY w "92"><!ENTITY h "106">]>'
+			. '<svg xmlns="http://www.w3.org/2000/svg" width="&w;" height="&h;"></svg>';
+
+		$this->assertNull( SvgDimensions::fromMarkup( $markup ) );
 	}
 
 	// --- fromFile -------------------------------------------------------------
@@ -226,6 +394,138 @@ class SvgDimensionsTest extends TestCase {
 		$this->assertSame( 106, $written['height'] );
 		// The rest of the metadata survives untouched.
 		$this->assertSame( 'a.svg', $written['file'] );
+	}
+
+	public function test_backfill_keeps_a_stored_width_while_filling_the_missing_height(): void {
+		// The guarantee in this class, the README and the changelog is that
+		// another plugin's answer stands. Treating the pair atomically broke it:
+		// a missing height caused a valid width to be overwritten too.
+		$file = $this->tempSvg( '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"></svg>' );
+
+		Functions\when( 'get_post_mime_type' )->justReturn( 'image/svg+xml' );
+		Functions\when( 'get_attached_file' )->justReturn( $file );
+		Functions\when( 'wp_get_attachment_metadata' )->justReturn( [ 'file' => 'a.svg', 'width' => 60 ] );
+
+		$written = null;
+		Functions\when( 'wp_update_attachment_metadata' )->alias(
+			function ( $id, $meta ) use ( &$written ) {
+				$written = $meta;
+				return true;
+			}
+		);
+
+		$result = ( new SvgDimensions() )->backfill( 7 );
+
+		$this->assertSame( 'derived', $result['status'] );
+		$this->assertSame( 60, $result['width'] );
+		$this->assertSame( 106, $result['height'] );
+		$this->assertSame( 60, $written['width'] );
+		$this->assertSame( 106, $written['height'] );
+	}
+
+	public function test_backfill_keeps_a_stored_height_while_filling_the_missing_width(): void {
+		$file = $this->tempSvg( '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"></svg>' );
+
+		Functions\when( 'get_post_mime_type' )->justReturn( 'image/svg+xml' );
+		Functions\when( 'get_attached_file' )->justReturn( $file );
+		Functions\when( 'wp_get_attachment_metadata' )->justReturn( [ 'height' => 26, 'width' => 0 ] );
+		Functions\when( 'wp_update_attachment_metadata' )->justReturn( true );
+
+		$result = ( new SvgDimensions() )->backfill( 7 );
+
+		$this->assertSame( 92, $result['width'] );
+		$this->assertSame( 26, $result['height'] );
+	}
+
+	public function test_backfill_reads_unfiltered_metadata(): void {
+		// wp_get_attachment_metadata() runs the stored array through filters and
+		// this method writes back what it read, so a plugin that rewrites paths
+		// on read would have its projection persisted.
+		$file = $this->tempSvg( '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"></svg>' );
+
+		Functions\when( 'get_post_mime_type' )->justReturn( 'image/svg+xml' );
+		Functions\when( 'get_attached_file' )->justReturn( $file );
+		Functions\when( 'wp_update_attachment_metadata' )->justReturn( true );
+
+		$unfiltered = null;
+		Functions\when( 'wp_get_attachment_metadata' )->alias(
+			function ( $id, $flag = false ) use ( &$unfiltered ) {
+				$unfiltered = $flag;
+				return [];
+			}
+		);
+
+		( new SvgDimensions() )->backfill( 7 );
+
+		$this->assertTrue( $unfiltered );
+	}
+
+	public function test_backfill_reports_unchanged_rather_than_failed(): void {
+		// wp_update_attachment_metadata() returns false when nothing changed, not
+		// only on failure, so --force on an already-correct file used to report
+		// a failure that had not happened.
+		$file = $this->tempSvg( '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"></svg>' );
+
+		Functions\when( 'get_post_mime_type' )->justReturn( 'image/svg+xml' );
+		Functions\when( 'get_attached_file' )->justReturn( $file );
+		Functions\when( 'wp_get_attachment_metadata' )->justReturn( [ 'width' => 92, 'height' => 106 ] );
+		Functions\expect( 'wp_update_attachment_metadata' )->never();
+
+		$this->assertSame( 'unchanged', ( new SvgDimensions() )->backfill( 7, true )['status'] );
+	}
+
+	public function test_backfill_confirms_a_false_return_against_the_database(): void {
+		$file = $this->tempSvg( '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"></svg>' );
+
+		Functions\when( 'get_post_mime_type' )->justReturn( 'image/svg+xml' );
+		Functions\when( 'get_attached_file' )->justReturn( $file );
+		Functions\when( 'wp_update_attachment_metadata' )->justReturn( false );
+
+		$calls = 0;
+		Functions\when( 'wp_get_attachment_metadata' )->alias(
+			function () use ( &$calls ) {
+				++$calls;
+				// Second read is the confirmation: the write did land.
+				return $calls > 1 ? [ 'width' => 92, 'height' => 106 ] : [];
+			}
+		);
+
+		$this->assertSame( 'derived', ( new SvgDimensions() )->backfill( 7 )['status'] );
+	}
+
+	public function test_backfill_force_actually_writes(): void {
+		$file = $this->tempSvg( '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"></svg>' );
+
+		Functions\when( 'get_post_mime_type' )->justReturn( 'image/svg+xml' );
+		Functions\when( 'get_attached_file' )->justReturn( $file );
+		Functions\when( 'wp_get_attachment_metadata' )->justReturn( [ 'width' => 60, 'height' => 26 ] );
+
+		$written = null;
+		Functions\when( 'wp_update_attachment_metadata' )->alias(
+			function ( $id, $meta ) use ( &$written ) {
+				$written = $meta;
+				return true;
+			}
+		);
+
+		$this->assertSame( 'derived', ( new SvgDimensions() )->backfill( 7, true )['status'] );
+		$this->assertSame( [ 'width' => 92, 'height' => 106 ], $written );
+	}
+
+	public function test_filter_keeps_a_stored_width_while_filling_the_missing_height(): void {
+		$file = $this->tempSvg( '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"></svg>' );
+
+		Functions\when( 'get_post_mime_type' )->justReturn( 'image/svg+xml' );
+		Functions\when( 'get_attached_file' )->justReturn( $file );
+
+		$metadata = ( new SvgDimensions() )->filterGeneratedMetadata(
+			[ 'width' => 60, 'height' => 0, 'sizes' => [ 'thumbnail' => [] ] ],
+			7
+		);
+
+		$this->assertSame( 60, $metadata['width'] );
+		$this->assertSame( 106, $metadata['height'] );
+		$this->assertSame( [ 'thumbnail' => [] ], $metadata['sizes'] );
 	}
 
 	public function test_backfill_leaves_dimensions_another_plugin_already_stored(): void {

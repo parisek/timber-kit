@@ -51,6 +51,15 @@ class Helpers {
 		$height = ( isset( $raw['height'] ) && is_numeric( $raw['height'] ) && (int) $raw['height'] > 1 ) ? (int) $raw['height'] : null;
 		$id     = ( isset( $raw['ID'] )     && is_numeric( $raw['ID'] ) )                              ? (int) $raw['ID']     : null;
 
+		// The guard above is right about the 1px value and has nothing to read
+		// for SVG, because core measures none. Resolving from the file here is
+		// what makes an <img> reserve its box without the site having run the
+		// sweep first. No-op for every other type, and for an SVG whose metadata
+		// already carries both axes.
+		$resolved = SvgDimensions::resolve( $id, isset( $raw['mime_type'] ) ? (string) $raw['mime_type'] : null, $width, $height );
+		$width    = $resolved['width'];
+		$height   = $resolved['height'];
+
 		return [
 			'id'          => $id,
 			'src'         => isset( $raw['url'] )         ? (string) $raw['url']         : null,
@@ -101,6 +110,15 @@ class Helpers {
 			// https://core.trac.wordpress.org/ticket/26256
 			$width  = ( ! empty( $image->width )  && $image->width  > 1 ) ? $image->width  : null;
 			$height = ( ! empty( $image->height ) && $image->height > 1 ) ? $image->height : null;
+			// Same resolution as the array branch above — see the note there.
+			$resolved = SvgDimensions::resolve(
+				is_numeric( $image->ID ) ? (int) $image->ID : null,
+				isset( $image->post_mime_type ) ? (string) $image->post_mime_type : null,
+				null !== $width ? (int) $width : null,
+				null !== $height ? (int) $height : null
+			);
+			$width    = $resolved['width'];
+			$height   = $resolved['height'];
 			$data[] = [
 				'id'          => $image->ID,
 				'src'         => $image->src,

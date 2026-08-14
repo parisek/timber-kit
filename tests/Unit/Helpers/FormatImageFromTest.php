@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Helpers;
 
+use Brain\Monkey\Functions;
 use Parisek\TimberKit\Helpers;
 use Tests\Unit\HelpersTestCase;
 
@@ -60,6 +61,11 @@ class FormatImageFromTest extends HelpersTestCase {
 			'caption'     => '',
 			'description' => '',
 		];
+
+		// The read path now tries to resolve an SVG's real size from its file.
+		// Point it at nothing, so this keeps testing the 1px guard rather than
+		// the resolver: with no file to read, both axes must still come back null.
+		Functions\when( 'get_attached_file' )->justReturn( '/nonexistent/icon.svg' );
 
 		$result = Helpers::formatImageFrom( $raw );
 		$this->assertNull( $result['width'] );
