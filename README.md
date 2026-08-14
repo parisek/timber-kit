@@ -583,6 +583,50 @@ class Base extends StarterBase {
 }
 ```
 
+## Site icon tags
+
+WordPress emits four site-icon tags: `icon` at 32 and 192 px, `apple-touch-icon`,
+and `msapplication-TileImage`. It asks `get_site_icon_url()` for each size, so a
+theme that answers with one SVG gets that SVG in all four — including
+`apple-touch-icon`, which iOS cannot read, and a Windows 8 tile nobody wants.
+Themes work around it by hardcoding their own `<link rel="icon">` block in the
+layout, and then both sets render.
+
+`$site_icon_tags` replaces core's set with the files the theme actually ships:
+
+```php
+class Base extends StarterBase {
+    public function __construct() {
+        $this->site_icon_tags = true;
+
+        parent::__construct();
+    }
+}
+```
+
+Nothing is configured. `static/images/touch/` is probed for known filenames and
+a tag is written only for a file that exists, so both RealFaviconGenerator
+output generations work unchanged:
+
+| Slot | Filenames, first hit wins | Tag |
+| --- | --- | --- |
+| SVG icon | `favicon.svg` | `<link rel="icon" type="image/svg+xml">` |
+| PNG icon | `favicon-96x96.png`, `favicon-32x32.png`, `favicon-16x16.png` | `<link rel="icon" type="image/png" sizes>` — sizes read from the filename |
+| Shortcut | `favicon.ico` | `<link rel="shortcut icon">` |
+| Apple touch | `apple-touch-icon.png` | `<link rel="apple-touch-icon" sizes="180x180">` |
+| Manifest | `site.webmanifest`, `manifest.json` | `<link rel="manifest">`, plus `theme-color` and `apple-mobile-web-app-title` read from its `theme_color` and `short_name` |
+
+Two deliberate omissions. `safari-pinned-tab.svg` gets no `mask-icon` tag,
+because that tag needs a tint colour no file states and a guessed one renders
+worse than no pinned-tab icon. `msapplication-TileImage` is dropped outright.
+
+An uploaded Site Icon wins. When one is set in Settings → General, this filter
+steps aside and WordPress uses it — the flag's off-path does the opposite, and
+overrides the editor's upload silently.
+
+A theme that shipped no favicon file wires nothing, so core keeps whatever it
+would have done.
+
 ## Configuration
 
 Override these properties in your child constructor before calling `parent::__construct()`:
@@ -617,7 +661,8 @@ For an admin label without a dedicated setup hook (e.g. an options-page `page_ti
 | `$search_post_types` | array | `['post']` | Post types for search |
 | `$article_post_types` | array | `['post']` | Post types treated as articles |
 | `$block_category` | array | `['slug' => 'custom', 'title' => 'Custom']` | Custom block category |
-| `$favicon_path` | string | `'images/touch/favicon.svg'` | Favicon path |
+| `$favicon_path` | string | `'images/touch/favicon.svg'` | Favicon path. Read only while `$site_icon_tags` is off |
+| `$site_icon_tags` | bool | `false` | Emit the favicon set found in `static/images/touch/` instead of WordPress's four legacy site-icon tags. Opt-in — it changes rendered `<head>` output. See [Site icon tags](#site-icon-tags) |
 | `$context_privacy_policy` | bool | `false` | Opt-in: populate the site's privacy-policy URL (`get_privacy_policy_url()`) into the Timber context under `$privacy_policy_context_key`. Off by default — the key typically drives a cookie-consent partial, which must not appear on projects that ship without one |
 | `$privacy_policy_context_key` | string | `'ccnstL'` | Context key for the privacy-policy URL. The default is deliberately non-semantic so cookie-consent markup keyed off it stays invisible to ad-block heuristics |
 

@@ -81,4 +81,58 @@ class RegisterAssetHooksTest extends StarterBaseTestCase {
 
 		$this->assertNotContains( 'get_site_icon_url', $filters );
 	}
+
+	public function test_site_icon_tags_off_by_default_leaves_meta_tag_filter_unregistered(): void {
+		$tmpDir = sys_get_temp_dir() . '/timber-kit-hooks-' . uniqid();
+		@mkdir( $tmpDir . '/static/images/touch', 0777, true );
+		file_put_contents( $tmpDir . '/static/images/touch/favicon.svg', '<svg/>' );
+
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+		Functions\when( 'get_template_directory' )->justReturn( $tmpDir );
+
+		$this->invokeRegisterAssetHooks( $this->bareInstance() );
+
+		$this->assertContains( 'get_site_icon_url', $filters, 'legacy path must stay wired' );
+		$this->assertNotContains( 'site_icon_meta_tags', $filters );
+	}
+
+	public function test_site_icon_tags_on_registers_the_meta_tag_filter(): void {
+		$tmpDir = sys_get_temp_dir() . '/timber-kit-hooks-' . uniqid();
+		@mkdir( $tmpDir . '/static/images/touch', 0777, true );
+		file_put_contents( $tmpDir . '/static/images/touch/favicon.svg', '<svg/>' );
+
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+		Functions\when( 'get_template_directory' )->justReturn( $tmpDir );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'site_icon_tags', true );
+		$this->invokeRegisterAssetHooks( $instance );
+
+		$this->assertContains( 'site_icon_meta_tags', $filters );
+		$this->assertContains( 'get_site_icon_url', $filters );
+	}
+
+	public function test_site_icon_tags_on_stays_unwired_when_the_theme_ships_no_favicon(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+		Functions\when( 'get_template_directory' )->justReturn( '/nonexistent/path/that/will/not/exist' );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'site_icon_tags', true );
+		$this->invokeRegisterAssetHooks( $instance );
+
+		$this->assertNotContains( 'site_icon_meta_tags', $filters );
+		$this->assertNotContains( 'get_site_icon_url', $filters );
+	}
 }

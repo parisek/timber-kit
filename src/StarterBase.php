@@ -101,8 +101,19 @@ class StarterBase extends Site {
 		'core/block',
 	];
 
-	/** @var string Relative path to favicon SVG from the static/ directory. */
+	/** @var string Relative path to favicon SVG from the static/ directory. Read only on the legacy path, when $site_icon_tags is off. */
 	protected string $favicon_path = 'images/touch/favicon.svg';
+
+	/**
+	 * @var bool Replace WordPress's four legacy site-icon tags with the favicon
+	 * set discovered in static/images/touch/. Opt-in because it changes rendered
+	 * <head> output: core emits an SVG for apple-touch-icon (which iOS cannot
+	 * read) plus an msapplication-TileImage nobody wants, and a theme that
+	 * already hardcodes its own favicon markup would end up with both sets.
+	 * Off keeps the historical behaviour — $favicon_path overriding every
+	 * requested size, uploaded Site Icon included.
+	 */
+	protected bool $site_icon_tags = false;
 
 	/** @var string Relative path to typography YAML config from the static/ directory. */
 	protected string $typography_config = 'typography.yml';
@@ -749,7 +760,13 @@ class StarterBase extends Site {
 		add_action( 'admin_enqueue_scripts', array( $this, 'admin_enqueue_scripts' ) );
 		add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_block_editor_assets' ) );
 		add_filter( 'block_editor_settings_all', array( $this, 'inject_font_editor_styles' ), 10, 2 );
-		if ( is_file( get_template_directory() . '/static/' . $this->favicon_path ) ) {
+		if ( $this->site_icon_tags && $this->discover_favicons() !== array() ) {
+			// Both filters are needed. site_icon_meta_tags supplies the markup;
+			// get_site_icon_url exists to make has_site_icon() true, which is the
+			// gate wp_site_icon() returns on before any filter runs.
+			add_filter( 'get_site_icon_url', array( $this, 'get_site_icon_url' ), 10, 3 );
+			add_filter( 'site_icon_meta_tags', array( $this, 'site_icon_meta_tags' ) );
+		} elseif ( ! $this->site_icon_tags && is_file( get_template_directory() . '/static/' . $this->favicon_path ) ) {
 			add_filter( 'get_site_icon_url', array( $this, 'get_site_icon_url' ), 10, 3 );
 		}
 	}
@@ -3305,7 +3322,201 @@ class StarterBase extends Site {
 	 * @return string Favicon URL from theme's static directory.
 	 */
 	public function get_site_icon_url( $url, $size, $blog_id ) {
+		if ( $this->site_icon_tags ) {
+			// An uploaded Site Icon is the editor's explicit choice; do not override it.
+			if ( get_option( 'site_icon' ) ) {
+				return $url;
+			}
+
+			$found = $this->discover_favicons();
+
+			// Only used to satisfy has_site_icon(); site_icon_meta_tags() writes
+			// the real markup, so any shipped file answers here.
+			return $this->favicon_url( $found['svg'] ?? $found['png'] ?? $found['ico'] ?? '' );
+		}
+
 		return get_template_directory_uri() . '/static/' . $this->favicon_path;
+	}
+
+	/**
+	 * Directory, relative to the theme's static/ dir, probed for favicon files.
+	 */
+	private const FAVICON_DIR = 'images/touch/';
+
+	/**
+	 * Filenames probed per slot, first hit wins. Deliberately a convention and
+	 * not a configurable path list: the truth is already on disk, and the two
+	 * RealFaviconGenerator output generations in circulation (modern
+	 * favicon.svg + favicon-96x96.png, and the 2017-era 16/32 set) differ only
+	 * in which of these files they ship.
+	 *
+	 * safari-pinned-tab.svg is knowingly left out. Its mask-icon tag needs an
+	 * author-chosen tint colour that cannot be inferred from the file, and a
+	 * guessed colour renders worse than no pinned-tab icon.
+	 */
+	private const FAVICON_CANDIDATES = array(
+		'svg'      => array( 'favicon.svg' ),
+		'png'      => array( 'favicon-96x96.png', 'favicon-32x32.png', 'favicon-16x16.png' ),
+		'ico'      => array( 'favicon.ico' ),
+		'apple'    => array( 'apple-touch-icon.png' ),
+		'manifest' => array( 'site.webmanifest', 'manifest.json' ),
+	);
+
+	/** @var array<string,string>|null Memoized result of discover_favicons(). */
+	private ?array $favicons = null;
+
+	/**
+	 * Find which favicon files the theme actually ships.
+	 *
+	 * @return array<string,string> Slot => filename, for slots with a file on disk.
+	 */
+	private function discover_favicons(): array {
+		if ( null !== $this->favicons ) {
+			return $this->favicons;
+		}
+
+		$dir   = get_template_directory() . '/static/' . self::FAVICON_DIR;
+		$found = array();
+
+		foreach ( self::FAVICON_CANDIDATES as $slot => $candidates ) {
+			foreach ( $candidates as $filename ) {
+				if ( is_file( $dir . $filename ) ) {
+					$found[ $slot ] = $filename;
+					break;
+				}
+			}
+		}
+
+		$this->favicons = $found;
+
+		return $found;
+	}
+
+	private function favicon_url( string $filename ): string {
+		if ( '' === $filename ) {
+			return '';
+		}
+
+		return get_template_directory_uri() . '/static/' . self::FAVICON_DIR . $filename;
+	}
+
+	/**
+	 * Replace the site-icon tags WordPress builds with the set the theme ships.
+	 *
+	 * Core asks get_site_icon_url() for 32, 192, 180 and 270 px and gets the
+	 * same URL four times, so it emits an SVG as apple-touch-icon — which iOS
+	 * cannot read — plus an msapplication-TileImage for a Windows 8 tile. This
+	 * writes the files that exist instead, at the sizes they really are.
+	 *
+	 * Hooked to `site_icon_meta_tags` only when $site_icon_tags is on.
+	 *
+	 * @param string[] $meta_tags Tags core assembled.
+	 * @return string[]
+	 */
+	public function site_icon_meta_tags( $meta_tags ) {
+		if ( get_option( 'site_icon' ) ) {
+			return $meta_tags;
+		}
+
+		$found = $this->discover_favicons();
+
+		if ( array() === $found ) {
+			return $meta_tags;
+		}
+
+		$tags = array();
+
+		if ( isset( $found['svg'] ) ) {
+			$tags[] = sprintf(
+				'<link rel="icon" type="image/svg+xml" href="%s" />',
+				esc_url( $this->favicon_url( $found['svg'] ) )
+			);
+		}
+
+		if ( isset( $found['png'] ) ) {
+			$sizes  = $this->favicon_sizes( $found['png'] );
+			$tags[] = sprintf(
+				'<link rel="icon" type="image/png"%s href="%s" />',
+				'' === $sizes ? '' : sprintf( ' sizes="%s"', esc_attr( $sizes ) ),
+				esc_url( $this->favicon_url( $found['png'] ) )
+			);
+		}
+
+		if ( isset( $found['ico'] ) ) {
+			$tags[] = sprintf(
+				'<link rel="shortcut icon" href="%s" />',
+				esc_url( $this->favicon_url( $found['ico'] ) )
+			);
+		}
+
+		if ( isset( $found['apple'] ) ) {
+			$tags[] = sprintf(
+				'<link rel="apple-touch-icon" sizes="180x180" href="%s" />',
+				esc_url( $this->favicon_url( $found['apple'] ) )
+			);
+		}
+
+		if ( isset( $found['manifest'] ) ) {
+			$tags[] = sprintf(
+				'<link rel="manifest" href="%s" />',
+				esc_url( $this->favicon_url( $found['manifest'] ) )
+			);
+
+			$manifest = $this->read_manifest( $found['manifest'] );
+
+			if ( isset( $manifest['theme_color'] ) && is_string( $manifest['theme_color'] ) ) {
+				$tags[] = sprintf(
+					'<meta name="theme-color" content="%s" />',
+					esc_attr( $manifest['theme_color'] )
+				);
+			}
+
+			$title = $manifest['short_name'] ?? $manifest['name'] ?? null;
+
+			if ( is_string( $title ) && '' !== $title ) {
+				$tags[] = sprintf(
+					'<meta name="apple-mobile-web-app-title" content="%s" />',
+					esc_attr( $title )
+				);
+			}
+		}
+
+		return $tags;
+	}
+
+	/**
+	 * Read the pixel dimensions a favicon filename encodes (favicon-96x96.png).
+	 *
+	 * Filename-derived on purpose — getimagesize() would open the file on every
+	 * request to learn what the name already states.
+	 */
+	private function favicon_sizes( string $filename ): string {
+		if ( 1 === preg_match( '/-(\d+x\d+)\./', $filename, $matches ) ) {
+			return $matches[1];
+		}
+
+		return '';
+	}
+
+	/**
+	 * @return array<string,mixed>
+	 */
+	private function read_manifest( string $filename ): array {
+		$path = get_template_directory() . '/static/' . self::FAVICON_DIR . $filename;
+
+		if ( ! is_readable( $path ) ) {
+			return array();
+		}
+
+		$raw = file_get_contents( $path );
+
+		if ( false === $raw ) {
+			return array();
+		}
+
+		$decoded = json_decode( $raw, true );
+
+		return is_array( $decoded ) ? $decoded : array();
 	}
 
 	// =========================================================================
