@@ -718,7 +718,21 @@ An SVG attachment usually reaches the browser as an `<img>` with no `width` and 
 
 Two layers cause it, and neither is timber-kit's. `getimagesize()` cannot parse SVG, so core's `wp_generate_attachment_metadata()` stores no dimensions for `image/svg+xml` at all. The `svg-support` plugin fills part of the gap, but its reader takes only the `width` and `height` attributes on the root element — an SVG exported with just a `viewBox`, the current Figma and Illustrator default, yields an empty string it stores as `0`. Measured on one production library: **1519 of 3520** SVGs unsized, and the share growing each year as export tooling moves to `viewBox`-only.
 
-**Nothing to configure for templates.** `Helpers::formatImage()` resolves a missing axis from the file, so a `<picture>` gets its dimensions on any project, immediately. It costs 0.06 ms per distinct file and is memoised per request, so a logo marquee repeating 30 files across 90 `<img>` elements opens each once. Nothing is written during a render.
+**Nothing to configure for templates.** `Helpers::formatImage()` resolves a missing axis from the file, so a `<picture>` gets its dimensions on any project, immediately. Nothing is written during a render.
+
+It runs for every image, so the cost is bounded deliberately and is asserted rather than argued:
+
+| | |
+| --- | --- |
+| Not an SVG, or an SVG that already has both axes | returns on the first comparison, opens nothing — **0.095 us** |
+| An SVG missing an axis, first time in the request | one bounded read of the file head — **0.086 ms** |
+| The same attachment again | memoised, including a refusal |
+
+Instrumented on a real page carrying 152 SVG `<img>` elements: **399 calls, 271 of them returning immediately, 128 resolutions, ~11 ms** total per uncached render. Nothing on a cached hit, since no PHP runs.
+
+**Run the sweep and that 11 ms goes away** — with dimensions in metadata the read path skips every image. The two are not redundant: the read path is the safety net that makes a template correct everywhere, the sweep is what makes it free.
+
+`get_attached_file()` is the only route to the filesystem here, and the tests assert it is never called for a raster image — a measurement drifts, an assertion does not.
 
 Stored metadata is still worth having — the media library, `wp_get_attachment_image_src()` and srcset read it and never go through `Helpers` — so there are two writers:
 

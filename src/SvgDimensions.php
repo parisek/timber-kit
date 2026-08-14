@@ -204,7 +204,7 @@ class SvgDimensions {
 	 * @param int|null    $height Height already known, if any.
 	 * @return array{width: int|null, height: int|null}
 	 */
-	public static function resolve( ?int $id, ?string $mime, ?int $width, ?int $height ): array {
+	public static function resolveSvg( ?int $id, ?string $mime, ?int $width, ?int $height ): array {
 		if ( ( null !== $width && null !== $height ) || 'image/svg+xml' !== $mime || null === $id ) {
 			return [ 'width' => $width, 'height' => $height ];
 		}

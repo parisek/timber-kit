@@ -72,6 +72,44 @@ class FormatImageFromTest extends HelpersTestCase {
 		$this->assertNull( $result['height'] );
 	}
 
+	public function test_a_raster_image_never_reaches_the_filesystem(): void {
+		// formatImageFrom() runs for every image on a page. The SVG resolver added
+		// to it must cost a comparison, not a file open -- measured 0.095 us per
+		// non-SVG call, but a measurement can drift and this cannot.
+		Functions\expect( 'get_attached_file' )->never();
+
+		$result = Helpers::formatImageFrom(
+			[
+				'ID'        => 11,
+				'url'       => 'https://example.com/photo.jpg',
+				'mime_type' => 'image/jpeg',
+				'width'     => 800,
+				'height'    => 600,
+			]
+		);
+
+		$this->assertSame( 800, $result['width'] );
+		$this->assertSame( 600, $result['height'] );
+	}
+
+	public function test_a_raster_image_missing_its_size_is_left_alone(): void {
+		// The resolver is for SVG only: core measures every other type at upload,
+		// so a missing size there means something else is wrong and guessing at it
+		// is not this code's job.
+		Functions\expect( 'get_attached_file' )->never();
+
+		$result = Helpers::formatImageFrom(
+			[
+				'ID'        => 12,
+				'url'       => 'https://example.com/photo.jpg',
+				'mime_type' => 'image/jpeg',
+			]
+		);
+
+		$this->assertNull( $result['width'] );
+		$this->assertNull( $result['height'] );
+	}
+
 	public function test_missing_keys_default_to_null_without_warning(): void {
 		$prevLevel = error_reporting( E_ALL );
 		set_error_handler( static function ( int $errno, string $errstr ): bool {

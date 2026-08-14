@@ -368,6 +368,104 @@ class SvgDimensionsTest extends TestCase {
 		$this->assertSame( [ 'width' => 92, 'height' => 106 ], SvgDimensions::fromMarkup( $markup ) );
 	}
 
+	// --- resolveSvg (the read path) -------------------------------------------
+
+	/**
+	 * The read path runs for every image a template asks for, so "it only touches
+	 * SVG" has to be provable rather than argued. `get_attached_file` is the gate
+	 * to the filesystem: if it is never called, nothing was read.
+	 *
+	 * @return array<string, array{0: string|null, 1: int|null, 2: int|null}>
+	 */
+	public static function noFilesystemProvider(): array {
+		return [
+			'a raster image missing both axes' => [ 'image/jpeg', null, null ],
+			'a raster image with both axes'    => [ 'image/png', 800, 600 ],
+			'an SVG that already has both'     => [ 'image/svg+xml', 60, 26 ],
+			'a PDF'                            => [ 'application/pdf', null, null ],
+			'no mime type at all'              => [ null, null, null ],
+		];
+	}
+
+	#[DataProvider('noFilesystemProvider')]
+	public function test_resolveSvg_touches_no_file( ?string $mime, ?int $width, ?int $height ): void {
+		Functions\expect( 'get_attached_file' )->never();
+
+		$result = SvgDimensions::resolveSvg( 4242, $mime, $width, $height );
+
+		// And it hands back exactly what it was given.
+		$this->assertSame( [ 'width' => $width, 'height' => $height ], $result );
+	}
+
+	public function test_resolveSvg_touches_no_file_without_an_id(): void {
+		Functions\expect( 'get_attached_file' )->never();
+
+		$this->assertSame(
+			[ 'width' => null, 'height' => null ],
+			SvgDimensions::resolveSvg( null, 'image/svg+xml', null, null )
+		);
+	}
+
+	public function test_resolveSvg_fills_a_missing_axis_for_an_svg(): void {
+		$file = $this->tempSvg( '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"></svg>' );
+
+		Functions\when( 'get_attached_file' )->justReturn( $file );
+
+		$this->assertSame(
+			[ 'width' => 92, 'height' => 106 ],
+			SvgDimensions::resolveSvg( 4301, 'image/svg+xml', null, null )
+		);
+	}
+
+	public function test_resolveSvg_keeps_a_known_axis(): void {
+		$file = $this->tempSvg( '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"></svg>' );
+
+		Functions\when( 'get_attached_file' )->justReturn( $file );
+
+		$this->assertSame(
+			[ 'width' => 60, 'height' => 106 ],
+			SvgDimensions::resolveSvg( 4302, 'image/svg+xml', 60, null )
+		);
+	}
+
+	public function test_resolveSvg_opens_a_repeated_file_once(): void {
+		// A logo marquee renders the same attachment many times; without the memo
+		// that is one file open per <img> rather than per file.
+		$file = $this->tempSvg( '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 92 106"></svg>' );
+
+		$opens = 0;
+		Functions\when( 'get_attached_file' )->alias(
+			function () use ( $file, &$opens ) {
+				++$opens;
+				return $file;
+			}
+		);
+
+		for ( $i = 0; $i < 30; $i++ ) {
+			SvgDimensions::resolveSvg( 4303, 'image/svg+xml', null, null );
+		}
+
+		$this->assertSame( 1, $opens );
+	}
+
+	public function test_resolveSvg_remembers_a_refusal_too(): void {
+		// An unreadable file must not be retried on every image either.
+		$opens = 0;
+		Functions\when( 'get_attached_file' )->alias(
+			function () use ( &$opens ) {
+				++$opens;
+				return '/nonexistent/nope.svg';
+			}
+		);
+
+		for ( $i = 0; $i < 10; $i++ ) {
+			$result = SvgDimensions::resolveSvg( 4304, 'image/svg+xml', null, null );
+		}
+
+		$this->assertSame( 1, $opens );
+		$this->assertSame( [ 'width' => null, 'height' => null ], $result );
+	}
+
 	// --- backfill -------------------------------------------------------------
 
 	public function test_backfill_fills_missing_dimensions(): void {
