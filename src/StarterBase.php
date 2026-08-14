@@ -115,6 +115,21 @@ class StarterBase extends Site {
 	 */
 	protected bool $site_icon_tags = false;
 
+	/**
+	 * @var bool Derive and store intrinsic width/height for SVG uploads that
+	 * arrive without them. Opt-in because it changes rendered output: an <img>
+	 * that carried no dimensions starts carrying them, which is the point — the
+	 * browser can then reserve the box instead of shifting the layout — but it
+	 * is still a change to markup a project may have laid out around.
+	 * Core measures nothing for SVG (getimagesize cannot parse it), and the
+	 * svg-support plugin reads only the width/height attributes, so a viewBox-only
+	 * export (the current Figma and Illustrator default) stores 0. This fills that
+	 * gap and never overwrites a value another plugin already resolved.
+	 * Off affects new uploads only; existing attachments are the
+	 * `wp timber-kit svg-dimensions` command's job either way.
+	 */
+	protected bool $svg_dimensions = false;
+
 	/** @var string Relative path to typography YAML config from the static/ directory. */
 	protected string $typography_config = 'typography.yml';
 
@@ -715,6 +730,10 @@ class StarterBase extends Site {
 		\WP_CLI::add_command( 'timber-kit acfml-sync-preferences', \Parisek\TimberKit\Cli\AcfmlSyncPreferencesCommand::class );
 		\WP_CLI::add_command( 'timber-kit wpml-cleanup-theme-domain', \Parisek\TimberKit\Cli\WpmlCleanupThemeDomainCommand::class );
 		\WP_CLI::add_command( 'timber-kit outage-screen', \Parisek\TimberKit\Cli\OutageScreenCommand::class );
+		// Registered regardless of $svg_dimensions: a sweep a human runs on purpose
+		// is opt-in by being typed, and the existing backlog needs fixing on
+		// projects that have not flipped the upload flag.
+		\WP_CLI::add_command( 'timber-kit svg-dimensions', \Parisek\TimberKit\Cli\SvgDimensionsCommand::class );
 	}
 
 	/**
@@ -858,6 +877,17 @@ class StarterBase extends Site {
 		// timber-kit is authoritative over the threshold across the fleet, and the
 		// callback returns 0 to disable core scaling entirely. See the callback note.
 		add_filter( 'big_image_size_threshold', array( $this, 'big_image_size_threshold' ), 10, 1 );
+		// Priority 20, deliberately above the default: svg-support and friends hook
+		// this at 10, and the contract here is to fill only what they left empty.
+		// Racing them at the same priority would decide the winner by load order.
+		if ( $this->svg_dimensions ) {
+			add_filter(
+				'wp_generate_attachment_metadata',
+				array( new \Parisek\TimberKit\SvgDimensions(), 'filterGeneratedMetadata' ),
+				20,
+				2
+			);
+		}
 	}
 
 	/**

@@ -56,6 +56,9 @@ class FormatImageTest extends HelpersTestCase {
 	}
 
 	public function test_svg_1px_width_fix(): void {
+		// The read path now tries to resolve an SVG's real size from its file.
+		// Point it at nothing, so this keeps testing the 1px guard.
+		Functions\when( 'get_attached_file' )->justReturn( '/nonexistent/icon.svg' );
 		$image = [
 			'ID'          => 1,
 			'url'         => 'https://example.com/icon.svg',
@@ -74,6 +77,9 @@ class FormatImageTest extends HelpersTestCase {
 	}
 
 	public function test_svg_1px_width_fix_object(): void {
+		// The read path now tries to resolve an SVG's real size from its file.
+		// Point it at nothing, so this keeps testing the 1px guard.
+		Functions\when( 'get_attached_file' )->justReturn( '/nonexistent/icon.svg' );
 		$image = (object) [
 			'ID'             => 1,
 			'src'            => 'https://example.com/icon.svg',
@@ -234,6 +240,9 @@ class FormatImageTest extends HelpersTestCase {
 	// ------------------------------------------------------------------
 
 	public function test_numeric_id_branch_applies_svg_1px_guard(): void {
+		// The read path now tries to resolve an SVG's real size from its file.
+		// Point it at nothing, so this keeps testing the 1px guard.
+		Functions\when( 'get_attached_file' )->justReturn( '/nonexistent/icon.svg' );
 		Functions\when( 'acf_get_attachment' )->alias( function ( $id ) {
 			return [
 				'ID'          => $id,
@@ -255,6 +264,9 @@ class FormatImageTest extends HelpersTestCase {
 	}
 
 	public function test_url_branch_applies_svg_1px_guard(): void {
+		// The read path now tries to resolve an SVG's real size from its file.
+		// Point it at nothing, so this keeps testing the 1px guard.
+		Functions\when( 'get_attached_file' )->justReturn( '/nonexistent/icon.svg' );
 		Functions\when( 'attachment_url_to_postid' )->justReturn( 7 );
 		Functions\when( 'acf_get_attachment' )->alias( function ( $id ) {
 			return [

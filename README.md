@@ -443,6 +443,7 @@ of these went undocumented for several releases.
 |---|---|
 | `wp timber-kit updates` | Runs pending block-data migrations. See § Block data migrations. |
 | `wp timber-kit prune-originals` | Deletes preserved full-resolution originals of `-scaled` images. See § Media processing. |
+| `wp timber-kit svg-dimensions` | Derives and stores intrinsic `width`/`height` for SVG attachments that have none. See § SVG dimensions. |
 | `wp timber-kit convert-utf8mb4` | Converts legacy `utf8` tables and columns to `utf8mb4`. |
 | `wp timber-kit acfml-sync-preferences` | Reconciles WPML translation preferences for programmatically written ACF meta. See § ACFML preference sync. |
 | `wp timber-kit wpml-cleanup-theme-domain` | Purges WPML String Translation rows and compiled files left behind for a text domain that is no longer registered with ST. See § WPML theme-domain cleanup. |
@@ -710,6 +711,54 @@ wp timber-kit prune-originals --limit=500          # cap the batch
 ```
 
 The command only prunes genuine size-driven `-scaled` downscales — it leaves originals preserved for EXIF rotation or format conversion untouched, and never strips the `original_image` pointer unless the file was actually deleted. The trade-off it makes permanent: future regeneration of those images falls back to the `-scaled` file. See `\Parisek\TimberKit\OriginalImagePruner`.
+
+#### SVG dimensions
+
+An SVG attachment usually reaches the browser as an `<img>` with no `width` and no `height`, so nothing reserves its box and every one of them shifts the layout as it lands.
+
+Two layers cause it, and neither is timber-kit's. `getimagesize()` cannot parse SVG, so core's `wp_generate_attachment_metadata()` stores no dimensions for `image/svg+xml` at all. The `svg-support` plugin fills part of the gap, but its reader takes only the `width` and `height` attributes on the root element — an SVG exported with just a `viewBox`, the current Figma and Illustrator default, yields an empty string it stores as `0`. Measured on one production library: **1519 of 3520** SVGs unsized, and the share growing each year as export tooling moves to `viewBox`-only.
+
+**Nothing to configure for templates.** `Helpers::formatImage()` resolves a missing axis from the file, so a `<picture>` gets its dimensions on any project, immediately. Nothing is written during a render.
+
+It runs for every image, so the cost is bounded deliberately and is asserted rather than argued:
+
+| | |
+| --- | --- |
+| Not an SVG, or an SVG that already has both axes | returns on the first comparison, opens nothing — **0.095 us** |
+| An SVG missing an axis, first time in the request | one bounded read of the file head — **0.086 ms** |
+| The same attachment again | memoised, including a refusal |
+
+Instrumented on a real page carrying 152 SVG `<img>` elements: **399 calls, 271 of them returning immediately, 128 resolutions, ~11 ms** total per uncached render. Nothing on a cached hit, since no PHP runs.
+
+**Run the sweep and that 11 ms goes away** — with dimensions in metadata the read path skips every image. The two are not redundant: the read path is the safety net that makes a template correct everywhere, the sweep is what makes it free.
+
+`get_attached_file()` is the only route to the filesystem here, and the tests assert it is never called for a raster image — a measurement drifts, an assertion does not.
+
+Stored metadata is still worth having — the media library, `wp_get_attachment_image_src()` and srcset read it and never go through `Helpers` — so there are two writers:
+
+```php
+// Base.php — new uploads
+protected bool $svg_dimensions = true;
+```
+
+```bash
+# existing attachments
+wp timber-kit svg-dimensions --dry-run     # report what would be written
+wp timber-kit svg-dimensions               # fill in what is missing
+wp timber-kit svg-dimensions --force       # re-derive over a wrong stored value
+```
+
+All three share one resolver: the `width`/`height` attributes first, converted from any CSS absolute unit (`px`, `pt`, `pc`, `in`, `cm`, `mm`, `Q`) and accepting the full SVG number grammar including exponents; then the `viewBox`. A single explicit axis is combined with the `viewBox` ratio rather than discarded. Relative units (`em`, `%`) are not intrinsic sizes and fall through.
+
+Using `viewBox` as a source of width and height is a deliberate **policy**, not a measurement — W3C defines it as a source of aspect *ratio*. For an image whose box comes from CSS, which is every call site this exists for, the ratio is the whole point. The cost is that an `<img>` with no CSS sizing renders at these numbers instead of the SVG's own default.
+
+**Refusing is a correct answer.** Every ambiguity resolves to nothing rather than a guess, because a wrong number gets written to the database, outlives the package version, and is read back as authoritative by the next sweep. An encoding it cannot decode, a prolog it cannot walk, a root tag beyond 64 kB, an unconvertible unit, a derived `1×1` — all report the attachment as unreadable and leave it alone.
+
+The root start tag is found by walking the prolog rather than searching for the first `<svg`: that search read a `<svg` quoted inside a processing instruction, an entity declaration or a CDATA section as if it were the root. Files are read incrementally and stop at that tag, which also sidesteps libxml's 10 MB attribute-value limit that made three real uploads fail to parse whole. Entity references are escaped to literal text, never resolved, so a hostile DOCTYPE never reaches the parser.
+
+**It is designed to coexist, not compete.** Dimensions are written to core's own `_wp_attachment_metadata` `width`/`height` keys, so every consumer benefits. Each axis is considered separately and a valid stored value is never replaced — filling a missing height cannot disturb a width another plugin resolved. `0` and `1` count as absent (`intval( '' )`, and core's bogus SVG 1px). The upload filter hooks at priority 20 so it observes other plugins rather than racing them. `--force` is the single deliberate exception.
+
+The sweep is a deliberate command rather than a lazy write during rendering, for the same reason `prune-originals` is: a page render must not write to the database, or the healing becomes a property of who happened to request an uncached page — and stops entirely on a read-only replica. See `\Parisek\TimberKit\SvgDimensions`.
 
 ### Dev Media Proxy
 

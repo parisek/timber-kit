@@ -106,6 +106,11 @@ class RegisterMediaHooksTest extends StarterBaseTestCase {
 	public function test_never_registers_on_upload_metadata_deletion(): void {
 		// Original deletion is a deferred WP-CLI sweep, never an on-upload hook —
 		// deleting on upload would degrade later thumbnail regeneration.
+		//
+		// `wp_generate_attachment_metadata` is no longer a unique proxy for that
+		// intent: $svg_dimensions wires the same hook for a different purpose. It
+		// is pinned off below so this assertion keeps testing deletion rather than
+		// silently testing another flag's default.
 		$filters = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
 			$filters[] = $hook;
@@ -115,10 +120,52 @@ class RegisterMediaHooksTest extends StarterBaseTestCase {
 		$instance = $this->bareInstance();
 		$this->setProperty( $instance, 'clean_image_filenames', false );
 		$this->setProperty( $instance, 'big_image_size_threshold', 2560 );
+		$this->setProperty( $instance, 'svg_dimensions', false );
 
 		$this->invokeRegisterMediaHooks( $instance );
 
 		$this->assertNotContains( 'wp_generate_attachment_metadata', $filters );
+	}
+
+	public function test_registers_svg_dimensions_filter_when_the_flag_is_on(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'clean_image_filenames', false );
+		$this->setProperty( $instance, 'big_image_size_threshold', 2560 );
+		$this->setProperty( $instance, 'svg_dimensions', true );
+
+		$this->invokeRegisterMediaHooks( $instance );
+
+		$this->assertContains( 'wp_generate_attachment_metadata', $filters );
+	}
+
+	public function test_svg_dimensions_filter_runs_above_the_default_priority(): void {
+		// svg-support and friends hook this at 10 and the contract is to fill only
+		// what they left empty, so equal priority would decide the winner by plugin
+		// load order.
+		$priorities = [];
+		Functions\when( 'add_filter' )->alias(
+			function ( $hook, $callback = null, $priority = 10, $accepted = 1 ) use ( &$priorities ) {
+				if ( 'wp_generate_attachment_metadata' === $hook ) {
+					$priorities[] = $priority;
+				}
+			}
+		);
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'clean_image_filenames', false );
+		$this->setProperty( $instance, 'big_image_size_threshold', 2560 );
+		$this->setProperty( $instance, 'svg_dimensions', true );
+
+		$this->invokeRegisterMediaHooks( $instance );
+
+		$this->assertSame( [ 20 ], $priorities );
 	}
 
 	/**
