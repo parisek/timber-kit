@@ -760,7 +760,7 @@ class StarterBase extends Site {
 		add_action( 'admin_enqueue_scripts', array( $this, 'admin_enqueue_scripts' ) );
 		add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_block_editor_assets' ) );
 		add_filter( 'block_editor_settings_all', array( $this, 'inject_font_editor_styles' ), 10, 2 );
-		if ( $this->site_icon_tags && $this->discover_favicons() !== array() ) {
+		if ( $this->site_icon_tags && '' !== $this->favicon_image_file() ) {
 			// Both filters are needed. site_icon_meta_tags supplies the markup;
 			// get_site_icon_url exists to make has_site_icon() true, which is the
 			// gate wp_site_icon() returns on before any filter runs.
@@ -3323,19 +3323,48 @@ class StarterBase extends Site {
 	 */
 	public function get_site_icon_url( $url, $size, $blog_id ) {
 		if ( $this->site_icon_tags ) {
-			// An uploaded Site Icon is the editor's explicit choice; do not override it.
-			if ( get_option( 'site_icon' ) ) {
+			// An uploaded Site Icon is the editor's explicit choice — but only
+			// while it still resolves. A site_icon option pointing at a deleted
+			// attachment leaves core with an empty URL, and deferring to that
+			// would suppress a perfectly good theme set over a dangling ID.
+			if ( get_option( 'site_icon' ) && '' !== (string) $url ) {
 				return $url;
 			}
 
-			$found = $this->discover_favicons();
-
-			// Only used to satisfy has_site_icon(); site_icon_meta_tags() writes
-			// the real markup, so any shipped file answers here.
-			return $this->favicon_url( $found['svg'] ?? $found['png'] ?? $found['ico'] ?? '' );
+			return $this->favicon_gate_url();
 		}
 
 		return get_template_directory_uri() . '/static/' . $this->favicon_path;
+	}
+
+	/**
+	 * URL answered to every requested size, only to make has_site_icon() true —
+	 * site_icon_meta_tags() writes the real markup at the real sizes.
+	 *
+	 * Restricted to the image slots. A manifest-only theme must not answer here:
+	 * get_site_icon_url() is public API that other code reads for a real picture
+	 * (an SEO plugin's schema logo, for one), and handing it a .webmanifest would
+	 * be worse than admitting there is no site icon.
+	 */
+	private function favicon_gate_url(): string {
+		return $this->favicon_url( $this->favicon_image_file() );
+	}
+
+	/**
+	 * The discovered filename of the first real image, or '' when the theme
+	 * ships only a manifest. Kept separate from favicon_gate_url() so hook
+	 * registration can ask the question without building a URL.
+	 */
+	private function favicon_image_file(): string {
+		$found = $this->discover_favicons();
+
+		foreach ( array( 'svg', 'png', 'ico', 'apple' ) as $slot ) {
+			if ( isset( $found[ $slot ] ) ) {
+				return $found[ $slot ];
+			}
+		}
+
+		return '';
 	}
 
 	/**
@@ -3392,6 +3421,24 @@ class StarterBase extends Site {
 		return $found;
 	}
 
+	/**
+	 * Whether the uploaded Site Icon is real, not just a nonzero option.
+	 *
+	 * A site_icon left pointing at a deleted attachment is truthy and resolves
+	 * to nothing. Reading the attachment directly rather than calling
+	 * get_site_icon_url() keeps this out of the filter this class registers on
+	 * that very function.
+	 */
+	private function uploaded_site_icon_resolves(): bool {
+		$site_icon = (int) get_option( 'site_icon' );
+
+		if ( $site_icon <= 0 ) {
+			return false;
+		}
+
+		return '' !== (string) wp_get_attachment_url( $site_icon );
+	}
+
 	private function favicon_url( string $filename ): string {
 		if ( '' === $filename ) {
 			return '';
@@ -3414,7 +3461,7 @@ class StarterBase extends Site {
 	 * @return string[]
 	 */
 	public function site_icon_meta_tags( $meta_tags ) {
-		if ( get_option( 'site_icon' ) ) {
+		if ( $this->uploaded_site_icon_resolves() ) {
 			return $meta_tags;
 		}
 

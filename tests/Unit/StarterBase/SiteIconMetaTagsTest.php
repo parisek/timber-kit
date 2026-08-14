@@ -97,15 +97,6 @@ class SiteIconMetaTagsTest extends StarterBaseTestCase {
 		$this->assertStringNotContainsString( 'msapplication-TileImage', $markup );
 	}
 
-	public function test_uploaded_site_icon_wins_over_the_theme_files(): void {
-		Functions\when( 'get_option' )->justReturn( 42 );
-		$this->ship( 'favicon.svg', 'favicon-96x96.png' );
-
-		$core = [ '<link rel="icon" href="core.png" sizes="32x32" />' ];
-
-		$this->assertSame( $core, $this->instance()->site_icon_meta_tags( $core ) );
-	}
-
 	public function test_reads_theme_color_and_app_title_from_the_manifest(): void {
 		Functions\when( 'get_option' )->justReturn( 0 );
 		$this->ship( 'favicon.svg' );
@@ -127,5 +118,65 @@ class SiteIconMetaTagsTest extends StarterBaseTestCase {
 		$core = [ '<link rel="icon" href="core.png" sizes="32x32" />' ];
 
 		$this->assertSame( $core, $this->instance()->site_icon_meta_tags( $core ) );
+	}
+
+	/**
+	 * Regression: an apple-only set discovered fine but answered no gate URL, so
+	 * has_site_icon() stayed false and wp_site_icon() returned before any tag
+	 * was written. Reported by Codex on PR #124.
+	 */
+	public function test_apple_only_set_still_answers_the_has_site_icon_gate(): void {
+		Functions\when( 'get_option' )->justReturn( 0 );
+		$this->ship( 'apple-touch-icon.png' );
+
+		$this->assertSame(
+			'https://example.test/theme/static/images/touch/apple-touch-icon.png',
+			$this->instance()->get_site_icon_url( '', 512, 0 )
+		);
+	}
+
+	/**
+	 * A manifest is not a picture. get_site_icon_url() is read by other code
+	 * (an SEO plugin's schema logo) that expects an image, so a manifest-only
+	 * theme must answer nothing rather than a .webmanifest.
+	 */
+	public function test_manifest_only_set_answers_no_gate_url(): void {
+		Functions\when( 'get_option' )->justReturn( 0 );
+		$this->ship( 'site.webmanifest' );
+
+		$this->assertSame( '', $this->instance()->get_site_icon_url( '', 512, 0 ) );
+	}
+
+	/**
+	 * Regression: a site_icon option pointing at a deleted attachment is truthy
+	 * but resolves to nothing, and deferring to it suppressed every tag despite
+	 * a valid theme set. Reported by Codex on PR #124.
+	 */
+	public function test_dangling_site_icon_does_not_suppress_the_theme_set(): void {
+		Functions\when( 'get_option' )->justReturn( 42 );
+		Functions\when( 'wp_get_attachment_url' )->justReturn( false );
+		$this->ship( 'favicon.svg', 'favicon-96x96.png' );
+
+		$markup = implode( "\n", $this->tags( $this->instance() ) );
+
+		$this->assertStringContainsString( 'favicon-96x96.png', $markup );
+		$this->assertSame(
+			'https://example.test/theme/static/images/touch/favicon.svg',
+			$this->instance()->get_site_icon_url( '', 512, 0 )
+		);
+	}
+
+	public function test_resolving_site_icon_still_wins_over_the_theme_set(): void {
+		Functions\when( 'get_option' )->justReturn( 42 );
+		Functions\when( 'wp_get_attachment_url' )->justReturn( 'https://example.test/uploads/icon.png' );
+		$this->ship( 'favicon.svg' );
+
+		$core = [ '<link rel="icon" href="core.png" sizes="32x32" />' ];
+
+		$this->assertSame( $core, $this->instance()->site_icon_meta_tags( $core ) );
+		$this->assertSame(
+			'https://example.test/uploads/icon.png',
+			$this->instance()->get_site_icon_url( 'https://example.test/uploads/icon.png', 512, 0 )
+		);
 	}
 }
