@@ -170,14 +170,55 @@ class ThemeScriptFileTest extends StarterBaseTestCase {
 		$this->assertSame( 'script.js', $this->resolve() );
 	}
 
-	/** A non-script entry is never enqueued as a script, whatever its key. */
-	public function test_rejects_an_entry_that_is_not_javascript(): void {
+	/**
+	 * The key decides which RECORD is read, not what its `file` says.
+	 *
+	 * An earlier version of this test put the stylesheet under `src/css/style.css`
+	 * and passed — but only because that key is not the one looked up, so it was
+	 * measuring the key miss, not the suffix check. It kept passing with the
+	 * suffix check deleted, which is how the guard came to be removed on a false
+	 * premise. The manifest here uses the REAL key.
+	 */
+	public function test_rejects_a_stylesheet_named_under_the_script_key(): void {
+		touch( $this->dir . '/style.h.css' );
+		$this->writeManifest(
+			[ 'src/js/script.js' => [ 'file' => 'style.h.css', 'isEntry' => true ] ]
+		);
+
+		$this->assertSame( 'script.js', $this->resolve() );
+	}
+
+	/** A key that is not the one looked up resolves to nothing — a separate case. */
+	public function test_ignores_a_record_under_a_different_key(): void {
 		touch( $this->dir . '/style.h.css' );
 		$this->writeManifest(
 			[ 'src/css/style.css' => [ 'file' => 'style.h.css', 'isEntry' => true ] ]
 		);
 
 		$this->assertSame( 'script.js', $this->resolve() );
+	}
+
+	/**
+	 * `ENTRY_MANIFEST_KEY` is protected, so its value stops being this class's
+	 * to guarantee. A non-string override made the array offset a fatal
+	 * TypeError; it now degrades to the fallback.
+	 */
+	public function test_a_non_string_key_override_falls_back_instead_of_fatalling(): void {
+		touch( $this->dir . '/script.B7fm2cuz.min.js' );
+		$this->writeManifest(
+			[ 'src/js/script.js' => [ 'file' => 'script.B7fm2cuz.min.js', 'isEntry' => true ] ]
+		);
+
+		$base = new class extends \Parisek\TimberKit\StarterBase {
+			/** @var mixed Deliberately not a string — the shape a careless override takes. */
+			protected const ENTRY_MANIFEST_KEY = [];
+			public function __construct() {}
+		};
+
+		$this->assertSame(
+			'script.js',
+			( new \ReflectionMethod( $base, 'themeScriptFile' ) )->invoke( $base, $this->dir )
+		);
 	}
 
 	/**

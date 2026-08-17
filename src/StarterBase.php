@@ -2036,17 +2036,23 @@ class StarterBase extends Site {
 	/**
 	 * Is this manifest `file` value safe to enqueue as the theme script?
 	 *
-	 * Two checks. A third — a `.js` suffix — was dropped when the lookup became
-	 * a keyed one: the CSS record it defended against can no longer be reached,
-	 * because the key names the JS input. A guard for an unreachable state is
-	 * indistinguishable from no guard, so it went rather than staying as
-	 * reassurance.
+	 * Three checks.
+	 *
+	 * The `.js` one was briefly deleted, on the reasoning that a keyed lookup
+	 * makes a stylesheet unreachable. That reasoning is wrong and a reviewer
+	 * reproduced it: the key decides which RECORD is read, not what its `file`
+	 * value says. `{"src/js/script.js":{"file":"style.css"}}` beside an existing
+	 * `style.css` resolved to the stylesheet, which `enqueueThemeScript()` would
+	 * hand to `wp_enqueue_script_module()`.
 	 *
 	 * - A BARE FILENAME. `is_file()` happily resolves `../elsewhere/other.js`,
 	 *   so a `file` carrying a separator escapes the directory this method
 	 *   documents itself as returning a name inside. Reproduced, not imagined.
 	 *   Laravel does not guard this; it is kept because the caller joins the
 	 *   return value onto both a URL and a filesystem path.
+	 * - A `.js` SUFFIX. This method's whole job is naming a script. A manifest
+	 *   that names something else under the JS key is malformed, and enqueueing
+	 *   a stylesheet as a script module is a worse answer than falling back.
 	 * - PRESENT ON DISK. A manifest naming a missing file is worse than no
 	 *   manifest: it enqueues a guaranteed 404. Laravel checks this only when
 	 *   inlining content, and can afford to — it throws where this class has a
@@ -2058,6 +2064,10 @@ class StarterBase extends Site {
 	 */
 	private static function isUsableEntryFile( string $file, string $dir ): bool {
 		if ( '' === $file || basename( $file ) !== $file ) {
+			return false;
+		}
+
+		if ( ! str_ends_with( strtolower( $file ), '.js' ) ) {
 			return false;
 		}
 
@@ -2120,7 +2130,16 @@ class StarterBase extends Site {
 			return 'script.js';
 		}
 
-		$record = $decoded[ static::ENTRY_MANIFEST_KEY ] ?? null;
+		// `static::` so a subclass can repoint it — which also means the value is
+		// no longer under this class's control. An override of `[]` would make
+		// the array offset a fatal TypeError, so a bad override degrades to the
+		// fallback instead of taking the site down.
+		$key = static::ENTRY_MANIFEST_KEY;
+		if ( ! is_string( $key ) || '' === $key ) {
+			return 'script.js';
+		}
+
+		$record = $decoded[ $key ] ?? null;
 		if ( ! is_array( $record ) ) {
 			return 'script.js';
 		}
