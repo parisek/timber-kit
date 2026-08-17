@@ -82,6 +82,49 @@ class ResolveTest extends TestCase {
 	}
 
 	/**
+	 * Stating a language and leaving it blank is the only way to say "do
+	 * not measure here". Inheritance would otherwise make that
+	 * unsayable — every spelling of "nothing" would resolve back to
+	 * `default` and measure anyway.
+	 *
+	 * @param mixed $blank A written-out empty value.
+	 */
+	#[DataProvider('blank_entry_provider')]
+	public function test_a_blank_language_entry_turns_measurement_off_for_it( mixed $blank ): void {
+		$map        = self::MAP;
+		$map['de']  = $blank;
+
+		$this->assertSame( array(), GtmContainer::resolve( $map, 'de' ) );
+	}
+
+	/** @return array<string, array{mixed}> */
+	public static function blank_entry_provider(): array {
+		return array(
+			'empty string' => array( '' ),
+			'null'         => array( NULL ),
+			'false'        => array( FALSE ),
+			'empty array'  => array( array() ),
+			'blank id'     => array( array( 'id' => '' ) ),
+			'blank id, endpoint stated' => array( array( 'id' => '', 'domain' => 'sk.example.com' ) ),
+		);
+	}
+
+	public function test_a_blank_entry_stops_the_walk_to_the_base_language(): void {
+		$map          = self::MAP;
+		$map['de-at'] = '';
+
+		$this->assertSame( array(), GtmContainer::resolve( $map, 'de-at' ) );
+	}
+
+	public function test_a_blank_default_leaves_stated_languages_measuring(): void {
+		$map            = self::MAP;
+		$map['default'] = '';
+
+		$this->assertSame( array(), GtmContainer::resolve( $map, 'cs' ) );
+		$this->assertSame( array( 'id' => 'GTM-GERMAN1' ), GtmContainer::resolve( $map, 'de' ) );
+	}
+
+	/**
 	 * A regional variant belongs to its language before it belongs to the
 	 * site default: Austria reports with Germany's container until someone
 	 * says otherwise, which is the answer that costs nothing when it is

@@ -93,9 +93,19 @@ final class GtmContainer {
 		}
 
 		foreach ( self::code_candidates( $language ) as $candidate ) {
-			if ( isset( $by_code[ $candidate ] ) ) {
-				return array_merge( $default, self::normalize( $by_code[ $candidate ] ) );
+			if ( ! array_key_exists( $candidate, $by_code ) ) {
+				continue;
 			}
+
+			// A language written out and left blank says "do not measure
+			// here". Inheritance would otherwise make that unsayable: every
+			// spelling of nothing would resolve back to `default` and
+			// measure anyway.
+			if ( self::is_blank( $by_code[ $candidate ] ) ) {
+				return array();
+			}
+
+			return array_merge( $default, self::normalize( $by_code[ $candidate ] ) );
 		}
 
 		return $default;
@@ -181,6 +191,26 @@ final class GtmContainer {
 			. $src . ";f.parentNode.insertBefore(j,f);\n"
 			. '})(window,document,' . $call_args . ");\n"
 			. "</script>\n";
+	}
+
+	/**
+	 * Whether an entry states, in any of its spellings, that there is no
+	 * container here.
+	 *
+	 * An entry stating an endpoint but no ID counts as blank too: the ID is
+	 * the container, and an entry without one measures nothing wherever the
+	 * rest of it points.
+	 *
+	 * @param mixed $entry Configured entry.
+	 * @return bool
+	 */
+	private static function is_blank( $entry ): bool {
+		if ( is_array( $entry ) ) {
+			return array() === $entry
+				|| ( array_key_exists( 'id', $entry ) && '' === trim( (string) $entry['id'] ) );
+		}
+
+		return NULL === $entry || FALSE === $entry || '' === trim( (string) $entry );
 	}
 
 	/**

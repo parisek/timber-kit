@@ -26,6 +26,7 @@ use Parisek\TimberKit\BlockRenderer;
 use Parisek\TimberKit\BreezeWarmupSitemap;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
 use Parisek\TimberKit\Health\Check\FileEditingDisabled;
+use Parisek\TimberKit\Health\Check\GtmContainerNotDuplicated;
 use Parisek\TimberKit\Health\Check\RestUsersRestricted;
 use Parisek\TimberKit\Health\Check\Utf8mb4Tables;
 use Parisek\TimberKit\Health\Check\WpVersionHidden;
@@ -1150,6 +1151,7 @@ class StarterBase extends Site {
 			new FileEditingDisabled(),
 			new RestUsersRestricted(),
 			new Utf8mb4Tables(),
+			new GtmContainerNotDuplicated( array() !== $this->gtm_containers ),
 		);
 	}
 
@@ -1800,14 +1802,6 @@ class StarterBase extends Site {
 			return;
 		}
 
-		if ( $this->gtm4wp_prints_its_own_container() ) {
-			if ( defined( 'WP_DEBUG' ) && WP_DEBUG ) {
-				echo "\n<script>console.warn && console.warn(\"[timber-kit] GTM container configured in Base and GTM4WP is also printing one - the kit stayed quiet to avoid double counting. Set the plugin's container code placement to OFF.\");</script>\n";
-			}
-
-			return;
-		}
-
 		$language = apply_filters( 'wpml_current_language', NULL );
 
 		echo GtmContainer::snippet( // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- every value is validated against a closed pattern in GtmContainer.
@@ -1815,43 +1809,6 @@ class StarterBase extends Site {
 		);
 	}
 
-	/**
-	 * Whether GTM4WP is loaded and set to print a container itself.
-	 *
-	 * The plugin numbers its placements footer=0, body-open=1,
-	 * body-open-auto=2, off=3 — so "off" is the highest value, not the
-	 * falsy one, and an absent setting means *footer*, the plugin's own
-	 * default. Reading `0` as off would get both halves wrong at once: a
-	 * plugin left on its default would go undetected and double-count, and
-	 * a correctly switched-off plugin would suppress this loader and stop
-	 * measurement altogether.
-	 *
-	 * The value is read from the plugin's own constant when it is defined,
-	 * so a renumbering upstream is followed rather than mirrored here.
-	 *
-	 * @return bool
-	 */
-	private function gtm4wp_prints_its_own_container(): bool {
-		if ( ! defined( 'GTM4WP_VERSION' ) ) {
-			return FALSE;
-		}
-
-		$options = get_option( 'gtm4wp-options' );
-		if ( ! is_array( $options ) ) {
-			return FALSE;
-		}
-
-		if ( '' === (string) ( $options['gtm-code'] ?? '' ) ) {
-			return FALSE;
-		}
-
-		$off       = defined( 'GTM4WP_PLACEMENT_OFF' ) ? (int) constant( 'GTM4WP_PLACEMENT_OFF' ) : 3;
-		$placement = array_key_exists( 'gtm-code-placement', $options )
-			? (int) $options['gtm-code-placement']
-			: 0;
-
-		return $placement !== $off;
-	}
 
 	/**
 	 * Register Twig template namespaces (@component, @macro, @page, @icons, @images, @wordpress).

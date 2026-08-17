@@ -57,6 +57,10 @@ one container per language. A language entry states only what differs from
 `default` — normally the ID alone, because the tagging endpoint is shared —
 so changing the endpoint is one edit rather than one per language.
 
+A language written out and left blank is switched off rather than inherited.
+In a model where every gap falls through to `default`, that is the only way to
+say "do not measure here" at all.
+
 Inheritance runs along the language code as well as into `default`, because
 WPML codes are per-site strings an editor can type. A site may run `de`, or
 `de-at` beside it, or spell either with an underscore. So resolution walks from
@@ -80,8 +84,16 @@ what lets a shared layout serve migrated and unmigrated projects at once, and
 makes migrating one project a change to its `Base` rather than to the skeleton.
 
 Where both sources are live — configuration present *and* the plugin still
-printing a container — the kit stands down and says so under `WP_DEBUG`. Two
-loaders would double-count every visit, and a doubling reads as growth.
+printing a container — two loaders fire and every visit is counted twice, which
+reads as growth rather than as a fault. The loader nonetheless **does not
+inspect the plugin**. Reading another plugin's stored settings is a guess about
+a schema this kit does not own, and the two ways of being wrong are not
+symmetric: a guess that suppresses the loader stops measurement silently, while
+one that does not suppress it costs a doubling that is visible in GTM's own
+preview and in the data. The state is diagnosed in Site Health
+(`gtm_container_not_duplicated`) instead — where the same coupling is harmless,
+because a stale reading shows a wrong line on a board rather than emptying a
+report.
 
 ## Consequences
 
@@ -91,9 +103,10 @@ change nothing until someone fills in `Base` — the migration is per project an
 reversible by deleting the property.
 
 The kit takes on the loader snippet, which means it now owns a correctness
-surface Google publishes and people compare against by eye. The snippet is
-asserted byte-for-byte in tests, including the `?l=` / `&l=` difference that the
-ID's absence forces.
+surface Google publishes and people compare against by eye. The tests assert the
+emitted source line by line, including the `?l=` / `&l=` difference that the
+ID's absence forces, and every refusal path — malformed ID, domain, path or data
+layer name.
 
 Two capabilities are deliberately not carried over. GTM environments
 (`gtm_auth` / `gtm_preview`) work only against the Google loader and are ignored

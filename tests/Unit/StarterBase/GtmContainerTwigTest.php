@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Tests\Unit\StarterBase;
 
 use Brain\Monkey\Functions;
-use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\Unit\StarterBaseTestCase;
@@ -88,88 +87,44 @@ class GtmContainerTwigTest extends StarterBaseTestCase {
 	 * a second loader.
 	 */
 	/**
-	 * GTM4WP numbers its placements footer=0, body=1, body-auto=2, off=3.
-	 * Reading `0` as "off" gets both halves of this wrong at once: the
-	 * plugin's own default placement would go undetected and double-count,
-	 * and a correctly switched-off plugin would suppress the kit's loader
-	 * and stop measurement.
-	 *
-	 * @param int|null $placement Stored placement, NULL to omit the key.
+	 * The loader never reads the plugin's settings. Guessing at a schema
+	 * this kit does not own can only get it wrong in the direction that
+	 * stops measurement, so the duplicate-container state is diagnosed in
+	 * Site Health instead - see GtmContainerNotDuplicated.
 	 */
 	#[RunInSeparateProcess]
 	#[PreserveGlobalState(false)]
-	#[DataProvider('active_placement_provider')]
-	public function test_the_kit_stands_down_for_every_placement_that_prints( ?int $placement ): void {
-		$options = array( 'gtm-code' => 'GTM-N9FNXT1' );
-		if ( NULL !== $placement ) {
-			$options['gtm-code-placement'] = $placement;
-		}
-
-		Functions\when( 'get_option' )->justReturn( $options );
-
-		$this->assertStringNotContainsString( 'gtm.start', $this->renderWithPluginLoaded() );
-	}
-
-	/** @return array<string, array{int|null}> */
-	public static function active_placement_provider(): array {
-		return array(
-			'footer'         => array( 0 ),
-			'body open'      => array( 1 ),
-			'body open auto' => array( 2 ),
-			'key absent'     => array( NULL ),
-		);
-	}
-
-	#[RunInSeparateProcess]
-	#[PreserveGlobalState(false)]
-	public function test_the_kit_prints_when_the_plugin_placement_is_off(): void {
+	public function test_the_kit_prints_even_while_the_plugin_is_loaded(): void {
+		define( 'GTM4WP_VERSION', '1.22.4' );
 		Functions\when( 'get_option' )->justReturn(
 			array(
 				'gtm-code'           => 'GTM-N9FNXT1',
-				'gtm-code-placement' => 3,
+				'gtm-code-placement' => 1,
 			)
 		);
 
-		$this->assertStringContainsString( 'gtm.start', $this->renderWithPluginLoaded() );
-	}
-
-	/**
-	 * The plugin defines its own placement constants, so a future
-	 * renumbering is read from the plugin rather than from a copy of its
-	 * numbering that would silently go stale.
-	 */
-	#[RunInSeparateProcess]
-	#[PreserveGlobalState(false)]
-	public function test_the_off_value_comes_from_the_plugin_when_it_defines_one(): void {
-		define( 'GTM4WP_PLACEMENT_OFF', 9 );
-		Functions\when( 'get_option' )->justReturn(
-			array(
-				'gtm-code'           => 'GTM-N9FNXT1',
-				'gtm-code-placement' => 9,
-			)
-		);
-
-		$this->assertStringContainsString( 'gtm.start', $this->renderWithPluginLoaded() );
-	}
-
-	public function test_the_kit_prints_when_the_plugin_has_no_container_configured(): void {
-		Functions\when( 'get_option' )->justReturn( array( 'gtm-code' => '' ) );
-
-		$this->assertStringContainsString( 'gtm.start', $this->renderWithPluginLoaded() );
-	}
-
-	/**
-	 * GTM4WP_VERSION is defined for the rest of the process once defined, so
-	 * both plugin-loaded cases run in the same isolated process and the
-	 * plugin-absent cases above never see it.
-	 */
-	private function renderWithPluginLoaded(): string {
-		if ( ! defined( 'GTM4WP_VERSION' ) ) {
-			define( 'GTM4WP_VERSION', '1.22.4' );
-		}
-
-		return $this->render(
+		$output = $this->render(
 			array( 'gtm_containers' => array( 'default' => array( 'id' => 'GTM-N9FNXT1' ) ) )
 		);
+
+		$this->assertStringContainsString( 'gtm.start', $output );
 	}
+
+	public function test_a_language_written_out_and_left_blank_prints_nothing(): void {
+		Functions\when( 'apply_filters' )->alias(
+			static fn( string $tag, mixed $value ): mixed => 'wpml_current_language' === $tag ? 'de' : $value
+		);
+
+		$output = $this->render(
+			array(
+				'gtm_containers' => array(
+					'default' => array( 'id' => 'GTM-CZECH111' ),
+					'de'      => '',
+				),
+			)
+		);
+
+		$this->assertSame( '', $output );
+	}
+
 }
