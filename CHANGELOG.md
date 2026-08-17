@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.36.0] - 2026-08-17
+
 ### Changed
 
 - **`gutenberg-editor.css` no longer reaches the classic (TinyMCE) editor** — new `mce_css` filter, new `StarterBase::$mce_exclude_editor_styles` flag, **default on**. `add_editor_style()` registers a stylesheet for both editors, and the file is written for one: its rules are scoped to `.editor-styles-wrapper`, a class Gutenberg's body carries and TinyMCE's body does not.
