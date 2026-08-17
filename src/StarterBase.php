@@ -426,7 +426,8 @@ class StarterBase extends Site {
 	protected bool $autopopulate_breadcrumb = true;
 
 	/**
-	 * How the theme JS bundle (static/dist/js/script.js) is enqueued:
+	 * How the theme JS bundle (static/dist/js/, filename resolved by
+	 * {@see self::themeScriptFile()}) is enqueued:
 	 *
 	 * - 'module' (default) — wp_enqueue_script_module(), correct for a Vite/ESM
 	 *   build.
@@ -2015,17 +2016,171 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * The manifest key naming this theme's JS entry — the source path Vite was
+	 * given as its input, which is what it writes the record under.
+	 *
+	 * THE KEY IS THE INTERFACE, and that is prior art rather than preference.
+	 * Sage's `JsonManifest::get()` is `$manifest[$asset] ?? $asset`; Laravel's
+	 * `Vite::chunk()` is `$manifest[$file]` or throw. Neither scans the manifest
+	 * looking for an entry, because a manifest can hold several and nothing
+	 * orders them.
+	 *
+	 * `protected` so a consumer that renamed its input may redeclare it. That is
+	 * NOT the same shape as the references, which let the caller pass a name at
+	 * the call site; a redeclared constant is a weaker, more obscure surface.
+	 * The closer equivalent is the `timber_kit_theme_script_manifest_key` filter
+	 * applied where this is read — reachable from a plugin, not only a
+	 * subclass.
+	 *
+	 * @var string
+	 */
+	protected const ENTRY_MANIFEST_KEY = 'src/js/script.js';
+
+	/**
+	 * Is this manifest `file` value safe to enqueue as the theme script?
+	 *
+	 * Three checks.
+	 *
+	 * The `.js` one was briefly deleted, on the reasoning that a keyed lookup
+	 * makes a stylesheet unreachable. That reasoning is wrong and a reviewer
+	 * reproduced it: the key decides which RECORD is read, not what its `file`
+	 * value says. `{"src/js/script.js":{"file":"style.css"}}` beside an existing
+	 * `style.css` resolved to the stylesheet, which `enqueueThemeScript()` would
+	 * hand to `wp_enqueue_script_module()`.
+	 *
+	 * - A BARE FILENAME. `is_file()` happily resolves `../elsewhere/other.js`,
+	 *   so a `file` carrying a separator escapes the directory this method
+	 *   documents itself as returning a name inside. Reproduced, not imagined.
+	 *   Laravel does not guard this; it is kept because the caller joins the
+	 *   return value onto both a URL and a filesystem path.
+	 * - A `.js` SUFFIX. This method's whole job is naming a script. A manifest
+	 *   that names something else under the JS key is malformed, and enqueueing
+	 *   a stylesheet as a script module is a worse answer than falling back.
+	 * - PRESENT ON DISK. A manifest naming a missing file is worse than no
+	 *   manifest: it enqueues a guaranteed 404. Laravel checks this only when
+	 *   inlining content, and can afford to — it throws where this class has a
+	 *   real fallback to prefer.
+	 *
+	 * @param string $file Candidate value from the manifest.
+	 * @param string $dir  Directory the name is relative to.
+	 * @return bool
+	 */
+	private static function isUsableEntryFile( string $file, string $dir ): bool {
+		if ( '' === $file || basename( $file ) !== $file ) {
+			return false;
+		}
+
+		if ( ! str_ends_with( strtolower( $file ), '.js' ) ) {
+			return false;
+		}
+
+		return is_file( $dir . '/' . $file );
+	}
+
+	/**
+	 * Resolve the JS entry's filename, preferring the Vite manifest.
+	 *
+	 * WHY THE ENTRY NEEDS A CONTENT HASH. Lazy chunks carry one; the entry did
+	 * not, because this method addressed it by a fixed path and a fixed path
+	 * cannot hold a hash. Cache-busting came from `?ver=<mtime>` instead, and
+	 * that covers the reference in the HTML — but not the one the bundler emits
+	 * INSIDE a chunk. When a module is reachable from the entry graph and from a
+	 * lazy chunk, the bundler hoists it into the entry and the chunk imports it
+	 * back out as `./script.js`, with no hash and no query. The browser then
+	 * holds two cache entries for one file: the versioned one updates, the bare
+	 * one is pinned for as long as `Cache-Control` says.
+	 *
+	 * Measured on a downstream site (sloneek, 2026-08-17): 5 of 52 chunks
+	 * imported the entry, `max-age` was 31536000, and a form silently stopped
+	 * rendering with `The requested module './script.js' does not provide an
+	 * export named 'n'`. Minified export names are positions in a table, not
+	 * identities — adding one shared module reassigned `n` from one function to
+	 * another, so a stale entry can also answer with the WRONG binding and no
+	 * error at all.
+	 *
+	 * A hashed entry closes it at the root: both references name the same
+	 * immutable file, so they cannot disagree.
+	 *
+	 * BACKWARDS COMPATIBLE BY CONSTRUCTION. A theme with no manifest at this
+	 * exact path returns `script.js` and nothing changes for it, which is why
+	 * this can ship before the build config does.
+	 *
+	 * Stated precisely, because the code is narrower than "no-op until you
+	 * rebuild": the trigger is a manifest FILE being present here, not this
+	 * build having produced it. A manifest left by some other tooling would be
+	 * honoured — though it would also have to name a file that exists in this
+	 * same directory, which is the check below.
+	 *
+	 * An earlier version scanned for an `isEntry` record instead of asking for a
+	 * key, on the reasoning that a manifest carries exactly one and that keying
+	 * would hardcode a build-side path. Both halves were wrong: a manifest holds
+	 * one record per input and nothing orders them, and in Sage and Laravel
+	 * alike the key IS the interface. The paragraph is kept as a correction
+	 * rather than deleted, because it is the reasoning a reader is most likely
+	 * to arrive at independently.
+	 *
+	 * @param string $dir Absolute path to the built JS directory.
+	 * @return string Filename inside `$dir`, never a path.
+	 */
+	protected function themeScriptFile( string $dir ): string {
+		$manifest = $dir . '/.vite/manifest.json';
+
+		// is_readable() rather than is_file() alone: an unreadable file passes
+		// is_file() and then makes file_get_contents() emit a warning on its way
+		// to the same fallback.
+		if ( ! is_readable( $manifest ) ) {
+			return 'script.js';
+		}
+
+		$decoded = json_decode( (string) file_get_contents( $manifest ), true );
+		if ( ! is_array( $decoded ) ) {
+			return 'script.js';
+		}
+
+		// Sage and Laravel both let the CALLER name the asset. Nothing calls this
+		// with a name, so the equivalent surface is a filter — which is also how
+		// this package exposes every other extension point. The const stays as
+		// the default and a subclass may still redeclare it.
+		//
+		// Either route puts the value outside this class's control, so it is
+		// re-checked below: an override or a filter returning `[]` would make
+		// the array offset a fatal TypeError, and a bad extension should degrade
+		// to the fallback, not take the site down.
+		$key = apply_filters( 'timber_kit_theme_script_manifest_key', static::ENTRY_MANIFEST_KEY );
+		if ( ! is_string( $key ) || '' === $key ) {
+			return 'script.js';
+		}
+
+		$record = $decoded[ $key ] ?? null;
+		if ( ! is_array( $record ) ) {
+			return 'script.js';
+		}
+
+		$file = $record['file'] ?? '';
+
+		return is_string( $file ) && self::isUsableEntryFile( $file, $dir ) ? $file : 'script.js';
+	}
+
+	/**
 	 * Enqueue the theme JS bundle, honouring {@see $theme_script_strategy}.
 	 *
 	 * Single source of truth for the front end (assets()) and the block editor
 	 * (enqueue_block_editor_assets()). Override in a subclass that needs
 	 * dependencies, async, a different handle, or per-context behaviour.
 	 *
+	 * IF YOU OVERRIDE THIS, CALL {@see self::themeScriptFile()} FOR THE FILENAME.
+	 * An override that keeps the old `'/static/dist/js/script.js'` literal still
+	 * works, and silently gives up the hashed entry — which is the cache defect
+	 * that helper exists to prevent, reintroduced for exactly the themes this
+	 * docblock invited to customise. Nothing warns; the wrong filename simply
+	 * resolves.
+	 *
 	 * @return void
 	 */
 	protected function enqueueThemeScript(): void {
-		$src = get_template_directory_uri() . '/static/dist/js/script.js';
-		$ver = $this->assetVersion( get_template_directory() . '/static/dist/js/script.js' );
+		$file = $this->themeScriptFile( get_template_directory() . '/static/dist/js' );
+		$src  = get_template_directory_uri() . '/static/dist/js/' . $file;
+		$ver  = $this->assetVersion( get_template_directory() . '/static/dist/js/' . $file );
 
 		if ( 'module' === $this->theme_script_strategy ) {
 			wp_enqueue_script_module( $this->theme_name, $src, [], $ver );
