@@ -426,7 +426,8 @@ class StarterBase extends Site {
 	protected bool $autopopulate_breadcrumb = true;
 
 	/**
-	 * How the theme JS bundle (static/dist/js/script.js) is enqueued:
+	 * How the theme JS bundle (static/dist/js/, filename resolved by
+	 * {@see self::themeScriptFile()}) is enqueued:
 	 *
 	 * - 'module' (default) — wp_enqueue_script_module(), correct for a Vite/ESM
 	 *   build.
@@ -2038,10 +2039,15 @@ class StarterBase extends Site {
 	 * A hashed entry closes it at the root: both references name the same
 	 * immutable file, so they cannot disagree.
 	 *
-	 * BACKWARDS COMPATIBLE BY CONSTRUCTION. A theme that has not rebuilt has no
-	 * manifest, so this returns `script.js` and nothing changes for it. The
-	 * hashed name only appears once the build emits one, which is why this can
-	 * ship before the build config does.
+	 * BACKWARDS COMPATIBLE BY CONSTRUCTION. A theme with no manifest at this
+	 * exact path returns `script.js` and nothing changes for it, which is why
+	 * this can ship before the build config does.
+	 *
+	 * Stated precisely, because the code is narrower than "no-op until you
+	 * rebuild": the trigger is a manifest FILE being present here, not this
+	 * build having produced it. A manifest left by some other tooling would be
+	 * honoured — though it would also have to name a file that exists in this
+	 * same directory, which is the check below.
 	 *
 	 * The manifest has exactly one `isEntry` record, so the first match is the
 	 * answer; keying on `src/js/script.js` would hardcode a build-side path this
@@ -2083,6 +2089,13 @@ class StarterBase extends Site {
 	 * Single source of truth for the front end (assets()) and the block editor
 	 * (enqueue_block_editor_assets()). Override in a subclass that needs
 	 * dependencies, async, a different handle, or per-context behaviour.
+	 *
+	 * IF YOU OVERRIDE THIS, CALL {@see self::themeScriptFile()} FOR THE FILENAME.
+	 * An override that keeps the old `'/static/dist/js/script.js'` literal still
+	 * works, and silently gives up the hashed entry — which is the cache defect
+	 * that helper exists to prevent, reintroduced for exactly the themes this
+	 * docblock invited to customise. Nothing warns; the wrong filename simply
+	 * resolves.
 	 *
 	 * @return void
 	 */
