@@ -103,10 +103,16 @@ change nothing until someone fills in `Base` — the migration is per project an
 reversible by deleting the property.
 
 The kit takes on the loader snippet, which means it now owns a correctness
-surface Google publishes and people compare against by eye. The tests assert the
-emitted source line by line, including the `?l=` / `&l=` difference that the
-ID's absence forces, and every refusal path — malformed ID, domain, path or data
-layer name.
+surface Google publishes and people compare against by eye. What it emits is
+that snippet verbatim — same line breaks, same comments, no vendor attributes
+and no generator marks — so the page source reads as a hand-pasted installation
+and carries exactly one intended difference: the id-less URL. Whole-output tests
+pin both shapes, alongside every refusal path.
+
+Copying the plugin's markup would have been the easier default and was the first
+attempt. It brought `data-cfasync` and `data-pagespeed-no-defer` with it —
+attributes that belong to one vendor's hosting concerns, not to GTM — and those
+are precisely what marks a page as plugin-generated.
 
 The `noscript` iframe is emitted, but conditionally, because it is the one part
 of the installation that cannot follow the ID rule: `ns.html` takes the

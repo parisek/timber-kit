@@ -33,8 +33,33 @@ class GtmContainerTwigTest extends StarterBaseTestCase {
 		return (string) ob_get_clean();
 	}
 
-	public function test_an_unconfigured_project_prints_nothing_of_its_own(): void {
+	public function test_an_unconfigured_project_prints_nothing_in_the_head(): void {
 		$this->assertSame( '', $this->render() );
+	}
+
+	/**
+	 * gtm4wp_the_gtm_tag() emits the plugin's noscript iframe and nothing
+	 * else - the plugin injects its own script through wp_head. So the
+	 * delegation belongs on the body call site; doing it in the head would
+	 * put an iframe there and leave the loader printed twice.
+	 */
+	public function test_an_unconfigured_project_delegates_the_body_call_to_the_plugin(): void {
+		$called = 0;
+		Functions\when( 'gtm4wp_the_gtm_tag' )->alias(
+			static function () use ( &$called ): void {
+				++$called;
+				echo '<noscript>plugin</noscript>';
+			}
+		);
+
+		$base = $this->createStarterBase();
+
+		ob_start();
+		$base->twig_gtm_container_noscript();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( 1, $called );
+		$this->assertStringContainsString( '<noscript>plugin</noscript>', $output );
 	}
 
 	public function test_a_configured_project_prints_its_container(): void {
@@ -138,15 +163,6 @@ class GtmContainerTwigTest extends StarterBaseTestCase {
 		$output = (string) ob_get_clean();
 
 		$this->assertStringContainsString( 'ns.html?id=GTM-N9FNXT1', $output );
-	}
-
-	public function test_the_noscript_function_stays_quiet_for_an_unconfigured_project(): void {
-		$base = $this->createStarterBase();
-
-		ob_start();
-		$base->twig_gtm_container_noscript();
-
-		$this->assertSame( '', (string) ob_get_clean() );
 	}
 
 	public function test_the_noscript_function_respects_the_environment_gate(): void {

@@ -184,13 +184,19 @@ final class GtmContainer {
 			: "'" . $base_url . "?id='+i+dl" . self::environment( $container );
 		$call_args = "'script','" . $datalayer . "'" . ( $owns_id ? '' : ",'" . $id . "'" );
 
-		return "\n<script data-cfasync=\"false\" data-pagespeed-no-defer>\n"
-			. '(function(' . $args . "){w[l]=w[l]||[];w[l].push({'gtm.start':\n"
+		// Google's published snippet, reproduced line for line — same line
+		// breaks, same quoting, same comments. The only deviation is the
+		// id-less URL form, which is the whole point of the feature. Anyone
+		// diffing the page source against Google's documentation should find
+		// nothing else to notice, and nothing should mark the source as
+		// generated.
+		return "<!-- Google Tag Manager -->\n"
+			. '<script>(function(' . $args . "){w[l]=w[l]||[];w[l].push({'gtm.start':\n"
 			. "new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],\n"
 			. "j=d.createElement(s),dl=l!='" . self::DEFAULT_DATALAYER . "'?'" . $separator . "l='+l:'';j.async=true;j.src=\n"
 			. $src . ";f.parentNode.insertBefore(j,f);\n"
-			. '})(window,document,' . $call_args . ");\n"
-			. "</script>\n";
+			. '})(window,document,' . $call_args . ");</script>\n"
+			. "<!-- End Google Tag Manager -->\n";
 	}
 
 	/**
@@ -246,8 +252,10 @@ final class GtmContainer {
 		$url = 'https://' . self::host( $container ) . '/ns.html?id=' . $id
 			. self::environment_query( $container );
 
-		return "\n<noscript><iframe src=\"" . esc_url( $url ) . '" height="0" width="0" '
-			. 'style="display:none;visibility:hidden" aria-hidden="true"></iframe></noscript>' . "\n";
+		return "<!-- Google Tag Manager (noscript) -->\n"
+			. '<noscript><iframe src="' . esc_url( $url ) . "\"\n"
+			. 'height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>' . "\n"
+			. "<!-- End Google Tag Manager (noscript) -->\n";
 	}
 
 	/**

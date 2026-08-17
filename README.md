@@ -812,6 +812,69 @@ Available hooks:
 
 ### Google Tag Manager
 
+The kit prints two blocks and the theme decides where they go — the loader in `<head>`, the `noscript` iframe right after `<body>`. Nothing is hooked into `wp_head` on your behalf, because the loader's position relative to consent-mode defaults is the theme's call.
+
+#### 1. Declare the containers
+
+Plain GTM, no server-side tagging — `domain` and `path` are both optional:
+
+```php
+class Base extends StarterBase {
+
+	protected array $gtm_containers = array(
+		'default' => 'GTM-XXXXXXX',
+	);
+}
+```
+
+That yields Google's standard loader, `https://www.googletagmanager.com/gtm.js?id=GTM-XXXXXXX`, plus the matching `noscript` iframe. Server-side tagging only adds `domain` and `path` to the same shape.
+
+#### 2. Call it from the layout
+
+`templates/layout/layout.twig`, or wherever the theme owns `<head>` and `<body>`:
+
+```twig
+<head>
+	<script>
+		window.dataLayer = window.dataLayer || [];
+		function gtag() { window.dataLayer.push(arguments); }
+		gtag('consent', 'default', { /* … */ });
+	</script>
+
+	{{ gtm_container() }}  {# after the consent defaults, never before #}
+
+	{{ function('wp_head') }}
+</head>
+<body class="{{ body_class }}">
+	{{ gtm_container_noscript() }}  {# first thing inside <body> #}
+	…
+</body>
+```
+
+Order in `<head>` is not cosmetic: GTM reads the consent state at load, so a loader placed above `gtag('consent', 'default', …)` starts before the defaults exist and tags fire with the wrong state.
+
+What lands in the page is Google's published snippet, line for line — same line breaks, same `<!-- Google Tag Manager -->` comments, no vendor attributes and no generator marks. A person diffing the page source against Google's documentation should find exactly one difference: the id-less URL, where a custom path is configured. Whole-output tests pin that.
+
+#### 3. Set the environment constant
+
+```php
+// wp-config.php on production
+define( 'TIMBERKIT_GTM_ENABLED', true );
+```
+
+Optional — without it, production measures and nothing else does. Set it explicitly where an environment is not what `wp_get_environment_type()` reports, or where staging should measure too.
+
+#### Migrating a project off GTM4WP
+
+Both call sites are safe to add **before** the project has any configuration: `gtm_container()` prints nothing and `gtm_container_noscript()` delegates to the plugin, so an unmigrated project renders exactly as it does today. That is what lets one shared layout serve both.
+
+1. Replace `{{ gtm4wp_the_gtm_tag() }}` in the layout with the two calls above. Nothing changes yet.
+2. Fill in `$gtm_containers` on the project's `Base`. The kit takes over.
+3. Set the plugin's **Container code placement** to *OFF*, or deactivate it if nothing on the site uses its data layer. Check Tools → Site Health — `gtm_container_not_duplicated` reports a critical while both are printing.
+4. Drop the plugin from `DEACTIVATE_PLUGINS` in `.ddev/.env`; the environment gate replaces that workaround.
+
+#### Reference
+
 Declare the containers on your `Base`, keyed by language:
 
 ```php
@@ -829,13 +892,6 @@ class Base extends StarterBase {
 ```
 
 A single-language project can write the ID on its own: `array( 'default' => 'GTM-XXXXXXX' )`.
-
-Print the loader from the layout, after any consent-mode defaults, and the `noscript` iframe immediately after `<body>`:
-
-```twig
-{{ gtm_container() }}          {# the <script> loader #}
-{{ gtm_container_noscript() }} {# the <noscript> iframe, right after <body> #}
-```
 
 Behavior:
 
@@ -855,12 +911,6 @@ define( 'TIMBERKIT_GTM_ENABLED', true );
 ```
 
 Without the constant, measurement runs when `wp_get_environment_type()` is `production` and nowhere else. Deliberately not tied to `WP_DEBUG` — turning a log off must not turn measurement off with it.
-
-Migrating a project off GTM4WP:
-
-1. Fill in `$gtm_containers`, replace `{{ gtm4wp_the_gtm_tag() }}` with `{{ gtm_container() }}`.
-2. Set the plugin's container code placement to **OFF**, or deactivate it entirely if nothing used its data layer.
-3. Drop it from `DEACTIVATE_PLUGINS` in `.ddev/.env` — the environment gate replaces that workaround.
 
 Configured *and* the plugin still printing its own container is the one broken state: the page loads GTM twice and counts every visit twice, which reads as growth rather than as a fault. The **loader never inspects the plugin** — guessing at a schema this kit does not own can only go wrong in the direction that stops measurement. The state is reported instead by the `gtm_container_not_duplicated` Site Health check (needs `$site_health`), which reads GTM4WP's placement and its `GTM4WP_HARDCODED_GTM_ID` and tells you to switch the plugin off.
 

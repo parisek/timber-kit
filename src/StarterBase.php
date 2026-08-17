@@ -1783,23 +1783,15 @@ class StarterBase extends Site {
 	 * `gtm_container` Twig function — prints the GTM loader for the current
 	 * language.
 	 *
-	 * One call site covers both worlds, which is what makes migrating a
-	 * project a change to its `Base` rather than to the shared layout: the
-	 * kit's own configuration wins when it exists, the GTM4WP plugin serves
-	 * the site until then, and a site with neither gets nothing.
-	 *
-	 * A configured project with the plugin still emitting its own container
-	 * would load GTM twice and count everything twice — the kit refuses to
-	 * add to that, and says so where a developer will see it.
+	 * Belongs in `<head>`, after any consent-mode defaults. Prints nothing
+	 * until the project configures `$gtm_containers`, because an unmigrated
+	 * project already gets the plugin's own snippet through `wp_head` —
+	 * delegating here would print it twice. The `<body>` half of the
+	 * delegation lives in `twig_gtm_container_noscript()`, which is where
+	 * the plugin's own output belongs.
 	 */
 	public function twig_gtm_container(): void {
-		if ( array() === $this->gtm_containers ) {
-			$this->twig_gtm4wp_the_gtm_tag();
-
-			return;
-		}
-
-		if ( ! GtmContainer::enabled() ) {
+		if ( array() === $this->gtm_containers || ! GtmContainer::enabled() ) {
 			return;
 		}
 
@@ -1816,11 +1808,20 @@ class StarterBase extends Site {
 	 * for a container whose custom path exists to keep that ID out of
 	 * requests — unless the container asks for it back.
 	 *
-	 * A project still on GTM4WP gets the plugin's own iframe from
-	 * `gtm_container()`, so there is nothing to delegate here.
+	 * This is also where an unmigrated project is served: `gtm4wp_the_gtm_tag()`
+	 * emits the plugin's `noscript` iframe and nothing else, so the delegation
+	 * belongs on the call site that stands in the same place in the document.
+	 * One shared layout therefore serves migrated and unmigrated projects
+	 * alike, and migrating one is a change to its `Base`.
 	 */
 	public function twig_gtm_container_noscript(): void {
-		if ( array() === $this->gtm_containers || ! GtmContainer::enabled() ) {
+		if ( array() === $this->gtm_containers ) {
+			$this->twig_gtm4wp_the_gtm_tag();
+
+			return;
+		}
+
+		if ( ! GtmContainer::enabled() ) {
 			return;
 		}
 

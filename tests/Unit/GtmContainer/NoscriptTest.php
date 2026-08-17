@@ -37,7 +37,6 @@ class NoscriptTest extends TestCase {
 		$this->assertStringContainsString( 'https://www.googletagmanager.com/ns.html?id=GTM-N9FNXT1', $noscript );
 		$this->assertStringContainsString( '<noscript><iframe', $noscript );
 		$this->assertStringContainsString( 'height="0" width="0"', $noscript );
-		$this->assertStringContainsString( 'aria-hidden="true"', $noscript );
 	}
 
 	public function test_a_custom_domain_serves_the_iframe_too(): void {
