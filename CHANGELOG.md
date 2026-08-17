@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
   **A stated `path` means the ID leaves the URL** — one path selects one container, so it is not a second setting. The query string then starts at `?l=` rather than continuing with `&l=`; both shapes are asserted byte-for-byte, because this is Google's published snippet and people compare it by eye.
 
-  **Containers are keyed by language** with `default` as the fallback, and a language entry states only what differs — normally the ID alone, since the tagging endpoint is shared. An unknown language falls back to `default` rather than failing.
+  **Containers are keyed by language** with `default` as the fallback, and a language entry states only what differs — normally the ID alone, since the tagging endpoint is shared. Keys are WPML language codes as that site defines them (editable per site, so `de-at` and `deu` are as legitimate as `de`); matching ignores case and treats `_` and `-` alike. A regional variant resolves to its base language before the site default — `de-at` uses the German container until Austria states its own — so an Austrian visitor is not silently filed under the site's main language. An unknown language falls back to `default` rather than failing.
 
   **`TIMBERKIT_GTM_ENABLED` gates the environment**, and without it measurement runs on production only. Deliberately not `WP_DEBUG`: that flag says how errors are reported, and quietening a log must not switch measurement off as a side effect. This also replaces the `DEACTIVATE_PLUGINS` workaround projects use to keep the plugin out of local development.
 

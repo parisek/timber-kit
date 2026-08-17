@@ -57,6 +57,15 @@ one container per language. A language entry states only what differs from
 `default` — normally the ID alone, because the tagging endpoint is shared —
 so changing the endpoint is one edit rather than one per language.
 
+Inheritance runs along the language code as well as into `default`, because
+WPML codes are per-site strings an editor can type. A site may run `de`, or
+`de-at` beside it, or spell either with an underscore. So resolution walks from
+the most specific code to the least — `de-at`, then `de`, then `default` — and
+folds case and separator first. A regional variant therefore reports with its
+language's container until someone gives it one of its own, which is the wrong
+answer that is cheapest to correct; falling straight to `default` would file an
+Austrian visitor under the site's main language and look like data.
+
 **The environment gate is its own constant.** `TIMBERKIT_GTM_ENABLED` decides
 when defined; otherwise measurement runs on production only. It is deliberately
 not `WP_DEBUG`: that flag says how errors are reported, and a developer who

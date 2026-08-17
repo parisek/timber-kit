@@ -82,6 +82,60 @@ class ResolveTest extends TestCase {
 	}
 
 	/**
+	 * A regional variant belongs to its language before it belongs to the
+	 * site default: Austria reports with Germany's container until someone
+	 * says otherwise, which is the answer that costs nothing when it is
+	 * wrong and saves a silent misattribution when it is right.
+	 */
+	public function test_a_regional_variant_inherits_from_its_base_language(): void {
+		$this->assertSame(
+			array(
+				'id'     => 'GTM-GERMAN1',
+				'domain' => 'windstream.example.com',
+				'path'   => 'aBcDeF/',
+			),
+			GtmContainer::resolve( self::MAP, 'de-at' )
+		);
+	}
+
+	public function test_a_regional_variant_can_state_its_own_container(): void {
+		$map = self::MAP;
+		$map['de-at'] = array( 'id' => 'GTM-AUSTRIA1' );
+
+		$this->assertSame( 'GTM-AUSTRIA1', GtmContainer::resolve( $map, 'de-at' )['id'] );
+	}
+
+	/**
+	 * WPML lets an editor type the language code, so the same variant
+	 * reaches us as `de-at`, `de_AT` or `de-AT` depending on who set the
+	 * site up. Matching has to survive that.
+	 */
+	#[DataProvider('variant_spelling_provider')]
+	public function test_separator_and_case_do_not_change_the_match( string $configured, string $current ): void {
+		$map = array(
+			'default' => array( 'id' => 'GTM-DEFAULT1' ),
+			$configured => array( 'id' => 'GTM-AUSTRIA1' ),
+		);
+
+		$this->assertSame( 'GTM-AUSTRIA1', GtmContainer::resolve( $map, $current )['id'] );
+	}
+
+	/** @return array<string, array{string, string}> */
+	public static function variant_spelling_provider(): array {
+		return array(
+			'hyphen both sides'      => array( 'de-at', 'de-at' ),
+			'underscore config'      => array( 'de_AT', 'de-at' ),
+			'underscore runtime'     => array( 'de-at', 'de_AT' ),
+			'uppercase config'       => array( 'DE-AT', 'de-at' ),
+			'locale-style both'      => array( 'de_AT', 'de_AT' ),
+		);
+	}
+
+	public function test_an_unrelated_variant_still_falls_back_to_default(): void {
+		$this->assertSame( self::MAP['default'], GtmContainer::resolve( self::MAP, 'fr-ca' ) );
+	}
+
+	/**
 	 * A shorthand string value is the container ID, so a single-language
 	 * project never writes a one-key array.
 	 */

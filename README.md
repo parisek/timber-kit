@@ -841,6 +841,8 @@ Behavior:
 - **No `path`** — the standard `https://www.googletagmanager.com/gtm.js?id=…` loader.
 - **A `path`** — the container is addressed by that path, so the ID is left out of the URL entirely. Repeating it would hand blockers the pattern a randomly generated path exists to avoid. The query string then starts at `?l=` instead of continuing with `&l=`.
 - **`default` is the fallback**; a language entry states only what differs and inherits the rest. An unknown language falls back to `default`, quietly — a missing translation must not stop measurement.
+- **Keys are WPML language codes** — what `apply_filters( 'wpml_current_language', null )` returns (`cs`, `de`, `pt-br`), **not** the WordPress locale (`de_DE`, which WPML keeps separately as `default_locale`). The code is a free-text field in WPML → Languages, so read the site's actual value instead of assuming. Matching ignores case and treats `_` and `-` alike, so a key spelled either way still matches.
+- **A regional variant inherits from its base language.** WPML ships `pt-br` / `pt-pt` / `zh-hans` / `zh-hant`; anything else regional — German-Austria, English-UK — is a custom language whose code someone typed. With `de` configured and no `de-at`, an Austrian visitor reports into the German container; add a `de-at` entry when Austria needs its own. Longest match wins, so the specific entry always beats the general one.
 - **A malformed value never reaches the page.** The container ID is matched against `GTM-[A-Z0-9]+`, the domain through `FILTER_VALIDATE_DOMAIN`, the path against a charset that excludes `?` and `=`. An invalid ID prints nothing; an invalid domain or path falls back to the Google default, so the container stays reachable and the fallback is visible.
 
 Environment gate:

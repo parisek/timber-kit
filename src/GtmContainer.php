@@ -79,11 +79,66 @@ final class GtmContainer {
 	public static function resolve( array $containers, ?string $language ): array {
 		$default = self::normalize( $containers[ self::DEFAULT_KEY ] ?? array() );
 
-		if ( NULL === $language || '' === $language || ! isset( $containers[ $language ] ) ) {
+		if ( NULL === $language || '' === $language ) {
 			return $default;
 		}
 
-		return array_merge( $default, self::normalize( $containers[ $language ] ) );
+		$by_code = array();
+		foreach ( $containers as $code => $entry ) {
+			if ( self::DEFAULT_KEY === $code ) {
+				continue;
+			}
+
+			$by_code[ self::canonical_code( (string) $code ) ] = $entry;
+		}
+
+		foreach ( self::code_candidates( $language ) as $candidate ) {
+			if ( isset( $by_code[ $candidate ] ) ) {
+				return array_merge( $default, self::normalize( $by_code[ $candidate ] ) );
+			}
+		}
+
+		return $default;
+	}
+
+	/**
+	 * Language codes to try, most specific first.
+	 *
+	 * A regional variant belongs to its language before it belongs to the
+	 * site default: an Austrian visitor reports into the German container
+	 * unless Austria states its own. Falling straight through to `default`
+	 * would silently file them under the site's main language instead.
+	 *
+	 * @param string $language Current language code.
+	 * @return list<string>
+	 */
+	private static function code_candidates( string $language ): array {
+		$code       = self::canonical_code( $language );
+		$candidates = array( $code );
+
+		$separator = strrpos( $code, '-' );
+		while ( FALSE !== $separator ) {
+			$code         = substr( $code, 0, $separator );
+			$candidates[] = $code;
+			$separator    = strrpos( $code, '-' );
+		}
+
+		return $candidates;
+	}
+
+	/**
+	 * One spelling for a language code.
+	 *
+	 * WPML lets an editor type the code when adding a language, so the same
+	 * regional variant arrives as `de-at`, `de_AT` or `de-AT` depending on
+	 * who set the site up. Configuration and runtime value are folded to the
+	 * same shape so the match does not depend on that choice.
+	 *
+	 * @param string $code Configured or current language code.
+	 * @return string
+	 */
+	private static function canonical_code( string $code ): string {
+		return str_replace( '_', '-', strtolower( trim( $code ) ) );
 	}
 
 	/**
