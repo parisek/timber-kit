@@ -178,7 +178,7 @@ It also integrates with `Resizer` through the `timber_kit_resizer_missing_source
 
 First-party Google Tag Manager loader for projects that need GTM to load and nothing else — no data layer, no ecommerce payload, no plugin-side event tracking. Containers are declared in the theme's `Base` (see [Google Tag Manager](#google-tag-manager) under Configuration), keyed by language, and printed by the `gtm_container()` Twig function.
 
-Off until configured: with no `$gtm_containers`, `gtm_container()` delegates to the GTM4WP plugin exactly as before, so a project can adopt the call site before it adopts the configuration. Sites that need GTM4WP's ecommerce data layer keep the plugin and leave the property empty.
+Off until configured: with no `$gtm_containers`, `gtm_container()` prints nothing and `gtm_container_noscript()` delegates to the GTM4WP plugin, so a project can adopt both call sites before it adopts the configuration. Sites that need GTM4WP's ecommerce data layer keep the plugin and leave the property empty.
 
 See [ADR 0005](docs/adr/0005-first-party-gtm-container.md) for the rationale.
 
@@ -868,10 +868,13 @@ Optional — without it, production measures and nothing else does. Set it expli
 
 Both call sites are safe to add **before** the project has any configuration: `gtm_container()` prints nothing and `gtm_container_noscript()` delegates to the plugin, so an unmigrated project renders exactly as it does today. That is what lets one shared layout serve both.
 
-1. Replace `{{ gtm4wp_the_gtm_tag() }}` in the layout with the two calls above. Nothing changes yet.
-2. Fill in `$gtm_containers` on the project's `Base`. The kit takes over.
-3. Set the plugin's **Container code placement** to *OFF*, or deactivate it if nothing on the site uses its data layer. Check Tools → Site Health — `gtm_container_not_duplicated` reports a critical while both are printing.
-4. Drop the plugin from `DEACTIVATE_PLUGINS` in `.ddev/.env`; the environment gate replaces that workaround.
+1. Replace `{{ gtm4wp_the_gtm_tag() }}` in the layout with the two calls above, and ship it. Nothing changes yet — the plugin is still the only source.
+2. Prepare the switch: commit `$gtm_containers` on the project's `Base` but **do not deploy it yet**.
+3. **Set the plugin's Container code placement to *OFF* first**, then deploy the configuration. Do it in that order and in one sitting.
+4. Deactivate the plugin if nothing on the site uses its data layer, and drop it from `DEACTIVATE_PLUGINS` in `.ddev/.env` — the environment gate replaces that workaround.
+5. Confirm in Tools → Site Health that `gtm_container_not_duplicated` is green, and check the page source for exactly one `<!-- Google Tag Manager -->` block.
+
+**The order in step 3 is the whole point.** Both sources are live between "configuration deployed" and "plugin switched off", and that window double-counts every visit — a doubling reads as growth, so nothing on the site complains and the numbers stay wrong in the report afterwards. Switching the plugin off first inverts the failure: the window measures nothing instead of measuring twice. A gap is visible in the data as a gap, it is bounded by the deploy, and it needs no correction later.
 
 #### Reference
 

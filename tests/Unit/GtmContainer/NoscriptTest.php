@@ -121,6 +121,26 @@ class NoscriptTest extends TestCase {
 		$this->assertStringContainsString( '&gtm_auth=abc123&gtm_preview=env-5&gtm_cookies_win=x', $noscript );
 	}
 
+	/**
+	 * GTM environments mean something to googletagmanager.com and nothing
+	 * to a tagging server, so the iframe follows the loader's rule rather
+	 * than carrying parameters the endpoint would ignore.
+	 */
+	public function test_environment_parameters_stay_out_of_a_custom_path_iframe(): void {
+		$noscript = GtmContainer::noscript(
+			array(
+				'id'          => 'GTM-N9FNXT1',
+				'domain'      => 'windstream.example.com',
+				'path'        => '84jp8NTuqpqDvI/',
+				'noscript'    => true,
+				'gtm_auth'    => 'abc123',
+				'gtm_preview' => 'env-5',
+			)
+		);
+
+		$this->assertStringNotContainsString( 'gtm_auth', $noscript );
+	}
+
 	public function test_an_unusable_container_emits_nothing(): void {
 		$this->assertSame( '', GtmContainer::noscript( array() ) );
 		$this->assertSame( '', GtmContainer::noscript( array( 'id' => 'gtm-lowercase' ) ) );

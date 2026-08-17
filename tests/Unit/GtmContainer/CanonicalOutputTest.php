@@ -17,6 +17,13 @@ use Parisek\TimberKit\GtmContainer;
  * documentation by hand — no vendor attributes, no generator marks, same
  * line breaks and comments — so that a person diffing it against the
  * documentation finds only the one intended deviation: the id-less URL.
+ *
+ * Fixture source: Google Tag Manager install snippet, as published at
+ * https://developers.google.com/tag-platform/tag-manager/web and shown by
+ * the container's own Admin > Install Google Tag Manager screen, retrieved
+ * 2026-08-17. Nothing here detects upstream drift, so a snippet Google
+ * changes has to be re-copied by hand — check it when a container's install
+ * screen stops matching these fixtures.
  */
 class CanonicalOutputTest extends TestCase {
 

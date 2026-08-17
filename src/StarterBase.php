@@ -1151,7 +1151,7 @@ class StarterBase extends Site {
 			new FileEditingDisabled(),
 			new RestUsersRestricted(),
 			new Utf8mb4Tables(),
-			new GtmContainerNotDuplicated( array() !== $this->gtm_containers ),
+			new GtmContainerNotDuplicated( array() !== $this->gtm_containers && GtmContainer::enabled() ),
 		);
 	}
 
@@ -1768,10 +1768,13 @@ class StarterBase extends Site {
 	 * when the plugin is loaded; no-op otherwise so themes can call it
 	 * unconditionally.
 	 *
-	 * @deprecated Call `gtm_container()` instead. It prints the same plugin
-	 *             output while the project has no `$gtm_containers`, so the
-	 *             swap is safe before the project is migrated, and it needs
-	 *             no second edit afterwards.
+	 * @deprecated Call `gtm_container_noscript()` instead, and add
+	 *             `gtm_container()` in `<head>`. This function emits the
+	 *             plugin's `noscript` iframe and nothing else, so the
+	 *             `<body>` call is the one that replaces it — while the
+	 *             project has no `$gtm_containers` it delegates straight
+	 *             back here, which makes the swap safe before migrating and
+	 *             final afterwards.
 	 */
 	public function twig_gtm4wp_the_gtm_tag(): void {
 		if ( function_exists( 'gtm4wp_the_gtm_tag' ) ) {

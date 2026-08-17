@@ -108,11 +108,6 @@ class GtmContainerTwigTest extends StarterBaseTestCase {
 	}
 
 	/**
-	 * The plugin still printing its own container is the one state that
-	 * double-counts every visit, so the kit stands down rather than adding
-	 * a second loader.
-	 */
-	/**
 	 * The loader never reads the plugin's settings. Guessing at a schema
 	 * this kit does not own can only get it wrong in the direction that
 	 * stops measurement, so the duplicate-container state is diagnosed in

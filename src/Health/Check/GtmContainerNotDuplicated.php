@@ -26,11 +26,20 @@ final class GtmContainerNotDuplicated implements HealthCheck {
 	/** Plugin's placement value for "do not print the container". */
 	private const PLACEMENT_OFF = 3;
 
-	/** @var bool Whether the theme configures a container of its own. */
-	private bool $kit_configured;
+	/**
+	 * Whether the theme actually emits a container here.
+	 *
+	 * Configuration alone is not enough: the environment gate can hold the
+	 * loader back, and a staging site whose plugin is the only live source
+	 * must not be told it has two. Reporting a duplicate that does not
+	 * exist invites an operator to remove the one thing that measures.
+	 *
+	 * @var bool
+	 */
+	private bool $kit_emits;
 
-	public function __construct( bool $kit_configured ) {
-		$this->kit_configured = $kit_configured;
+	public function __construct( bool $kit_emits ) {
+		$this->kit_emits = $kit_emits;
 	}
 
 	public function id(): string {
@@ -50,8 +59,8 @@ final class GtmContainerNotDuplicated implements HealthCheck {
 	}
 
 	public function run(): Result {
-		if ( ! $this->kit_configured ) {
-			return Result::good( __( 'The theme configures no container of its own, so GTM4WP is the only possible source.', 'timber-kit' ) );
+		if ( ! $this->kit_emits ) {
+			return Result::good( __( 'The theme loads no container of its own here, so GTM4WP is the only possible source.', 'timber-kit' ) );
 		}
 
 		if ( ! defined( 'GTM4WP_VERSION' ) ) {

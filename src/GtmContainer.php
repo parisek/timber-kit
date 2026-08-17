@@ -249,8 +249,11 @@ final class GtmContainer {
 
 		// `ns.html` is served from the host root; the loader path addresses
 		// the script only, so reusing it here would build a URL nothing answers.
+		// Environment parameters follow the loader's rule: they mean something
+		// to googletagmanager.com and nothing to a tagging server, so a
+		// container with a custom path does not carry them here either.
 		$url = 'https://' . self::host( $container ) . '/ns.html?id=' . $id
-			. self::environment_query( $container );
+			. ( $hides_id ? '' : self::environment_query( $container ) );
 
 		return "<!-- Google Tag Manager (noscript) -->\n"
 			. '<noscript><iframe src="' . esc_url( $url ) . "\"\n"

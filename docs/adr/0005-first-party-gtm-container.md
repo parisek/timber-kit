@@ -78,10 +78,15 @@ chosen so that forgetting the constant costs nothing on production and still
 keeps every other environment out of the data.
 
 The feature is off until configured. An empty `$gtm_containers` — the default —
-makes the new `gtm_container()` Twig function delegate to GTM4WP exactly as
-before, so upgrading the kit changes no site's markup. That single call site is
-what lets a shared layout serve migrated and unmigrated projects at once, and
-makes migrating one project a change to its `Base` rather than to the skeleton.
+makes `gtm_container()` print nothing and `gtm_container_noscript()` delegate to
+GTM4WP, so upgrading the kit changes no site's markup. The delegation sits on
+the `<body>` call deliberately: `gtm4wp_the_gtm_tag()` emits the plugin's
+`noscript` iframe and nothing else, because the plugin injects its own script
+through `wp_head`. Delegating from the `<head>` call would put an iframe there
+and leave the loader printed twice. With each call standing in the same place as
+the thing it replaces, one shared layout serves migrated and unmigrated projects
+at once, and migrating one project is a change to its `Base` rather than to the
+skeleton.
 
 Where both sources are live — configuration present *and* the plugin still
 printing a container — two loaders fire and every visit is counted twice, which
