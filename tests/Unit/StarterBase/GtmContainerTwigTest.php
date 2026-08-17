@@ -1,0 +1,174 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Tests\Unit\StarterBase;
+
+use Brain\Monkey\Functions;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
+use Tests\Unit\StarterBaseTestCase;
+
+/**
+ * The `gtm_container()` Twig function — which of the two sources prints.
+ */
+class GtmContainerTwigTest extends StarterBaseTestCase {
+
+	protected function setUp(): void {
+		parent::setUp();
+		Functions\when( 'wp_get_environment_type' )->justReturn( 'production' );
+		Functions\when( 'apply_filters' )->alias(
+			static fn( string $tag, mixed $value ): mixed => $value
+		);
+		Functions\when( 'get_option' )->justReturn( array() );
+		Functions\when( 'esc_url' )->returnArg();
+	}
+
+	private function render( array $overrides = array() ): string {
+		$base = $this->createStarterBase( $overrides );
+
+		ob_start();
+		$base->twig_gtm_container();
+
+		return (string) ob_get_clean();
+	}
+
+	public function test_an_unconfigured_project_prints_nothing_in_the_head(): void {
+		$this->assertSame( '', $this->render() );
+	}
+
+	/**
+	 * gtm4wp_the_gtm_tag() emits the plugin's noscript iframe and nothing
+	 * else - the plugin injects its own script through wp_head. So the
+	 * delegation belongs on the body call site; doing it in the head would
+	 * put an iframe there and leave the loader printed twice.
+	 */
+	public function test_an_unconfigured_project_delegates_the_body_call_to_the_plugin(): void {
+		$called = 0;
+		Functions\when( 'gtm4wp_the_gtm_tag' )->alias(
+			static function () use ( &$called ): void {
+				++$called;
+				echo '<noscript>plugin</noscript>';
+			}
+		);
+
+		$base = $this->createStarterBase();
+
+		ob_start();
+		$base->twig_gtm_container_noscript();
+		$output = (string) ob_get_clean();
+
+		$this->assertSame( 1, $called );
+		$this->assertStringContainsString( '<noscript>plugin</noscript>', $output );
+	}
+
+	public function test_a_configured_project_prints_its_container(): void {
+		$output = $this->render(
+			array(
+				'gtm_containers' => array(
+					'default' => array(
+						'id'     => 'GTM-N9FNXT1',
+						'domain' => 'windstream.example.com',
+						'path'   => '84jp8NTuqpqDvI/',
+					),
+				),
+			)
+		);
+
+		$this->assertStringContainsString( "'https://windstream.example.com/84jp8NTuqpqDvI/'+dl;", $output );
+		$this->assertStringNotContainsString( 'id=', $output );
+	}
+
+	public function test_the_current_language_selects_the_container(): void {
+		Functions\when( 'apply_filters' )->alias(
+			static fn( string $tag, mixed $value ): mixed => 'wpml_current_language' === $tag ? 'de' : $value
+		);
+
+		$output = $this->render(
+			array(
+				'gtm_containers' => array(
+					'default' => array( 'id' => 'GTM-CZECH111' ),
+					'de'      => array( 'id' => 'GTM-GERMAN11' ),
+				),
+			)
+		);
+
+		$this->assertStringContainsString( 'GTM-GERMAN11', $output );
+		$this->assertStringNotContainsString( 'GTM-CZECH111', $output );
+	}
+
+	public function test_a_non_production_environment_prints_nothing(): void {
+		Functions\when( 'wp_get_environment_type' )->justReturn( 'local' );
+
+		$output = $this->render(
+			array( 'gtm_containers' => array( 'default' => array( 'id' => 'GTM-N9FNXT1' ) ) )
+		);
+
+		$this->assertSame( '', $output );
+	}
+
+	/**
+	 * The loader never reads the plugin's settings. Guessing at a schema
+	 * this kit does not own can only get it wrong in the direction that
+	 * stops measurement, so the duplicate-container state is diagnosed in
+	 * Site Health instead - see GtmContainerNotDuplicated.
+	 */
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState(false)]
+	public function test_the_kit_prints_even_while_the_plugin_is_loaded(): void {
+		define( 'GTM4WP_VERSION', '1.22.4' );
+		Functions\when( 'get_option' )->justReturn(
+			array(
+				'gtm-code'           => 'GTM-N9FNXT1',
+				'gtm-code-placement' => 1,
+			)
+		);
+
+		$output = $this->render(
+			array( 'gtm_containers' => array( 'default' => array( 'id' => 'GTM-N9FNXT1' ) ) )
+		);
+
+		$this->assertStringContainsString( 'gtm.start', $output );
+	}
+
+	public function test_a_language_written_out_and_left_blank_prints_nothing(): void {
+		Functions\when( 'apply_filters' )->alias(
+			static fn( string $tag, mixed $value ): mixed => 'wpml_current_language' === $tag ? 'de' : $value
+		);
+
+		$output = $this->render(
+			array(
+				'gtm_containers' => array(
+					'default' => array( 'id' => 'GTM-CZECH111' ),
+					'de'      => '',
+				),
+			)
+		);
+
+		$this->assertSame( '', $output );
+	}
+
+	public function test_the_noscript_function_prints_the_iframe(): void {
+		$base = $this->createStarterBase(
+			array( 'gtm_containers' => array( 'default' => array( 'id' => 'GTM-N9FNXT1' ) ) )
+		);
+
+		ob_start();
+		$base->twig_gtm_container_noscript();
+		$output = (string) ob_get_clean();
+
+		$this->assertStringContainsString( 'ns.html?id=GTM-N9FNXT1', $output );
+	}
+
+	public function test_the_noscript_function_respects_the_environment_gate(): void {
+		Functions\when( 'wp_get_environment_type' )->justReturn( 'local' );
+		$base = $this->createStarterBase(
+			array( 'gtm_containers' => array( 'default' => array( 'id' => 'GTM-N9FNXT1' ) ) )
+		);
+
+		ob_start();
+		$base->twig_gtm_container_noscript();
+
+		$this->assertSame( '', (string) ob_get_clean() );
+	}
+}

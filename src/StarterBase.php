@@ -26,6 +26,7 @@ use Parisek\TimberKit\BlockRenderer;
 use Parisek\TimberKit\BreezeWarmupSitemap;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
 use Parisek\TimberKit\Health\Check\FileEditingDisabled;
+use Parisek\TimberKit\Health\Check\GtmContainerNotDuplicated;
 use Parisek\TimberKit\Health\Check\RestUsersRestricted;
 use Parisek\TimberKit\Health\Check\Utf8mb4Tables;
 use Parisek\TimberKit\Health\Check\WpVersionHidden;
@@ -577,6 +578,35 @@ class StarterBase extends Site {
 	/** @var bool Surface a Site Health test + debug info reporting which uploadable image formats the resizer backend can actually decode. */
 	protected bool $resizer_format_health = true;
 
+	/**
+	 * Google Tag Manager containers, keyed by language code.
+	 *
+	 * Empty (the default) means the kit prints nothing and the
+	 * `gtm_container()` Twig function keeps delegating to the GTM4WP plugin,
+	 * so upgrading the kit never changes an existing site's markup.
+	 *
+	 * A `default` entry serves every language that has no entry of its own;
+	 * a language entry states only what differs and inherits the rest, since
+	 * sites that split containers by language normally share one server-side
+	 * endpoint and differ in the container ID alone. A single-language site
+	 * can write the ID as a plain string.
+	 *
+	 *     protected array $gtm_containers = array(
+	 *         'default' => array(
+	 *             'id'     => 'GTM-XXXXXXX',
+	 *             'domain' => 'windstream.example.com', // optional, server-side endpoint
+	 *             'path'   => 'aBcDeF/',                // optional, omits the ID from the URL
+	 *         ),
+	 *         'de' => array( 'id' => 'GTM-YYYYYYY' ),
+	 *     );
+	 *
+	 * Loading is additionally gated by environment — see
+	 * `GtmContainer::enabled()` and the `TIMBERKIT_GTM_ENABLED` constant.
+	 *
+	 * @var array<string, array<string, string|bool>|string>
+	 */
+	protected array $gtm_containers = array();
+
 	/** @var bool Surface a Site Health warning when the live response carries a managed security header more than once — the signature of a second, server-level source (Apache .htaccess mod_headers, nginx add_header, a security plugin) emitting the same headers $security_headers already sends. Only registered when $security_headers is on. */
 	protected bool $warn_duplicate_security_headers = true;
 
@@ -1121,6 +1151,7 @@ class StarterBase extends Site {
 			new FileEditingDisabled(),
 			new RestUsersRestricted(),
 			new Utf8mb4Tables(),
+			new GtmContainerNotDuplicated( array() !== $this->gtm_containers && GtmContainer::enabled() ),
 		);
 	}
 
@@ -1494,6 +1525,8 @@ class StarterBase extends Site {
 		] ) );
 		$twig->addFunction( new TwigFunction( 'merge_resizer', [ $this, 'twig_merge_resizer' ] ) );
 		$twig->addFunction( new TwigFunction( 'gtm4wp_the_gtm_tag', [ $this, 'twig_gtm4wp_the_gtm_tag' ] ) );
+		$twig->addFunction( new TwigFunction( 'gtm_container', [ $this, 'twig_gtm_container' ] ) );
+		$twig->addFunction( new TwigFunction( 'gtm_container_noscript', [ $this, 'twig_gtm_container_noscript' ] ) );
 
 		// Typography-aware translation helpers (`…t` suffix = "translate +
 		// typography"): `_xt`/`__t`/`_nt`/`_nxt` mirror `_x`/`__`/`_n`/`_nx` but
@@ -1734,12 +1767,81 @@ class StarterBase extends Site {
 	 * `gtm4wp_the_gtm_tag` Twig function — calls the global GTM4WP tag printer
 	 * when the plugin is loaded; no-op otherwise so themes can call it
 	 * unconditionally.
+	 *
+	 * @deprecated Call `gtm_container_noscript()` instead, and add
+	 *             `gtm_container()` in `<head>`. This function emits the
+	 *             plugin's `noscript` iframe and nothing else, so the
+	 *             `<body>` call is the one that replaces it — while the
+	 *             project has no `$gtm_containers` it delegates straight
+	 *             back here, which makes the swap safe before migrating and
+	 *             final afterwards.
 	 */
 	public function twig_gtm4wp_the_gtm_tag(): void {
 		if ( function_exists( 'gtm4wp_the_gtm_tag' ) ) {
 			gtm4wp_the_gtm_tag();
 		}
 	}
+
+	/**
+	 * `gtm_container` Twig function — prints the GTM loader for the current
+	 * language.
+	 *
+	 * Belongs in `<head>`, after any consent-mode defaults. Prints nothing
+	 * until the project configures `$gtm_containers`, because an unmigrated
+	 * project already gets the plugin's own snippet through `wp_head` —
+	 * delegating here would print it twice. The `<body>` half of the
+	 * delegation lives in `twig_gtm_container_noscript()`, which is where
+	 * the plugin's own output belongs.
+	 */
+	public function twig_gtm_container(): void {
+		if ( array() === $this->gtm_containers || ! GtmContainer::enabled() ) {
+			return;
+		}
+
+		echo GtmContainer::snippet( $this->gtm_container_for_current_language() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- every value is validated against a closed pattern in GtmContainer.
+	}
+
+	/**
+	 * `gtm_container_noscript` Twig function — prints the GTM `noscript`
+	 * iframe for the current language, immediately after `<body>`.
+	 *
+	 * Separate from `gtm_container()` because the two blocks belong at
+	 * different points in the document, and because this one is not always
+	 * emitted: the iframe can only address `ns.html?id=…`, so it is skipped
+	 * for a container whose custom path exists to keep that ID out of
+	 * requests — unless the container asks for it back.
+	 *
+	 * This is also where an unmigrated project is served: `gtm4wp_the_gtm_tag()`
+	 * emits the plugin's `noscript` iframe and nothing else, so the delegation
+	 * belongs on the call site that stands in the same place in the document.
+	 * One shared layout therefore serves migrated and unmigrated projects
+	 * alike, and migrating one is a change to its `Base`.
+	 */
+	public function twig_gtm_container_noscript(): void {
+		if ( array() === $this->gtm_containers ) {
+			$this->twig_gtm4wp_the_gtm_tag();
+
+			return;
+		}
+
+		if ( ! GtmContainer::enabled() ) {
+			return;
+		}
+
+		echo GtmContainer::noscript( $this->gtm_container_for_current_language() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built from validated values and escaped in GtmContainer.
+	}
+
+	/**
+	 * The configured container that applies to the language being rendered.
+	 *
+	 * @return array<string, string|bool>
+	 */
+	private function gtm_container_for_current_language(): array {
+		$language = apply_filters( 'wpml_current_language', NULL );
+
+		return GtmContainer::resolve( $this->gtm_containers, is_string( $language ) ? $language : NULL );
+	}
+
 
 	/**
 	 * Register Twig template namespaces (@component, @macro, @page, @icons, @images, @wordpress).

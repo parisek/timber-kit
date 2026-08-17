@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`Parisek\TimberKit\GtmContainer` + `StarterBase::$gtm_containers` + the `gtm_container()` Twig function** — load Google Tag Manager from the kit, configured in code, instead of through the GTM4WP plugin. Off by default: with no `$gtm_containers`, `gtm_container()` prints nothing and `gtm_container_noscript()` delegates to the plugin, so upgrading changes no site's markup.
+
+  The reason it exists is a measurement, not a preference. On a site without WooCommerce, GTM4WP's entire frontend output is the loader snippet, a `noscript` iframe and an empty data layer — `dataLayer_content` was literally `[]` on the production site this was measured on, with all ~40 data-layer options off. That became a problem when a tagging vendor asked for the container ID to be dropped from the loader URL, which a server-side container addressed by its own random path does not need: GTM4WP 1.22 hardcodes `?id='+i`, offers no filter over it, and rejects a custom path containing `?` or `=` by silently falling back to `gtm.js`. The setting exists in GTM4WP 2.0, which currently ships only as a beta its author marks as not for production.
+
+  **A stated `path` means the ID leaves the URL** — one path selects one container, so it is not a second setting. The query string then starts at `?l=` rather than continuing with `&l=`; both shapes are asserted as whole-output comparisons against Google's published snippet, which is what the kit emits — line for line, comments included, with no vendor attributes and no generator marks, so the page source is indistinguishable from a hand-pasted installation and the id-less URL is the only difference to find.
+
+  **Containers are keyed by language** with `default` as the fallback, and a language entry states only what differs — normally the ID alone, since the tagging endpoint is shared. Keys are WPML language codes as that site defines them (editable per site, so `de-at` and `deu` are as legitimate as `de`); matching ignores case and treats `_` and `-` alike. A regional variant resolves to its base language before the site default — `de-at` uses the German container until Austria states its own — so an Austrian visitor is not silently filed under the site's main language. An unknown language falls back to `default` rather than failing; a language **written out and left blank** (`'de' => ''`) is switched off instead, which is the only way to say "do not measure here" in a model where everything else inherits.
+
+  **`TIMBERKIT_GTM_ENABLED` gates the environment**, and without it measurement runs on production only. Deliberately not `WP_DEBUG`: that flag says how errors are reported, and quietening a log must not switch measurement off as a side effect. This also replaces the `DEACTIVATE_PLUGINS` workaround projects use to keep the plugin out of local development.
+
+  Configuration present *and* the plugin still printing its own container is the one state that double-counts every visit. The loader deliberately never inspects the plugin — a wrong guess about a schema this kit does not own would silently stop measurement — so the state is reported by a new **`gtm_container_not_duplicated`** Site Health check (`$site_health`) instead, which reads the plugin's placement numbering and its `GTM4WP_HARDCODED_GTM_ID`. The **`gtm_container_noscript()`** Twig function prints the `noscript` iframe for the `<body>` position, but only where it can be honest: `ns.html` takes the container ID as a query parameter and has no ID-less form, so it prints by default for a container without a custom path and stays silent for one with it, overridable per container with `'noscript' => true|false`. GTM environments (`gtm_auth` / `gtm_preview`) are the one capability deliberately not carried over — a tagging server has no notion of them. See [ADR 0005](docs/adr/0005-first-party-gtm-container.md).
+
+### Deprecated
+
+- **`StarterBase::twig_gtm4wp_the_gtm_tag()` / the `gtm4wp_the_gtm_tag()` Twig function** — replace it with **both** new calls: `gtm_container()` in `<head>` and `gtm_container_noscript()` after `<body>`. The old function emits the plugin's `noscript` iframe and nothing else (the plugin injects its own script through `wp_head`), so `gtm_container_noscript()` is the one that stands in its place — and it delegates straight back to it while the project has no `$gtm_containers`, which makes the swap safe before migrating and final afterwards. The old function keeps working.
+
 ## [1.34.0] - 2026-08-14
 
 ### Added

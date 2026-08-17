@@ -174,6 +174,14 @@ Development-only media proxy for projects that do not keep `wp-content/uploads` 
 
 It also integrates with `Resizer` through the `timber_kit_resizer_missing_source_variants` filter, so missing local source images can fall back to already-generated remote variants before returning the original image URL.
 
+### GtmContainer
+
+First-party Google Tag Manager loader for projects that need GTM to load and nothing else — no data layer, no ecommerce payload, no plugin-side event tracking. Containers are declared in the theme's `Base` (see [Google Tag Manager](#google-tag-manager) under Configuration), keyed by language, and printed by the `gtm_container()` Twig function.
+
+Off until configured: with no `$gtm_containers`, `gtm_container()` prints nothing and `gtm_container_noscript()` delegates to the GTM4WP plugin, so a project can adopt both call sites before it adopts the configuration. Sites that need GTM4WP's ecommerce data layer keep the plugin and leave the property empty.
+
+See [ADR 0005](docs/adr/0005-first-party-gtm-container.md) for the rationale.
+
 ### WPFormsConfigBridge
 
 Bridges `wp-config.php` constants to entries of the `wpforms_settings` option, so per-environment values such as Cloudflare Turnstile test keys can be stored in environment config rather than the WordPress database.
@@ -801,6 +809,124 @@ Available hooks:
 - `timber_kit_resizer_remote_variant_probe_limit` — max remote variant probes per request, default `50`
 - `timber_kit_resizer_quality_in_cache_key` — put a variant's quality in its cache key, default `false` (also settable as `StarterBase::$resizer_quality_in_cache_key`). Without it, re-cutting the same dimensions at a different quality serves the previously generated file. Opt-in because switching it on relocates every non-default-quality variant: old cache files orphan and public URLs change.
 - `timber_kit_resizer_aspect_tolerance` — tolerance band around 1:1 used by `Resizer::classifyAspect()` to decide whether a source qualifies as `square`, default `0.1`. Returning a smaller value (e.g. `0.05`) tightens the square band; returning a larger value (e.g. `0.2`) loosens it.
+
+### Google Tag Manager
+
+The kit prints two blocks and the theme decides where they go — the loader in `<head>`, the `noscript` iframe right after `<body>`. Nothing is hooked into `wp_head` on your behalf, because the loader's position relative to consent-mode defaults is the theme's call.
+
+#### 1. Declare the containers
+
+Plain GTM, no server-side tagging — `domain` and `path` are both optional:
+
+```php
+class Base extends StarterBase {
+
+	protected array $gtm_containers = array(
+		'default' => 'GTM-XXXXXXX',
+	);
+}
+```
+
+That yields Google's standard loader, `https://www.googletagmanager.com/gtm.js?id=GTM-XXXXXXX`, plus the matching `noscript` iframe. Server-side tagging only adds `domain` and `path` to the same shape.
+
+#### 2. Call it from the layout
+
+`templates/layout/layout.twig`, or wherever the theme owns `<head>` and `<body>`:
+
+```twig
+<head>
+	<script>
+		window.dataLayer = window.dataLayer || [];
+		function gtag() { window.dataLayer.push(arguments); }
+		gtag('consent', 'default', { /* … */ });
+	</script>
+
+	{{ gtm_container() }}  {# after the consent defaults, never before #}
+
+	{{ function('wp_head') }}
+</head>
+<body class="{{ body_class }}">
+	{{ gtm_container_noscript() }}  {# first thing inside <body> #}
+	…
+</body>
+```
+
+Order in `<head>` is not cosmetic: GTM reads the consent state at load, so a loader placed above `gtag('consent', 'default', …)` starts before the defaults exist and tags fire with the wrong state.
+
+What lands in the page is Google's published snippet, line for line — same line breaks, same `<!-- Google Tag Manager -->` comments, no vendor attributes and no generator marks. A person diffing the page source against Google's documentation should find exactly one difference: the id-less URL, where a custom path is configured. Whole-output tests pin that.
+
+#### 3. Set the environment constant
+
+```php
+// wp-config.php on production
+define( 'TIMBERKIT_GTM_ENABLED', true );
+```
+
+Optional — without it, production measures and nothing else does. Set it explicitly where an environment is not what `wp_get_environment_type()` reports, or where staging should measure too.
+
+#### Migrating a project off GTM4WP
+
+Both call sites are safe to add **before** the project has any configuration: `gtm_container()` prints nothing and `gtm_container_noscript()` delegates to the plugin, so an unmigrated project renders exactly as it does today. That is what lets one shared layout serve both.
+
+1. Replace `{{ gtm4wp_the_gtm_tag() }}` in the layout with the two calls above, and ship it. Nothing changes yet — the plugin is still the only source.
+2. Prepare the switch: commit `$gtm_containers` on the project's `Base` but **do not deploy it yet**.
+3. **Set the plugin's Container code placement to *OFF* first**, then deploy the configuration. Do it in that order and in one sitting.
+4. Deactivate the plugin if nothing on the site uses its data layer, and drop it from `DEACTIVATE_PLUGINS` in `.ddev/.env` — the environment gate replaces that workaround.
+5. Confirm in Tools → Site Health that `gtm_container_not_duplicated` is green, and check the page source for exactly one `<!-- Google Tag Manager -->` block.
+
+**The order in step 3 is the whole point.** Both sources are live between "configuration deployed" and "plugin switched off", and that window double-counts every visit — a doubling reads as growth, so nothing on the site complains and the numbers stay wrong in the report afterwards. Switching the plugin off first inverts the failure: the window measures nothing instead of measuring twice. A gap is visible in the data as a gap, it is bounded by the deploy, and it needs no correction later.
+
+#### Reference
+
+Declare the containers on your `Base`, keyed by language:
+
+```php
+class Base extends StarterBase {
+
+	protected array $gtm_containers = array(
+		'default' => array(
+			'id'     => 'GTM-XXXXXXX',
+			'domain' => 'windstream.example.com', // optional — server-side endpoint
+			'path'   => 'aBcDeF/',                // optional — see below
+		),
+		'de' => array( 'id' => 'GTM-YYYYYYY' ),   // inherits domain + path
+	);
+}
+```
+
+A single-language project can write the ID on its own: `array( 'default' => 'GTM-XXXXXXX' )`.
+
+Behavior:
+
+- **No `path`** — the standard `https://www.googletagmanager.com/gtm.js?id=…` loader.
+- **A `path`** — the container is addressed by that path, so the ID is left out of the URL entirely. Repeating it would hand blockers the pattern a randomly generated path exists to avoid. The query string then starts at `?l=` instead of continuing with `&l=`.
+- **`default` is the fallback**; a language entry states only what differs and inherits the rest. An unknown language falls back to `default`, quietly — a missing translation must not stop measurement.
+- **A language written out and left blank is switched off.** `'de' => ''` (or `null`, `false`, `array()`, or an entry with a blank `id`) means *do not measure here* and does **not** inherit from `default` — without it, turning one language off would be unsayable, since every spelling of nothing resolves back to the fallback.
+- **Keys are WPML language codes** — what `apply_filters( 'wpml_current_language', null )` returns (`cs`, `de`, `pt-br`), **not** the WordPress locale (`de_DE`, which WPML keeps separately as `default_locale`). The code is a free-text field in WPML → Languages, so read the site's actual value instead of assuming. Matching ignores case and treats `_` and `-` alike, so a key spelled either way still matches — which also means `de-at` and `de_AT` are the same key, and writing both leaves the later one in effect.
+- **A regional variant inherits from its base language.** WPML ships `pt-br` / `pt-pt` / `zh-hans` / `zh-hant`; anything else regional — German-Austria, English-UK — is a custom language whose code someone typed. With `de` configured and no `de-at`, an Austrian visitor reports into the German container; add a `de-at` entry when Austria needs its own. Longest match wins, so the specific entry always beats the general one.
+- **A malformed value never reaches the page.** The container ID is matched against `GTM-[A-Z0-9]+`, the domain through `FILTER_VALIDATE_DOMAIN`, the path against a charset that excludes `?` and `=`. An invalid ID prints nothing; an invalid domain or path falls back to the Google default, so the container stays reachable and the fallback is visible.
+
+Environment gate:
+
+```php
+// wp-config.php — decides when defined
+define( 'TIMBERKIT_GTM_ENABLED', true );
+```
+
+Without the constant, measurement runs when `wp_get_environment_type()` is `production` and nowhere else. Deliberately not tied to `WP_DEBUG` — turning a log off must not turn measurement off with it.
+
+Configured *and* the plugin still printing its own container is the one broken state: the page loads GTM twice and counts every visit twice, which reads as growth rather than as a fault. The **loader never inspects the plugin** — guessing at a schema this kit does not own can only go wrong in the direction that stops measurement. The state is reported instead by the `gtm_container_not_duplicated` Site Health check (needs `$site_health`), which reads GTM4WP's placement and its `GTM4WP_HARDCODED_GTM_ID` and tells you to switch the plugin off.
+
+**The `noscript` iframe prints only where it can.** `ns.html` takes the container ID as a query parameter and has no ID-less form, so the block is free where the ID already appears in the loader URL and self-defeating where a custom path exists to keep it out. `gtm_container_noscript()` therefore prints by default for a container **without** a custom path and stays silent for one **with** it. Override either way per container:
+
+```php
+'default' => array( 'id' => 'GTM-XXXXXXX', 'path' => 'aBcDeF/', 'noscript' => true ),  // print it anyway
+'default' => array( 'id' => 'GTM-XXXXXXX', 'noscript' => false ),                      // never print it
+```
+
+The iframe always addresses the host root (`https://<domain>/ns.html?id=…`), never the loader path — that path addresses the script only.
+
+One thing the kit does not emit: GTM environments (`gtm_auth` / `gtm_preview`) apply to the Google loader only and are ignored for a server-side path, which has no notion of them.
 
 ### WPForms Config Bridge
 
