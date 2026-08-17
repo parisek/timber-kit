@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\StarterBase;
 
 use Brain\Monkey\Functions;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Tests\Unit\StarterBaseTestCase;
@@ -86,19 +87,37 @@ class GtmContainerTwigTest extends StarterBaseTestCase {
 	 * double-counts every visit, so the kit stands down rather than adding
 	 * a second loader.
 	 */
+	/**
+	 * GTM4WP numbers its placements footer=0, body=1, body-auto=2, off=3.
+	 * Reading `0` as "off" gets both halves of this wrong at once: the
+	 * plugin's own default placement would go undetected and double-count,
+	 * and a correctly switched-off plugin would suppress the kit's loader
+	 * and stop measurement.
+	 *
+	 * @param int|null $placement Stored placement, NULL to omit the key.
+	 */
 	#[RunInSeparateProcess]
 	#[PreserveGlobalState(false)]
-	public function test_the_kit_stands_down_when_the_plugin_also_prints_a_container(): void {
-		Functions\when( 'get_option' )->justReturn(
-			array(
-				'gtm-code'           => 'GTM-N9FNXT1',
-				'gtm-code-placement' => 1,
-			)
+	#[DataProvider('active_placement_provider')]
+	public function test_the_kit_stands_down_for_every_placement_that_prints( ?int $placement ): void {
+		$options = array( 'gtm-code' => 'GTM-N9FNXT1' );
+		if ( NULL !== $placement ) {
+			$options['gtm-code-placement'] = $placement;
+		}
+
+		Functions\when( 'get_option' )->justReturn( $options );
+
+		$this->assertStringNotContainsString( 'gtm.start', $this->renderWithPluginLoaded() );
+	}
+
+	/** @return array<string, array{int|null}> */
+	public static function active_placement_provider(): array {
+		return array(
+			'footer'         => array( 0 ),
+			'body open'      => array( 1 ),
+			'body open auto' => array( 2 ),
+			'key absent'     => array( NULL ),
 		);
-
-		$output = $this->renderWithPluginLoaded();
-
-		$this->assertStringNotContainsString( 'gtm.start', $output );
 	}
 
 	#[RunInSeparateProcess]
@@ -107,13 +126,36 @@ class GtmContainerTwigTest extends StarterBaseTestCase {
 		Functions\when( 'get_option' )->justReturn(
 			array(
 				'gtm-code'           => 'GTM-N9FNXT1',
-				'gtm-code-placement' => 0,
+				'gtm-code-placement' => 3,
 			)
 		);
 
-		$output = $this->renderWithPluginLoaded();
+		$this->assertStringContainsString( 'gtm.start', $this->renderWithPluginLoaded() );
+	}
 
-		$this->assertStringContainsString( 'gtm.start', $output );
+	/**
+	 * The plugin defines its own placement constants, so a future
+	 * renumbering is read from the plugin rather than from a copy of its
+	 * numbering that would silently go stale.
+	 */
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState(false)]
+	public function test_the_off_value_comes_from_the_plugin_when_it_defines_one(): void {
+		define( 'GTM4WP_PLACEMENT_OFF', 9 );
+		Functions\when( 'get_option' )->justReturn(
+			array(
+				'gtm-code'           => 'GTM-N9FNXT1',
+				'gtm-code-placement' => 9,
+			)
+		);
+
+		$this->assertStringContainsString( 'gtm.start', $this->renderWithPluginLoaded() );
+	}
+
+	public function test_the_kit_prints_when_the_plugin_has_no_container_configured(): void {
+		Functions\when( 'get_option' )->justReturn( array( 'gtm-code' => '' ) );
+
+		$this->assertStringContainsString( 'gtm.start', $this->renderWithPluginLoaded() );
 	}
 
 	/**

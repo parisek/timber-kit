@@ -1818,9 +1818,16 @@ class StarterBase extends Site {
 	/**
 	 * Whether GTM4WP is loaded and set to print a container itself.
 	 *
-	 * Placement `0` is the plugin's "OFF" setting, which is what a migrated
-	 * project leaves behind when it keeps the plugin installed for its data
-	 * layer alone.
+	 * The plugin numbers its placements footer=0, body-open=1,
+	 * body-open-auto=2, off=3 — so "off" is the highest value, not the
+	 * falsy one, and an absent setting means *footer*, the plugin's own
+	 * default. Reading `0` as off would get both halves wrong at once: a
+	 * plugin left on its default would go undetected and double-count, and
+	 * a correctly switched-off plugin would suppress this loader and stop
+	 * measurement altogether.
+	 *
+	 * The value is read from the plugin's own constant when it is defined,
+	 * so a renumbering upstream is followed rather than mirrored here.
 	 *
 	 * @return bool
 	 */
@@ -1834,8 +1841,16 @@ class StarterBase extends Site {
 			return FALSE;
 		}
 
-		return '' !== (string) ( $options['gtm-code'] ?? '' )
-			&& 0 !== (int) ( $options['gtm-code-placement'] ?? 0 );
+		if ( '' === (string) ( $options['gtm-code'] ?? '' ) ) {
+			return FALSE;
+		}
+
+		$off       = defined( 'GTM4WP_PLACEMENT_OFF' ) ? (int) constant( 'GTM4WP_PLACEMENT_OFF' ) : 3;
+		$placement = array_key_exists( 'gtm-code-placement', $options )
+			? (int) $options['gtm-code-placement']
+			: 0;
+
+		return $placement !== $off;
 	}
 
 	/**
