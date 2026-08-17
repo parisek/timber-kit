@@ -117,4 +117,94 @@ class ThemeScriptFileTest extends StarterBaseTestCase {
 			'The caller joins this onto both a filesystem path and a URL, so a path here would break one of them.'
 		);
 	}
+
+	/**
+	 * Nothing orders manifest records, and a consumer with a second Vite input
+	 * gets several `isEntry` ones. A CSS entry listed first was selected by an
+	 * earlier version and would have been enqueued as a script module.
+	 */
+	public function test_prefers_the_conventional_entry_over_another_entry_listed_first(): void {
+		touch( $this->dir . '/style.h.css' );
+		touch( $this->dir . '/script.B7fm2cuz.min.js' );
+		$this->writeManifest(
+			[
+				'src/css/style.css' => [ 'file' => 'style.h.css', 'isEntry' => true ],
+				'src/js/script.js'  => [ 'file' => 'script.B7fm2cuz.min.js', 'isEntry' => true ],
+			]
+		);
+
+		$this->assertSame( 'script.B7fm2cuz.min.js', $this->resolve() );
+	}
+
+	/** A consumer that renamed its input still resolves, by first usable record. */
+	public function test_accepts_an_unconventional_key_when_it_is_the_only_usable_entry(): void {
+		touch( $this->dir . '/app.Cq31vv.min.js' );
+		$this->writeManifest(
+			[ 'src/js/app.js' => [ 'file' => 'app.Cq31vv.min.js', 'isEntry' => true ] ]
+		);
+
+		$this->assertSame( 'app.Cq31vv.min.js', $this->resolve() );
+	}
+
+	/** A non-script entry is never enqueued as a script, whatever its key. */
+	public function test_rejects_an_entry_that_is_not_javascript(): void {
+		touch( $this->dir . '/style.h.css' );
+		$this->writeManifest(
+			[ 'src/css/style.css' => [ 'file' => 'style.h.css', 'isEntry' => true ] ]
+		);
+
+		$this->assertSame( 'script.js', $this->resolve() );
+	}
+
+	/**
+	 * `is_file()` resolves `..`, so without a bare-filename check the method
+	 * hands back a path out of the directory it documents. Reproduced against
+	 * the real method before this test existed.
+	 */
+	public function test_rejects_a_file_value_that_escapes_the_directory(): void {
+		$outside = dirname( $this->dir ) . '/outside-' . basename( $this->dir );
+		mkdir( $outside, 0777, true );
+		touch( $outside . '/other.js' );
+		$this->writeManifest(
+			[
+				'src/js/script.js' => [
+					'file'    => '../outside-' . basename( $this->dir ) . '/other.js',
+					'isEntry' => true,
+				],
+			]
+		);
+
+		$result = $this->resolve();
+
+		unlink( $outside . '/other.js' );
+		rmdir( $outside );
+
+		$this->assertSame( 'script.js', $result );
+	}
+
+	/**
+	 * Isolates the conventional-key preference from the `.js` check beside it.
+	 *
+	 * The CSS case above passes with or without the preference, because the
+	 * suffix check already rejects the stylesheet — so it cannot tell whether
+	 * the preference works. TWO JavaScript entries can, and that is the shape a
+	 * consumer reaches the day it adds a second Vite input (an admin bundle,
+	 * an editor bundle). Order in the manifest is not ours to rely on.
+	 */
+	public function test_prefers_the_conventional_entry_over_another_SCRIPT_listed_first(): void {
+		touch( $this->dir . '/admin.Zz99xx.min.js' );
+		touch( $this->dir . '/script.B7fm2cuz.min.js' );
+		$this->writeManifest(
+			[
+				'src/js/admin.js'  => [ 'file' => 'admin.Zz99xx.min.js', 'isEntry' => true ],
+				'src/js/script.js' => [ 'file' => 'script.B7fm2cuz.min.js', 'isEntry' => true ],
+			]
+		);
+
+		$this->assertSame(
+			'script.B7fm2cuz.min.js',
+			$this->resolve(),
+			'A second JS input must not displace the theme bundle by being listed first.'
+		);
+	}
 }

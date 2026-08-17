@@ -2016,6 +2016,47 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * The manifest key Vite writes for this skeleton's single JS input.
+	 *
+	 * Consulted as a PREFERENCE, never as a requirement — a consumer may rename
+	 * its input, and this class should not fail because of it.
+	 *
+	 * @var string
+	 */
+	private const ENTRY_MANIFEST_KEY = 'src/js/script.js';
+
+	/**
+	 * Is this manifest `file` value safe to enqueue as the theme script?
+	 *
+	 * Three checks, each paid for by a reviewer breaking the earlier version:
+	 *
+	 * - A BARE FILENAME. `is_file()` happily resolves `../elsewhere/other.js`,
+	 *   so a `file` carrying a separator escapes the directory this method
+	 *   documents itself as returning a name inside. Reproduced, not imagined.
+	 * - A `.js` SUFFIX. A manifest may carry several `isEntry` records, and
+	 *   nothing orders them — a CSS entry listed first was selected and would
+	 *   have been enqueued as a script module. Asserting the thing is a script
+	 *   is this method's job; it is not a build path in disguise.
+	 * - PRESENT ON DISK. A manifest naming a missing file is worse than no
+	 *   manifest: it enqueues a guaranteed 404.
+	 *
+	 * @param string $file Candidate value from the manifest.
+	 * @param string $dir  Directory the name is relative to.
+	 * @return bool
+	 */
+	private static function isUsableEntryFile( string $file, string $dir ): bool {
+		if ( '' === $file || basename( $file ) !== $file ) {
+			return false;
+		}
+
+		if ( ! str_ends_with( strtolower( $file ), '.js' ) ) {
+			return false;
+		}
+
+		return is_file( $dir . '/' . $file );
+	}
+
+	/**
 	 * Resolve the JS entry's filename, preferring the Vite manifest.
 	 *
 	 * WHY THE ENTRY NEEDS A CONTENT HASH. Lazy chunks carry one; the entry did
@@ -2059,7 +2100,10 @@ class StarterBase extends Site {
 	protected function themeScriptFile( string $dir ): string {
 		$manifest = $dir . '/.vite/manifest.json';
 
-		if ( ! is_file( $manifest ) ) {
+		// is_readable() rather than is_file() alone: an unreadable file passes
+		// is_file() and then makes file_get_contents() emit a warning on its way
+		// to the same fallback.
+		if ( ! is_readable( $manifest ) ) {
 			return 'script.js';
 		}
 
@@ -2068,19 +2112,27 @@ class StarterBase extends Site {
 			return 'script.js';
 		}
 
-		foreach ( $decoded as $record ) {
+		$found = null;
+		foreach ( $decoded as $key => $record ) {
 			if ( ! is_array( $record ) || empty( $record['isEntry'] ) ) {
 				continue;
 			}
+
 			$file = $record['file'] ?? '';
-			// A manifest naming a file that is not there is worse than no
-			// manifest: it would enqueue a 404 and take the whole bundle down.
-			if ( is_string( $file ) && '' !== $file && is_file( $dir . '/' . $file ) ) {
+			if ( ! is_string( $file ) || ! self::isUsableEntryFile( $file, $dir ) ) {
+				continue;
+			}
+
+			// The conventional key wins outright. Everything else is a
+			// first-usable-wins fallback for a consumer that renamed its input.
+			if ( self::ENTRY_MANIFEST_KEY === $key ) {
 				return $file;
 			}
+
+			$found ??= $file;
 		}
 
-		return 'script.js';
+		return $found ?? 'script.js';
 	}
 
 	/**
