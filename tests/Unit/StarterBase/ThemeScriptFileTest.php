@@ -136,14 +136,38 @@ class ThemeScriptFileTest extends StarterBaseTestCase {
 		$this->assertSame( 'script.B7fm2cuz.min.js', $this->resolve() );
 	}
 
-	/** A consumer that renamed its input still resolves, by first usable record. */
-	public function test_accepts_an_unconventional_key_when_it_is_the_only_usable_entry(): void {
+	/**
+	 * The escape hatch for a consumer that renamed its Vite input.
+	 *
+	 * An earlier version answered this by taking the first usable `isEntry`
+	 * record, which neither Sage nor Laravel does — both make the caller ask for
+	 * a different key. `ENTRY_MANIFEST_KEY` is `protected` for exactly that.
+	 */
+	public function test_a_subclass_can_point_the_lookup_at_a_renamed_input(): void {
 		touch( $this->dir . '/app.Cq31vv.min.js' );
 		$this->writeManifest(
 			[ 'src/js/app.js' => [ 'file' => 'app.Cq31vv.min.js', 'isEntry' => true ] ]
 		);
 
-		$this->assertSame( 'app.Cq31vv.min.js', $this->resolve() );
+		$base = new class extends \Parisek\TimberKit\StarterBase {
+			protected const ENTRY_MANIFEST_KEY = 'src/js/app.js';
+			public function __construct() {}
+		};
+
+		$this->assertSame(
+			'app.Cq31vv.min.js',
+			( new \ReflectionMethod( $base, 'themeScriptFile' ) )->invoke( $base, $this->dir )
+		);
+	}
+
+	/** Without that override, an unconventional key is simply not this theme's entry. */
+	public function test_an_unconventional_key_alone_does_not_resolve(): void {
+		touch( $this->dir . '/app.Cq31vv.min.js' );
+		$this->writeManifest(
+			[ 'src/js/app.js' => [ 'file' => 'app.Cq31vv.min.js', 'isEntry' => true ] ]
+		);
+
+		$this->assertSame( 'script.js', $this->resolve() );
 	}
 
 	/** A non-script entry is never enqueued as a script, whatever its key. */

@@ -2016,29 +2016,41 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * The manifest key Vite writes for this skeleton's single JS input.
+	 * The manifest key naming this theme's JS entry — the source path Vite was
+	 * given as its input, which is what it writes the record under.
 	 *
-	 * Consulted as a PREFERENCE, never as a requirement — a consumer may rename
-	 * its input, and this class should not fail because of it.
+	 * THE KEY IS THE INTERFACE, and that is prior art rather than preference.
+	 * Sage's `JsonManifest::get()` is `$manifest[$asset] ?? $asset`; Laravel's
+	 * `Vite::chunk()` is `$manifest[$file]` or throw. Neither scans the manifest
+	 * looking for an entry, because a manifest can hold several and nothing
+	 * orders them.
+	 *
+	 * `protected` so a consumer that renamed its input overrides this rather
+	 * than losing the resolution — the same escape hatch both references give
+	 * by letting the caller ask for a different name.
 	 *
 	 * @var string
 	 */
-	private const ENTRY_MANIFEST_KEY = 'src/js/script.js';
+	protected const ENTRY_MANIFEST_KEY = 'src/js/script.js';
 
 	/**
 	 * Is this manifest `file` value safe to enqueue as the theme script?
 	 *
-	 * Three checks, each paid for by a reviewer breaking the earlier version:
+	 * Two checks. A third — a `.js` suffix — was dropped when the lookup became
+	 * a keyed one: the CSS record it defended against can no longer be reached,
+	 * because the key names the JS input. A guard for an unreachable state is
+	 * indistinguishable from no guard, so it went rather than staying as
+	 * reassurance.
 	 *
 	 * - A BARE FILENAME. `is_file()` happily resolves `../elsewhere/other.js`,
 	 *   so a `file` carrying a separator escapes the directory this method
 	 *   documents itself as returning a name inside. Reproduced, not imagined.
-	 * - A `.js` SUFFIX. A manifest may carry several `isEntry` records, and
-	 *   nothing orders them — a CSS entry listed first was selected and would
-	 *   have been enqueued as a script module. Asserting the thing is a script
-	 *   is this method's job; it is not a build path in disguise.
+	 *   Laravel does not guard this; it is kept because the caller joins the
+	 *   return value onto both a URL and a filesystem path.
 	 * - PRESENT ON DISK. A manifest naming a missing file is worse than no
-	 *   manifest: it enqueues a guaranteed 404.
+	 *   manifest: it enqueues a guaranteed 404. Laravel checks this only when
+	 *   inlining content, and can afford to — it throws where this class has a
+	 *   real fallback to prefer.
 	 *
 	 * @param string $file Candidate value from the manifest.
 	 * @param string $dir  Directory the name is relative to.
@@ -2046,10 +2058,6 @@ class StarterBase extends Site {
 	 */
 	private static function isUsableEntryFile( string $file, string $dir ): bool {
 		if ( '' === $file || basename( $file ) !== $file ) {
-			return false;
-		}
-
-		if ( ! str_ends_with( strtolower( $file ), '.js' ) ) {
 			return false;
 		}
 
@@ -2112,27 +2120,14 @@ class StarterBase extends Site {
 			return 'script.js';
 		}
 
-		$found = null;
-		foreach ( $decoded as $key => $record ) {
-			if ( ! is_array( $record ) || empty( $record['isEntry'] ) ) {
-				continue;
-			}
-
-			$file = $record['file'] ?? '';
-			if ( ! is_string( $file ) || ! self::isUsableEntryFile( $file, $dir ) ) {
-				continue;
-			}
-
-			// The conventional key wins outright. Everything else is a
-			// first-usable-wins fallback for a consumer that renamed its input.
-			if ( self::ENTRY_MANIFEST_KEY === $key ) {
-				return $file;
-			}
-
-			$found ??= $file;
+		$record = $decoded[ static::ENTRY_MANIFEST_KEY ] ?? null;
+		if ( ! is_array( $record ) ) {
+			return 'script.js';
 		}
 
-		return $found ?? 'script.js';
+		$file = $record['file'] ?? '';
+
+		return is_string( $file ) && self::isUsableEntryFile( $file, $dir ) ? $file : 'script.js';
 	}
 
 	/**
