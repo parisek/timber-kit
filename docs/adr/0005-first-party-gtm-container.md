@@ -108,12 +108,19 @@ emitted source line by line, including the `?l=` / `&l=` difference that the
 ID's absence forces, and every refusal path — malformed ID, domain, path or data
 layer name.
 
-Two capabilities are deliberately not carried over. GTM environments
+The `noscript` iframe is emitted, but conditionally, because it is the one part
+of the installation that cannot follow the ID rule: `ns.html` takes the
+container ID as a query parameter and has no ID-less form. So it prints by
+default where the ID is already public in the loader URL, and stays silent where
+a custom path exists to keep it out — a per-container `noscript` flag overrides
+either way, because whether a site would rather have the no-JS fallback than the
+hidden ID is the site's call, not the kit's. It is a second Twig function
+rather than part of the first: the two blocks belong at different points in the
+document, and only one of them is always emitted.
+
+One capability is deliberately not carried over. GTM environments
 (`gtm_auth` / `gtm_preview`) work only against the Google loader and are ignored
-for a server-side path, which has no notion of them. The `noscript` iframe is not
-emitted: it requires the container ID, so it cannot honour the same privacy
-property, and it serves visitors who have JavaScript disabled and therefore
-cannot be measured by GTM anyway.
+for a server-side path, which has no notion of them.
 
 `TIMBERKIT_GTM_ENABLED` is the kit's first environment-aware behaviour. That is a
 precedent, and the next feature that wants one should follow this shape rather

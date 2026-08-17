@@ -72,9 +72,9 @@ final class GtmContainer {
 	 * the rest, because sites that split containers by language normally
 	 * share one server-side endpoint and differ in the ID alone.
 	 *
-	 * @param array<string, array<string, string>|string> $containers Language-keyed container map.
+	 * @param array<string, array<string, string|bool>|string> $containers Language-keyed container map.
 	 * @param string|null                                 $language   Current language code, if any.
-	 * @return array<string, string> Resolved container, empty when none applies.
+	 * @return array<string, string|bool> Resolved container, empty when none applies.
 	 */
 	public static function resolve( array $containers, ?string $language ): array {
 		$default = self::normalize( $containers[ self::DEFAULT_KEY ] ?? array() );
@@ -154,7 +154,7 @@ final class GtmContainer {
 	/**
 	 * Builds the loader snippet for one resolved container.
 	 *
-	 * @param array<string, string> $container      Resolved container.
+	 * @param array<string, string|bool> $container      Resolved container.
 	 * @param string                $datalayer_name Data layer JS variable name.
 	 * @return string Script block, empty when the container is unusable.
 	 */
@@ -214,11 +214,48 @@ final class GtmContainer {
 	}
 
 	/**
+	 * Builds the `noscript` iframe block for one resolved container.
+	 *
+	 * The iframe addresses `ns.html` and that endpoint takes the container
+	 * ID as a query parameter — there is no id-less form of it. So the block
+	 * costs nothing where the ID already appears in the loader URL, and
+	 * defeats the purpose where a custom path exists to keep it out.
+	 * It is therefore printed by default only in the first case; `noscript`
+	 * on the container overrides the decision either way.
+	 *
+	 * @param array<string, string|bool> $container Resolved container.
+	 * @return string Noscript block, empty when it should not be emitted.
+	 */
+	public static function noscript( array $container ): string {
+		$id = (string) ( $container['id'] ?? '' );
+		if ( 1 !== preg_match( self::ID_PATTERN, $id ) ) {
+			return '';
+		}
+
+		$hides_id = self::DEFAULT_PATH !== self::path( $container );
+		$wanted   = array_key_exists( 'noscript', $container )
+			? filter_var( $container['noscript'], FILTER_VALIDATE_BOOLEAN )
+			: ! $hides_id;
+
+		if ( ! $wanted ) {
+			return '';
+		}
+
+		// `ns.html` is served from the host root; the loader path addresses
+		// the script only, so reusing it here would build a URL nothing answers.
+		$url = 'https://' . self::host( $container ) . '/ns.html?id=' . $id
+			. self::environment_query( $container );
+
+		return "\n<noscript><iframe src=\"" . esc_url( $url ) . '" height="0" width="0" '
+			. 'style="display:none;visibility:hidden" aria-hidden="true"></iframe></noscript>' . "\n";
+	}
+
+	/**
 	 * Reads a container entry written either as a full array or as the
 	 * container ID on its own.
 	 *
-	 * @param array<string, string>|string $entry Configured entry.
-	 * @return array<string, string>
+	 * @param array<string, string|bool>|string $entry Configured entry.
+	 * @return array<string, string|bool>
 	 */
 	private static function normalize( $entry ): array {
 		if ( is_string( $entry ) ) {
@@ -231,7 +268,7 @@ final class GtmContainer {
 	/**
 	 * Validated loader host, falling back to Google's own.
 	 *
-	 * @param array<string, string> $container Resolved container.
+	 * @param array<string, string|bool> $container Resolved container.
 	 * @return string
 	 */
 	private static function host( array $container ): string {
@@ -252,7 +289,7 @@ final class GtmContainer {
 	 * container stays reachable, and the ID reappearing in the URL is a
 	 * visible symptom rather than a silent outage.
 	 *
-	 * @param array<string, string> $container Resolved container.
+	 * @param array<string, string|bool> $container Resolved container.
 	 * @return string
 	 */
 	private static function path( array $container ): string {
@@ -272,10 +309,22 @@ final class GtmContainer {
 	 * environments, so the values are ignored there rather than appended to
 	 * a URL that would not honour them.
 	 *
-	 * @param array<string, string> $container Resolved container.
+	 * @param array<string, string|bool> $container Resolved container.
 	 * @return string
 	 */
 	private static function environment( array $container ): string {
+		$query = self::environment_query( $container );
+
+		return '' === $query ? '' : "+'" . $query . "'";
+	}
+
+	/**
+	 * GTM environment parameters as a bare query-string fragment.
+	 *
+	 * @param array<string, string|bool> $container Resolved container.
+	 * @return string
+	 */
+	private static function environment_query( array $container ): string {
 		$auth    = trim( (string) ( $container['gtm_auth'] ?? '' ) );
 		$preview = trim( (string) ( $container['gtm_preview'] ?? '' ) );
 
@@ -283,8 +332,8 @@ final class GtmContainer {
 			return '';
 		}
 
-		return "+'&gtm_auth=" . rawurlencode( $auth )
+		return '&gtm_auth=' . rawurlencode( $auth )
 			. '&gtm_preview=' . rawurlencode( $preview )
-			. "&gtm_cookies_win=x'";
+			. '&gtm_cookies_win=x';
 	}
 }

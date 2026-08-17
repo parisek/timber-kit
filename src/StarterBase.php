@@ -603,7 +603,7 @@ class StarterBase extends Site {
 	 * Loading is additionally gated by environment — see
 	 * `GtmContainer::enabled()` and the `TIMBERKIT_GTM_ENABLED` constant.
 	 *
-	 * @var array<string, array<string, string>|string>
+	 * @var array<string, array<string, string|bool>|string>
 	 */
 	protected array $gtm_containers = array();
 
@@ -1526,6 +1526,7 @@ class StarterBase extends Site {
 		$twig->addFunction( new TwigFunction( 'merge_resizer', [ $this, 'twig_merge_resizer' ] ) );
 		$twig->addFunction( new TwigFunction( 'gtm4wp_the_gtm_tag', [ $this, 'twig_gtm4wp_the_gtm_tag' ] ) );
 		$twig->addFunction( new TwigFunction( 'gtm_container', [ $this, 'twig_gtm_container' ] ) );
+		$twig->addFunction( new TwigFunction( 'gtm_container_noscript', [ $this, 'twig_gtm_container_noscript' ] ) );
 
 		// Typography-aware translation helpers (`…t` suffix = "translate +
 		// typography"): `_xt`/`__t`/`_nt`/`_nxt` mirror `_x`/`__`/`_n`/`_nx` but
@@ -1802,11 +1803,39 @@ class StarterBase extends Site {
 			return;
 		}
 
+		echo GtmContainer::snippet( $this->gtm_container_for_current_language() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- every value is validated against a closed pattern in GtmContainer.
+	}
+
+	/**
+	 * `gtm_container_noscript` Twig function — prints the GTM `noscript`
+	 * iframe for the current language, immediately after `<body>`.
+	 *
+	 * Separate from `gtm_container()` because the two blocks belong at
+	 * different points in the document, and because this one is not always
+	 * emitted: the iframe can only address `ns.html?id=…`, so it is skipped
+	 * for a container whose custom path exists to keep that ID out of
+	 * requests — unless the container asks for it back.
+	 *
+	 * A project still on GTM4WP gets the plugin's own iframe from
+	 * `gtm_container()`, so there is nothing to delegate here.
+	 */
+	public function twig_gtm_container_noscript(): void {
+		if ( array() === $this->gtm_containers || ! GtmContainer::enabled() ) {
+			return;
+		}
+
+		echo GtmContainer::noscript( $this->gtm_container_for_current_language() ); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- built from validated values and escaped in GtmContainer.
+	}
+
+	/**
+	 * The configured container that applies to the language being rendered.
+	 *
+	 * @return array<string, string|bool>
+	 */
+	private function gtm_container_for_current_language(): array {
 		$language = apply_filters( 'wpml_current_language', NULL );
 
-		echo GtmContainer::snippet( // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- every value is validated against a closed pattern in GtmContainer.
-			GtmContainer::resolve( $this->gtm_containers, is_string( $language ) ? $language : NULL )
-		);
+		return GtmContainer::resolve( $this->gtm_containers, is_string( $language ) ? $language : NULL );
 	}
 
 

@@ -21,6 +21,7 @@ class GtmContainerTwigTest extends StarterBaseTestCase {
 			static fn( string $tag, mixed $value ): mixed => $value
 		);
 		Functions\when( 'get_option' )->justReturn( array() );
+		Functions\when( 'esc_url' )->returnArg();
 	}
 
 	private function render( array $overrides = array() ): string {
@@ -127,4 +128,36 @@ class GtmContainerTwigTest extends StarterBaseTestCase {
 		$this->assertSame( '', $output );
 	}
 
+	public function test_the_noscript_function_prints_the_iframe(): void {
+		$base = $this->createStarterBase(
+			array( 'gtm_containers' => array( 'default' => array( 'id' => 'GTM-N9FNXT1' ) ) )
+		);
+
+		ob_start();
+		$base->twig_gtm_container_noscript();
+		$output = (string) ob_get_clean();
+
+		$this->assertStringContainsString( 'ns.html?id=GTM-N9FNXT1', $output );
+	}
+
+	public function test_the_noscript_function_stays_quiet_for_an_unconfigured_project(): void {
+		$base = $this->createStarterBase();
+
+		ob_start();
+		$base->twig_gtm_container_noscript();
+
+		$this->assertSame( '', (string) ob_get_clean() );
+	}
+
+	public function test_the_noscript_function_respects_the_environment_gate(): void {
+		Functions\when( 'wp_get_environment_type' )->justReturn( 'local' );
+		$base = $this->createStarterBase(
+			array( 'gtm_containers' => array( 'default' => array( 'id' => 'GTM-N9FNXT1' ) ) )
+		);
+
+		ob_start();
+		$base->twig_gtm_container_noscript();
+
+		$this->assertSame( '', (string) ob_get_clean() );
+	}
 }

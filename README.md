@@ -830,10 +830,11 @@ class Base extends StarterBase {
 
 A single-language project can write the ID on its own: `array( 'default' => 'GTM-XXXXXXX' )`.
 
-Print it from the layout, once, anywhere the loader belongs — after any consent-mode defaults:
+Print the loader from the layout, after any consent-mode defaults, and the `noscript` iframe immediately after `<body>`:
 
 ```twig
-{{ gtm_container() }}
+{{ gtm_container() }}          {# the <script> loader #}
+{{ gtm_container_noscript() }} {# the <noscript> iframe, right after <body> #}
 ```
 
 Behavior:
@@ -863,7 +864,16 @@ Migrating a project off GTM4WP:
 
 Configured *and* the plugin still printing its own container is the one broken state: the page loads GTM twice and counts every visit twice, which reads as growth rather than as a fault. The **loader never inspects the plugin** — guessing at a schema this kit does not own can only go wrong in the direction that stops measurement. The state is reported instead by the `gtm_container_not_duplicated` Site Health check (needs `$site_health`), which reads GTM4WP's placement and its `GTM4WP_HARDCODED_GTM_ID` and tells you to switch the plugin off.
 
-Two things the kit does not emit. GTM environments (`gtm_auth` / `gtm_preview`) apply to the Google loader only and are ignored for a server-side path, which has no notion of them. The `noscript` iframe is not printed at all — it needs the container ID, and it targets visitors who have JavaScript off and therefore cannot be measured anyway.
+**The `noscript` iframe prints only where it can.** `ns.html` takes the container ID as a query parameter and has no ID-less form, so the block is free where the ID already appears in the loader URL and self-defeating where a custom path exists to keep it out. `gtm_container_noscript()` therefore prints by default for a container **without** a custom path and stays silent for one **with** it. Override either way per container:
+
+```php
+'default' => array( 'id' => 'GTM-XXXXXXX', 'path' => 'aBcDeF/', 'noscript' => true ),  // print it anyway
+'default' => array( 'id' => 'GTM-XXXXXXX', 'noscript' => false ),                      // never print it
+```
+
+The iframe always addresses the host root (`https://<domain>/ns.html?id=…`), never the loader path — that path addresses the script only.
+
+One thing the kit does not emit: GTM environments (`gtm_auth` / `gtm_preview`) apply to the Google loader only and are ignored for a server-side path, which has no notion of them.
 
 ### WPForms Config Bridge
 
