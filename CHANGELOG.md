@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.37.0] - 2026-08-17
+
 ### Fixed
 
 - **The theme JS entry now resolves through the Vite manifest**, so a build that
