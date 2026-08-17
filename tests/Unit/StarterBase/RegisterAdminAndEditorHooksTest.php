@@ -43,8 +43,35 @@ class RegisterAdminAndEditorHooksTest extends StarterBaseTestCase {
 
 		$this->assertContains( 'theme_page_templates', $filters );
 		$this->assertContains( 'tiny_mce_before_init', $filters );
-		$this->assertContains( 'mce_css', $filters );
 		$this->assertContains( 'pre_get_posts', $filters );
+
+		// `mce_css` is opt-in — see the flag's own two tests below.
+		$this->assertNotContains( 'mce_css', $filters );
+	}
+
+	private function collectFilters( bool $excludeEditorStyles ): array {
+		$filters  = [];
+		$instance = $this->bareInstance();
+
+		$property = ( new \ReflectionClass( StarterBase::class ) )->getProperty( 'mce_exclude_editor_styles' );
+		$property->setValue( $instance, $excludeEditorStyles );
+
+		Functions\when( 'add_action' )->justReturn( true );
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$this->invokeRegisterAdminAndEditorHooks( $instance );
+
+		return $filters;
+	}
+
+	public function test_does_not_register_mce_css_by_default(): void {
+		$this->assertNotContains( 'mce_css', $this->collectFilters( false ) );
+	}
+
+	public function test_registers_mce_css_when_the_flag_is_on(): void {
+		$this->assertContains( 'mce_css', $this->collectFilters( true ) );
 	}
 
 	public function test_registers_template_redirect_at_priority_0(): void {

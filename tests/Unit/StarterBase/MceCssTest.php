@@ -30,14 +30,29 @@ class MceCssTest extends StarterBaseTestCase {
 		);
 	}
 
-	// The version query core appends (`?wp-mce-49110-20250317`) must not make the
-	// entry unrecognisable — a strict equality compare would miss every real call.
-	public function test_matches_the_stylesheet_carrying_a_cache_busting_query(): void {
+	// A query string must not make the entry unrecognisable. Core does NOT append
+	// one before this filter runs — the `?wp-mce-<version>` suffix seen in the
+	// iframe is TinyMCE's client-side `cache_suffix` (class-wp-editor.php:1107),
+	// added long after `mce_css` (:600). An earlier version of this comment had
+	// that backwards. The coverage stays because a theme or plugin can filter a
+	// version onto the URL itself, and the filter must survive it.
+	public function test_matches_the_stylesheet_carrying_a_query_string(): void {
 		$base = $this->createStarterBase();
 
-		$css = 'https://example.test/static/dist/css/gutenberg-editor.css?wp-mce-49110-20250317';
+		$css = 'https://example.test/static/dist/css/gutenberg-editor.css?ver=1.2.3';
 
 		$this->assertSame( '', $base->mce_css( $css ) );
+	}
+
+	// A substring test would strip all three of these. None is the file.
+	public function test_does_not_strip_a_different_file_whose_name_merely_contains_it(): void {
+		$base = $this->createStarterBase();
+
+		$css = 'https://example.test/css/my-gutenberg-editor.css,'
+			. 'https://example.test/css/gutenberg-editor.css.backup,'
+			. 'https://example.test/css/a.css?source=gutenberg-editor.css';
+
+		$this->assertSame( $css, $base->mce_css( $css ) );
 	}
 
 	public function test_leaves_other_stylesheets_untouched(): void {

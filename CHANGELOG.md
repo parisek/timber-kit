@@ -6,13 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-### Fixed
+### Added
 
-- **`gutenberg-editor.css` no longer reaches the classic (TinyMCE) editor** — a new `mce_css` filter drops it. `add_editor_style()` registers a stylesheet for both editors, and the file is written for one: every rule in it is scoped to `.editor-styles-wrapper`, a class Gutenberg's body carries and TinyMCE's body does not. So in TinyMCE it contributed its Tailwind Preflight and nothing else.
+- **`StarterBase::$mce_exclude_editor_styles`** (default **off**) — keeps `gutenberg-editor.css` out of the classic (TinyMCE) editor through a new `mce_css` filter. `add_editor_style()` registers a stylesheet for both editors, and the file is written for one: its rules are scoped to `.editor-styles-wrapper`, a class Gutenberg's body carries and TinyMCE's body does not.
 
-  The damage was visible, not theoretical. Preflight resets `a` to `color: inherit; text-decoration: inherit` and `ol`/`ul` to `list-style: none`, so every ACF `wysiwyg` field rendered a link as plain body text and a bulleted list with no bullets. Found on a consent sentence whose stored value carried a correct `<a href>` in all five languages and looked like unlinked prose to the editor writing it — WordPress's own `content.css` styles both correctly, and our stylesheet loaded after it and wiped that out. **A downstream reading this as "WordPress does not style the classic editor" would be looking in the wrong place**: it does, and we were the ones undoing it.
+  The damage is visible, not theoretical. What does reach TinyMCE is the Tailwind Preflight, which resets `a` to `color: inherit; text-decoration: inherit` and `ol`/`ul` to `list-style: none` — so every ACF `wysiwyg` field renders a link as plain body text and a bulleted list with no bullets. Found on a consent sentence whose stored value carried a correct `<a href>` in all five languages and read as unlinked prose to the editor writing it. **The underline that normally appears there comes from the browser's UA stylesheet, not from core CSS** — `wp-content.css` carries no `a` rule at all, so a reader looking for the rule we override will not find one; Preflight simply loads last and wins.
 
-  Nothing is lost by dropping the file, because nothing in it applied. The filter is a no-op for a theme with `$gutenberg_editor_styles = false`, which never registered the stylesheet in the first place.
+  **Off by default because the exclusion can take a project's own styling with it.** A theme may style the classic editor from inside that same file — `body#tinymce` / `body.mce-content-body` blocks are the usual shape — and dropping the file switches those rules off with nothing to warn about. Check for such a block before enabling; the README says how.
+
+  Matching is on the file name, not a substring of the URL: `/css/my-gutenberg-editor.css` and `/css/a.css?source=gutenberg-editor.css` are left alone. The filter is also a no-op for a theme with `$gutenberg_editor_styles = false`, which never registered the stylesheet.
+
+  One claim from this change's first draft is retracted here rather than quietly dropped: **"nothing is lost, because nothing in it applied" was false.** A theme's `settings.css` imports reach the iframe too, so a compiled file also carries `:root` custom properties, base-layer element rules (`button { cursor: pointer }`, `html { overflow-anchor: none }`) and class-scoped block styles (`.wp-block-image`, `.wp-block-separator`). None of it styles the text a `wysiwyg` field holds, which is why the flag is safe — but the blanket claim was measurably wrong, and a project whose imports differ should read its own compiled output.
 
 ## [1.35.0] - 2026-08-17
 
