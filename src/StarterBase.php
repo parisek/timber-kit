@@ -880,6 +880,7 @@ class StarterBase extends Site {
 		add_action( 'admin_head', array( $this, 'hide_core_update_notifications' ), 1 );
 		add_action( 'acf/input/admin_footer', array( $this, 'acf_input_admin_footer' ) );
 		add_filter( 'tiny_mce_before_init', array( $this, 'tiny_mce_before_init' ) );
+		add_filter( 'mce_css', array( $this, 'mce_css' ) );
 		add_filter( 'pre_get_posts', array( $this, 'search_post_type_filter' ) );
 	}
 
@@ -2466,6 +2467,45 @@ class StarterBase extends Site {
 			</script>
 		EOF;
 		print $str;
+	}
+
+	/**
+	 * Keep `gutenberg-editor.css` out of the classic (TinyMCE) editor.
+	 *
+	 * `add_editor_style()` registers a stylesheet for BOTH editors: Gutenberg's
+	 * canvas and TinyMCE's iframe, the latter through core's `mce_css`
+	 * (wp-includes/class-wp-editor.php). The theme's `gutenberg-editor.css` is
+	 * written for the block editor only — every rule in it is scoped to
+	 * `.editor-styles-wrapper`, a class Gutenberg's body carries and TinyMCE's
+	 * body does not.
+	 *
+	 * So in TinyMCE the file delivers its Tailwind Preflight and nothing else.
+	 * Preflight zeroes every margin and padding, sets `list-style: none` on
+	 * `ol`/`ul`, and resets `a` to `color: inherit; text-decoration: inherit`.
+	 * The visible result is an ACF `wysiwyg` field that renders a link as plain
+	 * body text and a bulleted list with no bullets — WordPress's own
+	 * `content.css` styles both correctly, and our stylesheet loads after it and
+	 * wipes that out.
+	 *
+	 * Dropping the file restores the native classic-editor look. Nothing is
+	 * lost, because nothing in it applied.
+	 *
+	 * Hooked to `mce_css`.
+	 *
+	 * @param string $css Comma-separated list of stylesheet URLs.
+	 * @return string The list without the editor stylesheet.
+	 */
+	public function mce_css( $css ) {
+		if ( ! $this->gutenberg_editor_styles ) {
+			return $css;
+		}
+
+		$kept = array_filter(
+			explode( ',', (string) $css ),
+			static fn( $url ) => ! str_contains( $url, 'gutenberg-editor.css' )
+		);
+
+		return implode( ',', $kept );
 	}
 
 	/**

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **`gutenberg-editor.css` no longer reaches the classic (TinyMCE) editor** — a new `mce_css` filter drops it. `add_editor_style()` registers a stylesheet for both editors, and the file is written for one: every rule in it is scoped to `.editor-styles-wrapper`, a class Gutenberg's body carries and TinyMCE's body does not. So in TinyMCE it contributed its Tailwind Preflight and nothing else.
+
+  The damage was visible, not theoretical. Preflight resets `a` to `color: inherit; text-decoration: inherit` and `ol`/`ul` to `list-style: none`, so every ACF `wysiwyg` field rendered a link as plain body text and a bulleted list with no bullets. Found on a consent sentence whose stored value carried a correct `<a href>` in all five languages and looked like unlinked prose to the editor writing it — WordPress's own `content.css` styles both correctly, and our stylesheet loaded after it and wiped that out. **A downstream reading this as "WordPress does not style the classic editor" would be looking in the wrong place**: it does, and we were the ones undoing it.
+
+  Nothing is lost by dropping the file, because nothing in it applied. The filter is a no-op for a theme with `$gutenberg_editor_styles = false`, which never registered the stylesheet in the first place.
+
 ## [1.35.0] - 2026-08-17
 
 ### Added

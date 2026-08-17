@@ -43,6 +43,7 @@ class RegisterAdminAndEditorHooksTest extends StarterBaseTestCase {
 
 		$this->assertContains( 'theme_page_templates', $filters );
 		$this->assertContains( 'tiny_mce_before_init', $filters );
+		$this->assertContains( 'mce_css', $filters );
 		$this->assertContains( 'pre_get_posts', $filters );
 	}
 
