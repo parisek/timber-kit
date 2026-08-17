@@ -2025,9 +2025,12 @@ class StarterBase extends Site {
 	 * looking for an entry, because a manifest can hold several and nothing
 	 * orders them.
 	 *
-	 * `protected` so a consumer that renamed its input overrides this rather
-	 * than losing the resolution — the same escape hatch both references give
-	 * by letting the caller ask for a different name.
+	 * `protected` so a consumer that renamed its input may redeclare it. That is
+	 * NOT the same shape as the references, which let the caller pass a name at
+	 * the call site; a redeclared constant is a weaker, more obscure surface.
+	 * The closer equivalent is the `timber_kit_theme_script_manifest_key` filter
+	 * applied where this is read — reachable from a plugin, not only a
+	 * subclass.
 	 *
 	 * @var string
 	 */
@@ -2108,9 +2111,13 @@ class StarterBase extends Site {
 	 * honoured — though it would also have to name a file that exists in this
 	 * same directory, which is the check below.
 	 *
-	 * The manifest has exactly one `isEntry` record, so the first match is the
-	 * answer; keying on `src/js/script.js` would hardcode a build-side path this
-	 * class has no business knowing.
+	 * An earlier version scanned for an `isEntry` record instead of asking for a
+	 * key, on the reasoning that a manifest carries exactly one and that keying
+	 * would hardcode a build-side path. Both halves were wrong: a manifest holds
+	 * one record per input and nothing orders them, and in Sage and Laravel
+	 * alike the key IS the interface. The paragraph is kept as a correction
+	 * rather than deleted, because it is the reasoning a reader is most likely
+	 * to arrive at independently.
 	 *
 	 * @param string $dir Absolute path to the built JS directory.
 	 * @return string Filename inside `$dir`, never a path.
@@ -2130,11 +2137,16 @@ class StarterBase extends Site {
 			return 'script.js';
 		}
 
-		// `static::` so a subclass can repoint it — which also means the value is
-		// no longer under this class's control. An override of `[]` would make
-		// the array offset a fatal TypeError, so a bad override degrades to the
-		// fallback instead of taking the site down.
-		$key = static::ENTRY_MANIFEST_KEY;
+		// Sage and Laravel both let the CALLER name the asset. Nothing calls this
+		// with a name, so the equivalent surface is a filter — which is also how
+		// this package exposes every other extension point. The const stays as
+		// the default and a subclass may still redeclare it.
+		//
+		// Either route puts the value outside this class's control, so it is
+		// re-checked below: an override or a filter returning `[]` would make
+		// the array offset a fatal TypeError, and a bad extension should degrade
+		// to the fallback, not take the site down.
+		$key = apply_filters( 'timber_kit_theme_script_manifest_key', static::ENTRY_MANIFEST_KEY );
 		if ( ! is_string( $key ) || '' === $key ) {
 			return 'script.js';
 		}

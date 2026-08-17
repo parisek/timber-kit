@@ -23,6 +23,9 @@ class ThemeScriptFileTest extends StarterBaseTestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		\Brain\Monkey\Functions\when( 'apply_filters' )->alias(
+			static fn( $hook, $value ) => $value
+		);
 		$this->dir = sys_get_temp_dir() . '/timber-kit-manifest-' . bin2hex( random_bytes( 6 ) );
 		mkdir( $this->dir . '/.vite', 0777, true );
 	}
@@ -119,9 +122,12 @@ class ThemeScriptFileTest extends StarterBaseTestCase {
 	}
 
 	/**
-	 * Nothing orders manifest records, and a consumer with a second Vite input
-	 * gets several `isEntry` ones. A CSS entry listed first was selected by an
-	 * earlier version and would have been enqueued as a script module.
+	 * A regression guard, not a preference test.
+	 *
+	 * An earlier, scanning resolver selected whichever entry came first and
+	 * would have enqueued this stylesheet as a script module. Under the keyed
+	 * lookup order cannot matter — which is exactly why the case is worth
+	 * pinning: it must stay uninteresting if the lookup is ever changed back.
 	 */
 	public function test_prefers_the_conventional_entry_over_another_entry_listed_first(): void {
 		touch( $this->dir . '/style.h.css' );
@@ -250,11 +256,14 @@ class ThemeScriptFileTest extends StarterBaseTestCase {
 	/**
 	 * Isolates the conventional-key preference from the `.js` check beside it.
 	 *
-	 * The CSS case above passes with or without the preference, because the
-	 * suffix check already rejects the stylesheet — so it cannot tell whether
-	 * the preference works. TWO JavaScript entries can, and that is the shape a
-	 * consumer reaches the day it adds a second Vite input (an admin bundle,
-	 * an editor bundle). Order in the manifest is not ours to rely on.
+	 * Two JS entries, the wanted one listed second — the shape a consumer reaches
+	 * the day it adds a second Vite input (an admin or editor bundle). The
+	 * keyed lookup makes order irrelevant by construction, so this asserts that
+	 * property rather than a preference between candidates.
+	 *
+	 * It earned its place under the previous, scanning resolver, where it was
+	 * the only test that could observe the key preference at all. Kept for the
+	 * same reason as the case above: it fails loudly if scanning returns.
 	 */
 	public function test_prefers_the_conventional_entry_over_another_SCRIPT_listed_first(): void {
 		touch( $this->dir . '/admin.Zz99xx.min.js' );
@@ -271,5 +280,39 @@ class ThemeScriptFileTest extends StarterBaseTestCase {
 			$this->resolve(),
 			'A second JS input must not displace the theme bundle by being listed first.'
 		);
+	}
+
+	/**
+	 * The filter is the surface a PLUGIN can reach; the const needs a subclass.
+	 * That difference is the whole reason it exists, so it is asserted rather
+	 * than assumed — an extension point nobody has watched work is a comment.
+	 */
+	public function test_a_filter_can_repoint_the_lookup(): void {
+		touch( $this->dir . '/app.Cq31vv.min.js' );
+		$this->writeManifest(
+			[ 'src/js/app.js' => [ 'file' => 'app.Cq31vv.min.js', 'isEntry' => true ] ]
+		);
+
+		\Brain\Monkey\Functions\when( 'apply_filters' )->alias(
+			static fn( $hook, $value ) => 'timber_kit_theme_script_manifest_key' === $hook
+				? 'src/js/app.js'
+				: $value
+		);
+
+		$this->assertSame( 'app.Cq31vv.min.js', $this->resolve() );
+	}
+
+	/** A filter returning nonsense degrades, exactly as a bad const override does. */
+	public function test_a_filter_returning_a_non_string_falls_back(): void {
+		touch( $this->dir . '/script.B7fm2cuz.min.js' );
+		$this->writeManifest(
+			[ 'src/js/script.js' => [ 'file' => 'script.B7fm2cuz.min.js', 'isEntry' => true ] ]
+		);
+
+		\Brain\Monkey\Functions\when( 'apply_filters' )->alias(
+			static fn( $hook, $value ) => 'timber_kit_theme_script_manifest_key' === $hook ? [] : $value
+		);
+
+		$this->assertSame( 'script.js', $this->resolve() );
 	}
 }
