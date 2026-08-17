@@ -329,15 +329,20 @@ class StarterBase extends Site {
 	 * `wysiwyg` field renders a link as plain body text and a list with no
 	 * bullets.
 	 *
-	 * Opt-in, because a project may have styled the classic editor from inside
-	 * that same file (`body#tinymce` / `body.mce-content-body` rules are the
-	 * usual shape). Excluding the file by default would silently switch those
-	 * rules off. Turn this on once the project has no such block, or has moved
-	 * it elsewhere.
+	 * On by default: resetting a link's underline and a list's bullets inside a
+	 * text editor is not a behaviour any project wants, so making each one ask
+	 * for the fix would just spread the defect. `$restrict_allowed_blocks` is the
+	 * precedent — a default-on flag that changes the editor more than this does,
+	 * with the flag kept as the escape hatch rather than as the switch-on.
+	 *
+	 * Turn it **off** when the project styles the classic editor from inside that
+	 * same file (`body#tinymce` / `body.mce-content-body` rules are the usual
+	 * shape) — excluding the file switches those rules off, and both states
+	 * render, so nothing warns about it.
 	 *
 	 * @var bool
 	 */
-	protected bool $mce_exclude_editor_styles = false;
+	protected bool $mce_exclude_editor_styles = true;
 
 	/**
 	 * ACF options pages. Each entry must define `menu_slug` and `page_title`
