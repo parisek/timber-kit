@@ -44,6 +44,34 @@ class RegisterAdminAndEditorHooksTest extends StarterBaseTestCase {
 		$this->assertContains( 'theme_page_templates', $filters );
 		$this->assertContains( 'tiny_mce_before_init', $filters );
 		$this->assertContains( 'pre_get_posts', $filters );
+		$this->assertContains( 'mce_css', $filters );
+	}
+
+	private function collectFilters( bool $excludeEditorStyles ): array {
+		$filters  = [];
+		$instance = $this->bareInstance();
+
+		$property = ( new \ReflectionClass( StarterBase::class ) )->getProperty( 'mce_exclude_editor_styles' );
+		$property->setValue( $instance, $excludeEditorStyles );
+
+		Functions\when( 'add_action' )->justReturn( true );
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$this->invokeRegisterAdminAndEditorHooks( $instance );
+
+		return $filters;
+	}
+
+	public function test_registers_mce_css_by_default(): void {
+		$this->assertContains( 'mce_css', $this->collectFilters( true ) );
+	}
+
+	// The escape hatch a project needs when it styles the classic editor from
+	// inside gutenberg-editor.css itself.
+	public function test_does_not_register_mce_css_when_the_flag_is_off(): void {
+		$this->assertNotContains( 'mce_css', $this->collectFilters( false ) );
 	}
 
 	public function test_registers_template_redirect_at_priority_0(): void {

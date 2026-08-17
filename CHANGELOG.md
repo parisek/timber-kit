@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- **`gutenberg-editor.css` no longer reaches the classic (TinyMCE) editor** — new `mce_css` filter, new `StarterBase::$mce_exclude_editor_styles` flag, **default on**. `add_editor_style()` registers a stylesheet for both editors, and the file is written for one: its rules are scoped to `.editor-styles-wrapper`, a class Gutenberg's body carries and TinyMCE's body does not.
+
+  The damage is visible, not theoretical. What does reach TinyMCE is the Tailwind Preflight, which resets `a` to `color: inherit; text-decoration: inherit` and `ol`/`ul` to `list-style: none` — so every ACF `wysiwyg` field renders a link as plain body text and a bulleted list with no bullets. Found on a consent sentence whose stored value carried a correct `<a href>` in all five languages and read as unlinked prose to the editor writing it. **The underline that normally appears there comes from the browser's UA stylesheet, not from core CSS** — `wp-content.css` carries no `a` rule at all, so a reader looking for the rule we override will not find one; Preflight simply loads last and wins.
+
+  **On by default, deliberately against the letter of `AGENTS.md` § Feature flags** — an owner decision, recorded here rather than left to be re-litigated. The rule guards against surprising a consumer, and no consumer wants a text editor that strips a link's underline and a list's bullets; shipping the fix opt-in would have spread the defect instead of ending it. `$restrict_allowed_blocks` is the standing precedent — default on, changes the editor more than this does, and keeps its flag as the escape hatch rather than the switch-on.
+
+  **One upgrade check, once.** A theme may style the classic editor from inside that same file — `body#tinymce` / `body.mce-content-body` blocks are the usual shape — and excluding the file switches those rules off with nothing to warn about, because both states render. Grep `static/src/css/gutenberg-editor.css` for `mce-content-body`; on a match, either drop the block (the native editor now does that job) or set `$mce_exclude_editor_styles = false`. The README carries the same note.
+
+  **This makes the release a minor, not a patch.** A changed default is not a bug fix, whatever the size of the diff.
+
+  Matching is on the file name, not a substring of the URL: `/css/my-gutenberg-editor.css` and `/css/a.css?source=gutenberg-editor.css` are left alone. The filter is also a no-op for a theme with `$gutenberg_editor_styles = false`, which never registered the stylesheet.
+
+  One claim from this change's first draft is retracted here rather than quietly dropped: **"nothing is lost, because nothing in it applied" was false.** A theme's `settings.css` imports reach the iframe too, so a compiled file also carries `:root` custom properties, base-layer element rules (`button { cursor: pointer }`, `html { overflow-anchor: none }`) and class-scoped block styles (`.wp-block-image`, `.wp-block-separator`). None of it styles the text a `wysiwyg` field holds, which is why the flag is safe — but the blanket claim was measurably wrong, and a project whose imports differ should read its own compiled output.
+
 ## [1.35.0] - 2026-08-17
 
 ### Added

@@ -319,6 +319,32 @@ class StarterBase extends Site {
 	protected bool $gutenberg_editor_styles = true;
 
 	/**
+	 * Keep `gutenberg-editor.css` out of the CLASSIC (TinyMCE) editor.
+	 *
+	 * `add_editor_style()` registers a stylesheet for both editors, and the file
+	 * is written for one: its rules are scoped to `.editor-styles-wrapper`, a
+	 * class Gutenberg's body carries and TinyMCE's body does not. What still
+	 * reaches TinyMCE is the Tailwind Preflight, which resets `a` to
+	 * `text-decoration: inherit` and `ol`/`ul` to `list-style: none` — so an ACF
+	 * `wysiwyg` field renders a link as plain body text and a list with no
+	 * bullets.
+	 *
+	 * On by default: resetting a link's underline and a list's bullets inside a
+	 * text editor is not a behaviour any project wants, so making each one ask
+	 * for the fix would just spread the defect. `$restrict_allowed_blocks` is the
+	 * precedent — a default-on flag that changes the editor more than this does,
+	 * with the flag kept as the escape hatch rather than as the switch-on.
+	 *
+	 * Turn it **off** when the project styles the classic editor from inside that
+	 * same file (`body#tinymce` / `body.mce-content-body` rules are the usual
+	 * shape) — excluding the file switches those rules off, and both states
+	 * render, so nothing warns about it.
+	 *
+	 * @var bool
+	 */
+	protected bool $mce_exclude_editor_styles = true;
+
+	/**
 	 * ACF options pages. Each entry must define `menu_slug` and `page_title`
 	 * (required); optional per-entry keys are `parent_slug`, `capability`,
 	 * `icon_url`, and `admin_bar`. An entry with a 'parent_slug' is registered as
@@ -880,6 +906,9 @@ class StarterBase extends Site {
 		add_action( 'admin_head', array( $this, 'hide_core_update_notifications' ), 1 );
 		add_action( 'acf/input/admin_footer', array( $this, 'acf_input_admin_footer' ) );
 		add_filter( 'tiny_mce_before_init', array( $this, 'tiny_mce_before_init' ) );
+		if ( $this->mce_exclude_editor_styles ) {
+			add_filter( 'mce_css', array( $this, 'mce_css' ) );
+		}
 		add_filter( 'pre_get_posts', array( $this, 'search_post_type_filter' ) );
 	}
 
@@ -2466,6 +2495,62 @@ class StarterBase extends Site {
 			</script>
 		EOF;
 		print $str;
+	}
+
+	/**
+	 * Keep `gutenberg-editor.css` out of the classic (TinyMCE) editor.
+	 *
+	 * `add_editor_style()` registers a stylesheet for BOTH editors: Gutenberg's
+	 * canvas and TinyMCE's iframe, the latter through core's `mce_css`
+	 * (wp-includes/class-wp-editor.php). The theme's `gutenberg-editor.css` is
+	 * written for the block editor only — every rule in it is scoped to
+	 * `.editor-styles-wrapper`, a class Gutenberg's body carries and TinyMCE's
+	 * body does not.
+	 *
+	 * What still reaches TinyMCE is the Tailwind Preflight: it zeroes every
+	 * margin and padding, sets `list-style: none` on `ol`/`ul`, and resets `a` to
+	 * `color: inherit; text-decoration: inherit`. The visible result is an ACF
+	 * `wysiwyg` field that renders a link as plain body text and a bulleted list
+	 * with no bullets. The browser's UA stylesheet is what normally underlines a
+	 * link in that iframe — core's `wp-content.css` carries no `a` rule at all —
+	 * and Preflight loads after it and overrides it.
+	 *
+	 * **Preflight is not literally all that applies**, and an earlier version of
+	 * this docblock claimed it was. A theme's `settings.css` imports reach the
+	 * iframe too, so a compiled file also carries `:root` custom properties,
+	 * base-layer element rules (`button { cursor: pointer }`,
+	 * `html { overflow-anchor: none }`) and class-scoped block styles
+	 * (`.wp-block-image`, `.wp-block-separator`). None of it styles the text an
+	 * ACF `wysiwyg` field contains, which is why dropping the file is safe — but
+	 * "nothing applied" was measurably false, and a project whose imports differ
+	 * should check its own compiled output rather than trust a blanket claim.
+	 *
+	 * Hooked to `mce_css`, and only when `$mce_exclude_editor_styles` is on.
+	 *
+	 * @param string $css Comma-separated list of stylesheet URLs.
+	 * @return string The list without the editor stylesheet.
+	 */
+	public function mce_css( $css ) {
+		if ( ! $this->gutenberg_editor_styles ) {
+			return $css;
+		}
+
+		$kept = array_filter(
+			explode( ',', (string) $css ),
+			static function ( $url ) {
+				/*
+				 * Compare the file name, not the whole URL. A substring test
+				 * also strips `/theme/my-gutenberg-editor.css` and
+				 * `/a.css?from=gutenberg-editor.css`, neither of which is the
+				 * file this filter is about.
+				 */
+				$path = strtok( trim( $url ), '?#' );
+
+				return 'gutenberg-editor.css' !== basename( (string) $path );
+			}
+		);
+
+		return implode( ',', $kept );
 	}
 
 	/**
