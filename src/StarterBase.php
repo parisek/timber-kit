@@ -2015,6 +2015,69 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * Resolve the JS entry's filename, preferring the Vite manifest.
+	 *
+	 * WHY THE ENTRY NEEDS A CONTENT HASH. Lazy chunks carry one; the entry did
+	 * not, because this method addressed it by a fixed path and a fixed path
+	 * cannot hold a hash. Cache-busting came from `?ver=<mtime>` instead, and
+	 * that covers the reference in the HTML — but not the one the bundler emits
+	 * INSIDE a chunk. When a module is reachable from the entry graph and from a
+	 * lazy chunk, the bundler hoists it into the entry and the chunk imports it
+	 * back out as `./script.js`, with no hash and no query. The browser then
+	 * holds two cache entries for one file: the versioned one updates, the bare
+	 * one is pinned for as long as `Cache-Control` says.
+	 *
+	 * Measured on a downstream site (sloneek, 2026-08-17): 5 of 52 chunks
+	 * imported the entry, `max-age` was 31536000, and a form silently stopped
+	 * rendering with `The requested module './script.js' does not provide an
+	 * export named 'n'`. Minified export names are positions in a table, not
+	 * identities — adding one shared module reassigned `n` from one function to
+	 * another, so a stale entry can also answer with the WRONG binding and no
+	 * error at all.
+	 *
+	 * A hashed entry closes it at the root: both references name the same
+	 * immutable file, so they cannot disagree.
+	 *
+	 * BACKWARDS COMPATIBLE BY CONSTRUCTION. A theme that has not rebuilt has no
+	 * manifest, so this returns `script.js` and nothing changes for it. The
+	 * hashed name only appears once the build emits one, which is why this can
+	 * ship before the build config does.
+	 *
+	 * The manifest has exactly one `isEntry` record, so the first match is the
+	 * answer; keying on `src/js/script.js` would hardcode a build-side path this
+	 * class has no business knowing.
+	 *
+	 * @param string $dir Absolute path to the built JS directory.
+	 * @return string Filename inside `$dir`, never a path.
+	 */
+	protected function themeScriptFile( string $dir ): string {
+		$manifest = $dir . '/.vite/manifest.json';
+
+		if ( ! is_file( $manifest ) ) {
+			return 'script.js';
+		}
+
+		$decoded = json_decode( (string) file_get_contents( $manifest ), true );
+		if ( ! is_array( $decoded ) ) {
+			return 'script.js';
+		}
+
+		foreach ( $decoded as $record ) {
+			if ( ! is_array( $record ) || empty( $record['isEntry'] ) ) {
+				continue;
+			}
+			$file = $record['file'] ?? '';
+			// A manifest naming a file that is not there is worse than no
+			// manifest: it would enqueue a 404 and take the whole bundle down.
+			if ( is_string( $file ) && '' !== $file && is_file( $dir . '/' . $file ) ) {
+				return $file;
+			}
+		}
+
+		return 'script.js';
+	}
+
+	/**
 	 * Enqueue the theme JS bundle, honouring {@see $theme_script_strategy}.
 	 *
 	 * Single source of truth for the front end (assets()) and the block editor
@@ -2024,8 +2087,9 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	protected function enqueueThemeScript(): void {
-		$src = get_template_directory_uri() . '/static/dist/js/script.js';
-		$ver = $this->assetVersion( get_template_directory() . '/static/dist/js/script.js' );
+		$file = $this->themeScriptFile( get_template_directory() . '/static/dist/js' );
+		$src  = get_template_directory_uri() . '/static/dist/js/' . $file;
+		$ver  = $this->assetVersion( get_template_directory() . '/static/dist/js/' . $file );
 
 		if ( 'module' === $this->theme_script_strategy ) {
 			wp_enqueue_script_module( $this->theme_name, $src, [], $ver );
