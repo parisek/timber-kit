@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.35.0] - 2026-08-17
+
 ### Added
 
 - **`Parisek\TimberKit\GtmContainer` + `StarterBase::$gtm_containers` + the `gtm_container()` Twig function** — load Google Tag Manager from the kit, configured in code, instead of through the GTM4WP plugin. Off by default: with no `$gtm_containers`, `gtm_container()` prints nothing and `gtm_container_noscript()` delegates to the plugin, so upgrading changes no site's markup.
