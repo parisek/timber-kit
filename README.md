@@ -174,6 +174,14 @@ Development-only media proxy for projects that do not keep `wp-content/uploads` 
 
 It also integrates with `Resizer` through the `timber_kit_resizer_missing_source_variants` filter, so missing local source images can fall back to already-generated remote variants before returning the original image URL.
 
+### GtmContainer
+
+First-party Google Tag Manager loader for projects that need GTM to load and nothing else — no data layer, no ecommerce payload, no plugin-side event tracking. Containers are declared in the theme's `Base` (see [Google Tag Manager](#google-tag-manager) under Configuration), keyed by language, and printed by the `gtm_container()` Twig function.
+
+Off until configured: with no `$gtm_containers`, `gtm_container()` delegates to the GTM4WP plugin exactly as before, so a project can adopt the call site before it adopts the configuration. Sites that need GTM4WP's ecommerce data layer keep the plugin and leave the property empty.
+
+See [ADR 0005](docs/adr/0005-first-party-gtm-container.md) for the rationale.
+
 ### WPFormsConfigBridge
 
 Bridges `wp-config.php` constants to entries of the `wpforms_settings` option, so per-environment values such as Cloudflare Turnstile test keys can be stored in environment config rather than the WordPress database.
@@ -801,6 +809,58 @@ Available hooks:
 - `timber_kit_resizer_remote_variant_probe_limit` — max remote variant probes per request, default `50`
 - `timber_kit_resizer_quality_in_cache_key` — put a variant's quality in its cache key, default `false` (also settable as `StarterBase::$resizer_quality_in_cache_key`). Without it, re-cutting the same dimensions at a different quality serves the previously generated file. Opt-in because switching it on relocates every non-default-quality variant: old cache files orphan and public URLs change.
 - `timber_kit_resizer_aspect_tolerance` — tolerance band around 1:1 used by `Resizer::classifyAspect()` to decide whether a source qualifies as `square`, default `0.1`. Returning a smaller value (e.g. `0.05`) tightens the square band; returning a larger value (e.g. `0.2`) loosens it.
+
+### Google Tag Manager
+
+Declare the containers on your `Base`, keyed by language:
+
+```php
+class Base extends StarterBase {
+
+	protected array $gtm_containers = array(
+		'default' => array(
+			'id'     => 'GTM-XXXXXXX',
+			'domain' => 'windstream.example.com', // optional — server-side endpoint
+			'path'   => 'aBcDeF/',                // optional — see below
+		),
+		'de' => array( 'id' => 'GTM-YYYYYYY' ),   // inherits domain + path
+	);
+}
+```
+
+A single-language project can write the ID on its own: `array( 'default' => 'GTM-XXXXXXX' )`.
+
+Print it from the layout, once, anywhere the loader belongs — after any consent-mode defaults:
+
+```twig
+{{ gtm_container() }}
+```
+
+Behavior:
+
+- **No `path`** — the standard `https://www.googletagmanager.com/gtm.js?id=…` loader.
+- **A `path`** — the container is addressed by that path, so the ID is left out of the URL entirely. Repeating it would hand blockers the pattern a randomly generated path exists to avoid. The query string then starts at `?l=` instead of continuing with `&l=`.
+- **`default` is the fallback**; a language entry states only what differs and inherits the rest. An unknown language falls back to `default`, quietly — a missing translation must not stop measurement.
+- **A malformed value never reaches the page.** The container ID is matched against `GTM-[A-Z0-9]+`, the domain through `FILTER_VALIDATE_DOMAIN`, the path against a charset that excludes `?` and `=`. An invalid ID prints nothing; an invalid domain or path falls back to the Google default, so the container stays reachable and the fallback is visible.
+
+Environment gate:
+
+```php
+// wp-config.php — decides when defined
+define( 'TIMBERKIT_GTM_ENABLED', true );
+```
+
+Without the constant, measurement runs when `wp_get_environment_type()` is `production` and nowhere else. Deliberately not tied to `WP_DEBUG` — turning a log off must not turn measurement off with it.
+
+Migrating a project off GTM4WP:
+
+1. Fill in `$gtm_containers`, replace `{{ gtm4wp_the_gtm_tag() }}` with `{{ gtm_container() }}`.
+2. Set the plugin's container code placement to **OFF**, or deactivate it entirely if nothing used its data layer.
+3. Drop it from `DEACTIVATE_PLUGINS` in `.ddev/.env` — the environment gate replaces that workaround.
+
+Configured *and* the plugin still printing its own container is the one broken state: the page would load GTM twice and count every visit twice. The kit detects it, stays quiet rather than adding a second loader, and says so in the console under `WP_DEBUG`.
+
+Two things the kit does not emit. GTM environments (`gtm_auth` / `gtm_preview`) apply to the Google loader only and are ignored for a server-side path, which has no notion of them. The `noscript` iframe is not printed at all — it needs the container ID, and it targets visitors who have JavaScript off and therefore cannot be measured anyway.
 
 ### WPForms Config Bridge
 

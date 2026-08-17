@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- **`Parisek\TimberKit\GtmContainer` + `StarterBase::$gtm_containers` + the `gtm_container()` Twig function** — load Google Tag Manager from the kit, configured in code, instead of through the GTM4WP plugin. Off by default: with no `$gtm_containers`, `gtm_container()` delegates to the plugin exactly as before, so upgrading changes no site's markup.
+
+  The reason it exists is a measurement, not a preference. On a site without WooCommerce, GTM4WP's entire frontend output is the loader snippet, a `noscript` iframe and an empty data layer — `dataLayer_content` was literally `[]` on the production site this was measured on, with all ~40 data-layer options off. That became a problem when a tagging vendor asked for the container ID to be dropped from the loader URL, which a server-side container addressed by its own random path does not need: GTM4WP 1.22 hardcodes `?id='+i`, offers no filter over it, and rejects a custom path containing `?` or `=` by silently falling back to `gtm.js`. The setting exists in GTM4WP 2.0, which currently ships only as a beta its author marks as not for production.
+
+  **A stated `path` means the ID leaves the URL** — one path selects one container, so it is not a second setting. The query string then starts at `?l=` rather than continuing with `&l=`; both shapes are asserted byte-for-byte, because this is Google's published snippet and people compare it by eye.
+
+  **Containers are keyed by language** with `default` as the fallback, and a language entry states only what differs — normally the ID alone, since the tagging endpoint is shared. An unknown language falls back to `default` rather than failing.
+
+  **`TIMBERKIT_GTM_ENABLED` gates the environment**, and without it measurement runs on production only. Deliberately not `WP_DEBUG`: that flag says how errors are reported, and quietening a log must not switch measurement off as a side effect. This also replaces the `DEACTIVATE_PLUGINS` workaround projects use to keep the plugin out of local development.
+
+  Configuration present *and* the plugin still printing its own container is the one state that double-counts every visit; the kit detects it, stands down instead of adding a second loader, and warns in the console under `WP_DEBUG`. Two capabilities are deliberately not carried over — GTM environments (`gtm_auth` / `gtm_preview`), which a tagging server has no notion of, and the `noscript` iframe, which requires the ID and targets visitors GTM cannot measure anyway. See [ADR 0005](docs/adr/0005-first-party-gtm-container.md).
+
+### Deprecated
+
+- **`StarterBase::twig_gtm4wp_the_gtm_tag()` / the `gtm4wp_the_gtm_tag()` Twig function** — call `gtm_container()` instead. It prints the same plugin output while the project has no `$gtm_containers`, so the swap is safe before a project is migrated and needs no second edit afterwards. The old function keeps working.
+
 ## [1.34.0] - 2026-08-14
 
 ### Added
