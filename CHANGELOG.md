@@ -6,6 +6,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The theme JS entry now resolves through the Vite manifest**, so a build that
+  hashes its entry stops serving a stale bundle from cache.
+
+  `enqueueThemeScript()` addressed the bundle by a fixed path, so the entry
+  could not carry a content hash and cache-busting came from `?ver=<mtime>`
+  instead. That covers the reference in the HTML — not the one the bundler
+  emits **inside a lazy chunk**. A module reachable from the entry graph and
+  from a chunk gets hoisted into the entry, and the chunk imports it back out
+  as `./script.js`: no hash, no query. The browser then holds two cache entries
+  for one file, and the bare one is pinned for as long as `Cache-Control` says.
+
+  Measured downstream: 5 of 52 chunks imported the entry, `max-age` was
+  31536000, and a form silently stopped rendering with `The requested module
+  './script.js' does not provide an export named 'n'`. Minified export names are
+  positions in a table, not identities — adding one unrelated shared module
+  reassigned `n` to a different function, so a stale entry can also answer with
+  the **wrong binding and no error at all**.
+
+  `themeScriptFile()` reads `static/dist/js/.vite/manifest.json` and looks up
+  `src/js/script.js`, the Vite input path — the same key `parisek/styleguide`
+  >= 1.16 and tailwind-base's `sync-styleguide` use. It requires a bare
+  filename, a `.js` suffix, and presence on disk; the key itself passes through
+  the `timber_kit_theme_script_manifest_key` filter.
+
+  **Backwards compatible by construction.** A theme with no manifest keeps the
+  unhashed `script.js` and nothing changes, so this is a no-op until a build
+  emits one.
+
+  If you override `enqueueThemeScript()`, call `themeScriptFile()` for the
+  filename — an override keeping the old literal still works and silently gives
+  up the protection.
+
 ## [1.36.0] - 2026-08-17
 
 ### Changed
