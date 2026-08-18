@@ -2077,9 +2077,20 @@ class StarterBase extends Site {
 		return is_file( $dir . '/' . $file );
 	}
 
-	/** Does the filename match the Vite content-hash convention used here? */
+	/**
+	 * Does the filename carry a content hash?
+	 *
+	 * The property that matters is the hash, not the `.min` marker. Minifying
+	 * is a separate Vite setting, so an unminified build still hashes its
+	 * output as `script.<hash>.js` — and requiring `.min` there would hand it a
+	 * version query and reinstate the double instantiation this guards against.
+	 *
+	 * So `.min` is optional and the hash segment is what is tested: at least
+	 * eight base64url characters, in their own dot-delimited segment, before an
+	 * optional `.min` and the `.js` suffix.
+	 */
 	private static function isContentHashedEntryFile( string $file ): bool {
-		return 1 === preg_match( '/\.[A-Za-z0-9_-]{8,}\.min\.js$/', $file );
+		return 1 === preg_match( '/\.[A-Za-z0-9_-]{8,}(?:\.min)?\.js$/', $file );
 	}
 
 	/**

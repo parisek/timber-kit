@@ -33,6 +33,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   **No effect on the classic `defer` strategy**, which is not a module and
   cannot split. Its version is unchanged.
 
+  The hash test looks for the hash itself, not for `.min`. Minifying is a
+  separate Vite setting, so an unminified build still emits
+  `script.<hash>.js` — requiring `.min` there would hand it a version query
+  and reinstate the split it just removed.
+
 ## [1.37.0] - 2026-08-17
 
 ### Fixed

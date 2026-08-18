@@ -138,6 +138,24 @@ class EnqueueThemeScriptTest extends StarterBaseTestCase {
 	 * version for it would pin a stale bundle for as long as Cache-Control
 	 * says — the defect the hashed path exists to avoid.
 	 */
+	/**
+	 * Minifying is a separate Vite setting from hashing. An unminified build
+	 * still emits `script.<hash>.js`, and that hash is as much a cache key as a
+	 * `.min` one — so it must lose the version query too. Requiring `.min`
+	 * would hand this build a version and reinstate the double instantiation.
+	 */
+	public function test_module_strategy_omits_the_version_for_a_hashed_unminified_entry(): void {
+		$this->writeEntry( 'script.B7fm2cuz.js' );
+
+		$call = $this->enqueue();
+
+		$this->assertSame( 'module', $call['fn'] );
+		$this->assertNull(
+			$call['ver'],
+			'A hashed entry must lose the query whether or not the build minifies.'
+		);
+	}
+
 	public function test_module_strategy_keeps_the_version_for_the_unhashed_fallback(): void {
 		file_put_contents( $this->themeDir . '/static/dist/js/script.js', '/* built */' );
 
