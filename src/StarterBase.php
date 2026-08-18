@@ -2077,6 +2077,11 @@ class StarterBase extends Site {
 		return is_file( $dir . '/' . $file );
 	}
 
+	/** Does the filename match the Vite content-hash convention used here? */
+	private static function isContentHashedEntryFile( string $file ): bool {
+		return 1 === preg_match( '/\.[A-Za-z0-9_-]{8,}\.min\.js$/', $file );
+	}
+
 	/**
 	 * Resolve the JS entry's filename, preferring the Vite manifest.
 	 *
@@ -2190,12 +2195,12 @@ class StarterBase extends Site {
 			// file twice and runs its top-level code twice. Measured on a
 			// downstream site as two 46 kB requests for one <script> tag.
 			//
-			// The query is redundant there anyway, because a manifest-resolved
-			// filename already carries a content hash and IS the cache key.
-			// Only the `script.js` fallback still needs a version, so only it
-			// gets one. `null` omits the query; `false` would substitute the
-			// WordPress version and reintroduce the split.
-			$hashed = 'script.js' !== $file;
+			// The query is redundant when the filename carries a content hash,
+			// because that hash IS the cache key. A manifest may name an unhashed
+			// file, so manifest provenance and inequality with `script.js` do not
+			// prove this property. `null` omits the query; `false` would substitute
+			// the WordPress version and reintroduce the split.
+			$hashed = self::isContentHashedEntryFile( $file );
 
 			wp_enqueue_script_module( $this->theme_name, $src, [], $hashed ? null : $ver );
 			return;

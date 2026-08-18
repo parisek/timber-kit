@@ -151,6 +151,20 @@ class EnqueueThemeScriptTest extends StarterBaseTestCase {
 		);
 	}
 
+	/** A manifest can name an unhashed file, so provenance alone proves no hash. */
+	public function test_module_strategy_keeps_the_version_for_an_unhashed_manifest_entry(): void {
+		$this->writeEntry( 'script.min.js' );
+
+		$call = $this->enqueue();
+
+		$this->assertSame( 'module', $call['fn'] );
+		$this->assertSame(
+			(string) filemtime( $this->themeDir . '/static/dist/js/script.min.js' ),
+			$call['ver'],
+			'An unhashed manifest entry still needs a version query.'
+		);
+	}
+
 	public function test_enqueues_the_unhashed_name_when_no_manifest_exists(): void {
 		file_put_contents( $this->themeDir . '/static/dist/js/script.js', '/* built */' );
 
