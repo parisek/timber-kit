@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A module entry no longer carries `?ver=`**, so the browser stops
+  instantiating it twice.
+
+  1.37.0 gave the entry a content-hashed filename, which fixed the stale-bundle
+  half of this problem: both references now name the same file. The identity
+  half survived. `enqueueThemeScript()` still passed a version to
+  `wp_enqueue_script_module()`, so the HTML asked for
+  `script.<hash>.min.js?ver=<mtime>` while a Vite chunk imports the entry back
+  out by its own relative path, `./script.<hash>.min.js`, with no query.
+
+  A module's identity is its resolved URL. Two URLs are two modules: the file
+  is fetched twice and its top-level code runs twice. Measured on a downstream
+  site as two 46 kB requests from a single `<script type="module">` tag, at
+  1300 ms and 1606 ms of a cold mobile load.
+
+  The query bought nothing there anyway. The content hash already IS the cache
+  key. So the version is now omitted only when the filename matches the Vite
+  content-hash convention. The `script.js` fallback and an unhashed filename
+  supplied by a manifest keep their cache buster. `null` is used rather than
+  `false`, because `false` substitutes the WordPress version and would
+  reintroduce the split.
+
+  **No effect on the classic `defer` strategy**, which is not a module and
+  cannot split. Its version is unchanged.
+
+  The hash test looks for the hash itself, not for `.min`. Minifying is a
+  separate Vite setting, so an unminified build still emits
+  `script.<hash>.js` — requiring `.min` there would hand it a version query
+  and reinstate the split it just removed.
+
 ## [1.37.0] - 2026-08-17
 
 ### Fixed

@@ -2078,6 +2078,22 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * Does the filename carry a content hash?
+	 *
+	 * The property that matters is the hash, not the `.min` marker. Minifying
+	 * is a separate Vite setting, so an unminified build still hashes its
+	 * output as `script.<hash>.js` — and requiring `.min` there would hand it a
+	 * version query and reinstate the double instantiation this guards against.
+	 *
+	 * So `.min` is optional and the hash segment is what is tested: at least
+	 * eight base64url characters, in their own dot-delimited segment, before an
+	 * optional `.min` and the `.js` suffix.
+	 */
+	private static function isContentHashedEntryFile( string $file ): bool {
+		return 1 === preg_match( '/\.[A-Za-z0-9_-]{8,}(?:\.min)?\.js$/', $file );
+	}
+
+	/**
 	 * Resolve the JS entry's filename, preferring the Vite manifest.
 	 *
 	 * WHY THE ENTRY NEEDS A CONTENT HASH. Lazy chunks carry one; the entry did
@@ -2183,7 +2199,21 @@ class StarterBase extends Site {
 		$ver  = $this->assetVersion( get_template_directory() . '/static/dist/js/' . $file );
 
 		if ( 'module' === $this->theme_script_strategy ) {
-			wp_enqueue_script_module( $this->theme_name, $src, [], $ver );
+			// A `?ver=` query splits a module's identity. Vite's split chunks
+			// import the entry by its own relative, query-less path, so the
+			// browser resolves `script.<hash>.min.js?ver=123` and
+			// `script.<hash>.min.js` as two DIFFERENT modules: it fetches the
+			// file twice and runs its top-level code twice. Measured on a
+			// downstream site as two 46 kB requests for one <script> tag.
+			//
+			// The query is redundant when the filename carries a content hash,
+			// because that hash IS the cache key. A manifest may name an unhashed
+			// file, so manifest provenance and inequality with `script.js` do not
+			// prove this property. `null` omits the query; `false` would substitute
+			// the WordPress version and reintroduce the split.
+			$hashed = self::isContentHashedEntryFile( $file );
+
+			wp_enqueue_script_module( $this->theme_name, $src, [], $hashed ? null : $ver );
 			return;
 		}
 

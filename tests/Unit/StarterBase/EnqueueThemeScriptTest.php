@@ -94,16 +94,92 @@ class EnqueueThemeScriptTest extends StarterBaseTestCase {
 	 * The version stamp is `filemtime()` of the file being enqueued. Reading it
 	 * from the unhashed path would silently produce `null` — a URL with no
 	 * cache buster — and the src assertion above cannot see that.
+	 *
+	 * Asserted on the classic strategy, which is the one that still carries a
+	 * version for a hashed entry. The module strategy deliberately omits it —
+	 * see the two tests below.
 	 */
 	public function test_versions_the_same_file_it_enqueues(): void {
 		$this->writeEntry( 'script.B7fm2cuz.min.js' );
 
-		$call = $this->enqueue();
+		$call = $this->enqueue( 'defer' );
 
 		$this->assertSame(
 			(string) filemtime( $this->themeDir . '/static/dist/js/script.B7fm2cuz.min.js' ),
 			$call['ver'],
 			'The version must come from the hashed file, not from the fallback path.'
+		);
+	}
+
+	/**
+	 * A `?ver=` query splits a module's identity.
+	 *
+	 * Vite's split chunks import the entry by its own relative, query-less
+	 * path. With a version appended, the browser resolves
+	 * `script.<hash>.min.js?ver=123` and `script.<hash>.min.js` as two
+	 * different modules: it fetches the file twice and runs its top-level code
+	 * twice. The hash already is the cache key, so the query buys nothing and
+	 * costs that.
+	 */
+	public function test_module_strategy_omits_the_version_for_a_hashed_entry(): void {
+		$this->writeEntry( 'script.B7fm2cuz.min.js' );
+
+		$call = $this->enqueue();
+
+		$this->assertSame( 'module', $call['fn'] );
+		$this->assertNull(
+			$call['ver'],
+			'A hashed module entry must enqueue with no version, or the chunk import resolves to a second module.'
+		);
+	}
+
+	/**
+	 * The fallback has no hash, so it still needs a cache buster. Omitting the
+	 * version for it would pin a stale bundle for as long as Cache-Control
+	 * says — the defect the hashed path exists to avoid.
+	 */
+	/**
+	 * Minifying is a separate Vite setting from hashing. An unminified build
+	 * still emits `script.<hash>.js`, and that hash is as much a cache key as a
+	 * `.min` one — so it must lose the version query too. Requiring `.min`
+	 * would hand this build a version and reinstate the double instantiation.
+	 */
+	public function test_module_strategy_omits_the_version_for_a_hashed_unminified_entry(): void {
+		$this->writeEntry( 'script.B7fm2cuz.js' );
+
+		$call = $this->enqueue();
+
+		$this->assertSame( 'module', $call['fn'] );
+		$this->assertNull(
+			$call['ver'],
+			'A hashed entry must lose the query whether or not the build minifies.'
+		);
+	}
+
+	public function test_module_strategy_keeps_the_version_for_the_unhashed_fallback(): void {
+		file_put_contents( $this->themeDir . '/static/dist/js/script.js', '/* built */' );
+
+		$call = $this->enqueue();
+
+		$this->assertSame( 'module', $call['fn'] );
+		$this->assertSame(
+			(string) filemtime( $this->themeDir . '/static/dist/js/script.js' ),
+			$call['ver'],
+			'The unhashed fallback still needs a version query.'
+		);
+	}
+
+	/** A manifest can name an unhashed file, so provenance alone proves no hash. */
+	public function test_module_strategy_keeps_the_version_for_an_unhashed_manifest_entry(): void {
+		$this->writeEntry( 'script.min.js' );
+
+		$call = $this->enqueue();
+
+		$this->assertSame( 'module', $call['fn'] );
+		$this->assertSame(
+			(string) filemtime( $this->themeDir . '/static/dist/js/script.min.js' ),
+			$call['ver'],
+			'An unhashed manifest entry still needs a version query.'
 		);
 	}
 
