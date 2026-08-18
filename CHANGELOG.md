@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.37.1] - 2026-08-18
+
 ### Fixed
 
 - **A module entry no longer carries `?ver=`**, so the browser stops
