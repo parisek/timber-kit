@@ -6,6 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **A module entry no longer carries `?ver=`**, so the browser stops
+  instantiating it twice.
+
+  1.37.0 gave the entry a content-hashed filename, which fixed the stale-bundle
+  half of this problem: both references now name the same file. The identity
+  half survived. `enqueueThemeScript()` still passed a version to
+  `wp_enqueue_script_module()`, so the HTML asked for
+  `script.<hash>.min.js?ver=<mtime>` while a Vite chunk imports the entry back
+  out by its own relative path, `./script.<hash>.min.js`, with no query.
+
+  A module's identity is its resolved URL. Two URLs are two modules: the file
+  is fetched twice and its top-level code runs twice. Measured on a downstream
+  site as two 46 kB requests from a single `<script type="module">` tag, at
+  1300 ms and 1606 ms of a cold mobile load.
+
+  The query bought nothing there anyway. A manifest-resolved filename already
+  carries a content hash and IS the cache key. So the version is now passed
+  only for the unhashed `script.js` fallback, which still needs one. `null` is
+  used rather than `false`, because `false` substitutes the WordPress version
+  and would reintroduce the split.
+
+  **No effect on the classic `defer` strategy**, which is not a module and
+  cannot split. Its version is unchanged.
+
 ## [1.37.0] - 2026-08-17
 
 ### Fixed

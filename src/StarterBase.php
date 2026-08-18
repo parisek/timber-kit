@@ -2183,7 +2183,21 @@ class StarterBase extends Site {
 		$ver  = $this->assetVersion( get_template_directory() . '/static/dist/js/' . $file );
 
 		if ( 'module' === $this->theme_script_strategy ) {
-			wp_enqueue_script_module( $this->theme_name, $src, [], $ver );
+			// A `?ver=` query splits a module's identity. Vite's split chunks
+			// import the entry by its own relative, query-less path, so the
+			// browser resolves `script.<hash>.min.js?ver=123` and
+			// `script.<hash>.min.js` as two DIFFERENT modules: it fetches the
+			// file twice and runs its top-level code twice. Measured on a
+			// downstream site as two 46 kB requests for one <script> tag.
+			//
+			// The query is redundant there anyway, because a manifest-resolved
+			// filename already carries a content hash and IS the cache key.
+			// Only the `script.js` fallback still needs a version, so only it
+			// gets one. `null` omits the query; `false` would substitute the
+			// WordPress version and reintroduce the split.
+			$hashed = 'script.js' !== $file;
+
+			wp_enqueue_script_module( $this->theme_name, $src, [], $hashed ? null : $ver );
 			return;
 		}
 
