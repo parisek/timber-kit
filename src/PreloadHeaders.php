@@ -32,6 +32,9 @@ namespace Parisek\TimberKit;
  * - **A relative URL is refused.** Preload hints are resolved against the
  *   document, so a relative href works, but an intermediary replaying the
  *   header as a 103 has no document to resolve it against yet.
+ * - **An entry without `href` is refused**, even the `imagesrcset`-only shape
+ *   core accepts for `as=image`. A link header states its target between angle
+ *   brackets; there is no header form of that entry, so it stays a tag.
  * - **The value is capped** ({@see self::MAX_BYTES}). Header size limits live
  *   in proxies, not in the standard, and a proxy that finds the block too
  *   large drops all of it. Losing the tail beats losing the head.
@@ -61,7 +64,7 @@ final class PreloadHeaders {
 	 * Build the `Link:` header value from preload resources and preconnect
 	 * origins.
 	 *
-	 * @param array<int, array<string, string>> $resources Entries in the shape `wp_preload_resources` uses.
+	 * @param array<int, mixed> $resources Entries in the shape `wp_preload_resources` uses. A malformed one is skipped, not fatal.
 	 * @param array<int, string>                $preconnect Absolute origins.
 	 * @return string The header value, or '' when nothing survives validation.
 	 */
@@ -76,12 +79,20 @@ final class PreloadHeaders {
 		}
 
 		foreach ( $resources as $resource ) {
+			// Core's own consumer skips a non-array entry rather than
+			// failing on it, and third-party callbacks have been written
+			// against that. Fataling where core shrugs would make this class
+			// the visible cause of someone else's malformed entry.
+			if ( ! is_array( $resource ) ) {
+				continue;
+			}
+
 			$link = self::preloadLink( $resource );
 			if ( '' !== $link ) {
 				// Keyed by URL so a resource listed twice is sent once. A
 				// duplicated hint is not an error, but it spends the byte
 				// budget the cap below is defending.
-				$links[ ( $resource['href'] ?? '' ) . '|preload' ] = $link;
+				$links[ self::scalar( $resource, 'href' ) . '|preload' ] = $link;
 			}
 		}
 
@@ -91,11 +102,11 @@ final class PreloadHeaders {
 	/**
 	 * One `rel=preload` link, or '' when the entry cannot produce a safe one.
 	 *
-	 * @param array<string, string> $resource
+	 * @param array<string, mixed> $resource
 	 */
 	private static function preloadLink( array $resource ): string {
-		$href = self::absoluteUrl( (string) ( $resource['href'] ?? '' ) );
-		$as   = self::token( (string) ( $resource['as'] ?? '' ) );
+		$href = self::absoluteUrl( self::scalar( $resource, 'href' ) );
+		$as   = self::token( self::scalar( $resource, 'as' ) );
 
 		// `as` decides the request's destination, priority and CORS mode. A
 		// preload without it is fetched with no destination and is usually
@@ -108,19 +119,25 @@ final class PreloadHeaders {
 		$link = '<' . $href . '>; rel=preload; as=' . $as;
 
 		foreach ( self::ATTRIBUTES as $name ) {
-			$value = self::quotable( (string) ( $resource[ $name ] ?? '' ) );
+			$value = self::quotable( self::scalar( $resource, $name ) );
 			if ( '' !== $value ) {
 				$link .= '; ' . $name . '="' . $value . '"';
 			}
 		}
 
 		// A font is fetched in CORS mode whatever its origin, so a preload
-		// that omits this fetches the file a second time. Core's HTML side
-		// writes the attribute from the same key; here any value means the
-		// bare token, since `crossorigin` and `crossorigin=anonymous` are the
-		// same request and the token cannot be malformed.
-		if ( '' !== (string) ( $resource['crossorigin'] ?? '' ) || 'font' === $as ) {
-			$link .= '; crossorigin';
+		// that omits this fetches the file a second time -- the cost this
+		// whole class exists to avoid.
+		//
+		// The keyword is written out. In markup, `crossorigin` with no value
+		// is an empty attribute and means anonymous, but a header parameter
+		// with no value is not the same thing to every parser, and one that
+		// reads it as absent gives the preload no-CORS mode -- which is the
+		// double download again, now harder to see. `anonymous` costs ten
+		// bytes and means one thing everywhere.
+		$crossorigin = self::scalar( $resource, 'crossorigin' );
+		if ( '' !== $crossorigin || 'font' === $as ) {
+			$link .= '; crossorigin=' . ( 'use-credentials' === $crossorigin ? 'use-credentials' : 'anonymous' );
 		}
 
 		return $link;
@@ -153,12 +170,21 @@ final class PreloadHeaders {
 
 		// A newline here writes a second header. Everything else on this list
 		// ends the link or starts the next attribute, so a URL carrying one
-		// produces a different link than the caller wrote.
-		if ( '' === $url || strcspn( $url, "\r\n<>;, \t" ) !== strlen( $url ) ) {
+		// produces a different link than the caller wrote. The control-byte
+		// class covers the rest, including NUL, which some parsers treat as
+		// the end of the string and others do not.
+		if ( '' === $url || strcspn( $url, "<>;, \t" ) !== strlen( $url ) ) {
 			return '';
 		}
 
-		return preg_match( '#^https?://[^/]+#i', $url ) === 1 ? $url : '';
+		if ( preg_match( '/[\x00-\x1F\x7F]/', $url ) === 1 ) {
+			return '';
+		}
+
+		// The authority must look like a host: no empty one, and nothing that
+		// starts the path, query or fragment inside it. `https://?x` parses as
+		// a URL and preconnects to nothing.
+		return preg_match( '#^https?://[^/?\#@\[\]]+#i', $url ) === 1 ? $url : '';
 	}
 
 	/**
@@ -174,9 +200,22 @@ final class PreloadHeaders {
 		// nobody and only tells a log reader that the author expected it to
 		// fetch something.
 		$matches = [];
-		preg_match( '#^https?://[^/]+#i', $origin, $matches );
+		preg_match( '#^https?://[^/?\#]+#i', $origin, $matches );
 
 		return $matches[0] ?? '';
+	}
+
+	/**
+	 * One key of an entry as a string, or '' when it is missing or is not a
+	 * scalar. Core's HTML side skips a non-scalar value the same way; an array
+	 * here would be a PHP notice and a header saying `Array`.
+	 *
+	 * @param array<string, mixed> $resource
+	 */
+	private static function scalar( array $resource, string $key ): string {
+		$value = $resource[ $key ] ?? '';
+
+		return is_scalar( $value ) ? (string) $value : '';
 	}
 
 	/**

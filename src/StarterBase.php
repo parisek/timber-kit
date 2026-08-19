@@ -65,6 +65,12 @@ class StarterBase extends Site {
 	 * @var bool Send the preload hints as a `Link:` response header as well as
 	 *           HTML tags. The header carries the same list, so the only reason
 	 *           to switch it off is a proxy that mishandles the header.
+	 *
+	 *           What goes into `wp_preload_resources` must be public and the
+	 *           same for every visitor. An edge that turns these headers into
+	 *           `103` responses stores them per URL and replays them to
+	 *           whoever asks next -- so a hint that depended on who was logged
+	 *           in would be handed to someone who was not.
 	 */
 	protected bool $preload_headers = true;
 
@@ -2296,24 +2302,46 @@ class StarterBase extends Site {
 	 * than keeping a second list is the point of the method: a project that
 	 * declares a font once gets both outputs, and the two cannot drift apart.
 	 *
-	 * `send_headers` fires before the query is run, so nothing here can depend
-	 * on the post being rendered. That rules out the page's LCP image, which
-	 * stays a `fetchpriority="high"` attribute in the markup.
+	 * That filter therefore runs twice per request, once here and once in
+	 * `wp_head`. A callback on it must be a pure list of assets. One that
+	 * counts, logs or writes will do it twice, and one that reads enqueue
+	 * state can answer differently in the two places -- `wp_enqueue_scripts`
+	 * has not fired yet when this runs.
+	 *
+	 * `send_headers` moved after `query_posts()` in core, so `is_feed()` and
+	 * the queried object are available in current versions but were not in
+	 * older ones. Nothing here depends on which: the feed test reads the `WP`
+	 * instance the hook passes, whose query vars are parsed in both orderings.
+	 *
+	 * The page's own LCP image is reachable in the current ordering and is
+	 * still left out. It stays a `fetchpriority="high"` attribute on the
+	 * element, which is where a template can see the layout that decides
+	 * which image that is -- see the projects' `lcp-hero-images` rule. Moving
+	 * it here would make the choice twice, in two places, from different
+	 * knowledge.
 	 *
 	 * The header is appended, never set: core sends its own `Link:` entries
 	 * for the REST route and the shortlink, and replacing them would break
 	 * clients that read them.
 	 *
+	 * @param \WP|null $wp Current WordPress environment instance.
 	 * @return void
 	 */
-	public function send_preload_headers(): void {
+	public function send_preload_headers( $wp = null ): void {
 		if ( ! apply_filters( 'timber_kit_preload_headers', $this->preload_headers ) ) {
 			return;
 		}
 
 		// A hint is spent by whoever renders the document. Admin screens, REST
 		// responses and feeds render none.
-		if ( is_admin() || wp_doing_ajax() || is_feed() ) {
+		if ( is_admin() || wp_doing_ajax() ) {
+			return;
+		}
+
+		// Read off the WP instance rather than through is_feed(), which
+		// answers from the main query and so depends on whether this core
+		// version runs the query before this hook or after it.
+		if ( isset( $wp->query_vars['feed'] ) && '' !== $wp->query_vars['feed'] ) {
 			return;
 		}
 

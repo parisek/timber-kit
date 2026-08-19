@@ -22,7 +22,17 @@ class SendPreloadHeadersTest extends StarterBaseTestCase {
 		$this->base = $this->createStarterBase();
 		Functions\when( 'is_admin' )->justReturn( false );
 		Functions\when( 'wp_doing_ajax' )->justReturn( false );
-		Functions\when( 'is_feed' )->justReturn( false );
+	}
+
+	/** A stand-in for the `WP` instance the `send_headers` hook passes its callbacks. */
+	private function wp( array $query_vars ): object {
+		return new class( $query_vars ) {
+			public array $query_vars;
+
+			public function __construct( array $query_vars ) {
+				$this->query_vars = $query_vars;
+			}
+		};
 	}
 
 	/** The resource list is read only when a header will be sent, so its absence proves the guard fired. */
@@ -55,7 +65,28 @@ class SendPreloadHeadersTest extends StarterBaseTestCase {
 	}
 
 	public function test_silent_on_a_feed(): void {
-		Functions\when( 'is_feed' )->justReturn( true );
+		// Read off the WP instance, not is_feed(): the main query has not
+		// necessarily run at this point, and which is true depends on the
+		// core version rather than on the request.
+		$this->expectNoListRead();
+
+		$this->base->send_preload_headers( $this->wp( [ 'feed' => 'feed' ] ) );
+	}
+
+	public function test_an_empty_feed_query_var_is_not_a_feed(): void {
+		$seen = [];
+		Functions\when( 'apply_filters' )->alias( function ( string $hook, $value ) use ( &$seen ) {
+			$seen[] = $hook;
+			return 'timber_kit_preload_headers' === $hook ? true : $value;
+		} );
+
+		$this->base->send_preload_headers( $this->wp( [ 'feed' => '' ] ) );
+
+		$this->assertContains( 'wp_preload_resources', $seen );
+	}
+
+	public function test_silent_on_ajax(): void {
+		Functions\when( 'wp_doing_ajax' )->justReturn( true );
 		$this->expectNoListRead();
 
 		$this->base->send_preload_headers();
