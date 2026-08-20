@@ -61,6 +61,22 @@ class StarterBase extends Site {
 	/** @var string[] Font files to preload (relative paths from static/). */
 	protected array $preload_fonts = [];
 
+	/**
+	 * @var bool Send the preload hints as a `Link:` response header as well as
+	 *           HTML tags. The header carries the same list, so the only reason
+	 *           to switch it off is a proxy that mishandles the header.
+	 *
+	 *           What goes into `wp_preload_resources` must be public and the
+	 *           same for every visitor. An edge that turns these headers into
+	 *           `103` responses stores them per URL and replays them to
+	 *           whoever asks next -- so a hint that depended on who was logged
+	 *           in would be handed to someone who was not.
+	 */
+	protected bool $preload_headers = true;
+
+	/** @var string[] Absolute origins to advertise with `rel=preconnect` in that header. */
+	protected array $preconnect_origins = [];
+
 	/** @var string[] Post types included in frontend search results. */
 	protected array $search_post_types = [ 'post' ];
 
@@ -833,6 +849,7 @@ class StarterBase extends Site {
 	private function registerAssetHooks(): void {
 		add_action( 'enqueue_block_assets', array( $this, 'assets' ) );
 		add_action( 'wp_preload_resources', array( $this, 'preload_resources' ) );
+		add_action( 'send_headers', array( $this, 'send_preload_headers' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'admin_enqueue_scripts' ) );
 		add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_block_editor_assets' ) );
 		add_filter( 'block_editor_settings_all', array( $this, 'inject_font_editor_styles' ), 10, 2 );
@@ -2275,6 +2292,73 @@ class StarterBase extends Site {
 		}
 
 		return $preload_resources;
+	}
+
+	/**
+	 * Send the same preload list as a `Link:` response header, plus any
+	 * `rel=preconnect` origins.
+	 *
+	 * Hooked to `send_headers`. Reading `wp_preload_resources` here rather
+	 * than keeping a second list is the point of the method: a project that
+	 * declares a font once gets both outputs, and the two cannot drift apart.
+	 *
+	 * That filter therefore runs twice per request, once here and once in
+	 * `wp_head`. A callback on it must be a pure list of assets. One that
+	 * counts, logs or writes will do it twice, and one that reads enqueue
+	 * state can answer differently in the two places -- `wp_enqueue_scripts`
+	 * has not fired yet when this runs.
+	 *
+	 * `send_headers` moved after `query_posts()` in core, so `is_feed()` and
+	 * the queried object are available in current versions but were not in
+	 * older ones. Nothing here depends on which: the feed test reads the `WP`
+	 * instance the hook passes, whose query vars are parsed in both orderings.
+	 *
+	 * The page's own LCP image is reachable in the current ordering and is
+	 * still left out. It stays a `fetchpriority="high"` attribute on the
+	 * element, which is where a template can see the layout that decides
+	 * which image that is -- see the projects' `lcp-hero-images` rule. Moving
+	 * it here would make the choice twice, in two places, from different
+	 * knowledge.
+	 *
+	 * The header is appended, never set: core sends its own `Link:` entries
+	 * for the REST route and the shortlink, and replacing them would break
+	 * clients that read them.
+	 *
+	 * @param \WP|null $wp Current WordPress environment instance.
+	 * @return void
+	 */
+	public function send_preload_headers( $wp = null ): void {
+		if ( ! apply_filters( 'timber_kit_preload_headers', $this->preload_headers ) ) {
+			return;
+		}
+
+		// A hint is spent by whoever renders the document. Admin screens, REST
+		// responses and feeds render none.
+		if ( is_admin() || wp_doing_ajax() ) {
+			return;
+		}
+
+		// Read off the WP instance rather than through is_feed(), which
+		// answers from the main query and so depends on whether this core
+		// version runs the query before this hook or after it.
+		if ( isset( $wp->query_vars['feed'] ) && '' !== $wp->query_vars['feed'] ) {
+			return;
+		}
+
+		if ( defined( 'REST_REQUEST' ) && REST_REQUEST ) {
+			return;
+		}
+
+		$value = PreloadHeaders::format(
+			(array) apply_filters( 'wp_preload_resources', [] ),
+			(array) apply_filters( 'timber_kit_preconnect_origins', $this->preconnect_origins )
+		);
+
+		// Checked here rather than up front: it is not a policy about which
+		// responses deserve a hint, it is whether one can still be sent.
+		if ( '' !== $value && ! headers_sent() ) {
+			header( 'Link: ' . $value, false );
+		}
 	}
 
 	/**
