@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.38.0] - 2026-08-20
+
 ### Added
 
 - `StarterBase::$preload_headers` (default `true`) sends the page's preload hints as a `Link:` response header, and `$preconnect_origins` adds `rel=preconnect` origins to it. Core collects preload resources through `wp_preload_resources` but renders them in one place only — `<link rel="preload">` tags in `wp_head` — which the browser finds after the document it was waiting for. The header carries the identical list and arrives before the body. `send_preload_headers()` reads that same filter rather than keeping a second list, so a project that declares a font once gets both outputs and the two cannot drift apart; it appends rather than sets, because core sends its own `Link:` entries for the REST route and the shortlink. It is also the whole of an origin's part in HTTP 103 Early Hints: PHP cannot emit an informational response, so a 103 is always synthesised by an edge from `Link:` headers it saw on a previous 200 — meaning the header is worth sending whether or not any edge does that, and that the first visitor to a URL never benefits from the 103 itself. Hooked to `send_headers`, which fires before the query is run: nothing here can depend on the post being rendered, so a page's LCP image stays a `fetchpriority` attribute in the markup rather than moving into the header. Silent in the admin, on AJAX, on REST and on feeds, none of which render a document.
