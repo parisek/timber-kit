@@ -101,9 +101,11 @@ final class LanguageQuota {
 		}
 
 		foreach ( $byLang as $lang => $indexes ) {
+			// Guard the read: a record that never went through the Scorer has no
+			// 'score' key, and it should sort last rather than warn.
 			usort(
 				$indexes,
-				static fn( int $a, int $b ): int => ( (int) $records[ $b ]['score'] ) <=> ( (int) $records[ $a ]['score'] )
+				static fn( int $a, int $b ): int => ( (int) ( $records[ $b ]['score'] ?? 0 ) ) <=> ( (int) ( $records[ $a ]['score'] ?? 0 ) )
 			);
 			foreach ( array_slice( $indexes, 0, $quotas[ $lang ] ) as $i ) {
 				$selected[] = $i;

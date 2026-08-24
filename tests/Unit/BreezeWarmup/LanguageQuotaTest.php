@@ -124,4 +124,61 @@ class LanguageQuotaTest extends TestCase {
 			array_column( $result, 'url' )
 		);
 	}
+
+	public function test_leftover_slots_go_to_the_language_with_most_candidates(): void {
+		// cs=3, sk=2, en=2, cap 4 -> floors are 1/1/1 (3 assigned, 1 leftover).
+		// The leftover slot must go to cs, the language with the most candidates.
+		$records = array();
+		for ( $i = 0; $i < 3; $i++ ) {
+			$records[] = $this->record( 'https://example.test/cs' . $i . '/', array( 'lang' => 'cs', 'score' => 10 ) );
+		}
+		for ( $i = 0; $i < 2; $i++ ) {
+			$records[] = $this->record( 'https://example.test/sk' . $i . '/', array( 'lang' => 'sk', 'score' => 10 ) );
+		}
+		for ( $i = 0; $i < 2; $i++ ) {
+			$records[] = $this->record( 'https://example.test/en' . $i . '/', array( 'lang' => 'en', 'score' => 10 ) );
+		}
+
+		$result = LanguageQuota::apply( $records, 4 );
+		$byLang = array_count_values( array_column( $result, 'lang' ) );
+
+		$this->assertCount( 4, $result );
+		$this->assertSame( 2, $byLang['cs'] );
+		$this->assertSame( 1, $byLang['sk'] );
+		$this->assertSame( 1, $byLang['en'] );
+	}
+
+	public function test_cap_exceeding_candidate_count_returns_all_of_them(): void {
+		$records = array(
+			$this->record( 'https://example.test/a/', array( 'score' => 3 ) ),
+			$this->record( 'https://example.test/b/', array( 'score' => 2 ) ),
+			$this->record( 'https://example.test/c/', array( 'score' => 1 ) ),
+		);
+
+		$result = LanguageQuota::apply( $records, 100 );
+
+		$this->assertCount( 3, $result );
+	}
+
+	public function test_missing_score_key_does_not_warn(): void {
+		// A record that never went through the Scorer must not raise an
+		// "Undefined array key" warning; it should simply sort last.
+		$records = array(
+			array(
+				'url'        => 'https://example.test/no-score/',
+				'key'        => 'https://example.test/no-score/',
+				'lastmod'    => null,
+				'type'       => '',
+				'lang'       => 'cs',
+				'menu'       => false,
+				'front_page' => false,
+				'manual'     => false,
+			),
+			$this->record( 'https://example.test/scored/', array( 'score' => 5 ) ),
+		);
+
+		$result = LanguageQuota::apply( $records, 2 );
+
+		$this->assertCount( 2, $result );
+	}
 }
