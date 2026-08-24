@@ -36,6 +36,9 @@ final class PreloadChainHealthy implements HealthCheck {
 
 	public function run(): Result {
 		$queue = get_option( 'breeze_preload_queue', array() );
+
+		// An unreadable queue is not evidence of a stalled chain — coerce to
+		// empty rather than invent a problem this check cannot substantiate.
 		$queue = is_array( $queue ) ? $queue : array();
 
 		if ( array() === $queue ) {
@@ -43,8 +46,27 @@ final class PreloadChainHealthy implements HealthCheck {
 		}
 
 		$last_warm = (int) get_option( 'breeze_preload_last_warm', 0 );
-		$idle      = time() - $last_warm;
 
+		// A missing/zero timestamp is "never warmed", not "warmed 1.79 billion
+		// seconds ago" — an elapsed-time figure computed against epoch zero is
+		// nonsense an admin cannot act on, so it gets its own wording instead.
+		if ( 0 === $last_warm ) {
+			return Result::critical(
+				sprintf(
+					/* translators: %d: number of URLs waiting to be warmed. */
+					__( '%d URL(s) are queued, but the preload chain has never run.', 'timber-kit' ),
+					count( $queue )
+				),
+				__( 'The Action Scheduler loopback never completed a warm. Check that the site can reach its own public URL.', 'timber-kit' )
+			);
+		}
+
+		$idle = time() - $last_warm;
+
+		// A negative $idle means $last_warm is in the future — clock skew, not
+		// a stalled chain. Reading that as "just warmed" is deliberate: skew
+		// is not evidence of a fault, and this check must not alarm an
+		// administrator over something it cannot substantiate.
 		if ( $idle <= self::STALL_AFTER ) {
 			return Result::good(
 				sprintf(
