@@ -67,6 +67,14 @@ class BreezeWarmupSitemapSetupTest extends TestCase {
 		$this->assertNotContains( 'breeze_preload_urls', $filters );
 	}
 
+	// This test's assertion depends on function_exists( 'breeze_get_option' )
+	// returning FALSE — the same check AGENTS.md calls unreliable under
+	// Brain\Monkey, because any other test in the run that mocks
+	// breeze_get_option() patches it in for the rest of the process, which
+	// makes the "Breeze absent" case this test asserts unobservable. It must
+	// run isolated regardless of who else is in the suite.
+	#[PreserveGlobalState( false )]
+	#[RunInSeparateProcess]
 	public function test_does_not_register_when_flag_is_on_but_breeze_is_absent(): void {
 		$filters = array();
 		Functions\when( 'add_filter' )->alias(

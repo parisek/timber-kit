@@ -563,6 +563,113 @@ The class discovers the sitemap (AIOSEO's `/sitemap.xml` when active, otherwise
 core's `/wp-sitemap.xml`), follows a sitemap index recursively within bounded
 limits, and merges the result in.
 
+`fetchSitemapUrls()` deduplicates by **canonical URL form**, not by exact
+string: two spellings of the same page — differing only in trailing slash,
+scheme case, default port, or fragment — collapse to one entry, and the
+first-seen spelling wins. Warming the same page twice under two spellings
+would waste a slot of the URL cap.
+
+### Ordering the warmup list by importance
+
+By default the sitemap-sourced URLs are merged in whatever order the sitemap
+generator emitted them, and Breeze warms its queue strictly front to back —
+so that order decides how long after a purge a page stays cold.
+`$breeze_warmup_priority` (default `false`) replaces it with a computed
+ordering, scored during the deferred refresh and stored ready to serve, so
+the purge-time filter still pays no cost that grows with the sitemap's size.
+Requires `$breeze_warmup_sitemap` — on its own it has nothing to order.
+
+```php
+class Base extends StarterBase {
+    public function __construct() {
+        $this->breeze_warmup_sitemap  = true;
+        $this->breeze_warmup_priority = true;
+
+        parent::__construct();
+    }
+}
+```
+
+Score is a sum of independent signals, so a fresh page in a menu outranks a
+menu page nobody has touched in a year:
+
+| Signal | Default weight | Notes |
+| --- | --- | --- |
+| `front_page` | 1000 | A language's homepage. |
+| `manual` | 800 | Already in Breeze's own preload list. |
+| `menu` | 500 | Linked from a registered nav menu. |
+| `types` | `[]` | Per-post-type points, keyed by post type slug. Empty by default. |
+| `freshness` | `2 => 300, 7 => 200, 30 => 100, 365 => 25` | Points by `<lastmod>` age in days, ascending buckets. Anything older, missing, unparseable, or **in the future** scores 0. |
+
+Override the map wholesale in `$breeze_warmup_priority_weights`, or adjust it
+per project with the `timberkit_warmup_priority_weights` filter (runs once,
+at registration — not per purge).
+
+A future `<lastmod>` scores 0 rather than the top freshness bucket: scheduled
+content is not fresh content, and a broken `lastmod` must never be able to
+shoot a URL to the front of the queue.
+
+`types` is keyed by post type slug, for example:
+
+```php
+class Base extends StarterBase {
+    public function __construct() {
+        $this->breeze_warmup_priority_weights = array(
+            'front_page' => 1000,
+            'manual'     => 800,
+            'menu'       => 500,
+            'types'      => array( 'realizace' => 150 ),
+            'freshness'  => array( 2 => 300, 7 => 200, 30 => 100, 365 => 25 ),
+        );
+
+        parent::__construct();
+    }
+}
+```
+
+The post type is derived from the **sub-sitemap filename**, not looked up in
+the database: `wp-sitemap-posts-<type>-N.xml` for core,
+`<type>-sitemap.xml` for AIOSEO. A URL whose sub-sitemap doesn't match either
+shape gets no type, so its `types` weight is 0. AIOSEO's structural indexes
+(`author`, `date`, `product_attributes`, `rss`, `additional`) are excluded on
+purpose — they share the `<name>-sitemap.xml` shape but aren't post types. A
+taxonomy sitemap can't be told apart from a post-type one by filename either,
+so it falls through to weight 0 as well. If a `types` weight seems to have no
+effect, check the sub-sitemap's filename first.
+
+Three things worth knowing before this ships to a real sitemap:
+
+**Freshness reads `<lastmod>`, which is the date of the last edit, not of
+publication.** A ten-year-old page with a fixed typo therefore ranks as
+fresh. The signal is free — it is already in the XML we parse — and
+resolving real publication dates would mean matching URLs back to posts
+through WPML and custom permalinks.
+
+**The cap is not the whole cost.** `timberkit_warmup_sitemap_max_urls`
+(default 200) applies only to sitemap-sourced URLs. Entries Breeze itself
+supplies are warmed on top of it, and every language's homepage and menu
+items are guaranteed even when that pushes the total over the cap — the cap
+is soft by design. Budget roughly 200 origin renders and about three and a
+half minutes of warming, plus Breeze's own entries, plus any guarantee
+overflow.
+
+**Warming a page nobody visits within the cache TTL (24 hours by default) is
+wasted work** — the cache expires before the visitor arrives. That 24 hours
+is Breeze's own page-cache expiry setting; it is unrelated to this class's
+`CACHE_TTL` (one hour), which governs a different clock — how long the
+stored URL list itself is trusted before a refresh is scheduled. A practical
+way to size the cap: count how many URLs got at least one pageview
+yesterday; that number is the cap.
+
+### Preload chain health
+
+The Site Health check `preload_chain_healthy` (category `caching`, needs
+`$site_health`) watches Breeze's own preload queue for silent stalls. Breeze
+drives that queue through an Action Scheduler loopback; when the loopback
+can't reach the site, the queue simply stops advancing and nothing anywhere
+reports it. The check flags a queue that hasn't made progress in the last
+minute.
+
 ---
 
 ## Usage

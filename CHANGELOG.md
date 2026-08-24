@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `$breeze_warmup_priority` — order the Breeze warmup list by importance
+  (per-language homepages, Breeze's own manual list, menu membership, post
+  type and `<lastmod>` freshness) instead of leaving it in sitemap order.
+  Weights are declared in `$breeze_warmup_priority_weights` and filterable via
+  `timberkit_warmup_priority_weights`. Off by default.
+- Site Health check `preload_chain_healthy` — reports a Breeze preload chain
+  that has stopped making progress.
+
+### Changed
+
+- The warmup option row now stores the ordered list, the signals behind it, a
+  weight fingerprint and a revision counter. A row written by an earlier
+  version reads as stale and is refreshed; no migration is needed.
+- `fetchSitemapUrls()` now deduplicates by canonical URL form rather than
+  exact string, so two spellings of the same page (differing in trailing
+  slash, scheme case, default port or fragment) collapse to one, first-seen
+  spelling winning.
+
 ## [1.38.0] - 2026-08-20
 
 ### Added
