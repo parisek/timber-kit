@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- Everything that knows about the Breeze plugin now lives under
+  `src/Breeze/` (namespace `Parisek\TimberKit\Breeze`), so a project that
+  does not run Breeze can see in one directory what is dead weight. A test
+  enforces the boundary: naming Breeze anywhere else under `src/` fails the
+  build. `StarterBase` is the one exception — it keeps the opt-in flags,
+  whose names are unchanged.
+- `Parisek\TimberKit\BreezeWarmupSitemap` is now
+  `Parisek\TimberKit\Breeze\WarmupSitemap`. The old name keeps resolving
+  through a class alias, so no consumer breaks on upgrade.
+
 ### Added
 
 - `$breeze_warmup_priority` — order the Breeze warmup list by importance
