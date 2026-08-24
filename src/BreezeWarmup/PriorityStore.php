@@ -12,11 +12,21 @@ namespace Parisek\TimberKit\BreezeWarmup;
  * options are last-write-wins, so a refresh that started before a menu edit
  * and finished after it would silently restore the stale ordering.
  *
- * The revision counter makes that a discarded write instead: read the
- * revision, write with revision + 1, and refuse if somebody moved it in
- * between. Not atomic in the strong sense — no transaction is available here
- * — but it shrinks the window to a single get/update pair and removes the
- * failure that actually happens.
+ * The revision counter guards the case that actually happens: a cron refresh
+ * reads revision N, spends seconds crawling a sitemap, and by the time it
+ * writes, a menu-change rescore has already stored N + 1. The re-read before
+ * write() catches that, and the stale ordering is discarded instead of
+ * clobbering fresh data.
+ *
+ * It does not guard two genuinely concurrent writers. Both can read
+ * revision N, both can pass the check, and both can call update_option() —
+ * the later one wins, both calls return true, and the stored revision reads
+ * N + 1 instead of N + 2, so nothing downstream can tell a write was lost.
+ * Closing that would need a conditional UPDATE through $wpdb matched against
+ * the serialized option value: fragile, and disproportionate to the risk.
+ * The two writers here are an hourly cron job and a human saving a menu —
+ * overlapping to the microsecond is possible but rare, while the slow-cron
+ * case above is routine.
  */
 final class PriorityStore {
 
