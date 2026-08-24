@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Parisek\TimberKit\Breeze;
 
+use Parisek\TimberKit\Breeze\TailPlanner;
 
 /**
  * Feeds Breeze's Cache Warmup preloader with every URL from the site's XML
@@ -394,11 +395,19 @@ final class WarmupSitemap {
 	 * @param array<string, mixed>             $weights
 	 * @param int                              $now
 	 * @param int                              $max
-	 * @return array{urls: array<int, string>, signals: array<string, mixed>}
+	 * @return array{urls: array<int, string>, signals: array<string, mixed>, tail: array<int, string>}
 	 */
 	public static function buildOrderedUrls( array $records, array $weights, int $now, int $max ): array {
-		$scored  = Scorer::scoreAll( $records, $weights, $now );
-		$kept    = LanguageQuota::apply( $scored, $max );
+		$scored = Scorer::scoreAll( $records, $weights, $now );
+
+		// Sort the FULL set before splitting. Everything upstream preserves
+		// input order — scoreAll() only attaches scores, and LanguageQuota
+		// selects without reordering — so a tail taken from them directly
+		// would come out in sitemap order, which is precisely the ordering
+		// this module exists to replace.
+		$sorted = Scorer::sort( $scored );
+
+		$kept    = LanguageQuota::apply( $sorted, $max );
 		$ordered = Scorer::sort( $kept );
 
 		$signals = array();
@@ -414,10 +423,24 @@ final class WarmupSitemap {
 			);
 		}
 
+		$urls = array_column( $ordered, 'url' );
+
 		return array(
-			'urls'    => array_column( $ordered, 'url' ),
+			'urls'    => $urls,
 			'signals' => $signals,
+			'tail'    => TailPlanner::split( $sorted, $urls, self::maxTailUrls() ),
 		);
+	}
+
+	/**
+	 * Safety cap on stored tail URLs.
+	 */
+	private static function maxTailUrls(): int {
+		$max = function_exists( 'apply_filters' )
+			? apply_filters( 'timberkit_warmup_tail_max_urls', TailPlanner::DEFAULT_MAX_TAIL_URLS )
+			: TailPlanner::DEFAULT_MAX_TAIL_URLS;
+
+		return is_numeric( $max ) ? max( 0, (int) $max ) : TailPlanner::DEFAULT_MAX_TAIL_URLS;
 	}
 
 	/**
