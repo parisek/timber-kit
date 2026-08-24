@@ -25,6 +25,7 @@ use Parisek\Twig\TypographyExtension;
 use Parisek\TimberKit\BlockRenderer;
 use Parisek\TimberKit\BreezeWarmupSitemap;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
+use Parisek\TimberKit\Health\Check\PreloadChainHealthy;
 use Parisek\TimberKit\Health\Check\FileEditingDisabled;
 use Parisek\TimberKit\Health\Check\GtmContainerNotDuplicated;
 use Parisek\TimberKit\Health\Check\RestUsersRestricted;
@@ -1232,6 +1233,7 @@ class StarterBase extends Site {
 			new RestUsersRestricted(),
 			new Utf8mb4Tables(),
 			new GtmContainerNotDuplicated( array() !== $this->gtm_containers && GtmContainer::enabled() ),
+			new PreloadChainHealthy(),
 		);
 	}
 
