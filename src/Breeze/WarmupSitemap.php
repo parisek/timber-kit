@@ -74,6 +74,9 @@ final class WarmupSitemap {
 	/** @var bool Whether tail draining is enabled for this project. */
 	private static bool $tail_enabled = false;
 
+	/** @var int URLs dispatched per tail tick, filterable at registration via `timberkit_warmup_tail_batch`. */
+	private static int $tail_batch = 100;
+
 	/** @var string Action Scheduler hook the tail drain ticks on. */
 	public const TAIL_HOOK = 'timber_kit_breeze_warmup_tail_tick';
 
@@ -125,7 +128,7 @@ final class WarmupSitemap {
 	 * @param bool                      $tail      Drain the URLs the cap excluded, a batch at a time.
 	 * @return void
 	 */
-	public static function register( bool $priority = false, ?array $weights = null, array $curated = array(), bool $tail = false ): void {
+	public static function register( bool $priority = false, ?array $weights = null, array $curated = array(), bool $tail = false, int $tailBatch = 100 ): void {
 		if ( self::$registered ) {
 			return;
 		}
@@ -143,6 +146,10 @@ final class WarmupSitemap {
 		// to drain — so $tail alone must enable nothing.
 		if ( $tail && $priority ) {
 			self::$tail_enabled = true;
+			self::$tail_batch   = (int) apply_filters( 'timberkit_warmup_tail_batch', $tailBatch );
+
+			add_action( self::TAIL_HOOK, array( self::class, 'runTailTick' ) );
+			add_action( 'breeze_clear_all_cache', array( self::class, 'onPurgeScheduleTail' ), 1000 );
 		}
 
 		add_filter( 'breeze_preload_urls', array( self::class, 'filterPreloadUrls' ) );
@@ -427,6 +434,109 @@ final class WarmupSitemap {
 		}
 
 		if ( as_next_scheduled_action( self::TAIL_HOOK ) ) {
+			return;
+		}
+
+		as_schedule_single_action( time() + self::TAIL_INTERVAL, self::TAIL_HOOK );
+	}
+
+	/**
+	 * Purge handler: start the tail over and kick the chain.
+	 *
+	 * Priority 1000 so Breeze has already filled its own queue at 999 — the
+	 * tick's brake can then see it and stand aside.
+	 *
+	 * @return void
+	 */
+	public static function onPurgeScheduleTail(): void {
+		if ( ! self::isEnabled() || ! self::$tail_enabled ) {
+			return;
+		}
+
+		TailStore::resetCursor();
+		self::scheduleTailTick();
+	}
+
+	/**
+	 * One tail tick: dispatch a batch, advance, schedule the successor.
+	 *
+	 * A skipped tick (brake engaged) still schedules its successor — only an
+	 * exhausted tail ends the chain, never a busy Breeze.
+	 *
+	 * @return void
+	 */
+	public static function runTailTick(): void {
+		if ( ! self::isEnabled() || ! self::$tail_enabled ) {
+			return;
+		}
+
+		if ( self::breezeIsWarming() ) {
+			self::scheduleNextTailTick();
+
+			return;
+		}
+
+		$tail = TailStore::readTail();
+		if ( array() === $tail['urls'] ) {
+			return;
+		}
+
+		$cursor = TailStore::readCursor();
+		$index  = $cursor['hash'] === $tail['hash'] ? $cursor['index'] : 0;
+
+		if ( $index >= count( $tail['urls'] ) ) {
+			return;
+		}
+
+		$batch = TailPlanner::nextBatch( $tail['urls'], $index, self::$tail_batch );
+		if ( array() === $batch ) {
+			return;
+		}
+
+		foreach ( $batch as $url ) {
+			// Breeze's own primitive: it carries the local-URL check, the
+			// circuit breaker and the fire-and-forget fetch. It returns void,
+			// so the cursor counts dispatches, not confirmed warms.
+			\Breeze_Cache_Preloader::preload_url( $url );
+		}
+
+		TailStore::advanceCursor( $cursor, $index + count( $batch ), $tail['hash'] );
+
+		self::scheduleNextTailTick();
+	}
+
+	/**
+	 * Whether Breeze is draining its own preload queue right now.
+	 *
+	 * Reads a foreign option, read-only and tolerantly: anything other than a
+	 * non-empty array counts as idle. Breeze splices the batch off the queue
+	 * BEFORE dispatching it, so the final batch leaves this looking idle while
+	 * three URLs are still in flight — about a second at the end of a run.
+	 * Accepted: closing that window would mean guessing from timestamps.
+	 *
+	 * @return bool
+	 */
+	private static function breezeIsWarming(): bool {
+		if ( ! function_exists( 'get_option' ) ) {
+			return false;
+		}
+
+		$queue = get_option( 'breeze_preload_queue', array() );
+
+		return is_array( $queue ) && array() !== $queue;
+	}
+
+	/**
+	 * Schedule the successor directly.
+	 *
+	 * Deliberately NOT scheduleTailTick(): that one asks
+	 * `as_next_scheduled_action()`, which reports a RUNNING action as
+	 * scheduled — the tick would see itself and end its own chain.
+	 *
+	 * @return void
+	 */
+	private static function scheduleNextTailTick(): void {
+		if ( ! function_exists( 'as_schedule_single_action' ) ) {
 			return;
 		}
 
@@ -1231,5 +1341,6 @@ final class WarmupSitemap {
 		self::$weights_hash     = '';
 		self::$weights          = null;
 		self::$tail_enabled     = false;
+		self::$tail_batch       = 100;
 	}
 }
