@@ -109,7 +109,7 @@ final class BreezeWarmupSitemap {
 	 *
 	 * @return void
 	 */
-	public static function register(): void {
+	public static function register( bool $priority = false ): void {
 		if ( self::$registered ) {
 			return;
 		}
@@ -122,6 +122,76 @@ final class BreezeWarmupSitemap {
 
 		add_filter( 'breeze_preload_urls', array( self::class, 'filterPreloadUrls' ) );
 		add_action( self::CRON_HOOK, array( self::class, 'runRefresh' ) );
+
+		if ( $priority ) {
+			self::$priority_enabled = true;
+			// Computed once here, never per purge — the hot path may only
+			// afford a string comparison against the stored hash.
+			self::$weights_hash = Scorer::weightsHash( self::weights() );
+
+			// Priority 5: Breeze's own menu purge and the kit's both sit at
+			// 10, so the rescore must land before them — the purge they
+			// trigger then reads an ordering that already reflects the new
+			// menu.
+			add_action( 'wp_update_nav_menu', array( self::class, 'rescoreOnMenuUpdate' ), 5 );
+		}
+	}
+
+	/**
+	 * Recompute the ordering from stored signals after a menu changed.
+	 *
+	 * No network: menu membership is the only signal that changed, and
+	 * everything else is already stored. With no stored signals this does
+	 * nothing but schedule a refresh — writing a partial list would be worse
+	 * than leaving the stale one in place.
+	 *
+	 * @return void
+	 */
+	public static function rescoreOnMenuUpdate(): void {
+		if ( ! self::isEnabled() || ! self::$priority_enabled ) {
+			return;
+		}
+
+		$stored = PriorityStore::read();
+		if ( null === $stored || array() === $stored['signals'] ) {
+			self::maybeScheduleRefresh();
+
+			return;
+		}
+
+		$menu    = SignalCollector::menuKeys();
+		$weights = self::weights();
+		$records = array();
+
+		foreach ( $stored['signals'] as $key => $signal ) {
+			if ( ! is_array( $signal ) || ! isset( $signal['url'] ) ) {
+				continue;
+			}
+
+			$records[] = array(
+				'url'        => (string) $signal['url'],
+				'key'        => (string) $key,
+				'lastmod'    => isset( $signal['lastmod'] ) ? $signal['lastmod'] : null,
+				'type'       => (string) ( $signal['type'] ?? '' ),
+				'lang'       => (string) ( $signal['lang'] ?? '' ),
+				'menu'       => isset( $menu[ (string) $key ] ),
+				'front_page' => (bool) ( $signal['front_page'] ?? false ),
+				'manual'     => (bool) ( $signal['manual'] ?? false ),
+			);
+		}
+
+		if ( array() === $records ) {
+			return;
+		}
+
+		$built = self::buildOrderedUrls( $records, $weights, time(), self::maxUrls() );
+
+		PriorityStore::write(
+			$built['urls'],
+			$built['signals'],
+			Scorer::weightsHash( $weights ),
+			$stored['revision']
+		);
 	}
 
 	/**
