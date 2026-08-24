@@ -816,18 +816,29 @@ to build on: Breeze does not report back.
 
 **The five-minute interval is fixed, not a filter.** `$breeze_warmup_tail_batch`
 is the only knob; the tick's own cadence stays constant so the brake against
-Breeze's queue behaves predictably. Filterable independently: `timberkit_warmup_tail_batch`
-(applied once, at registration, like the priority weights) and
+Breeze's queue behaves predictably. `$breeze_warmup_tail_batch`, like
+`$breeze_warmup_priority_weights`, is read once, at registration — changing
+it at runtime after that has no effect. Filterable independently:
+`timberkit_warmup_tail_batch` (also applied once, at registration) and
 `timberkit_warmup_tail_max_urls` (default 5000) which caps how many excluded
 URLs are stored as the tail in the first place — a safety bound distinct from
 the sitemap URL cap.
 
-**Tail draining does not run on multisite.** The brake reads Breeze's
+**A cold start rescues itself.** A purge schedules the first tick and resets
+the tail's cursor immediately, but the tail's *contents* are only written
+later, by the deferred refresh. If the first tick runs before that refresh
+has written anything, it finds an empty tail and ends the chain — nothing
+else would ever restart it. To close that gap, the refresh itself schedules a
+tick whenever it writes a non-empty tail, so the chain resumes once the
+tail actually has something to drain.
+
+**Tail draining refuses to wire on multisite.** The brake reads Breeze's
 `breeze_preload_queue` option, and Breeze scopes that option per blog on
 multisite — every site's brake would read "idle" regardless of what any
 other site's queue is doing, and the drain from every site would pile onto
-whatever origin actually serves the requests. Leave `$breeze_warmup_tail`
-off on multisite.
+whatever origin actually serves the requests. Rather than run without a
+working brake, `register()` detects `is_multisite()` and leaves the tail
+hooks unwired there, even when `$breeze_warmup_tail` is `true`.
 
 ### Preload chain health
 

@@ -143,8 +143,15 @@ final class WarmupSitemap {
 		self::$curated          = $curated;
 
 		// Tail draining requires the ordering — without it there is nothing
-		// to drain — so $tail alone must enable nothing.
-		if ( $tail && $priority ) {
+		// to drain — so $tail alone must enable nothing. It also refuses to
+		// wire on multisite: the brake reads Breeze's `breeze_preload_queue`,
+		// which Breeze scopes per blog, so on multisite the brake would
+		// always read idle and the drain would pile onto the origin
+		// unthrottled. Refusing to wire is safer than running without a
+		// working brake.
+		$is_multisite = function_exists( 'is_multisite' ) && is_multisite();
+
+		if ( $tail && $priority && ! $is_multisite ) {
 			self::$tail_enabled = true;
 			self::$tail_batch   = (int) apply_filters( 'timberkit_warmup_tail_batch', $tailBatch );
 
