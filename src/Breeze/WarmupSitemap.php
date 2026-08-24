@@ -58,6 +58,9 @@ final class WarmupSitemap {
 	/** @var bool Prevent duplicate hook registration. */
 	private static bool $registered = false;
 
+	/** @var array<int, string> Project's curated warmup entries, unresolved. */
+	private static array $curated = array();
+
 	/** @var bool Whether ordering is enabled for this project. */
 	private static bool $priority_enabled = false;
 
@@ -108,9 +111,10 @@ final class WarmupSitemap {
 	 * a project that wires it without going through `StarterBase`.
 	 *
 	 * @param array<string, mixed>|null $weights
+	 * @param array<int, string>        $curated Project's curated warmup entries.
 	 * @return void
 	 */
-	public static function register( bool $priority = false, ?array $weights = null ): void {
+	public static function register( bool $priority = false, ?array $weights = null, array $curated = array() ): void {
 		if ( self::$registered ) {
 			return;
 		}
@@ -122,6 +126,7 @@ final class WarmupSitemap {
 		self::$registered       = true;
 		self::$priority_enabled = $priority;
 		self::$weights          = $weights ?? Scorer::DEFAULT_WEIGHTS;
+		self::$curated          = $curated;
 
 		add_filter( 'breeze_preload_urls', array( self::class, 'filterPreloadUrls' ) );
 		add_action( self::CRON_HOOK, array( self::class, 'runRefresh' ) );
@@ -421,7 +426,9 @@ final class WarmupSitemap {
 	private static function enrichRecords( array $records ): array {
 		$menu       = SignalCollector::menuKeys();
 		$frontPages = SignalCollector::frontPages();
-		$manual     = SignalCollector::manualKeys();
+		// Breeze's own row plus the project's committed list. Either may be
+		// empty; a key present in both is one key.
+		$manual     = SignalCollector::manualKeys() + CuratedUrls::filterReachable( CuratedUrls::keys( self::$curated ) );
 		$languages  = SignalCollector::activeLanguages();
 
 		foreach ( $records as $i => $record ) {

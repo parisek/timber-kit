@@ -594,6 +594,36 @@ class StarterBase extends Site {
 	);
 
 	/**
+	 * A curated warmup list that lives here instead of in wp-admin.
+	 *
+	 * Merges into the `manual` signal behind `$breeze_warmup_priority`, at the
+	 * weight that source already carries. It adds an input, not a tier: nothing
+	 * about ordering, weights or the cap changes.
+	 *
+	 * It exists because `manual` was the one curated signal a project could not
+	 * version. Its only input was Breeze's settings row, so the list could not
+	 * be reviewed, carried no reason for any entry, differed per environment by
+	 * accident, and was wiped by a database import — silently, after which the
+	 * site simply stopped warming what mattered.
+	 *
+	 * Entries may be relative or absolute, and both are resolved rather than
+	 * trusted. One that names a post or a page becomes its ID and comes back as
+	 * `get_permalink()`, so a relative path is correct on ddev, on staging and
+	 * in production without being rewritten — and under domain-per-language it
+	 * comes back on that language's own host. One that resolves to nothing is
+	 * dropped, so a deleted page stops being warmed on its own.
+	 *
+	 *     protected array $breeze_warmup_urls = array(
+	 *         '/blog/',
+	 *         '/cs/blog/',
+	 *         'https://example.de/blog/',
+	 *     );
+	 *
+	 * @var array<int, string>
+	 */
+	protected array $breeze_warmup_urls = array();
+
+	/**
 	 * ACF Datastore ({@see https://www.advancedcustomfields.com/resources/acf-settings-enable_datastore/}).
 	 *
 	 * Opt-in (default off). Switches how ACF saves field values — through the
@@ -1320,7 +1350,8 @@ class StarterBase extends Site {
 
 		WarmupSitemap::register(
 			$this->breeze_warmup_priority,
-			$this->breeze_warmup_priority_weights
+			$this->breeze_warmup_priority_weights,
+			$this->breeze_warmup_urls
 		);
 	}
 

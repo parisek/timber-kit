@@ -1850,6 +1850,53 @@ class Helpers {
 	}
 
 	/**
+	 * Resolve a URL to the post it names, in the current language.
+	 *
+	 * `url_to_postid()` alone is not enough on a WPML site with language URL
+	 * prefixes: it returns 0 for a perfectly valid `/cs/my-page`, because the
+	 * rewrite rules it consults belong to the default language. The second
+	 * lookup strips the prefix via {@see self::extract_slug_from_url()} and asks
+	 * again — which is what `formatLink()` has always done privately, and what
+	 * every other caller of `url_to_postid()` in this package needs for the same
+	 * reason.
+	 *
+	 * The returned ID is passed through `wpml_object_id`, so a caller gets the
+	 * translation that belongs to the language being rendered rather than the
+	 * one whose slug happened to match.
+	 *
+	 * @param string $url Absolute URL, or a path.
+	 * @return int Post ID, or 0 when the URL names nothing on this site.
+	 */
+	public static function urlToPostId( string $url ): int {
+		if ( '' === trim( $url ) || ! function_exists( 'url_to_postid' ) ) {
+			return 0;
+		}
+
+		$post_id = (int) url_to_postid( $url );
+
+		if ( 0 === $post_id ) {
+			$stripped = self::extract_slug_from_url( $url );
+			if ( is_string( $stripped ) && '' !== $stripped ) {
+				$post_id = (int) url_to_postid( $stripped );
+			}
+		}
+
+		if ( $post_id <= 0 ) {
+			return 0;
+		}
+
+		if ( function_exists( 'apply_filters' ) ) {
+			$post_type  = function_exists( 'get_post_type' ) ? get_post_type( $post_id ) : 'page';
+			$translated = (int) apply_filters( 'wpml_object_id', $post_id, $post_type ?: 'page' );
+			if ( $translated > 0 ) {
+				$post_id = $translated;
+			}
+		}
+
+		return $post_id;
+	}
+
+	/**
 	 * Extract the path (slug) from a URL, stripping the WPML language prefix if present.
 	 *
 	 * Useful as a fallback for `url_to_postid()` when WPML is active with
@@ -1871,8 +1918,15 @@ class Helpers {
 		$path = rtrim( $path, '/' );
 
 		if ( function_exists( 'is_plugin_active' ) && is_plugin_active( 'sitepress-multilingual-cms/sitepress.php' ) ) {
-			// Get all active language codes
+			// Get all active language codes. The guard is not defensive
+			// decoration: the plugin being active does not guarantee the filter
+			// answers with an array — it returns null before WPML has finished
+			// booting — and array_keys( null ) is a TypeError, i.e. a fatal on
+			// a page that only wanted to resolve a link.
 			$active_languages = apply_filters( 'wpml_active_languages', null );
+			if ( ! is_array( $active_languages ) ) {
+				return $path;
+			}
 			$active_languages = array_keys( $active_languages );
 
 			// Remove language prefix if present
