@@ -61,6 +61,12 @@ final class BreezeWarmupSitemap {
 	/** @var bool Prevent duplicate hook registration. */
 	private static bool $registered = false;
 
+	/** @var bool Whether ordering is enabled for this project. */
+	private static bool $priority_enabled = false;
+
+	/** @var string Fingerprint of the effective weights, computed once at registration. */
+	private static string $weights_hash = '';
+
 	/** @var string Transient key for the short refresh lock. */
 	private const LOCK_KEY = 'timber_kit_breeze_warmup_sitemap_refresh_lock';
 
@@ -148,11 +154,30 @@ final class BreezeWarmupSitemap {
 		}
 
 		$stored = PriorityStore::read();
-		if ( null === $stored || self::isStale( $stored ) ) {
+		if ( null === $stored || self::isStale( $stored ) || self::weightsChanged( $stored ) ) {
 			self::maybeScheduleRefresh();
 		}
 
-		return self::mergeUrls( $existing, self::getStoredUrls() );
+		if ( ! self::$priority_enabled ) {
+			return self::legacyMerge( $existing, self::getStoredUrls() );
+		}
+
+		return self::mergeUrls( $existing, self::getStoredUrls(), function_exists( 'home_url' ) ? (string) home_url( '/' ) : '' );
+	}
+
+	/**
+	 * Whether the stored ordering was built with a different weight map.
+	 *
+	 * The hash is computed once at registration and compared here, so the
+	 * purge path pays one string comparison — not a filter call and not a
+	 * hash. Recording *what the config was* is cheaper than tracking *when it
+	 * changed*.
+	 *
+	 * @param array{weights_hash: string} $stored
+	 * @return bool
+	 */
+	private static function weightsChanged( array $stored ): bool {
+		return self::$priority_enabled && '' !== self::$weights_hash && $stored['weights_hash'] !== self::$weights_hash;
 	}
 
 	/**
@@ -727,7 +752,7 @@ final class BreezeWarmupSitemap {
 	 * @param array<int, string> $sitemap_urls Same-host URLs collected from the sitemap.
 	 * @return array<int, string>
 	 */
-	private static function mergeUrls( array $existing, array $sitemap_urls ): array {
+	private static function legacyMerge( array $existing, array $sitemap_urls ): array {
 		$max = apply_filters( 'timberkit_warmup_sitemap_max_urls', self::DEFAULT_MAX_URLS );
 		$max = is_numeric( $max ) ? max( 0, (int) $max ) : self::DEFAULT_MAX_URLS;
 
@@ -752,11 +777,87 @@ final class BreezeWarmupSitemap {
 	}
 
 	/**
+	 * Positional merge of Breeze's own list with our ordered one.
+	 *
+	 * Sorting is not allowed here — this runs synchronously inside the purge
+	 * request, so the cost must not grow with the size of the sitemap. The
+	 * rule is therefore positional:
+	 *
+	 *   homepage, then Breeze entries we cannot score, then our ordering.
+	 *
+	 * Entries Breeze supplied that *are* in the sitemap already carry the
+	 * `manual` weight and sorted themselves; the ones that are not have no
+	 * signals at all, so they go right behind the homepage, matching
+	 * `manual` being the second highest weight.
+	 *
+	 * Membership is tested on canonical keys. Breeze builds the homepage with
+	 * `trailingslashit()` while a sitemap may emit it bare — on raw strings
+	 * those are two URLs and the homepage would be warmed twice.
+	 *
+	 * @param array<int, string> $existing Breeze's own preload URL list.
+	 * @param array<int, string> $ordered  Our stored, already ordered list.
+	 * @param string             $homeUrl  Current language homepage.
+	 * @return array<int, string>
+	 */
+	public static function mergeUrls( array $existing, array $ordered, string $homeUrl ): array {
+		$homeKey    = UrlCanonicalizer::canonicalize( $homeUrl );
+		$orderedMap = array();
+		foreach ( $ordered as $url ) {
+			$orderedMap[ UrlCanonicalizer::canonicalize( $url ) ] = true;
+		}
+
+		// When a URL appears in both lists, Breeze's own spelling wins — the
+		// sitemap only supplies ordering, and Breeze must warm exactly what
+		// it was already going to warm.
+		$existingByKey = array();
+		foreach ( $existing as $url ) {
+			$key = UrlCanonicalizer::canonicalize( $url );
+			if ( ! isset( $existingByKey[ $key ] ) ) {
+				$existingByKey[ $key ] = $url;
+			}
+		}
+
+		$result = array();
+		$seen   = array();
+
+		$push = static function ( string $url ) use ( &$result, &$seen ): void {
+			$key = UrlCanonicalizer::canonicalize( $url );
+			if ( isset( $seen[ $key ] ) ) {
+				return;
+			}
+			$seen[ $key ] = true;
+			$result[]     = $url;
+		};
+
+		foreach ( $existing as $url ) {
+			if ( UrlCanonicalizer::canonicalize( $url ) === $homeKey ) {
+				$push( $url );
+				break;
+			}
+		}
+
+		foreach ( $existing as $url ) {
+			if ( ! isset( $orderedMap[ UrlCanonicalizer::canonicalize( $url ) ] ) ) {
+				$push( $url );
+			}
+		}
+
+		foreach ( $ordered as $url ) {
+			$key = UrlCanonicalizer::canonicalize( $url );
+			$push( $existingByKey[ $key ] ?? $url );
+		}
+
+		return $result;
+	}
+
+	/**
 	 * Reset internal state so tests can re-register the module.
 	 *
 	 * @return void
 	 */
 	public static function reset_for_tests(): void {
-		self::$registered = false;
+		self::$registered       = false;
+		self::$priority_enabled = false;
+		self::$weights_hash     = '';
 	}
 }
