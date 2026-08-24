@@ -69,12 +69,16 @@ final class Scorer {
 	}
 
 	/**
+	 * $now is required, not defaulted: a default lets a caller who passes a
+	 * real lastmod but forgets $now silently lose the whole freshness
+	 * contribution, with no warning and no exception to catch it.
+	 *
 	 * @param array<string, mixed> $record
 	 * @param array<string, mixed> $weights
 	 * @param int                  $now
 	 * @return int
 	 */
-	public static function score( array $record, array $weights, int $now = 0 ): int {
+	public static function score( array $record, array $weights, int $now ): int {
 		$score = 0;
 
 		if ( ! empty( $record['front_page'] ) ) {
@@ -93,11 +97,9 @@ final class Scorer {
 			$score += (int) ( $types[ $type ] ?? 0 );
 		}
 
-		if ( $now > 0 ) {
-			$buckets = is_array( $weights['freshness'] ?? null ) ? $weights['freshness'] : array();
-			$lastmod = isset( $record['lastmod'] ) ? (int) $record['lastmod'] : null;
-			$score  += self::freshness( null === $record['lastmod'] ? null : $lastmod, $now, $buckets );
-		}
+		$buckets = is_array( $weights['freshness'] ?? null ) ? $weights['freshness'] : array();
+		$lastmod = isset( $record['lastmod'] ) ? (int) $record['lastmod'] : null;
+		$score  += self::freshness( $lastmod, $now, $buckets );
 
 		return $score;
 	}

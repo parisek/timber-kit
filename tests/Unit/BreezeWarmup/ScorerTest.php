@@ -83,28 +83,35 @@ class ScorerTest extends TestCase {
 	// -- score composition --------------------------------------------------
 
 	public function test_front_page_weight(): void {
-		$score = Scorer::score( $this->record( array( 'front_page' => true ) ), Scorer::DEFAULT_WEIGHTS );
+		$score = Scorer::score( $this->record( array( 'front_page' => true ) ), Scorer::DEFAULT_WEIGHTS, self::NOW );
 
 		$this->assertSame( 1000, $score );
 	}
 
 	public function test_manual_weight(): void {
-		$this->assertSame( 800, Scorer::score( $this->record( array( 'manual' => true ) ), Scorer::DEFAULT_WEIGHTS ) );
+		$this->assertSame( 800, Scorer::score( $this->record( array( 'manual' => true ) ), Scorer::DEFAULT_WEIGHTS, self::NOW ) );
 	}
 
 	public function test_menu_weight(): void {
-		$this->assertSame( 500, Scorer::score( $this->record( array( 'menu' => true ) ), Scorer::DEFAULT_WEIGHTS ) );
+		$this->assertSame( 500, Scorer::score( $this->record( array( 'menu' => true ) ), Scorer::DEFAULT_WEIGHTS, self::NOW ) );
 	}
 
 	public function test_type_weight_comes_from_the_map(): void {
 		$weights                    = Scorer::DEFAULT_WEIGHTS;
 		$weights['types']['realizace'] = 50;
 
-		$this->assertSame( 50, Scorer::score( $this->record( array( 'type' => 'realizace' ) ), $weights ) );
+		$this->assertSame( 50, Scorer::score( $this->record( array( 'type' => 'realizace' ) ), $weights, self::NOW ) );
 	}
 
 	public function test_unknown_type_scores_zero(): void {
-		$this->assertSame( 0, Scorer::score( $this->record( array( 'type' => 'nonesuch' ) ), Scorer::DEFAULT_WEIGHTS ) );
+		$this->assertSame( 0, Scorer::score( $this->record( array( 'type' => 'nonesuch' ) ), Scorer::DEFAULT_WEIGHTS, self::NOW ) );
+	}
+
+	public function test_record_without_a_lastmod_key_scores_without_a_warning(): void {
+		$this->assertSame(
+			1000,
+			Scorer::score( array( 'front_page' => true ), Scorer::DEFAULT_WEIGHTS, self::NOW )
+		);
 	}
 
 	public function test_components_add_up(): void {
