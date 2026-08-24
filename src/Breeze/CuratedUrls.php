@@ -49,7 +49,8 @@ final class CuratedUrls {
 	 * Canonical keys for a project's curated list.
 	 *
 	 * @param array<int, mixed> $entries Raw `$breeze_warmup_urls` value.
-	 * @return array<string, true> Canonical keys, keyed for merging.
+	 * @return array<string, bool> Canonical key => whether it still needs a
+	 *                             reachability probe.
 	 */
 	public static function keys( array $entries ): array {
 		$keys  = array();
@@ -75,7 +76,7 @@ final class CuratedUrls {
 				continue;
 			}
 
-			$keys[ UrlCanonicalizer::canonicalize( $url ) ] = true;
+			$keys[ UrlCanonicalizer::canonicalize( $url[0] ) ] = $url[1];
 		}
 
 		return $keys;
@@ -85,9 +86,10 @@ final class CuratedUrls {
 	 * One entry to a URL on this site, or null when it names nothing here.
 	 *
 	 * @param string $entry Relative path or absolute URL.
-	 * @return string|null
+	 * @return array{0: string, 1: bool}|null URL, and whether existence still
+	 *                                        needs proving with a request.
 	 */
-	public static function resolve( string $entry ): ?string {
+	public static function resolve( string $entry ): ?array {
 		$absolute = self::toAbsolute( $entry );
 		if ( null === $absolute ) {
 			return null;
@@ -100,13 +102,16 @@ final class CuratedUrls {
 		if ( $post_id > 0 ) {
 			$permalink = function_exists( 'get_permalink' ) ? get_permalink( $post_id ) : false;
 			if ( is_string( $permalink ) && '' !== $permalink ) {
-				return $permalink;
+				// A post ID settles existence. Probing anyway would spend a
+				// request per entry per refresh and, worse, drop a page that
+				// answers 405 to HEAD while serving GET perfectly well.
+				return array( $permalink, false );
 			}
 		}
 
 		// Term archives and anything else url_to_postid() cannot see. Kept only
 		// if it is on a host this site actually serves.
-		return self::isOwnHost( $absolute ) ? $absolute : null;
+		return \Parisek\TimberKit\Helpers::isSiteUrl( $absolute ) ? array( $absolute, true ) : null;
 	}
 
 	/**
@@ -121,22 +126,25 @@ final class CuratedUrls {
 	 * worse: one flaky DNS lookup would silently empty a curated list, and
 	 * `runRefresh()` is built on stale-beats-nothing everywhere else too.
 	 *
-	 * @param array<string, true> $keys Canonical keys from {@see self::keys()}.
+	 * @param array<string, bool> $keys Canonical key => needs a probe.
 	 * @return array<string, true>
 	 */
 	public static function filterReachable( array $keys ): array {
 		if ( ! function_exists( 'wp_remote_head' ) ) {
-			return $keys;
+			return array_fill_keys( array_keys( $keys ), true );
 		}
 
 		$kept = array();
-		foreach ( $keys as $key => $flag ) {
+		foreach ( $keys as $key => $needs_probe ) {
+			if ( ! $needs_probe ) {
+				$kept[ $key ] = true;
+				continue;
+			}
 			$response = wp_remote_head(
 				$key,
 				array(
 					'timeout'     => self::PROBE_TIMEOUT,
 					'redirection' => 0,
-					'sslverify'   => false,
 				)
 			);
 
@@ -183,57 +191,5 @@ final class CuratedUrls {
 		}
 
 		return home_url( '/' . ltrim( $entry, '/' ) );
-	}
-
-	/**
-	 * Whether a URL is on a host this site serves.
-	 *
-	 * `home_url()` alone is not the answer under domain-per-language: every
-	 * language but the default one lives somewhere else, and treating those as
-	 * foreign would refuse exactly the entries an absolute URL exists to write.
-	 *
-	 * @param string $url Absolute URL.
-	 * @return bool
-	 */
-	private static function isOwnHost( string $url ): bool {
-		$host = strtolower( (string) ( parse_url( $url, PHP_URL_HOST ) ?: '' ) );
-		if ( '' === $host ) {
-			return false;
-		}
-
-		return in_array( $host, self::ownHosts(), true );
-	}
-
-	/**
-	 * Every host this site answers on: `home_url()` plus each active language's.
-	 *
-	 * @return array<int, string>
-	 */
-	private static function ownHosts(): array {
-		$hosts = array();
-
-		if ( function_exists( 'home_url' ) ) {
-			$host = strtolower( (string) ( parse_url( (string) home_url(), PHP_URL_HOST ) ?: '' ) );
-			if ( '' !== $host ) {
-				$hosts[] = $host;
-			}
-		}
-
-		if ( function_exists( 'apply_filters' ) ) {
-			$languages = apply_filters( 'wpml_active_languages', null, array( 'skip_missing' => false ) );
-			if ( is_array( $languages ) ) {
-				foreach ( $languages as $language ) {
-					if ( ! is_array( $language ) || empty( $language['url'] ) ) {
-						continue;
-					}
-					$host = strtolower( (string) ( parse_url( (string) $language['url'], PHP_URL_HOST ) ?: '' ) );
-					if ( '' !== $host && ! in_array( $host, $hosts, true ) ) {
-						$hosts[] = $host;
-					}
-				}
-			}
-		}
-
-		return $hosts;
 	}
 }

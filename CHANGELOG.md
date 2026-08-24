@@ -17,6 +17,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   on that language's own host. An entry that resolves to nothing is dropped, and
   what `url_to_postid()` cannot see is verified with one `HEAD` during the cron
   refresh — never on the purge path.
+- `Helpers::isSiteUrl()` / `Helpers::siteHosts()` — whether a URL belongs to this
+  site, matching host **and** port, and counting each WPML language's own host
+  under domain-per-language negotiation.
 - `Helpers::urlToPostId()` — URL to post ID with the WPML prefix fallback and
   `wpml_object_id` translation. `formatLink()` had this logic privately;
   `Breadcrumb` and the new warmup list needed the same, so it is one function now
@@ -49,6 +52,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `Breadcrumb` now resolves language-prefixed URLs. It called `url_to_postid()`
   directly, which returns 0 for a valid `/cs/…` URL, so those global links were
   silently dropped from the trail.
+- The WPML prefix fallback no longer lets a foreign URL borrow a local path.
+  It compares paths, so `https://someone-else.test/about/` matched this site's
+  own About page and was rewritten to a local permalink — in `formatLink()`,
+  where the fallback has lived for years, and in `Breadcrumb`.
 - The same-host guard compared the hostname and ignored the **port**, so a
   sitemap index entry — or a filter callback — pointing at
   `https://<own-host>:9200/` passed it and was fetched. An internal service

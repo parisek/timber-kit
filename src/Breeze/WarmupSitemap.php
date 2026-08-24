@@ -362,11 +362,15 @@ final class WarmupSitemap {
 			$revision = PriorityStore::revision();
 			$records  = self::fetchSitemapRecords();
 
+			// No early return on an empty sitemap: enrichRecords() adds the
+			// curated entries, and a project that lists them explicitly should
+			// still get them warmed when the sitemap is missing or broken --
+			// which is exactly when it matters most.
+			$records = self::enrichRecords( $records );
+
 			if ( array() === $records ) {
 				return;
 			}
-
-			$records = self::enrichRecords( $records );
 			$weights = self::weights();
 			$built   = self::buildOrderedUrls( $records, $weights, time(), self::maxUrls() );
 
@@ -431,6 +435,12 @@ final class WarmupSitemap {
 		$manual     = SignalCollector::manualKeys() + CuratedUrls::filterReachable( CuratedUrls::keys( self::$curated ) );
 		$languages  = SignalCollector::activeLanguages();
 
+		// A curated entry that the sitemap does not carry has to become a
+		// record, not merely a flag on one. Flagging alone would mean the whole
+		// point of a curated list -- naming a page the sitemap ranks badly or
+		// omits entirely -- silently did nothing.
+		$records = self::appendMissingManual( $records, $manual );
+
 		foreach ( $records as $i => $record ) {
 			$key = (string) $record['key'];
 
@@ -445,6 +455,46 @@ final class WarmupSitemap {
 					$languages['codes'],
 					$languages['default']
 				);
+		}
+
+		return $records;
+	}
+
+	/**
+	 * Add records for curated keys the sitemap did not supply.
+	 *
+	 * `lastmod` is null on purpose: nothing is known about when the page
+	 * changed, and inventing a date would hand it a freshness score it has not
+	 * earned. It still outranks most of the sitemap through the `manual` weight
+	 * alone, which is the intent.
+	 *
+	 * @param array<int, array<string, mixed>> $records Records from the sitemap.
+	 * @param array<string, bool>              $manual  Curated + Breeze keys. Only
+	 *                                                  the keys are read.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function appendMissingManual( array $records, array $manual ): array {
+		if ( array() === $manual ) {
+			return $records;
+		}
+
+		$known = array();
+		foreach ( $records as $record ) {
+			$known[ (string) $record['key'] ] = true;
+		}
+
+		foreach ( $manual as $key => $flag ) {
+			if ( isset( $known[ $key ] ) ) {
+				continue;
+			}
+
+			$records[] = array(
+				'url'     => (string) $key,
+				'key'     => (string) $key,
+				'lastmod' => null,
+				'type'    => '',
+				'source'  => 'curated',
+			);
 		}
 
 		return $records;

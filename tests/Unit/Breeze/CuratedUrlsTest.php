@@ -38,6 +38,48 @@ final class CuratedUrlsTest extends TestCase {
 		$keys = CuratedUrls::keys( array( '/blog/' ) );
 
 		$this->assertSame( array( 'https://example.test/blog/' ), array_keys( $keys ) );
+		$this->assertTrue( $keys['https://example.test/blog/'], 'unresolved entries still owe a probe' );
+	}
+
+	public function test_a_post_needs_no_probe(): void {
+		// The regression this guards: probing every key spends a request per
+		// entry per refresh, and drops a page that answers 405 to HEAD.
+		Functions\when( 'url_to_postid' )->justReturn( 42 );
+		Functions\when( 'get_permalink' )->justReturn( 'https://example.test/blog/' );
+
+		$keys = CuratedUrls::keys( array( '/blog/' ) );
+
+		$this->assertFalse( $keys['https://example.test/blog/'] );
+		$this->assertSame(
+			array( 'https://example.test/blog/' => true ),
+			CuratedUrls::filterReachable( $keys ),
+			'a key that owes no probe survives filterReachable untouched'
+		);
+	}
+
+	public function test_a_foreign_url_cannot_borrow_a_local_path(): void {
+		// url_to_postid() misses on the full URL and would hit on the bare
+		// path. Without the host gate in Helpers::urlToPostId() this entry
+		// became this site's own /about/ page.
+		$calls = 0;
+		Functions\when( 'url_to_postid' )->alias(
+			static function () use ( &$calls ): int {
+				++$calls;
+				return 1 === $calls ? 0 : 99;
+			}
+		);
+		Functions\when( 'get_permalink' )->justReturn( 'https://example.test/about/' );
+
+		$this->assertSame( array(), CuratedUrls::keys( array( 'https://foreign.test/about/' ) ) );
+	}
+
+	public function test_a_port_is_part_of_the_host(): void {
+		// example.test:8080 is a different service from example.test, and
+		// treating them as one turns the probe into a request this site can be
+		// made to send anywhere on that machine.
+		Functions\when( 'url_to_postid' )->justReturn( 0 );
+
+		$this->assertSame( array(), CuratedUrls::keys( array( 'https://example.test:8080/blog/' ) ) );
 	}
 
 	public function test_a_post_comes_back_as_its_permalink_not_as_written(): void {
