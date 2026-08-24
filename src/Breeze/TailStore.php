@@ -15,7 +15,17 @@ namespace Parisek\TimberKit\Breeze;
  * The cursor has two writers — the purge resets it, the tick advances it — so
  * advancing is conditional. A tick that started before a purge and finished
  * after it must not overwrite the fresh reset, or every URL the purge
- * invalidated would sit unwarmed behind a cursor claiming otherwise.
+ * invalidated would sit unwarmed behind a cursor claiming otherwise. That is
+ * the race this guards against, and it is the one that actually happens.
+ *
+ * It does not guard two genuinely concurrent ticks. Both can read the same
+ * cursor, both can pass the check in advanceCursor(), and both can call
+ * update_option() — the later one wins, and both calls return true. Closing
+ * that would need a conditional UPDATE through $wpdb matched against the
+ * serialized option value: fragile, and disproportionate to the risk. The
+ * tail advance is driven by one scheduled tick, not by concurrent actors, so
+ * overlapping ticks are rare; when they do overlap, the result is a repeated
+ * batch of a handful of extra warm requests, not corrupted state.
  */
 final class TailStore {
 

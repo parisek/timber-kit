@@ -85,9 +85,11 @@ class TailStoreTest extends TestCase {
 		// multi-thousand-URL payload in the request an editor is waiting on.
 		Functions\expect( 'get_option' )->never();
 		$written = null;
+		$autoload = null;
 		Functions\when( 'update_option' )->alias(
-			function ( string $key, $value ) use ( &$written ): bool {
-				$written = $value;
+			function ( string $key, $value, $auto = null ) use ( &$written, &$autoload ): bool {
+				$written  = $value;
+				$autoload = $auto;
 
 				return true;
 			}
@@ -97,15 +99,18 @@ class TailStoreTest extends TestCase {
 
 		$this->assertSame( 0, $written['index'] );
 		$this->assertSame( '', $written['hash'], 'the tick stamps the hash; the purge must not read the tail' );
+		$this->assertFalse( $autoload, 'the cursor must never autoload; every request would otherwise load it' );
 	}
 
 	public function test_advance_writes_when_the_cursor_is_unchanged(): void {
 		$current = array( 'index' => 100, 'hash' => 'h' );
 		Functions\when( 'get_option' )->justReturn( $current );
 		$written = null;
+		$autoload = null;
 		Functions\when( 'update_option' )->alias(
-			function ( string $key, $value ) use ( &$written ): bool {
-				$written = $value;
+			function ( string $key, $value, $auto = null ) use ( &$written, &$autoload ): bool {
+				$written  = $value;
+				$autoload = $auto;
 
 				return true;
 			}
@@ -114,6 +119,7 @@ class TailStoreTest extends TestCase {
 		$this->assertTrue( TailStore::advanceCursor( $current, 200, 'h' ) );
 		$this->assertSame( 200, $written['index'] );
 		$this->assertSame( 'h', $written['hash'] );
+		$this->assertFalse( $autoload, 'the cursor must never autoload; every request would otherwise load it' );
 	}
 
 	public function test_advance_is_discarded_when_a_purge_reset_the_cursor(): void {
