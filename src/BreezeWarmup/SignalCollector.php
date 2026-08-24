@@ -42,7 +42,17 @@ final class SignalCollector {
 
 			foreach ( $items as $item ) {
 				$url = is_object( $item ) && isset( $item->url ) ? trim( (string) $item->url ) : '';
-				if ( '' === $url || '#' === $url ) {
+				if ( '' === $url ) {
+					continue;
+				}
+
+				// A menu can hold custom links that are pure fragments
+				// ('#section') or non-page targets ('mailto:'). Only a real
+				// http(s) page URL can ever join with a sitemap record, so
+				// anything else must not become a junk key in the map.
+				$scheme = strtolower( (string) ( parse_url( $url, PHP_URL_SCHEME ) ?: '' ) );
+				$host   = (string) ( parse_url( $url, PHP_URL_HOST ) ?: '' );
+				if ( ! in_array( $scheme, array( 'http', 'https' ), true ) || '' === $host ) {
 					continue;
 				}
 

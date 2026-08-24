@@ -6,6 +6,7 @@ namespace Tests\Unit\BreezeWarmup;
 
 use Brain\Monkey;
 use Brain\Monkey\Functions;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use PHPUnit\Framework\TestCase;
 use Parisek\TimberKit\BreezeWarmup\SignalCollector;
@@ -60,6 +61,21 @@ class SignalCollectorTest extends TestCase {
 
 	public function test_no_menus_yields_no_keys(): void {
 		Functions\when( 'wp_get_nav_menus' )->justReturn( array() );
+
+		$this->assertSame( array(), SignalCollector::menuKeys() );
+	}
+
+	public function test_menu_items_that_are_not_absolute_http_urls_are_skipped(): void {
+		// A menu can hold custom links that are pure fragments or mailto:
+		// targets. Only a real page URL can ever join with a sitemap record,
+		// so anything else must not become a junk key in the signal map.
+		Functions\when( 'wp_get_nav_menus' )->justReturn( array( (object) array( 'term_id' => 7 ) ) );
+		Functions\when( 'wp_get_nav_menu_items' )->justReturn(
+			array(
+				(object) array( 'url' => '#section' ),
+				(object) array( 'url' => 'mailto:a@b.test' ),
+			)
+		);
 
 		$this->assertSame( array(), SignalCollector::menuKeys() );
 	}
@@ -119,12 +135,113 @@ class SignalCollectorTest extends TestCase {
 		$this->assertSame( array( 'https://example.test/' => 'cs' ), SignalCollector::frontPages() );
 	}
 
+	public function test_front_pages_falls_back_to_home_when_every_language_is_foreign(): void {
+		// Distinct from "no WPML at all": WPML answered with a non-empty
+		// array, but domain-per-language mode put every entry on a foreign
+		// host. The result must still be the single-home fallback, not an
+		// empty map — an empty preload list would warm nothing at all.
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $hook, $value ) {
+				if ( 'wpml_active_languages' === $hook ) {
+					return array(
+						'sk' => array( 'language_code' => 'sk', 'url' => 'https://example.sk/' ),
+						'de' => array( 'language_code' => 'de', 'url' => 'https://example.de/' ),
+					);
+				}
+
+				return $value;
+			}
+		);
+
+		$this->assertSame( array( 'https://example.test/' => '' ), SignalCollector::frontPages() );
+	}
+
+	public function test_active_languages_without_wpml_is_empty(): void {
+		Functions\when( 'apply_filters' )->alias(
+			static fn( string $hook, $value ) => $value
+		);
+
+		$this->assertSame(
+			array( 'codes' => array(), 'default' => '' ),
+			SignalCollector::activeLanguages()
+		);
+	}
+
+	public function test_active_languages_lists_codes_and_seeds_default_from_first(): void {
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $hook, $value ) {
+				if ( 'wpml_active_languages' === $hook ) {
+					return array(
+						'cs' => array( 'language_code' => 'cs' ),
+						'sk' => array( 'language_code' => 'sk' ),
+					);
+				}
+
+				return $value;
+			}
+		);
+
+		$this->assertSame(
+			array( 'codes' => array( 'cs', 'sk' ), 'default' => 'cs' ),
+			SignalCollector::activeLanguages()
+		);
+	}
+
+	public function test_active_languages_prefers_wpml_default_language_filter(): void {
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $hook, $value ) {
+				if ( 'wpml_active_languages' === $hook ) {
+					return array(
+						'cs' => array( 'language_code' => 'cs' ),
+						'sk' => array( 'language_code' => 'sk' ),
+					);
+				}
+
+				if ( 'wpml_default_language' === $hook ) {
+					return 'SK';
+				}
+
+				return $value;
+			}
+		);
+
+		$this->assertSame(
+			array( 'codes' => array( 'cs', 'sk' ), 'default' => 'sk' ),
+			SignalCollector::activeLanguages()
+		);
+	}
+
+	public function test_active_languages_ignores_unusable_default_language_filter_result(): void {
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $hook, $value ) {
+				if ( 'wpml_active_languages' === $hook ) {
+					return array(
+						'cs' => array( 'language_code' => 'cs' ),
+						'sk' => array( 'language_code' => 'sk' ),
+					);
+				}
+
+				if ( 'wpml_default_language' === $hook ) {
+					return '';
+				}
+
+				return $value;
+			}
+		);
+
+		$this->assertSame(
+			array( 'codes' => array( 'cs', 'sk' ), 'default' => 'cs' ),
+			SignalCollector::activeLanguages()
+		);
+	}
+
 	// breeze_get_option() is mocked here via Functions\when(), which — unlike
 	// Functions\expect() — patches the function definition for the rest of
 	// the process. StarterBase::setupBreezeWarmupSitemap() branches on
 	// function_exists('breeze_get_option') to detect Breeze's absence, so
 	// leaking this mock would falsely make Breeze look installed in later,
 	// unrelated tests. Run in a separate process to keep the leak contained.
+	#[PreserveGlobalState( false )]
 	#[RunInSeparateProcess]
 	public function test_manual_keys_come_from_breeze_settings(): void {
 		Functions\when( 'breeze_get_option' )->justReturn(
@@ -134,6 +251,7 @@ class SignalCollectorTest extends TestCase {
 		$this->assertArrayHasKey( 'https://example.test/akce/', SignalCollector::manualKeys() );
 	}
 
+	#[PreserveGlobalState( false )]
 	#[RunInSeparateProcess]
 	public function test_manual_keys_tolerate_missing_settings(): void {
 		Functions\when( 'breeze_get_option' )->justReturn( false );
