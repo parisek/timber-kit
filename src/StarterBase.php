@@ -559,6 +559,39 @@ class StarterBase extends Site {
 	protected bool $breeze_warmup_sitemap = false;
 
 	/**
+	 * Order the sitemap-sourced warmup URLs by importance instead of leaving
+	 * them in whatever order the sitemap generator emitted.
+	 *
+	 * Breeze processes its preload queue strictly front to back, so position
+	 * in the array decides how long after a purge a visitor gets a cold page.
+	 * Off by default: it changes which pages get warmed first, and on a site
+	 * whose sitemap exceeds the cap it changes which get warmed at all.
+	 *
+	 * Requires `$breeze_warmup_sitemap` — on its own it has nothing to order.
+	 *
+	 * @var bool
+	 */
+	protected bool $breeze_warmup_priority = false;
+
+	/**
+	 * Weights behind `$breeze_warmup_priority`.
+	 *
+	 * Scores add up, so a fresh page in a menu outranks a menu page nobody
+	 * has touched in a year. `freshness` maps a maximum age in days to points
+	 * and reads `<lastmod>` — which is the date of the last *edit*, not of
+	 * publication.
+	 *
+	 * @var array<string, mixed>
+	 */
+	protected array $breeze_warmup_priority_weights = array(
+		'front_page' => 1000,
+		'manual'     => 800,
+		'menu'       => 500,
+		'types'      => array(),
+		'freshness'  => array( 2 => 300, 7 => 200, 30 => 100, 365 => 25 ),
+	);
+
+	/**
 	 * ACF Datastore ({@see https://www.advancedcustomfields.com/resources/acf-settings-enable_datastore/}).
 	 *
 	 * Opt-in (default off). Switches how ACF saves field values — through the
@@ -1272,7 +1305,10 @@ class StarterBase extends Site {
 			return;
 		}
 
-		BreezeWarmupSitemap::register();
+		BreezeWarmupSitemap::register(
+			$this->breeze_warmup_priority,
+			$this->breeze_warmup_priority_weights
+		);
 	}
 
 	/**

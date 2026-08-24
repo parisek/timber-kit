@@ -67,6 +67,9 @@ final class BreezeWarmupSitemap {
 	/** @var string Fingerprint of the effective weights, computed once at registration. */
 	private static string $weights_hash = '';
 
+	/** @var array<string, mixed>|null Effective weight map for this project, set at registration. */
+	private static ?array $weights = null;
+
 	/** @var string Transient key for the short refresh lock. */
 	private const LOCK_KEY = 'timber_kit_breeze_warmup_sitemap_refresh_lock';
 
@@ -107,9 +110,10 @@ final class BreezeWarmupSitemap {
 	 * so the class stays self-guarding when used directly, e.g. from tests or
 	 * a project that wires it without going through `StarterBase`.
 	 *
+	 * @param array<string, mixed>|null $weights
 	 * @return void
 	 */
-	public static function register( bool $priority = false ): void {
+	public static function register( bool $priority = false, ?array $weights = null ): void {
 		if ( self::$registered ) {
 			return;
 		}
@@ -118,16 +122,22 @@ final class BreezeWarmupSitemap {
 			return;
 		}
 
-		self::$registered = true;
+		self::$registered       = true;
+		self::$priority_enabled = $priority;
+		self::$weights          = $weights ?? Scorer::DEFAULT_WEIGHTS;
 
 		add_filter( 'breeze_preload_urls', array( self::class, 'filterPreloadUrls' ) );
 		add_action( self::CRON_HOOK, array( self::class, 'runRefresh' ) );
 
 		if ( $priority ) {
-			self::$priority_enabled = true;
 			// Computed once here, never per purge — the hot path may only
-			// afford a string comparison against the stored hash.
-			self::$weights_hash = Scorer::weightsHash( self::weights() );
+			// afford a string comparison against the stored hash. Uses the
+			// declared weights directly rather than self::weights(): the
+			// `timberkit_warmup_priority_weights` filter may not have every
+			// hook attached yet this early, and if a filter attaches later
+			// the resulting mismatch against this fingerprint is exactly
+			// what schedules the refresh that picks it up.
+			self::$weights_hash = Scorer::weightsHash( self::$weights );
 
 			// Priority 5: Breeze's own menu purge and the kit's both sit at
 			// 10, so the rescore must land before them — the purge they
@@ -434,7 +444,7 @@ final class BreezeWarmupSitemap {
 	 * @return array<string, mixed>
 	 */
 	public static function weights(): array {
-		$weights = Scorer::DEFAULT_WEIGHTS;
+		$weights = self::$weights ?? Scorer::DEFAULT_WEIGHTS;
 
 		$filtered = function_exists( 'apply_filters' )
 			? apply_filters( 'timberkit_warmup_priority_weights', $weights )
@@ -940,5 +950,6 @@ final class BreezeWarmupSitemap {
 		self::$registered       = false;
 		self::$priority_enabled = false;
 		self::$weights_hash     = '';
+		self::$weights          = null;
 	}
 }
