@@ -74,12 +74,37 @@ class BreezeWarmupPrioritySetupTest extends TestCase {
 	}
 
 	public function test_the_filter_wins_over_the_declared_weights(): void {
+		// How many times the filter fires is an implementation detail, not
+		// part of this contract — only pin what wins.
 		Filters\expectApplied( 'timberkit_warmup_priority_weights' )
-			->once()
 			->andReturn( array( 'menu' => 42 ) );
 
 		BreezeWarmupSitemap::register( true, array( 'menu' => 7 ) );
 
 		$this->assertSame( 42, BreezeWarmupSitemap::weights()['menu'] );
+	}
+
+	/**
+	 * Pins the actual contract behind `weightsChanged()`: the hash computed
+	 * once at registration and the hash a refresh write would store both
+	 * derive from the FILTERED weights. If registration ever hashed the raw,
+	 * unfiltered weights instead, a project using the
+	 * `timberkit_warmup_priority_weights` filter would see these two values
+	 * permanently disagree — `weightsChanged()` would report a mismatch on
+	 * every single purge, scheduling a needless sitemap refresh forever.
+	 */
+	public function test_registration_hash_agrees_with_what_a_refresh_write_would_store(): void {
+		Filters\expectApplied( 'timberkit_warmup_priority_weights' )
+			->andReturn( array( 'menu' => 42 ) );
+
+		BreezeWarmupSitemap::register( true, array( 'menu' => 7 ) );
+
+		$reflection      = new \ReflectionClass( BreezeWarmupSitemap::class );
+		$registeredHash  = $reflection->getProperty( 'weights_hash' );
+		$registeredHash->setAccessible( true );
+
+		$writeWouldStore = \Parisek\TimberKit\BreezeWarmup\Scorer::weightsHash( BreezeWarmupSitemap::weights() );
+
+		$this->assertSame( $writeWouldStore, $registeredHash->getValue() );
 	}
 }

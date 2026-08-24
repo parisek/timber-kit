@@ -131,13 +131,15 @@ final class BreezeWarmupSitemap {
 
 		if ( $priority ) {
 			// Computed once here, never per purge — the hot path may only
-			// afford a string comparison against the stored hash. Uses the
-			// declared weights directly rather than self::weights(): the
-			// `timberkit_warmup_priority_weights` filter may not have every
-			// hook attached yet this early, and if a filter attaches later
-			// the resulting mismatch against this fingerprint is exactly
-			// what schedules the refresh that picks it up.
-			self::$weights_hash = Scorer::weightsHash( self::$weights );
+			// afford a string comparison against the stored hash. Must be
+			// built from the FILTERED weights (self::weights()), not the
+			// raw self::$weights: the hash a write stores (runRefresh(),
+			// rescoreOnMenuUpdate()) is built the same way, and the two must
+			// agree — otherwise a project using the
+			// `timberkit_warmup_priority_weights` filter would see
+			// weightsChanged() report a mismatch on every single purge,
+			// scheduling a needless refresh forever.
+			self::$weights_hash = Scorer::weightsHash( self::weights() );
 
 			// Priority 5: Breeze's own menu purge and the kit's both sit at
 			// 10, so the rescore must land before them — the purge they
