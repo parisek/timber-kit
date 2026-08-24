@@ -599,11 +599,43 @@ menu page nobody has touched in a year:
 | `manual` | 800 | Already in Breeze's own preload list. |
 | `menu` | 500 | Linked from a registered nav menu. |
 | `types` | `[]` | Per-post-type points, keyed by post type slug. Empty by default. |
-| `freshness` | `2 => 300, 7 => 200, 30 => 100, 365 => 25` | Points by `<lastmod>` age in days, ascending buckets. Anything older, missing, or unparseable scores 0. |
+| `freshness` | `2 => 300, 7 => 200, 30 => 100, 365 => 25` | Points by `<lastmod>` age in days, ascending buckets. Anything older, missing, unparseable, or **in the future** scores 0. |
 
 Override the map wholesale in `$breeze_warmup_priority_weights`, or adjust it
 per project with the `timberkit_warmup_priority_weights` filter (runs once,
 at registration — not per purge).
+
+A future `<lastmod>` scores 0 rather than the top freshness bucket: scheduled
+content is not fresh content, and a broken `lastmod` must never be able to
+shoot a URL to the front of the queue.
+
+`types` is keyed by post type slug, for example:
+
+```php
+class Base extends StarterBase {
+    public function __construct() {
+        $this->breeze_warmup_priority_weights = array(
+            'front_page' => 1000,
+            'manual'     => 800,
+            'menu'       => 500,
+            'types'      => array( 'realizace' => 150 ),
+            'freshness'  => array( 2 => 300, 7 => 200, 30 => 100, 365 => 25 ),
+        );
+
+        parent::__construct();
+    }
+}
+```
+
+The post type is derived from the **sub-sitemap filename**, not looked up in
+the database: `wp-sitemap-posts-<type>-N.xml` for core,
+`<type>-sitemap.xml` for AIOSEO. A URL whose sub-sitemap doesn't match either
+shape gets no type, so its `types` weight is 0. AIOSEO's structural indexes
+(`author`, `date`, `product_attributes`, `rss`, `additional`) are excluded on
+purpose — they share the `<name>-sitemap.xml` shape but aren't post types. A
+taxonomy sitemap can't be told apart from a post-type one by filename either,
+so it falls through to weight 0 as well. If a `types` weight seems to have no
+effect, check the sub-sitemap's filename first.
 
 Three things worth knowing before this ships to a real sitemap:
 
@@ -622,9 +654,12 @@ half minutes of warming, plus Breeze's own entries, plus any guarantee
 overflow.
 
 **Warming a page nobody visits within the cache TTL (24 hours by default) is
-wasted work** — the cache expires before the visitor arrives. A practical way
-to size the cap: count how many URLs got at least one pageview yesterday;
-that number is the cap.
+wasted work** — the cache expires before the visitor arrives. That 24 hours
+is Breeze's own page-cache expiry setting; it is unrelated to this class's
+`CACHE_TTL` (one hour), which governs a different clock — how long the
+stored URL list itself is trusted before a refresh is scheduled. A practical
+way to size the cap: count how many URLs got at least one pageview
+yesterday; that number is the cap.
 
 ### Preload chain health
 
