@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Parisek\TimberKit;
 
+use Parisek\TimberKit\BreezeWarmup\SourceNaming;
+use Parisek\TimberKit\BreezeWarmup\UrlCanonicalizer;
+
 /**
  * Feeds Breeze's Cache Warmup preloader with every URL from the site's XML
  * sitemap, via the `breeze_preload_urls` filter.
@@ -294,27 +297,54 @@ final class BreezeWarmupSitemap {
 	}
 
 	/**
-	 * Fetch and parse the site's sitemap into a flat, deduped, same-host URL
-	 * list. Never throws — any failure along the way degrades to an empty
-	 * array. Only ever called from the deferred refresh job, never from the
-	 * purge-time filter callback.
+	 * Structured sitemap crawl. Never throws — any failure degrades to an
+	 * empty array. Only ever called from the deferred refresh job.
 	 *
-	 * @return array<int, string>
+	 * @return array<int, array<string, mixed>>
 	 */
-	public static function fetchSitemapUrls(): array {
+	public static function fetchSitemapRecords(): array {
 		try {
 			$root = self::resolveSitemapRootUrl();
 			if ( '' === $root ) {
 				return array();
 			}
 
-			$seen = array();
-			$urls = self::fetchAndParseSitemap( $root, 0, $seen );
+			$seen    = array();
+			$records = self::fetchAndParseSitemap( $root, 0, $seen );
 
-			return array_values( array_unique( $urls ) );
+			return self::dedupeByKey( $records );
 		} catch ( \Throwable $e ) {
 			return array();
 		}
+	}
+
+	/**
+	 * Backwards-compatible string view of {@see self::fetchSitemapRecords()}.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function fetchSitemapUrls(): array {
+		return array_column( self::fetchSitemapRecords(), 'url' );
+	}
+
+	/**
+	 * @param array<int, array<string, mixed>> $records
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function dedupeByKey( array $records ): array {
+		$seen   = array();
+		$result = array();
+
+		foreach ( $records as $record ) {
+			$key = (string) $record['key'];
+			if ( isset( $seen[ $key ] ) ) {
+				continue;
+			}
+			$seen[ $key ] = true;
+			$result[]     = $record;
+		}
+
+		return $result;
 	}
 
 	/**
@@ -352,7 +382,7 @@ final class BreezeWarmupSitemap {
 	 * @param string               $url   Sitemap (or sub-sitemap) URL.
 	 * @param int                  $depth Current recursion depth.
 	 * @param array<string, bool>  $seen  URLs already fetched, by reference — guards against index cycles.
-	 * @return array<int, string> URLs collected from `<url><loc>` entries.
+	 * @return array<int, array<string, mixed>> Records collected from `<url><loc>` entries.
 	 */
 	private static function fetchAndParseSitemap( string $url, int $depth, array &$seen ): array {
 		if ( ! self::isFetchableSameHostUrl( $url ) ) {
@@ -386,7 +416,7 @@ final class BreezeWarmupSitemap {
 		}
 
 		if ( 'urlset' === $root_name ) {
-			return self::collectFromUrlset( $xml );
+			return self::collectFromUrlset( $xml, $url );
 		}
 
 		return array();
@@ -398,15 +428,15 @@ final class BreezeWarmupSitemap {
 	 * @param \SimpleXMLElement   $xml   Parsed `<sitemapindex>` root.
 	 * @param int                 $depth Current recursion depth.
 	 * @param array<string, bool> $seen  URLs already fetched, by reference.
-	 * @return array<int, string>
+	 * @return array<int, array<string, mixed>>
 	 */
 	private static function collectFromIndex( \SimpleXMLElement $xml, int $depth, array &$seen ): array {
 		if ( $depth >= self::MAX_DEPTH ) {
 			return array();
 		}
 
-		$urls  = array();
-		$count = 0;
+		$records = array();
+		$count   = 0;
 
 		foreach ( $xml->sitemap as $sitemap ) {
 			if ( $count >= self::MAX_SUBSITEMAPS ) {
@@ -423,21 +453,23 @@ final class BreezeWarmupSitemap {
 			// same-host http(s) URL before fetching it — this counts a
 			// rejected off-host entry against MAX_SUBSITEMAPS too, which is
 			// fine: it's still one <sitemap> entry consumed either way.
-			$urls = array( ...$urls, ...self::fetchAndParseSitemap( $loc, $depth + 1, $seen ) );
+			$records = array( ...$records, ...self::fetchAndParseSitemap( $loc, $depth + 1, $seen ) );
 		}
 
-		return $urls;
+		return $records;
 	}
 
 	/**
 	 * Collect `<url><loc>` entries from a `<urlset>` document, keeping only
 	 * same-host URLs.
 	 *
-	 * @param \SimpleXMLElement $xml Parsed `<urlset>` root.
-	 * @return array<int, string>
+	 * @param \SimpleXMLElement $xml       Parsed `<urlset>` root.
+	 * @param string            $sourceUrl The document this urlset came from.
+	 * @return array<int, array<string, mixed>>
 	 */
-	private static function collectFromUrlset( \SimpleXMLElement $xml ): array {
-		$urls = array();
+	private static function collectFromUrlset( \SimpleXMLElement $xml, string $sourceUrl ): array {
+		$type    = SourceNaming::derivePostType( $sourceUrl );
+		$records = array();
 
 		foreach ( $xml->url as $entry ) {
 			$loc = isset( $entry->loc ) ? trim( (string) $entry->loc ) : '';
@@ -445,10 +477,37 @@ final class BreezeWarmupSitemap {
 				continue;
 			}
 
-			$urls[] = $loc;
+			$records[] = array(
+				'url'        => $loc,
+				'key'        => UrlCanonicalizer::canonicalize( $loc ),
+				'lastmod'    => self::parseLastmod( isset( $entry->lastmod ) ? trim( (string) $entry->lastmod ) : '' ),
+				'type'       => $type,
+				'source'     => $sourceUrl,
+				'lang'       => '',
+				'menu'       => false,
+				'front_page' => false,
+				'manual'     => false,
+			);
 		}
 
-		return $urls;
+		return $records;
+	}
+
+	/**
+	 * `<lastmod>` to a unix timestamp. Anything unparseable is null rather
+	 * than "now" — a broken timestamp must not read as fresh content.
+	 *
+	 * @param string $raw
+	 * @return int|null
+	 */
+	private static function parseLastmod( string $raw ): ?int {
+		if ( '' === $raw ) {
+			return null;
+		}
+
+		$ts = strtotime( $raw );
+
+		return false === $ts ? null : $ts;
 	}
 
 	/**

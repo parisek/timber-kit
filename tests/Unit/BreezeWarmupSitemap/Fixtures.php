@@ -42,6 +42,26 @@ final class Fixtures {
 	}
 
 	/**
+	 * A `<urlset>` document whose entries carry a `<lastmod>`.
+	 *
+	 * @param array<string, string> $locs loc => lastmod (ISO-8601), empty string for none.
+	 * @return string
+	 */
+	public static function urlsetWithLastmod( array $locs ): string {
+		$entries = '';
+		foreach ( $locs as $loc => $lastmod ) {
+			$entries .= '<url><loc>' . htmlspecialchars( $loc, ENT_XML1 ) . '</loc>';
+			if ( '' !== $lastmod ) {
+				$entries .= '<lastmod>' . htmlspecialchars( $lastmod, ENT_XML1 ) . '</lastmod>';
+			}
+			$entries .= '</url>';
+		}
+
+		return '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+			. $entries . '</urlset>';
+	}
+
+	/**
 	 * A successful `wp_remote_get()`-shaped response array wrapping a body.
 	 *
 	 * @param string $body
