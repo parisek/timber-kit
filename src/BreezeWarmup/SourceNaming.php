@@ -19,6 +19,17 @@ namespace Parisek\TimberKit\BreezeWarmup;
 final class SourceNaming {
 
 	/**
+	 * AIOSEO archive index names that share the `<name>-sitemap.xml` shape
+	 * with a post-type sitemap but are not post types at all. A taxonomy
+	 * sitemap cannot be told apart from a post-type one by filename alone;
+	 * that case is not solved here and simply falls through to weight 0,
+	 * the safe default the rest of the design already relies on.
+	 *
+	 * @var string[]
+	 */
+	private const AIOSEO_NON_POST_TYPE_INDEXES = array( 'author', 'date', 'product_attributes', 'rss', 'additional' );
+
+	/**
 	 * Post type from a sub-sitemap URL.
 	 *
 	 * Core emits `wp-sitemap-posts-<type>-<N>.xml`; AIOSEO emits
@@ -47,7 +58,11 @@ final class SourceNaming {
 			// index names so a root document is not read as a type.
 			$candidate = strtolower( $m[1] );
 
-			return in_array( $candidate, array( 'wp', '' ), true ) ? '' : $candidate;
+			if ( in_array( $candidate, array( 'wp', '' ), true ) ) {
+				return '';
+			}
+
+			return in_array( $candidate, self::AIOSEO_NON_POST_TYPE_INDEXES, true ) ? '' : $candidate;
 		}
 
 		return '';
@@ -84,7 +99,7 @@ final class SourceNaming {
 			}
 		}
 
-		return $defaultCode;
+		return strtolower( $defaultCode );
 	}
 
 	/**

@@ -32,6 +32,9 @@ class SourceNamingTest extends TestCase {
 			'core root'              => array( 'https://example.test/wp-sitemap.xml', '' ),
 			'unknown shape'          => array( 'https://example.test/whatever.xml', '' ),
 			'empty'                  => array( '', '' ),
+			'aioseo author index is not a post type'             => array( 'https://example.test/author-sitemap.xml', '' ),
+			'aioseo date index is not a post type'                => array( 'https://example.test/date-sitemap.xml', '' ),
+			'aioseo product_attributes index is not a post type' => array( 'https://example.test/product_attributes-sitemap.xml', '' ),
 		);
 	}
 
@@ -84,6 +87,18 @@ class SourceNamingTest extends TestCase {
 				'https://example.test/sitemap.xml',
 				array( 'cs', 'sk' ),
 				'cs'
+			)
+		);
+	}
+
+	public function test_language_default_is_lowercased(): void {
+		$this->assertSame(
+			'cs',
+			SourceNaming::deriveLanguage(
+				'https://example.test/neco/',
+				'https://example.test/sitemap.xml',
+				array( 'cs', 'sk' ),
+				'CS'
 			)
 		);
 	}
