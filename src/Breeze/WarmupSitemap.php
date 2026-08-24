@@ -74,9 +74,6 @@ final class WarmupSitemap {
 	/** @var bool Whether tail draining is enabled for this project. */
 	private static bool $tail_enabled = false;
 
-	/** @var int URLs dispatched per tick. */
-	private static int $tail_batch = 100;
-
 	/** @var string Action Scheduler hook the tail drain ticks on. */
 	public const TAIL_HOOK = 'timber_kit_breeze_warmup_tail_tick';
 
@@ -126,10 +123,9 @@ final class WarmupSitemap {
 	 * @param array<string, mixed>|null $weights
 	 * @param array<int, string>        $curated   Project's curated warmup entries.
 	 * @param bool                      $tail      Drain the URLs the cap excluded, a batch at a time.
-	 * @param int                       $tailBatch URLs dispatched per tick.
 	 * @return void
 	 */
-	public static function register( bool $priority = false, ?array $weights = null, array $curated = array(), bool $tail = false, int $tailBatch = 100 ): void {
+	public static function register( bool $priority = false, ?array $weights = null, array $curated = array(), bool $tail = false ): void {
 		if ( self::$registered ) {
 			return;
 		}
@@ -147,9 +143,6 @@ final class WarmupSitemap {
 		// to drain — so $tail alone must enable nothing.
 		if ( $tail && $priority ) {
 			self::$tail_enabled = true;
-			self::$tail_batch   = function_exists( 'apply_filters' )
-				? (int) apply_filters( 'timberkit_warmup_tail_batch', $tailBatch )
-				: $tailBatch;
 		}
 
 		add_filter( 'breeze_preload_urls', array( self::class, 'filterPreloadUrls' ) );
@@ -428,15 +421,6 @@ final class WarmupSitemap {
 	 *
 	 * @return void
 	 */
-	/**
-	 * URLs dispatched per tail tick, as configured at registration.
-	 *
-	 * @return int
-	 */
-	public static function tailBatch(): int {
-		return self::$tail_batch;
-	}
-
 	public static function scheduleTailTick(): void {
 		if ( ! function_exists( 'as_schedule_single_action' ) || ! function_exists( 'as_next_scheduled_action' ) ) {
 			return;
@@ -1247,6 +1231,5 @@ final class WarmupSitemap {
 		self::$weights_hash     = '';
 		self::$weights          = null;
 		self::$tail_enabled     = false;
-		self::$tail_batch       = 100;
 	}
 }

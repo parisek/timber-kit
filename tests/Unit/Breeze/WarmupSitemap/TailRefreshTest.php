@@ -124,7 +124,7 @@ class TailRefreshTest extends TestCase {
 			}
 		);
 
-		WarmupSitemap::register( true, null, true, 100 );
+		WarmupSitemap::register( true, null, true );
 		WarmupSitemap::runRefresh();
 
 		$this->assertNotSame( array(), $writtenTails, 'runRefresh() must write a tail while tail draining is on.' );
@@ -164,7 +164,7 @@ class TailRefreshTest extends TestCase {
 			}
 		);
 
-		WarmupSitemap::register( false, null, true, 100 );
+		WarmupSitemap::register( false, null, true );
 		WarmupSitemap::runRefresh();
 
 		$this->assertFalse( $tailWritten, '$tail alone (without $priority) must not enable tail draining.' );
