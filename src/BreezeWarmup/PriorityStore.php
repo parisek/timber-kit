@@ -62,6 +62,32 @@ final class PriorityStore {
 	}
 
 	/**
+	 * Tolerant URL-only read, accepting either the current five-key payload
+	 * or the legacy `{urls, fetched_at}` shape a pre-upgrade site left behind.
+	 *
+	 * {@see self::read()} is deliberately strict: a legacy row must read as
+	 * null there so the caller schedules a refresh (that IS the migration —
+	 * there is no other conversion step). But the purge-time filter still
+	 * needs *some* URL list to hand Breeze in the window between an upgrade
+	 * and the first cron refresh. Falling back to nothing there would be a
+	 * regression: today's code at least keeps serving the stale list.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function readUrls(): array {
+		if ( ! function_exists( 'get_option' ) ) {
+			return array();
+		}
+
+		$data = get_option( self::OPTION_KEY, null );
+		if ( ! is_array( $data ) || ! isset( $data['fetched_at'] ) || ! is_array( $data['urls'] ?? null ) ) {
+			return array();
+		}
+
+		return array_values( array_filter( $data['urls'], 'is_string' ) );
+	}
+
+	/**
 	 * Current revision, 0 when the row is missing or legacy.
 	 *
 	 * @return int

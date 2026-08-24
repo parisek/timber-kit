@@ -109,4 +109,69 @@ class PriorityStoreTest extends TestCase {
 
 		$this->assertTrue( PriorityStore::write( array( 'https://example.test/' ), array(), 'b', 0 ) );
 	}
+
+	public function test_read_urls_reads_the_current_shape(): void {
+		Functions\when( 'get_option' )->justReturn(
+			array(
+				'urls'         => array( 'https://example.test/' ),
+				'signals'      => array(),
+				'fetched_at'   => 123,
+				'weights_hash' => 'abc',
+				'revision'     => 4,
+			)
+		);
+
+		$this->assertSame( array( 'https://example.test/' ), PriorityStore::readUrls() );
+	}
+
+	public function test_read_urls_reads_the_legacy_shape(): void {
+		// A v1.x row has only urls + fetched_at. read() treats this as null
+		// (correctly — it is not a scored payload), but readUrls() must still
+		// hand back the URLs: an upgraded site must keep sending Breeze *some*
+		// list in the window before the first cron refresh writes the new
+		// shape, rather than going empty.
+		Functions\when( 'get_option' )->justReturn(
+			array( 'urls' => array( 'https://example.test/a/' ), 'fetched_at' => 123 )
+		);
+
+		$this->assertSame( array( 'https://example.test/a/' ), PriorityStore::readUrls() );
+	}
+
+	public function test_read_urls_returns_empty_array_when_option_missing(): void {
+		Functions\when( 'get_option' )->justReturn( null );
+
+		$this->assertSame( array(), PriorityStore::readUrls() );
+	}
+
+	public function test_read_urls_returns_empty_array_when_option_is_not_an_array(): void {
+		Functions\when( 'get_option' )->justReturn( 'not-an-array' );
+
+		$this->assertSame( array(), PriorityStore::readUrls() );
+	}
+
+	public function test_read_urls_returns_empty_array_when_fetched_at_is_missing(): void {
+		Functions\when( 'get_option' )->justReturn( array( 'urls' => array( 'https://example.test/a/' ) ) );
+
+		$this->assertSame( array(), PriorityStore::readUrls() );
+	}
+
+	public function test_read_urls_returns_empty_array_when_urls_key_is_not_an_array(): void {
+		Functions\when( 'get_option' )->justReturn( array( 'urls' => 'oops', 'fetched_at' => 123 ) );
+
+		$this->assertSame( array(), PriorityStore::readUrls() );
+	}
+
+	public function test_read_urls_filters_out_non_string_url_entries(): void {
+		Functions\when( 'get_option' )->justReturn(
+			array(
+				'urls'       => array( 'https://example.test/a/', 42, null, 'https://example.test/b/' ),
+				'fetched_at' => 123,
+			)
+		);
+
+		$this->assertSame(
+			array( 'https://example.test/a/', 'https://example.test/b/' ),
+			PriorityStore::readUrls()
+		);
+	}
 }

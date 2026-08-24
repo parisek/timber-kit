@@ -4,6 +4,10 @@ declare(strict_types=1);
 
 namespace Parisek\TimberKit;
 
+use Parisek\TimberKit\BreezeWarmup\LanguageQuota;
+use Parisek\TimberKit\BreezeWarmup\PriorityStore;
+use Parisek\TimberKit\BreezeWarmup\Scorer;
+use Parisek\TimberKit\BreezeWarmup\SignalCollector;
 use Parisek\TimberKit\BreezeWarmup\SourceNaming;
 use Parisek\TimberKit\BreezeWarmup\UrlCanonicalizer;
 
@@ -56,9 +60,6 @@ final class BreezeWarmupSitemap {
 
 	/** @var bool Prevent duplicate hook registration. */
 	private static bool $registered = false;
-
-	/** @var string wp_options key holding the last-known-good URL list + fetch timestamp (autoload off). */
-	private const STORAGE_OPTION_KEY = 'timber_kit_breeze_warmup_sitemap_urls';
 
 	/** @var string Transient key for the short refresh lock. */
 	private const LOCK_KEY = 'timber_kit_breeze_warmup_sitemap_refresh_lock';
@@ -146,75 +147,29 @@ final class BreezeWarmupSitemap {
 			return $existing;
 		}
 
-		$stored = self::getStoredData();
+		$stored = PriorityStore::read();
 		if ( null === $stored || self::isStale( $stored ) ) {
 			self::maybeScheduleRefresh();
 		}
 
-		$sitemap_urls = null !== $stored ? $stored['urls'] : array();
-
-		return self::mergeUrls( $existing, $sitemap_urls );
+		return self::mergeUrls( $existing, self::getStoredUrls() );
 	}
 
 	/**
 	 * Current last-known-good sitemap URL list, for inspection/testing.
 	 * Never triggers a fetch or a refresh.
 	 *
+	 * Tolerant of the legacy `{urls, fetched_at}` payload as well as the
+	 * current one — see {@see PriorityStore::readUrls()} for why.
+	 *
 	 * @return array<int, string>
 	 */
 	public static function getStoredUrls(): array {
-		$stored = self::getStoredData();
-
-		return null !== $stored ? $stored['urls'] : array();
+		return PriorityStore::readUrls();
 	}
 
 	/**
-	 * Read the stored `{urls, fetched_at}` payload, tolerating a missing or
-	 * malformed option value.
-	 *
-	 * @return array{urls: array<int, string>, fetched_at: int}|null
-	 */
-	private static function getStoredData(): ?array {
-		if ( ! function_exists( 'get_option' ) ) {
-			return null;
-		}
-
-		$data = get_option( self::STORAGE_OPTION_KEY, null );
-		if ( ! is_array( $data ) || ! isset( $data['urls'], $data['fetched_at'] ) || ! is_array( $data['urls'] ) ) {
-			return null;
-		}
-
-		return array(
-			'urls'       => array_values( array_filter( $data['urls'], 'is_string' ) ),
-			'fetched_at' => (int) $data['fetched_at'],
-		);
-	}
-
-	/**
-	 * Persist a freshly fetched URL list as the new last known good, stamped
-	 * with the current time. Caller ({@see self::runRefresh()}) is
-	 * responsible for never calling this with an empty list.
-	 *
-	 * @param array<int, string> $urls
-	 * @return void
-	 */
-	private static function storeData( array $urls ): void {
-		if ( ! function_exists( 'update_option' ) ) {
-			return;
-		}
-
-		update_option(
-			self::STORAGE_OPTION_KEY,
-			array(
-				'urls'       => array_values( $urls ),
-				'fetched_at' => function_exists( 'time' ) ? time() : 0,
-			),
-			false
-		);
-	}
-
-	/**
-	 * @param array{urls: array<int, string>, fetched_at: int} $data
+	 * @param array{urls: array<int, string>, signals: array<string, mixed>, fetched_at: int, weights_hash: string, revision: int} $data
 	 * @return bool
 	 */
 	private static function isStale( array $data ): bool {
@@ -278,22 +233,130 @@ final class BreezeWarmupSitemap {
 	}
 
 	/**
-	 * Deferred-refresh cron callback ({@see self::CRON_HOOK}) — does the
-	 * actual sitemap crawl and, only on a non-empty result, replaces the
-	 * stored last known good list. An empty or failed crawl leaves whatever
-	 * was previously stored untouched, so a transient sitemap outage never
-	 * wipes out a previously working warmup list.
+	 * Deferred-refresh cron callback. A failed or empty crawl never overwrites
+	 * the last known good list — stale data always beats no data.
+	 *
+	 * The body wraps in try/finally because it now does far more than fetch
+	 * and store: any throw between here and the release used to hold the lock
+	 * until its TTL expired, which silently blocked retries for a minute.
 	 *
 	 * @return void
 	 */
 	public static function runRefresh(): void {
-		$urls = self::fetchSitemapUrls();
+		try {
+			$revision = PriorityStore::revision();
+			$records  = self::fetchSitemapRecords();
 
-		if ( array() !== $urls ) {
-			self::storeData( $urls );
+			if ( array() === $records ) {
+				return;
+			}
+
+			$records = self::enrichRecords( $records );
+			$weights = self::weights();
+			$built   = self::buildOrderedUrls( $records, $weights, time(), self::maxUrls() );
+
+			PriorityStore::write( $built['urls'], $built['signals'], Scorer::weightsHash( $weights ), $revision );
+		} catch ( \Throwable $e ) {
+			// Best-effort by contract: a sitemap outage must never surface as
+			// a fatal in a cron job.
+		} finally {
+			self::releaseRefreshLock();
+		}
+	}
+
+	/**
+	 * Score, budget and order a set of sitemap records.
+	 *
+	 * Split out from {@see self::runRefresh()} so the ordering rules can be
+	 * tested without mocking the network: everything here is deterministic
+	 * given its arguments.
+	 *
+	 * @param array<int, array<string, mixed>> $records
+	 * @param array<string, mixed>             $weights
+	 * @param int                              $now
+	 * @param int                              $max
+	 * @return array{urls: array<int, string>, signals: array<string, mixed>}
+	 */
+	public static function buildOrderedUrls( array $records, array $weights, int $now, int $max ): array {
+		$scored  = Scorer::scoreAll( $records, $weights, $now );
+		$kept    = LanguageQuota::apply( $scored, $max );
+		$ordered = Scorer::sort( $kept );
+
+		$signals = array();
+		foreach ( $ordered as $record ) {
+			$signals[ (string) $record['key'] ] = array(
+				'lastmod'    => $record['lastmod'],
+				'type'       => (string) $record['type'],
+				'lang'       => (string) $record['lang'],
+				'menu'       => (bool) $record['menu'],
+				'front_page' => (bool) $record['front_page'],
+				'manual'     => (bool) $record['manual'],
+				'url'        => (string) $record['url'],
+			);
 		}
 
-		self::releaseRefreshLock();
+		return array(
+			'urls'    => array_column( $ordered, 'url' ),
+			'signals' => $signals,
+		);
+	}
+
+	/**
+	 * Attach the signals a sitemap cannot carry, and resolve each record's
+	 * language.
+	 *
+	 * @param array<int, array<string, mixed>> $records
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function enrichRecords( array $records ): array {
+		$menu       = SignalCollector::menuKeys();
+		$frontPages = SignalCollector::frontPages();
+		$manual     = SignalCollector::manualKeys();
+		$languages  = SignalCollector::activeLanguages();
+
+		foreach ( $records as $i => $record ) {
+			$key = (string) $record['key'];
+
+			$records[ $i ]['menu']       = isset( $menu[ $key ] );
+			$records[ $i ]['front_page'] = isset( $frontPages[ $key ] );
+			$records[ $i ]['manual']     = isset( $manual[ $key ] );
+			$records[ $i ]['lang']       = isset( $frontPages[ $key ] ) && '' !== $frontPages[ $key ]
+				? $frontPages[ $key ]
+				: SourceNaming::deriveLanguage(
+					(string) $record['url'],
+					(string) ( $record['source'] ?? '' ),
+					$languages['codes'],
+					$languages['default']
+				);
+		}
+
+		return $records;
+	}
+
+	/**
+	 * Effective weight map: the defaults, filterable per project.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public static function weights(): array {
+		$weights = Scorer::DEFAULT_WEIGHTS;
+
+		$filtered = function_exists( 'apply_filters' )
+			? apply_filters( 'timberkit_warmup_priority_weights', $weights )
+			: $weights;
+
+		return is_array( $filtered ) ? $filtered : $weights;
+	}
+
+	/**
+	 * @return int
+	 */
+	private static function maxUrls(): int {
+		$max = function_exists( 'apply_filters' )
+			? apply_filters( 'timberkit_warmup_sitemap_max_urls', self::DEFAULT_MAX_URLS )
+			: self::DEFAULT_MAX_URLS;
+
+		return is_numeric( $max ) ? max( 0, (int) $max ) : self::DEFAULT_MAX_URLS;
 	}
 
 	/**
