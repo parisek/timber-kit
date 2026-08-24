@@ -71,6 +71,18 @@ final class WarmupSitemap {
 	/** @var array<string, mixed>|null Effective weight map for this project, set at registration. */
 	private static ?array $weights = null;
 
+	/** @var bool Whether tail draining is enabled for this project. */
+	private static bool $tail_enabled = false;
+
+	/** @var int URLs dispatched per tick. */
+	private static int $tail_batch = 100;
+
+	/** @var string Action Scheduler hook the tail drain ticks on. */
+	public const TAIL_HOOK = 'timber_kit_breeze_warmup_tail_tick';
+
+	/** @var int Seconds between tail ticks. Fixed, not configurable: the batch size is the knob. */
+	public const TAIL_INTERVAL = 300;
+
 	/** @var string Transient key for the short refresh lock. */
 	private const LOCK_KEY = 'timber_kit_breeze_warmup_sitemap_refresh_lock';
 
@@ -112,10 +124,12 @@ final class WarmupSitemap {
 	 * a project that wires it without going through `StarterBase`.
 	 *
 	 * @param array<string, mixed>|null $weights
-	 * @param array<int, string>        $curated Project's curated warmup entries.
+	 * @param array<int, string>        $curated   Project's curated warmup entries.
+	 * @param bool                      $tail      Drain the URLs the cap excluded, a batch at a time.
+	 * @param int                       $tailBatch URLs dispatched per tick.
 	 * @return void
 	 */
-	public static function register( bool $priority = false, ?array $weights = null, array $curated = array() ): void {
+	public static function register( bool $priority = false, ?array $weights = null, array $curated = array(), bool $tail = false, int $tailBatch = 100 ): void {
 		if ( self::$registered ) {
 			return;
 		}
@@ -128,6 +142,15 @@ final class WarmupSitemap {
 		self::$priority_enabled = $priority;
 		self::$weights          = $weights ?? Scorer::DEFAULT_WEIGHTS;
 		self::$curated          = $curated;
+
+		// Tail draining requires the ordering — without it there is nothing
+		// to drain — so $tail alone must enable nothing.
+		if ( $tail && $priority ) {
+			self::$tail_enabled = true;
+			self::$tail_batch   = function_exists( 'apply_filters' )
+				? (int) apply_filters( 'timberkit_warmup_tail_batch', $tailBatch )
+				: $tailBatch;
+		}
 
 		add_filter( 'breeze_preload_urls', array( self::class, 'filterPreloadUrls' ) );
 		add_action( self::CRON_HOOK, array( self::class, 'runRefresh' ) );
@@ -376,12 +399,54 @@ final class WarmupSitemap {
 			$built   = self::buildOrderedUrls( $records, $weights, time(), self::maxUrls() );
 
 			PriorityStore::write( $built['urls'], $built['signals'], Scorer::weightsHash( $weights ), $revision );
+
+			if ( self::$tail_enabled ) {
+				TailStore::writeTail( $built['tail'] );
+
+				// Cold-start rescue: the purge scheduled a tick before this
+				// refresh had written anything, so that tick found an empty
+				// tail and ended the chain. Nothing else would ever restart it.
+				if ( array() !== $built['tail'] ) {
+					self::scheduleTailTick();
+				}
+			}
 		} catch ( \Throwable $e ) {
 			// Best-effort by contract: a sitemap outage must never surface as
 			// a fatal in a cron job.
 		} finally {
 			self::releaseRefreshLock();
 		}
+	}
+
+	/**
+	 * Schedule the next tail tick, unless one is already pending or running.
+	 *
+	 * Called by the purge and by the refresh — never by the tick itself.
+	 * `as_next_scheduled_action()` reports a RUNNING action as scheduled, so a
+	 * tick using this to decide about its own successor would see itself and
+	 * end the chain after one run.
+	 *
+	 * @return void
+	 */
+	/**
+	 * URLs dispatched per tail tick, as configured at registration.
+	 *
+	 * @return int
+	 */
+	public static function tailBatch(): int {
+		return self::$tail_batch;
+	}
+
+	public static function scheduleTailTick(): void {
+		if ( ! function_exists( 'as_schedule_single_action' ) || ! function_exists( 'as_next_scheduled_action' ) ) {
+			return;
+		}
+
+		if ( as_next_scheduled_action( self::TAIL_HOOK ) ) {
+			return;
+		}
+
+		as_schedule_single_action( time() + self::TAIL_INTERVAL, self::TAIL_HOOK );
 	}
 
 	/**
@@ -1181,5 +1246,7 @@ final class WarmupSitemap {
 		self::$priority_enabled = false;
 		self::$weights_hash     = '';
 		self::$weights          = null;
+		self::$tail_enabled     = false;
+		self::$tail_batch       = 100;
 	}
 }
