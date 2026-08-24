@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.39.0] - 2026-08-24
+
 ### Changed
 
 - Everything that knows about the Breeze plugin now lives under
