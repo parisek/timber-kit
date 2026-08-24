@@ -148,17 +148,43 @@ class TailTickTest extends TestCase {
 					: array( 'urls' => array( 'a', 'b' ), 'hash' => 'H' );
 			}
 		);
-		Functions\expect( 'as_schedule_single_action' )->never();
+		$scheduled = array();
+		Functions\when( 'as_schedule_single_action' )->alias(
+			function ( int $when, string $hook ) use ( &$scheduled ): int {
+				$scheduled[] = $hook;
+
+				return 1;
+			}
+		);
 
 		WarmupSitemap::runTailTick();
+
+		$this->assertSame( array(), $scheduled, 'an exhausted tail must end the chain, not schedule a successor.' );
 	}
 
 	#[PreserveGlobalState( false )]
 	#[RunInSeparateProcess]
 	public function test_does_nothing_when_the_flag_is_off(): void {
-		Functions\expect( 'as_schedule_single_action' )->never();
-		Functions\expect( 'update_option' )->never();
+		$scheduled = array();
+		Functions\when( 'as_schedule_single_action' )->alias(
+			function ( int $when, string $hook ) use ( &$scheduled ): int {
+				$scheduled[] = $hook;
+
+				return 1;
+			}
+		);
+		$written = array();
+		Functions\when( 'update_option' )->alias(
+			function ( string $key, $value ) use ( &$written ): bool {
+				$written[] = $key;
+
+				return true;
+			}
+		);
 
 		WarmupSitemap::runTailTick();
+
+		$this->assertSame( array(), $scheduled, 'with the flag off, nothing gets scheduled.' );
+		$this->assertSame( array(), $written, 'with the flag off, nothing gets written.' );
 	}
 }

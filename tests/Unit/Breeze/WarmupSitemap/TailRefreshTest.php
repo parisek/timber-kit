@@ -53,18 +53,36 @@ class TailRefreshTest extends TestCase {
 		// Two chains draining at once would silently double the configured
 		// pace, which is the one thing the batch size is meant to control.
 		Functions\when( 'as_next_scheduled_action' )->justReturn( true );
-		Functions\expect( 'as_schedule_single_action' )->never();
+		$scheduled = array();
+		Functions\when( 'as_schedule_single_action' )->alias(
+			function ( int $when, string $hook ) use ( &$scheduled ): int {
+				$scheduled[] = $hook;
+
+				return 1;
+			}
+		);
 
 		WarmupSitemap::scheduleTailTick();
+
+		$this->assertSame( array(), $scheduled, 'a pending tick must not be joined by a second one.' );
 	}
 
 	#[RunInSeparateProcess]
 	#[PreserveGlobalState( false )]
 	public function test_does_nothing_without_action_scheduler(): void {
 		// No fatal, no half-wired state — the module behaves as if switched off.
-		Functions\expect( 'as_schedule_single_action' )->never();
+		$scheduled = array();
+		Functions\when( 'as_schedule_single_action' )->alias(
+			function ( int $when, string $hook ) use ( &$scheduled ): int {
+				$scheduled[] = $hook;
+
+				return 1;
+			}
+		);
 
 		WarmupSitemap::scheduleTailTick();
+
+		$this->assertSame( array(), $scheduled, 'without Action Scheduler present, nothing gets scheduled.' );
 	}
 
 	public function test_refresh_writes_a_non_empty_tail_and_reschedules_the_tick(): void {
