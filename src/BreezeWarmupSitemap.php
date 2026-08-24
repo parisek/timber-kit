@@ -321,6 +321,13 @@ final class BreezeWarmupSitemap {
 	/**
 	 * Backwards-compatible string view of {@see self::fetchSitemapRecords()}.
 	 *
+	 * Entries are deduplicated by canonical URL form, not by exact string —
+	 * two spellings of the same page (differing only in trailing slash,
+	 * scheme case, default port, or fragment) collapse to one, and the
+	 * first-seen spelling wins. Warming the same page twice wastes a slot of
+	 * the URL cap, and the canonical key is what joins this list with the
+	 * signals coming from menus and Breeze's own preload list.
+	 *
 	 * @return array<int, string>
 	 */
 	public static function fetchSitemapUrls(): array {
@@ -328,6 +335,9 @@ final class BreezeWarmupSitemap {
 	}
 
 	/**
+	 * First-seen-wins: when two records share a canonical key, later ones
+	 * are dropped rather than overwriting the first.
+	 *
 	 * @param array<int, array<string, mixed>> $records
 	 * @return array<int, array<string, mixed>>
 	 */
