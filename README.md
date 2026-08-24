@@ -553,7 +553,16 @@ wp timber-kit wpml-cleanup-theme-domain --apply     # delete the rows and compil
 
 ## Cache warm-up (Breeze)
 
-`BreezeWarmupSitemap` feeds Breeze's Cache Warmup preloader with every URL from
+Everything in this package that knows about Breeze lives under `src/Breeze/`
+(`Parisek\TimberKit\Breeze`). A project that does not run the plugin can treat
+that whole directory as dead weight, and a test in the suite fails the build if
+Breeze is named anywhere else under `src/` — the boundary is enforced, not just
+documented. The one exception is `StarterBase`, which keeps the opt-in flags.
+
+The class was called `BreezeWarmupSitemap` before the move; the old name still
+resolves through an alias.
+
+`Breeze\WarmupSitemap` feeds Breeze's Cache Warmup preloader with every URL from
 the site's XML sitemap via the `breeze_preload_urls` filter.
 
 Breeze 2.5 re-warms the cache after a full purge, but its own URL sources are

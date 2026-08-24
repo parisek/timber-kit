@@ -23,9 +23,9 @@ use Parisek\Twig\CommonExtension;
 use Parisek\Twig\AttributeExtension;
 use Parisek\Twig\TypographyExtension;
 use Parisek\TimberKit\BlockRenderer;
-use Parisek\TimberKit\BreezeWarmupSitemap;
+use Parisek\TimberKit\Breeze\Health\PreloadChainHealthy;
+use Parisek\TimberKit\Breeze\WarmupSitemap;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
-use Parisek\TimberKit\Health\Check\PreloadChainHealthy;
 use Parisek\TimberKit\Health\Check\FileEditingDisabled;
 use Parisek\TimberKit\Health\Check\GtmContainerNotDuplicated;
 use Parisek\TimberKit\Health\Check\RestUsersRestricted;
@@ -544,7 +544,7 @@ class StarterBase extends Site {
 	protected bool $clear_cache_on_menu_update = true;
 
 	/**
-	 * Feed Breeze's Cache Warmup preloader ({@see BreezeWarmupSitemap}) with
+	 * Feed Breeze's Cache Warmup preloader ({@see WarmupSitemap}) with
 	 * every URL from the site's XML sitemap via the `breeze_preload_urls`
 	 * filter, instead of only the homepage + auto-detected pages + a
 	 * 30-URL manual list. Opt-in (default off): for a project with the
@@ -1294,7 +1294,7 @@ class StarterBase extends Site {
 	 * why this is opt-in rather than auto-activating) and by Breeze itself
 	 * being active. The per-project runtime opt-out filter
 	 * (`timberkit_warmup_sitemap_enabled`, default true) is re-checked inside
-	 * {@see BreezeWarmupSitemap::register()} so the module stays self-guarding.
+	 * {@see WarmupSitemap::register()} so the module stays self-guarding.
 	 *
 	 * @return void
 	 */
@@ -1307,7 +1307,7 @@ class StarterBase extends Site {
 			return;
 		}
 
-		BreezeWarmupSitemap::register(
+		WarmupSitemap::register(
 			$this->breeze_warmup_priority,
 			$this->breeze_warmup_priority_weights
 		);

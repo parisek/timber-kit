@@ -8,7 +8,7 @@ use Brain\Monkey;
 use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
 use PHPUnit\Framework\TestCase;
-use Parisek\TimberKit\BreezeWarmupSitemap;
+use Parisek\TimberKit\Breeze\WarmupSitemap;
 
 /**
  * Covers the flag matrix.
@@ -22,11 +22,11 @@ class BreezeWarmupPrioritySetupTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
-		BreezeWarmupSitemap::reset_for_tests();
+		WarmupSitemap::reset_for_tests();
 	}
 
 	protected function tearDown(): void {
-		BreezeWarmupSitemap::reset_for_tests();
+		WarmupSitemap::reset_for_tests();
 		Monkey\tearDown();
 		parent::tearDown();
 	}
@@ -57,7 +57,7 @@ class BreezeWarmupPrioritySetupTest extends TestCase {
 		$actions = array();
 		$this->captureActions( $actions );
 
-		BreezeWarmupSitemap::register( false, null );
+		WarmupSitemap::register( false, null );
 
 		$this->assertNotContains( 'wp_update_nav_menu', array_column( $actions, 0 ) );
 	}
@@ -68,7 +68,7 @@ class BreezeWarmupPrioritySetupTest extends TestCase {
 		$actions = array();
 		$this->captureActions( $actions );
 
-		BreezeWarmupSitemap::register( true, null );
+		WarmupSitemap::register( true, null );
 
 		$this->assertContains( array( 'wp_update_nav_menu', 5 ), $actions );
 	}
@@ -79,9 +79,9 @@ class BreezeWarmupPrioritySetupTest extends TestCase {
 		Filters\expectApplied( 'timberkit_warmup_priority_weights' )
 			->andReturn( array( 'menu' => 42 ) );
 
-		BreezeWarmupSitemap::register( true, array( 'menu' => 7 ) );
+		WarmupSitemap::register( true, array( 'menu' => 7 ) );
 
-		$this->assertSame( 42, BreezeWarmupSitemap::weights()['menu'] );
+		$this->assertSame( 42, WarmupSitemap::weights()['menu'] );
 	}
 
 	/**
@@ -97,13 +97,13 @@ class BreezeWarmupPrioritySetupTest extends TestCase {
 		Filters\expectApplied( 'timberkit_warmup_priority_weights' )
 			->andReturn( array( 'menu' => 42 ) );
 
-		BreezeWarmupSitemap::register( true, array( 'menu' => 7 ) );
+		WarmupSitemap::register( true, array( 'menu' => 7 ) );
 
-		$reflection      = new \ReflectionClass( BreezeWarmupSitemap::class );
+		$reflection      = new \ReflectionClass( WarmupSitemap::class );
 		$registeredHash  = $reflection->getProperty( 'weights_hash' );
 		$registeredHash->setAccessible( true );
 
-		$writeWouldStore = \Parisek\TimberKit\BreezeWarmup\Scorer::weightsHash( BreezeWarmupSitemap::weights() );
+		$writeWouldStore = \Parisek\TimberKit\Breeze\Scorer::weightsHash( WarmupSitemap::weights() );
 
 		$this->assertSame( $writeWouldStore, $registeredHash->getValue() );
 	}

@@ -36,7 +36,10 @@
     "autoload": {
         "psr-4": {
             "Parisek\\TimberKit\\": "src/"
-        }
+        },
+        "files": [
+            "compat/aliases.php"
+        ]
     },
     "autoload-dev": {
         "psr-4": {

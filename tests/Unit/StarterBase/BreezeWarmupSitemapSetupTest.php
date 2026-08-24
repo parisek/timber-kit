@@ -6,7 +6,7 @@ namespace Tests\Unit\StarterBase;
 
 use Brain\Monkey;
 use Brain\Monkey\Functions;
-use Parisek\TimberKit\BreezeWarmupSitemap;
+use Parisek\TimberKit\Breeze\WarmupSitemap;
 use Parisek\TimberKit\StarterBase;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
 use PHPUnit\Framework\Attributes\RunInSeparateProcess;
@@ -35,12 +35,12 @@ class BreezeWarmupSitemapSetupTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
-		BreezeWarmupSitemap::reset_for_tests();
+		WarmupSitemap::reset_for_tests();
 		Functions\when( 'add_action' )->justReturn( true );
 	}
 
 	protected function tearDown(): void {
-		BreezeWarmupSitemap::reset_for_tests();
+		WarmupSitemap::reset_for_tests();
 		Monkey\tearDown();
 		parent::tearDown();
 	}
@@ -123,6 +123,6 @@ class BreezeWarmupSitemapSetupTest extends TestCase {
 
 		( new BreezeWarmupSitemapSetupStarterBaseStub( true ) )->run_setup_breeze_warmup_sitemap();
 
-		$this->assertFalse( BreezeWarmupSitemap::isEnabled() );
+		$this->assertFalse( WarmupSitemap::isEnabled() );
 	}
 }
