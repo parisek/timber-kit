@@ -164,46 +164,52 @@ final class BreezeWarmupSitemap {
 			return;
 		}
 
-		$stored = PriorityStore::read();
-		if ( null === $stored || array() === $stored['signals'] ) {
-			self::maybeScheduleRefresh();
+		try {
+			$stored = PriorityStore::read();
+			if ( null === $stored || array() === $stored['signals'] ) {
+				self::maybeScheduleRefresh();
 
-			return;
-		}
-
-		$menu    = SignalCollector::menuKeys();
-		$weights = self::weights();
-		$records = array();
-
-		foreach ( $stored['signals'] as $key => $signal ) {
-			if ( ! is_array( $signal ) || ! isset( $signal['url'] ) ) {
-				continue;
+				return;
 			}
 
-			$records[] = array(
-				'url'        => (string) $signal['url'],
-				'key'        => (string) $key,
-				'lastmod'    => isset( $signal['lastmod'] ) ? $signal['lastmod'] : null,
-				'type'       => (string) ( $signal['type'] ?? '' ),
-				'lang'       => (string) ( $signal['lang'] ?? '' ),
-				'menu'       => isset( $menu[ (string) $key ] ),
-				'front_page' => (bool) ( $signal['front_page'] ?? false ),
-				'manual'     => (bool) ( $signal['manual'] ?? false ),
+			$menu    = SignalCollector::menuKeys();
+			$weights = self::weights();
+			$records = array();
+
+			foreach ( $stored['signals'] as $key => $signal ) {
+				if ( ! is_array( $signal ) || ! isset( $signal['url'] ) ) {
+					continue;
+				}
+
+				$records[] = array(
+					'url'        => (string) $signal['url'],
+					'key'        => (string) $key,
+					'lastmod'    => isset( $signal['lastmod'] ) ? $signal['lastmod'] : null,
+					'type'       => (string) ( $signal['type'] ?? '' ),
+					'lang'       => (string) ( $signal['lang'] ?? '' ),
+					'menu'       => isset( $menu[ (string) $key ] ),
+					'front_page' => (bool) ( $signal['front_page'] ?? false ),
+					'manual'     => (bool) ( $signal['manual'] ?? false ),
+				);
+			}
+
+			if ( array() === $records ) {
+				return;
+			}
+
+			$built = self::buildOrderedUrls( $records, $weights, time(), self::maxUrls() );
+
+			PriorityStore::write(
+				$built['urls'],
+				$built['signals'],
+				Scorer::weightsHash( $weights ),
+				$stored['revision']
 			);
+		} catch ( \Throwable $e ) {
+			// Best-effort by contract: this runs synchronously inside the
+			// editor's Save request, and a failure here must never surface
+			// as a fatal in that request.
 		}
-
-		if ( array() === $records ) {
-			return;
-		}
-
-		$built = self::buildOrderedUrls( $records, $weights, time(), self::maxUrls() );
-
-		PriorityStore::write(
-			$built['urls'],
-			$built['signals'],
-			Scorer::weightsHash( $weights ),
-			$stored['revision']
-		);
 	}
 
 	/**
@@ -442,6 +448,12 @@ final class BreezeWarmupSitemap {
 
 	/**
 	 * Effective weight map: the defaults, filterable per project.
+	 *
+	 * The `timberkit_warmup_priority_weights` filter must be a pure function
+	 * of its input: its result is fingerprinted and that fingerprint is
+	 * compared across requests to decide whether the stored ordering is
+	 * stale. A callback that varies between requests (reading mutable state
+	 * such as an option that changes) will schedule a refresh on every purge.
 	 *
 	 * @return array<string, mixed>
 	 */

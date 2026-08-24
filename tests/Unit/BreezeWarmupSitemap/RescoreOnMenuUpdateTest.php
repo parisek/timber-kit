@@ -140,6 +140,36 @@ class RescoreOnMenuUpdateTest extends TestCase {
 		$this->assertNotContains( 'wp_update_nav_menu', $actions );
 	}
 
+	public function test_a_throwing_collaborator_never_escapes_the_hook(): void {
+		$this->enablePriority();
+
+		Functions\when( 'get_option' )->justReturn(
+			array(
+				'urls'    => array( 'https://example.test/a/' ),
+				'signals' => array(
+					'https://example.test/a/' => array(
+						'lastmod' => null, 'type' => '', 'lang' => 'cs',
+						'menu' => false, 'front_page' => false, 'manual' => false,
+						'url' => 'https://example.test/a/',
+					),
+				),
+				'fetched_at'   => time(),
+				'weights_hash' => 'h',
+				'revision'     => 1,
+			)
+		);
+		Functions\when( 'wp_get_nav_menus' )->justReturn( array( (object) array( 'term_id' => 3 ) ) );
+		Functions\when( 'wp_get_nav_menu_items' )->alias(
+			static function () {
+				throw new \RuntimeException( 'nav menu lookup exploded' );
+			}
+		);
+
+		BreezeWarmupSitemap::rescoreOnMenuUpdate();
+
+		$this->addToAssertionCount( 1 );
+	}
+
 	public function test_register_false_leaves_rescore_unreachable_even_with_stored_signals(): void {
 		// register() defaults to false: priority_enabled stays false, so
 		// rescoreOnMenuUpdate() must no-op regardless of what is stored.
