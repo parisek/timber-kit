@@ -95,6 +95,30 @@ class TailPlannerTest extends TestCase {
 		$this->assertSame( array( 'https://example.test/a/' ), TailPlanner::split( $scored, array(), 100 ) );
 	}
 
+	public function test_split_does_not_sort_even_when_the_input_is_out_of_score_order(): void {
+		// Guards the class's central contract: split() never sorts, the caller
+		// hands it an already-ordered set. An implementation that "helpfully"
+		// sorted by score before returning would duplicate work the caller
+		// already did, contradict the class docblock, and every other fixture
+		// in this file — all of which happen to be score-descending already —
+		// would still pass. Feeding an out-of-order input is what actually
+		// exercises the promise.
+		$scored = $this->scored(
+			array(
+				array( 'url' => 'https://example.test/low/', 'score' => 10 ),
+				array( 'url' => 'https://example.test/high/', 'score' => 900 ),
+				array( 'url' => 'https://example.test/mid/', 'score' => 500 ),
+			)
+		);
+
+		$tail = TailPlanner::split( $scored, array(), 100 );
+
+		$this->assertSame(
+			array( 'https://example.test/low/', 'https://example.test/high/', 'https://example.test/mid/' ),
+			$tail
+		);
+	}
+
 	// -- hash ---------------------------------------------------------------
 
 	public function test_hash_is_stable_for_the_same_urls(): void {
@@ -121,6 +145,18 @@ class TailPlannerTest extends TestCase {
 
 	public function test_empty_tail_hashes_without_error(): void {
 		$this->assertNotSame( '', TailPlanner::hash( array() ) );
+	}
+
+	public function test_hash_differs_for_unencodable_tails_with_different_content(): void {
+		// json_encode() returns false on invalid UTF-8, and (string) false is
+		// '' — so without a content-dependent fallback, every unencodable tail
+		// would collapse to md5(''), the same fingerprint regardless of what
+		// the tail actually contains. A change detector that returns an
+		// identical value for all broken inputs cannot see a change.
+		$a = array( 'https://example.test/' . chr( 0xB1 ) . '/' );
+		$b = array( 'https://example.test/' . chr( 0xB2 ) . '/' );
+
+		$this->assertNotSame( TailPlanner::hash( $a ), TailPlanner::hash( $b ) );
 	}
 
 	// -- nextBatch ----------------------------------------------------------

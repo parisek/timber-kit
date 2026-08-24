@@ -55,7 +55,19 @@ final class TailPlanner {
 	 * @return string
 	 */
 	public static function hash( array $urls ): string {
-		return md5( (string) json_encode( array_values( $urls ) ) );
+		$urls    = array_values( $urls );
+		$encoded = json_encode( $urls );
+
+		// json_encode() returns false on invalid UTF-8. Falling through to ''
+		// would hash every unencodable tail to the same md5(''), making the
+		// cursor believe nothing changed. The concatenation is a fallback,
+		// not the primary encoding: it still varies with content and order,
+		// which is all a fingerprint needs.
+		if ( false === $encoded ) {
+			$encoded = implode( "\n", $urls );
+		}
+
+		return md5( $encoded );
 	}
 
 	/**
