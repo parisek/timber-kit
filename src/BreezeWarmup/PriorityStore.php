@@ -69,8 +69,11 @@ final class PriorityStore {
 	 * null there so the caller schedules a refresh (that IS the migration —
 	 * there is no other conversion step). But the purge-time filter still
 	 * needs *some* URL list to hand Breeze in the window between an upgrade
-	 * and the first cron refresh. Falling back to nothing there would be a
-	 * regression: today's code at least keeps serving the stale list.
+	 * and the first cron refresh — this is the URL source for BOTH branches
+	 * of that filter (ordering off and ordering on), not only the legacy
+	 * one; `read()` is used there solely to decide staleness and whether the
+	 * weights changed. Falling back to nothing here would be a regression:
+	 * today's code at least keeps serving the stale list.
 	 *
 	 * @return array<int, string>
 	 */

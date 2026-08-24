@@ -800,18 +800,31 @@ final class BreezeWarmupSitemap {
 	 * @return array<int, string>
 	 */
 	public static function mergeUrls( array $existing, array $ordered, string $homeUrl ): array {
-		$homeKey    = UrlCanonicalizer::canonicalize( $homeUrl );
-		$orderedMap = array();
+		$homeKey = UrlCanonicalizer::canonicalize( $homeUrl );
+
+		// This runs synchronously inside the purge request, and $ordered can
+		// hold as many URLs as the store's cap allows — up to 1000 on one
+		// site in this fleet. Canonicalize each distinct input URL exactly
+		// once here and read the memoized key everywhere below, instead of
+		// re-canonicalizing on every membership check and dedup lookup.
+		$existingKeyed = array();
+		foreach ( $existing as $url ) {
+			$existingKeyed[] = array( $url, UrlCanonicalizer::canonicalize( $url ) );
+		}
+
+		$orderedKeyed = array();
+		$orderedMap   = array();
 		foreach ( $ordered as $url ) {
-			$orderedMap[ UrlCanonicalizer::canonicalize( $url ) ] = true;
+			$key                = UrlCanonicalizer::canonicalize( $url );
+			$orderedKeyed[]     = array( $url, $key );
+			$orderedMap[ $key ] = true;
 		}
 
 		// When a URL appears in both lists, Breeze's own spelling wins — the
 		// sitemap only supplies ordering, and Breeze must warm exactly what
 		// it was already going to warm.
 		$existingByKey = array();
-		foreach ( $existing as $url ) {
-			$key = UrlCanonicalizer::canonicalize( $url );
+		foreach ( $existingKeyed as [ $url, $key ] ) {
 			if ( ! isset( $existingByKey[ $key ] ) ) {
 				$existingByKey[ $key ] = $url;
 			}
@@ -820,8 +833,7 @@ final class BreezeWarmupSitemap {
 		$result = array();
 		$seen   = array();
 
-		$push = static function ( string $url ) use ( &$result, &$seen ): void {
-			$key = UrlCanonicalizer::canonicalize( $url );
+		$push = static function ( string $url, string $key ) use ( &$result, &$seen ): void {
 			if ( isset( $seen[ $key ] ) ) {
 				return;
 			}
@@ -829,22 +841,21 @@ final class BreezeWarmupSitemap {
 			$result[]     = $url;
 		};
 
-		foreach ( $existing as $url ) {
-			if ( UrlCanonicalizer::canonicalize( $url ) === $homeKey ) {
-				$push( $url );
+		foreach ( $existingKeyed as [ $url, $key ] ) {
+			if ( $key === $homeKey ) {
+				$push( $url, $key );
 				break;
 			}
 		}
 
-		foreach ( $existing as $url ) {
-			if ( ! isset( $orderedMap[ UrlCanonicalizer::canonicalize( $url ) ] ) ) {
-				$push( $url );
+		foreach ( $existingKeyed as [ $url, $key ] ) {
+			if ( ! isset( $orderedMap[ $key ] ) ) {
+				$push( $url, $key );
 			}
 		}
 
-		foreach ( $ordered as $url ) {
-			$key = UrlCanonicalizer::canonicalize( $url );
-			$push( $existingByKey[ $key ] ?? $url );
+		foreach ( $orderedKeyed as [ $url, $key ] ) {
+			$push( $existingByKey[ $key ] ?? $url, $key );
 		}
 
 		return $result;
