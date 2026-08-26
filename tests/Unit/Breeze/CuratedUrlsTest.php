@@ -195,4 +195,57 @@ final class CuratedUrlsTest extends TestCase {
 
 		$this->assertSame( array( 'https://example.test/one/' ), array_keys( $keys ) );
 	}
+
+	/**
+	 * The probe judges existence and nothing else.
+	 *
+	 * A term archive behind a WAF that refuses HEAD, or one that answers 401 to
+	 * a logged-out warmer, is a live page. Dropping it was the exact failure
+	 * `resolve()`'s own comment claimed to avoid — that comment guarded the
+	 * post-ID path and left this one open.
+	 *
+	 * @param int $code Status the probe sees.
+	 */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'aliveCodes' )]
+	public function test_only_a_gone_page_is_dropped( int $code ): void {
+		Functions\when( 'wp_remote_head' )->justReturn( array() );
+		Functions\when( 'is_wp_error' )->justReturn( false );
+		Functions\when( 'wp_remote_retrieve_response_code' )->justReturn( $code );
+
+		$this->assertSame(
+			array( 'https://example.test/x/' => true ),
+			CuratedUrls::filterReachable( array( 'https://example.test/x/' => true ) ),
+			"status {$code} says nothing about whether the page exists"
+		);
+	}
+
+	/** @return array<string, array{int}> */
+	public static function aliveCodes(): array {
+		return array(
+			'method not allowed' => array( 405 ),
+			'unauthorised'       => array( 401 ),
+			'forbidden'          => array( 403 ),
+			'server error'       => array( 500 ),
+			'redirect'           => array( 301 ),
+			'ok'                 => array( 200 ),
+		);
+	}
+
+	/** @param int $code Status the probe sees. */
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'goneCodes' )]
+	public function test_a_gone_page_is_dropped( int $code ): void {
+		Functions\when( 'wp_remote_head' )->justReturn( array() );
+		Functions\when( 'is_wp_error' )->justReturn( false );
+		Functions\when( 'wp_remote_retrieve_response_code' )->justReturn( $code );
+
+		$this->assertSame(
+			array(),
+			CuratedUrls::filterReachable( array( 'https://example.test/x/' => true ) )
+		);
+	}
+
+	/** @return array<string, array{int}> */
+	public static function goneCodes(): array {
+		return array( 'not found' => array( 404 ), 'gone' => array( 410 ) );
+	}
 }

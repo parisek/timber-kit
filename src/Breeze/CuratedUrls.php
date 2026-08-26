@@ -46,6 +46,19 @@ final class CuratedUrls {
 	private const PROBE_TIMEOUT = 5;
 
 	/**
+	 * @var int Wall-clock budget, in seconds, for all probes in one refresh.
+	 *
+	 * Entry count alone does not bound the cost: 200 entries pointed at a slow
+	 * host is 200 x PROBE_TIMEOUT serially. A max_execution_time fatal is not a
+	 * Throwable, so it walks past runRefresh()'s catch AND its finally — the
+	 * refresh vanishes mid-run and the lock is left to expire on its own TTL.
+	 * Stopping early keeps the entries not yet reached rather than treating
+	 * them as dead, which is the same stale-beats-nothing rule as a failed
+	 * probe.
+	 */
+	private const PROBE_BUDGET = 20;
+
+	/**
 	 * Canonical keys for a project's curated list.
 	 *
 	 * @param array<int, mixed> $entries Raw `$breeze_warmup_urls` value.
@@ -156,9 +169,18 @@ final class CuratedUrls {
 			return array_fill_keys( array_keys( $keys ), true );
 		}
 
-		$kept = array();
+		$kept     = array();
+		$deadline = time() + self::PROBE_BUDGET;
+
 		foreach ( $keys as $key => $needs_probe ) {
 			if ( ! $needs_probe ) {
+				$kept[ $key ] = true;
+				continue;
+			}
+
+			// Out of budget: keep the rest unprobed rather than spend a refresh
+			// finding out, or die trying.
+			if ( time() >= $deadline ) {
 				$kept[ $key ] = true;
 				continue;
 			}
@@ -179,12 +201,26 @@ final class CuratedUrls {
 				? (int) wp_remote_retrieve_response_code( $response )
 				: 0;
 
-			// 3xx counts: a curated entry pointing at a redirect still warms the
-			// hop the visitor takes, and dropping it would punish a trailing
-			// slash. 4xx and 5xx are what this exists to remove.
-			if ( 0 === $code || ( $code >= 200 && $code < 400 ) ) {
-				$kept[ $key ] = true;
+			// Drop only what is definitively gone. This probe exists to remove
+			// a URL whose page was deleted -- it is not qualified to judge
+			// anything else, and every other reading of a status code costs a
+			// page the project explicitly asked for.
+			//
+			// 405 in particular: a term archive behind a WAF or a security
+			// plugin that refuses the HEAD verb is a perfectly live page, and
+			// dropping it would be the exact failure this file's own comment
+			// claims to avoid -- that comment guarded the post-ID path and left
+			// this one open. 401/403 are the same shape: authorisation says
+			// nothing about existence, and a warmer is not logged in.
+			//
+			// 5xx is excluded from the drop list too. A server erroring today
+			// is not a page deleted, and dropping on it would empty a curated
+			// list during an outage -- precisely when nothing should change.
+			if ( 404 === $code || 410 === $code ) {
+				continue;
 			}
+
+			$kept[ $key ] = true;
 		}
 
 		return $kept;

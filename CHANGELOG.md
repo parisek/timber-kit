@@ -56,6 +56,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `Helpers::formatLink()` no longer replaces a valid link with an empty string.
+  `get_permalink()` answers `false` for a trashed post or a stale WPML
+  translation id, and the concatenations after it coerced that to `''` — so a
+  working URL silently became `''` or a bare `?query`.
 - `Helpers::extract_slug_from_url()` no longer fatals when `wpml_active_languages`
   answers with `null` while the plugin is active — `array_keys( null )` is a
   TypeError, and WPML returns null before it has finished booting.

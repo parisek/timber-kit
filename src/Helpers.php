@@ -1584,6 +1584,17 @@ class Helpers {
 
 				$translated_url = get_permalink( $post_id );
 
+				// get_permalink() answers false for a trashed post, and for a
+				// WPML translation id that no longer resolves. Without this the
+				// concatenations below coerce false to '' and a previously
+				// valid link becomes an empty string or a bare `?query` —
+				// silently, replacing something that worked. CuratedUrls::resolve()
+				// guards the same call the same way; this is that guard, in the
+				// place the pattern was taken from.
+				if ( ! is_string( $translated_url ) || '' === $translated_url ) {
+					return $value;
+				}
+
 				// Add query if it's there
 				if ( isset( $parsed_url['query'] ) ) {
 					$translated_url .= '?' . $parsed_url['query'];
