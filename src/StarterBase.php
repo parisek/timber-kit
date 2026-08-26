@@ -3846,6 +3846,15 @@ class StarterBase extends Site {
 			return;
 		}
 
+		// The cache is keyed by file, not by attachment, and one file routinely
+		// carries several attachment rows: WPML writes one per language, and a
+		// duplicate upload can be pointed at a path that already exists. Those
+		// rows share one set of derivatives, so deleting one of them must leave
+		// the files alone.
+		if ( $this->attached_file_is_shared( $attachment_id ) ) {
+			return;
+		}
+
 		// Extract filename without path
 		$filename = basename( $file_path );
 		$path_info = pathinfo( $filename );
@@ -3900,6 +3909,46 @@ class StarterBase extends Site {
 				}
 			}
 		}
+	}
+
+	/**
+	 * Whether an attachment other than this one still points at the same file.
+	 *
+	 * Compares `_wp_attached_file` because that is the value siblings share.
+	 * `get_attached_file()` is filtered and absolute, so it is not comparable
+	 * across rows.
+	 *
+	 * Fails closed. When the question cannot be answered the caller keeps the
+	 * cached files: a stale derivative is overwritten by the next resize, while
+	 * one deleted in error vanishes from a page that is still serving it.
+	 *
+	 * @param int $attachment_id The attachment being deleted.
+	 * @return bool True when the file is shared, or when sharing cannot be determined.
+	 */
+	private function attached_file_is_shared( $attachment_id ) {
+		global $wpdb;
+
+		if ( ! $wpdb instanceof \wpdb ) {
+			return true;
+		}
+
+		$relative_path = get_post_meta( (int) $attachment_id, '_wp_attached_file', true );
+
+		// No path to match on means no sibling can be keyed to it either.
+		if ( ! is_string( $relative_path ) || '' === $relative_path ) {
+			return false;
+		}
+
+		$shared = $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM %i WHERE meta_key = '_wp_attached_file' AND meta_value = %s AND post_id != %d",
+				$wpdb->postmeta,
+				$relative_path,
+				(int) $attachment_id
+			)
+		);
+
+		return (int) $shared > 0;
 	}
 
 	/**
