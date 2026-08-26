@@ -44,18 +44,20 @@ class ImageCacheMigrator {
 	 * Plan the migration without touching the filesystem.
 	 *
 	 * `move` is keyed by absolute source paths because `apply()` calls
-	 * `rename()` on them directly. `ambiguous`, `orphaned` and `conflict` use
-	 * paths relative to the cache root instead, because they are printed to an
-	 * operator and a short relative path reads better than a long absolute
-	 * one — nothing downstream needs to `rename()` those.
+	 * `rename()` on them directly. `ambiguous`, `orphaned`, `conflict` and
+	 * `already_in_place` use paths relative to the cache root instead,
+	 * because they are printed to an operator and a short relative path
+	 * reads better than a long absolute one — nothing downstream needs to
+	 * `rename()` those.
 	 *
-	 * @return array{move: array<string,string>, ambiguous: array<string, list<string>>, orphaned: list<string>, conflict: list<string>}
+	 * @return array{move: array<string,string>, ambiguous: array<string, list<string>>, orphaned: list<string>, conflict: list<string>, already_in_place: list<string>}
 	 */
 	public function plan(): array {
-		$move      = array();
-		$ambiguous = array();
-		$orphaned  = array();
-		$conflict  = array();
+		$move             = array();
+		$ambiguous        = array();
+		$orphaned         = array();
+		$conflict         = array();
+		$already_in_place = array();
 
 		foreach ( $this->candidates() as $relative => $absolute ) {
 			$size_dir = dirname( $relative );
@@ -74,6 +76,19 @@ class ImageCacheMigrator {
 				continue;
 			}
 
+			// dirs[0] === '' means the source is a genuine root upload (no
+			// year/month directory, or the whole site has them switched
+			// off), so the flat path this candidate already sits at IS its
+			// final location — there is nothing to move. Building $target
+			// anyway would join in an empty path segment: the double slash
+			// collapses and $target resolves to $absolute itself, so
+			// is_file() on it is always true and would otherwise misreport
+			// every such file as a conflict with itself.
+			if ( '' === $dirs[0] ) {
+				$already_in_place[] = $relative;
+				continue;
+			}
+
 			$target = $this->cache_dir . '/' . $size_dir . '/' . $dirs[0] . '/' . $filename;
 
 			if ( is_file( $target ) ) {
@@ -85,10 +100,11 @@ class ImageCacheMigrator {
 		}
 
 		return array(
-			'move'      => $move,
-			'ambiguous' => $ambiguous,
-			'orphaned'  => $orphaned,
-			'conflict'  => $conflict,
+			'move'             => $move,
+			'ambiguous'        => $ambiguous,
+			'orphaned'         => $orphaned,
+			'conflict'         => $conflict,
+			'already_in_place' => $already_in_place,
 		);
 	}
 
@@ -98,7 +114,7 @@ class ImageCacheMigrator {
 	 * within the same filesystem, so the move is atomic and an interrupted run
 	 * leaves no partial file.
 	 *
-	 * @param array{move: array<string,string>, ambiguous: array<string, list<string>>, orphaned: list<string>, conflict: list<string>} $plan
+	 * @param array{move: array<string,string>, ambiguous: array<string, list<string>>, orphaned: list<string>, conflict: list<string>, already_in_place: list<string>} $plan
 	 * @return array{moved: int, failed: list<string>}
 	 */
 	public function apply( array $plan ): array {

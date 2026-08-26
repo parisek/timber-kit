@@ -49,13 +49,15 @@ class MigrateImageCacheCommand {
 		$migrator = new ImageCacheMigrator( $cache_dir, $this->buildNameToDirs() );
 		$plan     = $migrator->plan();
 
-		$scanned = count( $plan['move'] ) + count( $plan['ambiguous'] ) + count( $plan['orphaned'] ) + count( $plan['conflict'] );
+		$scanned = count( $plan['move'] ) + count( $plan['ambiguous'] ) + count( $plan['orphaned'] )
+			+ count( $plan['conflict'] ) + count( $plan['already_in_place'] );
 
-		\WP_CLI::log( sprintf( 'scanned      : %d', $scanned ) );
-		\WP_CLI::log( sprintf( 'unambiguous  : %d  -> move', count( $plan['move'] ) ) );
-		\WP_CLI::log( sprintf( 'ambiguous    : %d  -> left in place', count( $plan['ambiguous'] ) ) );
-		\WP_CLI::log( sprintf( 'orphaned     : %d', count( $plan['orphaned'] ) ) );
-		\WP_CLI::log( sprintf( 'conflicts    : %d', count( $plan['conflict'] ) ) );
+		\WP_CLI::log( sprintf( 'scanned          : %d', $scanned ) );
+		\WP_CLI::log( sprintf( 'unambiguous      : %d  -> move', count( $plan['move'] ) ) );
+		\WP_CLI::log( sprintf( 'ambiguous        : %d  -> left in place', count( $plan['ambiguous'] ) ) );
+		\WP_CLI::log( sprintf( 'orphaned         : %d', count( $plan['orphaned'] ) ) );
+		\WP_CLI::log( sprintf( 'conflicts        : %d', count( $plan['conflict'] ) ) );
+		\WP_CLI::log( sprintf( 'already in place : %d  -> root uploads, nothing to move', count( $plan['already_in_place'] ) ) );
 
 		if ( $verbose && array() !== $plan['ambiguous'] ) {
 			\WP_CLI::log( '' );
@@ -81,13 +83,15 @@ class MigrateImageCacheCommand {
 	/**
 	 * Build the cache-name => source-directories map from `_wp_attached_file`.
 	 *
-	 * Every directory goes through {@see guardSourceDir()} first. Skipping a
-	 * directory that fails it (rather than mapping it anyway) matters because
-	 * the flag-enabled `Resizer` applies the identical guard at render time
-	 * (`Resizer::sourcePathSegment()`): a directory it rejects never gets a
-	 * cache subdirectory there either, so the derivative stays at the flat
-	 * key. Mapping it here would move the file into a nested path nothing
-	 * ever looks up again.
+	 * Every directory goes through {@see guardSourceDir()} first. A directory
+	 * it rejects contributes '' to the name's candidate list -- the same
+	 * value a genuine root upload contributes -- rather than being dropped.
+	 * Both cases mean the same thing to the flag-enabled `Resizer`
+	 * (`Resizer::sourcePathSegment()`): the derivative stays at the flat
+	 * cache key. Dropping a rejected attachment instead would erase it from
+	 * the map entirely, so a real collision at that flat key -- another
+	 * attachment sharing the basename -- would look unambiguous and move a
+	 * derivative that in fact belongs to the dropped attachment.
 	 *
 	 * @return array<string, list<string>>
 	 */
@@ -107,12 +111,12 @@ class MigrateImageCacheCommand {
 			$source_dir  = dirname( $row );
 			$guarded_dir = self::guardSourceDir( $source_dir );
 
-			// An upload at the uploads root (dirname() === '.') legitimately
-			// guards to '' — that is still a valid, flat mapping, so it must
-			// not be conflated with a directory the guard rejected.
-			if ( '' === $guarded_dir && '.' !== $source_dir ) {
-				continue;
-			}
+			// guardSourceDir() returns '' both for a genuine root upload
+			// (dirname() === '.') and for a directory it rejects. Both cases
+			// contribute '' here rather than one of them being dropped: the
+			// property this map exists to detect is "does the runtime keep
+			// this derivative at the flat key", and a rejected directory has
+			// that property exactly as much as a root upload does.
 
 			if ( ! isset( $name_to_dirs[ $name ] ) ) {
 				$name_to_dirs[ $name ] = array();
@@ -148,6 +152,10 @@ class MigrateImageCacheCommand {
 			return '';
 		}
 
+		// No backslash normalization here, unlike Resizer::sourcePathSegment()
+		// (which reads a URL): this reads dirname() of `_wp_attached_file`,
+		// a database value WordPress always stores with forward slashes, so
+		// a backslash cannot occur in this input domain.
 		$parts = array();
 
 		foreach ( explode( '/', $dir ) as $part ) {

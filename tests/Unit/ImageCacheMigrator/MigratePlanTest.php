@@ -81,6 +81,25 @@ class MigratePlanTest extends TestCase {
 		$this->assertSame( [], $plan['orphaned'] );
 	}
 
+	/**
+	 * dirs[0] === '' means a genuine root upload -- the flat cache path IS
+	 * the final location already (no year/month directory, or the flag-off
+	 * byte-identical case from the ADR). `<cache>/<size>//<filename>`
+	 * collapses to the source file itself, so a naive is_file() check would
+	 * call every such file its own conflict. It must instead be recognised
+	 * as already in place: not moved, not reported as a conflict.
+	 */
+	public function test_root_upload_flat_derivative_is_already_in_place_not_a_conflict(): void {
+		$this->seed( '900x0-center/hero.avif' );
+		$plan = ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '' ] ] ) )->plan();
+
+		$this->assertSame( [], $plan['move'] );
+		$this->assertSame( [], $plan['conflict'] );
+		$this->assertSame( [], $plan['orphaned'] );
+		$this->assertSame( [], $plan['ambiguous'] );
+		$this->assertSame( [ '900x0-center/hero.avif' ], $plan['already_in_place'] );
+	}
+
 	public function test_apply_moves_the_file_and_a_second_run_finds_nothing(): void {
 		$src = $this->seed( '900x0-center/hero.avif' );
 		$migrator = new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08' ] ] );
