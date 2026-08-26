@@ -465,8 +465,19 @@ final class WarmupSitemap {
 	 *
 	 * `lastmod` is null on purpose: nothing is known about when the page
 	 * changed, and inventing a date would hand it a freshness score it has not
-	 * earned. It still outranks most of the sitemap through the `manual` weight
-	 * alone, which is the intent.
+	 * earned. `type` is empty for a different reason -- the post type is
+	 * knowable for anything that resolved to an ID, it is simply not carried
+	 * this far yet -- see #148.
+	 *
+	 * Both gaps cost score, and the arithmetic is worth stating rather than
+	 * assuming. A curated entry earns the `manual` weight (800) plus whatever
+	 * `menu` and `front_page` the enrichment below finds, and nothing else. An
+	 * ordinary menu page edited yesterday earns menu (500) plus freshness
+	 * (300) -- a tie on the default weights, and a win for the sitemap page as
+	 * soon as a project sets any `types` weight. So a curated entry does NOT
+	 * reliably outrank the sitemap; it is competitive with it. Entries pushed
+	 * past the URL cap are picked up by the tail drain, which is why the tail
+	 * must never exclude them.
 	 *
 	 * @param array<int, array<string, mixed>> $records Records from the sitemap.
 	 * @param array<string, bool>              $manual  Curated + Breeze keys. Only
