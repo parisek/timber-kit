@@ -140,6 +140,16 @@ class Resizer {
 	private bool $quality_in_cache_key;
 
 	/**
+	 * Whether the source's upload directory is part of its cache key.
+	 *
+	 * Off by default: two uploads sharing a filename but sitting in different
+	 * upload directories would otherwise collide at the same cache path.
+	 *
+	 * @var bool
+	 */
+	private bool $source_path_in_cache_key;
+
+	/**
 	 * Memoized allow-list of decodable input MIME types, per instance.
 	 *
 	 * Per instance, not per request: the theme builds one Resizer per `|resizer`
@@ -179,6 +189,8 @@ class Resizer {
 	 *   - `timber_kit_resizer_force_regenerate` — skip cache and always regenerate
 	 *   - `timber_kit_resizer_skip_animated`   — pass animated sources through untouched (default: true)
 	 *   - `timber_kit_resizer_quality_in_cache_key` — put a variant's quality in its cache key (default: false)
+	 *   - `timber_kit_resizer_source_path_in_cache_key` — put the source's upload
+	 *     directory in its cache key (default: false)
 	 */
 	public function __construct() {
 		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );
@@ -187,6 +199,7 @@ class Resizer {
 		$this->force_regenerate = (bool) apply_filters( 'timber_kit_resizer_force_regenerate', self::FORCE_REGENERATE );
 		$this->skip_animated = (bool) apply_filters( 'timber_kit_resizer_skip_animated', true );
 		$this->quality_in_cache_key = (bool) apply_filters( 'timber_kit_resizer_quality_in_cache_key', false );
+		$this->source_path_in_cache_key = (bool) apply_filters( 'timber_kit_resizer_source_path_in_cache_key', false );
 	}
 
 	/**
@@ -846,7 +859,9 @@ class Resizer {
 	 * could otherwise walk out of the cache directory with it.
 	 *
 	 * @param array<string, mixed> $variant Normalized variant.
-	 * @return string Directory segment, e.g. `1200x630-center-q82`.
+	 * @return string Directory segment, e.g. `1200x630-center-q82`. `resize()` may
+	 *                append the source's upload directory to the stored
+	 *                `cache_key`, making that value a path rather than one name.
 	 */
 	private function variantDirname( array $variant ): string {
 		$style = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $variant['image_style'] );
@@ -1395,6 +1410,18 @@ class Resizer {
 
 		// Get actual source file path by converting URL to filesystem path
 		$source_path = str_replace( $baseurl, $basedir, $default_image['src'] );
+
+		// Before the file_exists() branch on purpose: a missing source is served
+		// by the missing-source filter (DevMediaProxy), which addresses this same
+		// cache path on another host and therefore needs the same key.
+		if ( $this->source_path_in_cache_key ) {
+			$segment = $this->sourcePathSegment( $default_image['src'], $baseurl );
+			if ( $segment !== '' ) {
+				foreach ( $normalized_variants as $i => $variant ) {
+					$normalized_variants[ $i ]['cache_key'] = $variant['cache_key'] . '/' . $segment;
+				}
+			}
+		}
 
 		if ( ! file_exists( $source_path ) ) {
 			$images = apply_filters(

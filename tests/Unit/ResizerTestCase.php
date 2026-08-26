@@ -32,6 +32,17 @@ abstract class ResizerTestCase extends TestCase {
 		return new Resizer();
 	}
 
+	protected function createResizerWithSourcePathFlag( bool $enabled ): Resizer {
+		Functions\when( 'apply_filters' )->alias( function ( $filter, $default, ...$args ) use ( $enabled ) {
+			unset( $args );
+			if ( $filter === 'timber_kit_resizer_source_path_in_cache_key' ) {
+				return $enabled;
+			}
+			return $default;
+		} );
+		return new Resizer();
+	}
+
 	/**
 	 * @return mixed
 	 */
