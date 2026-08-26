@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Parisek\TimberKit\Breeze;
 
+use Parisek\TimberKit\Breeze\TailPlanner;
 
 /**
  * Feeds Breeze's Cache Warmup preloader with every URL from the site's XML
@@ -70,6 +71,18 @@ final class WarmupSitemap {
 	/** @var array<string, mixed>|null Effective weight map for this project, set at registration. */
 	private static ?array $weights = null;
 
+	/** @var bool Whether tail draining is enabled for this project. */
+	private static bool $tail_enabled = false;
+
+	/** @var int URLs dispatched per tail tick, filterable at registration via `timberkit_warmup_tail_batch`. */
+	private static int $tail_batch = 100;
+
+	/** @var string Action Scheduler hook the tail drain ticks on. */
+	public const TAIL_HOOK = 'timber_kit_breeze_warmup_tail_tick';
+
+	/** @var int Seconds between tail ticks. Fixed, not configurable: the batch size is the knob. */
+	public const TAIL_INTERVAL = 300;
+
 	/** @var string Transient key for the short refresh lock. */
 	private const LOCK_KEY = 'timber_kit_breeze_warmup_sitemap_refresh_lock';
 
@@ -111,10 +124,11 @@ final class WarmupSitemap {
 	 * a project that wires it without going through `StarterBase`.
 	 *
 	 * @param array<string, mixed>|null $weights
-	 * @param array<int, string>        $curated Project's curated warmup entries.
+	 * @param array<int, string>        $curated   Project's curated warmup entries.
+	 * @param bool                      $tail      Drain the URLs the cap excluded, a batch at a time.
 	 * @return void
 	 */
-	public static function register( bool $priority = false, ?array $weights = null, array $curated = array() ): void {
+	public static function register( bool $priority = false, ?array $weights = null, array $curated = array(), bool $tail = false, int $tailBatch = 100 ): void {
 		if ( self::$registered ) {
 			return;
 		}
@@ -127,6 +141,23 @@ final class WarmupSitemap {
 		self::$priority_enabled = $priority;
 		self::$weights          = $weights ?? Scorer::DEFAULT_WEIGHTS;
 		self::$curated          = $curated;
+
+		// Tail draining requires the ordering — without it there is nothing
+		// to drain — so $tail alone must enable nothing. It also refuses to
+		// wire on multisite: the brake reads Breeze's `breeze_preload_queue`,
+		// which Breeze scopes per blog, so on multisite the brake would
+		// always read idle and the drain would pile onto the origin
+		// unthrottled. Refusing to wire is safer than running without a
+		// working brake.
+		$is_multisite = function_exists( 'is_multisite' ) && is_multisite();
+
+		if ( $tail && $priority && ! $is_multisite ) {
+			self::$tail_enabled = true;
+			self::$tail_batch   = (int) apply_filters( 'timberkit_warmup_tail_batch', $tailBatch );
+
+			add_action( self::TAIL_HOOK, array( self::class, 'runTailTick' ) );
+			add_action( 'breeze_clear_all_cache', array( self::class, 'onPurgeScheduleTail' ), 1000 );
+		}
 
 		add_filter( 'breeze_preload_urls', array( self::class, 'filterPreloadUrls' ) );
 		add_action( self::CRON_HOOK, array( self::class, 'runRefresh' ) );
@@ -375,12 +406,166 @@ final class WarmupSitemap {
 			$built   = self::buildOrderedUrls( $records, $weights, time(), self::maxUrls() );
 
 			PriorityStore::write( $built['urls'], $built['signals'], Scorer::weightsHash( $weights ), $revision );
+
+			if ( self::$tail_enabled ) {
+				TailStore::writeTail( $built['tail'] );
+
+				// Cold-start rescue: the purge scheduled a tick before this
+				// refresh had written anything, so that tick found an empty
+				// tail and ended the chain. Nothing else would ever restart it.
+				if ( array() !== $built['tail'] ) {
+					self::scheduleTailTick();
+				}
+			}
 		} catch ( \Throwable $e ) {
 			// Best-effort by contract: a sitemap outage must never surface as
 			// a fatal in a cron job.
 		} finally {
 			self::releaseRefreshLock();
 		}
+	}
+
+	/**
+	 * Schedule the next tail tick, unless one is already pending or running.
+	 *
+	 * Called by the purge and by the refresh — never by the tick itself.
+	 * `as_next_scheduled_action()` reports a RUNNING action as scheduled, so a
+	 * tick using this to decide about its own successor would see itself and
+	 * end the chain after one run.
+	 *
+	 * @return void
+	 */
+	public static function scheduleTailTick(): void {
+		if ( ! function_exists( 'as_schedule_single_action' ) || ! function_exists( 'as_next_scheduled_action' ) ) {
+			return;
+		}
+
+		if ( as_next_scheduled_action( self::TAIL_HOOK ) ) {
+			return;
+		}
+
+		as_schedule_single_action( time() + self::TAIL_INTERVAL, self::TAIL_HOOK );
+	}
+
+	/**
+	 * Purge handler: start the tail over and kick the chain.
+	 *
+	 * Priority 1000 so Breeze has already filled its own queue at 999 — the
+	 * tick's brake can then see it and stand aside.
+	 *
+	 * @return void
+	 */
+	public static function onPurgeScheduleTail(): void {
+		if ( ! self::isEnabled() || ! self::$tail_enabled ) {
+			return;
+		}
+
+		TailStore::resetCursor();
+		self::scheduleTailTick();
+	}
+
+	/**
+	 * One tail tick: dispatch a batch, advance, schedule the successor.
+	 *
+	 * A skipped tick (brake engaged) still schedules its successor — only an
+	 * exhausted tail ends the chain, never a busy Breeze.
+	 *
+	 * @return void
+	 */
+	public static function runTailTick(): void {
+		if ( ! self::isEnabled() || ! self::$tail_enabled ) {
+			return;
+		}
+
+		if ( self::breezeIsWarming() ) {
+			self::scheduleNextTailTick();
+
+			return;
+		}
+
+		$tail = TailStore::readTail();
+		if ( array() === $tail['urls'] ) {
+			return;
+		}
+
+		$cursor = TailStore::readCursor();
+		$index  = $cursor['hash'] === $tail['hash'] ? $cursor['index'] : 0;
+
+		if ( $index >= count( $tail['urls'] ) ) {
+			return;
+		}
+
+		$batch = TailPlanner::nextBatch( $tail['urls'], $index, self::$tail_batch );
+		if ( array() === $batch ) {
+			return;
+		}
+
+		foreach ( $batch as $url ) {
+			// Breeze's own primitive: it carries the local-URL check, the
+			// circuit breaker and the fire-and-forget fetch. It returns void,
+			// so the cursor counts dispatches, not confirmed warms.
+			\Breeze_Cache_Preloader::preload_url( $url );
+		}
+
+		TailStore::advanceCursor( $cursor, $index + count( $batch ), $tail['hash'] );
+
+		self::scheduleNextTailTick();
+	}
+
+	/**
+	 * Whether Breeze is draining its own preload queue right now.
+	 *
+	 * Reads a foreign option, read-only and tolerantly: anything other than a
+	 * non-empty array counts as idle. Breeze splices the batch off the queue
+	 * BEFORE dispatching it, so the final batch leaves this looking idle while
+	 * three URLs are still in flight — about a second at the end of a run.
+	 * Accepted: closing that window would mean guessing from timestamps.
+	 *
+	 * @return bool
+	 */
+	private static function breezeIsWarming(): bool {
+		if ( ! function_exists( 'get_option' ) ) {
+			return false;
+		}
+
+		$queue = get_option( 'breeze_preload_queue', array() );
+
+		return is_array( $queue ) && array() !== $queue;
+	}
+
+	/**
+	 * Schedule the successor directly.
+	 *
+	 * Deliberately NOT scheduleTailTick(): that one asks
+	 * `as_next_scheduled_action()`, which reports a RUNNING action as
+	 * scheduled — the tick would see itself and end its own chain.
+	 *
+	 * @return void
+	 */
+	private static function scheduleNextTailTick(): void {
+		if ( ! function_exists( 'as_schedule_single_action' ) ) {
+			return;
+		}
+
+		// Deliberately NOT guarded by as_next_scheduled_action(), and not
+		// scheduled with $unique either, even though scheduleTailTick() uses
+		// the guard a few lines up. The difference is where each one is called
+		// from: that one runs on a purge, outside any tick; this one runs
+		// INSIDE the tick whose own action is still on the schedule.
+		//
+		// Measured against a live Action Scheduler rather than assumed. With
+		// the action marked in-progress, as_next_scheduled_action() still
+		// answers true and as_schedule_single_action( …, $unique = true )
+		// refuses and returns 0. So either form would make a tick decline to
+		// schedule its own successor, and the drain would stop after one batch
+		// -- a silent stop, since nothing reports a chain that simply ends.
+		//
+		// The cost of leaving it unguarded is that two overlapping ticks start
+		// two chains, which then run in parallel at double the intended pace.
+		// Closing that needs a successor key that can exclude the running
+		// action; it is not closed here, and the asymmetry above is the reason
+		// the obvious fix is worse than the defect.
+		as_schedule_single_action( time() + self::TAIL_INTERVAL, self::TAIL_HOOK );
 	}
 
 	/**
@@ -394,11 +579,19 @@ final class WarmupSitemap {
 	 * @param array<string, mixed>             $weights
 	 * @param int                              $now
 	 * @param int                              $max
-	 * @return array{urls: array<int, string>, signals: array<string, mixed>}
+	 * @return array{urls: array<int, string>, signals: array<string, mixed>, tail: array<int, string>}
 	 */
 	public static function buildOrderedUrls( array $records, array $weights, int $now, int $max ): array {
-		$scored  = Scorer::scoreAll( $records, $weights, $now );
-		$kept    = LanguageQuota::apply( $scored, $max );
+		$scored = Scorer::scoreAll( $records, $weights, $now );
+
+		// Sort the FULL set before splitting. Everything upstream preserves
+		// input order — scoreAll() only attaches scores, and LanguageQuota
+		// selects without reordering — so a tail taken from them directly
+		// would come out in sitemap order, which is precisely the ordering
+		// this module exists to replace.
+		$sorted = Scorer::sort( $scored );
+
+		$kept    = LanguageQuota::apply( $sorted, $max );
 		$ordered = Scorer::sort( $kept );
 
 		$signals = array();
@@ -414,10 +607,24 @@ final class WarmupSitemap {
 			);
 		}
 
+		$urls = array_column( $ordered, 'url' );
+
 		return array(
-			'urls'    => array_column( $ordered, 'url' ),
+			'urls'    => $urls,
 			'signals' => $signals,
+			'tail'    => TailPlanner::split( $sorted, $urls, self::maxTailUrls() ),
 		);
+	}
+
+	/**
+	 * Safety cap on stored tail URLs.
+	 */
+	private static function maxTailUrls(): int {
+		$max = function_exists( 'apply_filters' )
+			? apply_filters( 'timberkit_warmup_tail_max_urls', TailPlanner::DEFAULT_MAX_TAIL_URLS )
+			: TailPlanner::DEFAULT_MAX_TAIL_URLS;
+
+		return is_numeric( $max ) ? max( 0, (int) $max ) : TailPlanner::DEFAULT_MAX_TAIL_URLS;
 	}
 
 	/**
@@ -1158,5 +1365,7 @@ final class WarmupSitemap {
 		self::$priority_enabled = false;
 		self::$weights_hash     = '';
 		self::$weights          = null;
+		self::$tail_enabled     = false;
+		self::$tail_batch       = 100;
 	}
 }

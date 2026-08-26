@@ -175,6 +175,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `timberkit_warmup_priority_weights`. Off by default.
 - Site Health check `preload_chain_healthy` — reports a Breeze preload chain
   that has stopped making progress.
+- `$breeze_warmup_tail` — keep warming the URLs the cap excluded, a batch at a
+  time, in score order, pausing whenever Breeze is draining its own preload
+  queue. Batch size is `$breeze_warmup_tail_batch` (default 100 per five-minute
+  tick) and filterable via `timberkit_warmup_tail_batch`; the stored tail is
+  capped by `timberkit_warmup_tail_max_urls` (default 5000). Off by default,
+  requires `$breeze_warmup_priority`.
 
 ### Changed
 

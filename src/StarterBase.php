@@ -624,6 +624,35 @@ class StarterBase extends Site {
 	protected array $breeze_warmup_urls = array();
 
 	/**
+	 * Keep warming the URLs the cap excluded, a batch at a time, after a purge.
+	 *
+	 * The cap warms the most important pages immediately; everything behind it
+	 * stays cold until a visitor asks. This drains that tail in score order,
+	 * pausing whenever Breeze is warming its own queue.
+	 *
+	 * It never finishes: a full purge can arrive several times a day and resets
+	 * the run, so on a busy site only part of the tail is ever covered. That is
+	 * by design — the part covered is always the most valuable part.
+	 *
+	 * Requires `$breeze_warmup_sitemap` and `$breeze_warmup_priority`.
+	 *
+	 * @var bool
+	 */
+	protected bool $breeze_warmup_tail = false;
+
+	/**
+	 * URLs dispatched per five-minute tick.
+	 *
+	 * The interval is fixed; this is the knob. Read it as "how many origin
+	 * renders per five minutes I am willing to pay". 100 works out to roughly
+	 * 1200 URLs an hour — but only in the windows when Breeze's own queue is
+	 * quiet, so real throughput is lower.
+	 *
+	 * @var int
+	 */
+	protected int $breeze_warmup_tail_batch = 100;
+
+	/**
 	 * ACF Datastore ({@see https://www.advancedcustomfields.com/resources/acf-settings-enable_datastore/}).
 	 *
 	 * Opt-in (default off). Switches how ACF saves field values — through the
@@ -1385,7 +1414,9 @@ class StarterBase extends Site {
 		WarmupSitemap::register(
 			$this->breeze_warmup_priority,
 			$this->breeze_warmup_priority_weights,
-			$this->breeze_warmup_urls
+			$this->breeze_warmup_urls,
+			$this->breeze_warmup_tail,
+			$this->breeze_warmup_tail_batch
 		);
 	}
 

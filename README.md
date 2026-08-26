@@ -767,6 +767,79 @@ stored URL list itself is trusted before a refresh is scheduled. A practical
 way to size the cap: count how many URLs got at least one pageview
 yesterday; that number is the cap.
 
+### Draining the tail the cap left behind
+
+`$breeze_warmup_priority` picks what gets warmed first; it does not warm what
+the cap excludes. `$breeze_warmup_tail` (default `false`) keeps going after
+the purge: every five minutes it dispatches another batch of the excluded
+URLs to Breeze's preloader, in the same score order, until the tail runs out
+or the next purge resets the run. Requires both `$breeze_warmup_sitemap` and
+`$breeze_warmup_priority` — on its own there is no ordering to drain.
+
+```php
+class Base extends StarterBase {
+    public function __construct() {
+        $this->breeze_warmup_sitemap     = true;
+        $this->breeze_warmup_priority    = true;
+        $this->breeze_warmup_tail        = true;
+        $this->breeze_warmup_tail_batch  = 100;
+
+        parent::__construct();
+    }
+}
+```
+
+Each tick checks Breeze's own preload queue (`breeze_preload_queue`) first
+and stands aside while it is non-empty, so the tail drain never competes with
+Breeze for the same origin renders. A skipped tick still schedules its
+successor — the chain only ends when the tail itself is exhausted.
+
+**This never reaches "done", and that is by design.** A full purge can arrive
+several times a day, and each one starts the tail over from its head. On a
+busy site, only part of the tail is ever covered in one run — but because the
+tail is in score order, the part covered is always the most valuable part.
+Do not size this feature expecting the whole sitemap to eventually go warm;
+size it expecting the top of the tail to stay warm continuously.
+
+**The batch size does not multiply out the way it looks.** `$breeze_warmup_tail_batch`
+of 100 per five-minute tick reads as 1200 URLs an hour, but that arithmetic
+only holds if every tick fires — and a tick fires only when Breeze's own
+queue is idle. Real throughput on a site that purges and warms constantly is
+lower. Size the batch by the origin-render budget you can afford in a tick
+that does run, not by the hourly total the multiplication suggests.
+
+**The cursor counts URLs dispatched, not URLs warmed.** Each tick hands its
+batch to `Breeze_Cache_Preloader::preload_url()`, which returns `void` and
+may reject a URL outright. The tail advancing past a URL means it was handed
+to Breeze, not that the origin rendered it. There is no confirmation signal
+to build on: Breeze does not report back.
+
+**The five-minute interval is fixed, not a filter.** `$breeze_warmup_tail_batch`
+is the only knob; the tick's own cadence stays constant so the brake against
+Breeze's queue behaves predictably. `$breeze_warmup_tail_batch`, like
+`$breeze_warmup_priority_weights`, is read once, at registration — changing
+it at runtime after that has no effect. Filterable independently:
+`timberkit_warmup_tail_batch` (also applied once, at registration) and
+`timberkit_warmup_tail_max_urls` (default 5000) which caps how many excluded
+URLs are stored as the tail in the first place — a safety bound distinct from
+the sitemap URL cap.
+
+**A cold start rescues itself.** A purge schedules the first tick and resets
+the tail's cursor immediately, but the tail's *contents* are only written
+later, by the deferred refresh. If the first tick runs before that refresh
+has written anything, it finds an empty tail and ends the chain — nothing
+else would ever restart it. To close that gap, the refresh itself schedules a
+tick whenever it writes a non-empty tail, so the chain resumes once the
+tail actually has something to drain.
+
+**Tail draining refuses to wire on multisite.** The brake reads Breeze's
+`breeze_preload_queue` option, and Breeze scopes that option per blog on
+multisite — every site's brake would read "idle" regardless of what any
+other site's queue is doing, and the drain from every site would pile onto
+whatever origin actually serves the requests. Rather than run without a
+working brake, `register()` detects `is_multisite()` and leaves the tail
+hooks unwired there, even when `$breeze_warmup_tail` is `true`.
+
 ### Preload chain health
 
 The Site Health check `preload_chain_healthy` (category `caching`, needs
