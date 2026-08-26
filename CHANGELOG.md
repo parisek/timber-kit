@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.41.0] - 2026-08-26
+
 ### Added
 
 - `Helpers::languageFromUrl()` — the language a URL names, read from the URL
