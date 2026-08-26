@@ -14,8 +14,11 @@ namespace Parisek\TimberKit\Breeze;
  * a manually maintained list capped at 30 entries. This class closes that
  * gap fleet-wide by discovering the sitemap URL set and merging it in.
  *
- * Sitemap source order: AIOSEO (`/sitemap.xml`) when active, otherwise core
- * (`/wp-sitemap.xml`). Both formats may be a sitemap index that points at
+ * Sitemap source order: AIOSEO (`/sitemap.xml`), then Yoast
+ * (`/sitemap_index.xml`), then core (`/wp-sitemap.xml`) — see
+ * {@see self::SITEMAP_PROVIDERS}. A project overrides the resolved address
+ * with the `timberkit_warmup_sitemap_url` filter. Every format may be a
+ * sitemap index that points at
  * per-post-type sub-sitemaps — those are followed recursively, bounded by
  * {@see self::MAX_SUBSITEMAPS} and {@see self::MAX_DEPTH} so a pathological
  * or malicious sitemap can never cause a runaway fetch chain. Every URL
@@ -534,7 +537,39 @@ final class WarmupSitemap {
 	}
 
 	/**
-	 * AIOSEO-first sitemap root URL resolution, falling back to WordPress core.
+	 * Sitemap root path per provider, in detection order.
+	 *
+	 * The order is the contract, not an accident of layout: a site can carry
+	 * more than one SEO plugin, and the first provider that answers wins.
+	 * AIOSEO stays first so an existing AIOSEO site resolves exactly the path
+	 * it resolved before this map existed. `core` is last and always matches.
+	 *
+	 * @var array<string, string>
+	 */
+	private const SITEMAP_PROVIDERS = array(
+		'aioseo' => '/sitemap.xml',
+		'yoast'  => '/sitemap_index.xml',
+		'core'   => '/wp-sitemap.xml',
+	);
+
+	/**
+	 * Sitemap root URL for whichever provider this site runs.
+	 *
+	 * Yoast is named explicitly rather than left to the core fallback. Yoast
+	 * redirects `/wp-sitemap.xml` to its own index with a 301, and
+	 * {@see self::fetchBody()} sends `redirection => 0` on purpose — following
+	 * a redirect is the SSRF surface this module closes. So on a Yoast site the
+	 * core path does not degrade to a slower answer, it degrades to no answer:
+	 * the response code lands outside 200-299 and the body is discarded. The
+	 * refresh then stores an empty list and says nothing, because an empty
+	 * `fetchSitemapRecords()` is a normal return value and `runRefresh()`
+	 * swallows throwables by contract.
+	 *
+	 * The filter is the escape hatch for the provider this list does not know
+	 * yet, and for the site that serves its sitemap from a non-default path.
+	 * Returning a non-string, or a URL off this site's own host, falls back to
+	 * the detected path — {@see self::isFetchableSameHostUrl()} would reject it
+	 * on fetch anyway, and failing here says so while the caller can still act.
 	 *
 	 * @return string Empty string when `home_url()` is unavailable.
 	 */
@@ -543,18 +578,41 @@ final class WarmupSitemap {
 			return '';
 		}
 
-		$path = self::isAioseoActive() ? '/sitemap.xml' : '/wp-sitemap.xml';
+		$provider = self::detectSitemapProvider();
+		$resolved = (string) home_url( self::SITEMAP_PROVIDERS[ $provider ] );
 
-		return (string) home_url( $path );
+		if ( ! function_exists( 'apply_filters' ) ) {
+			return $resolved;
+		}
+
+		$filtered = apply_filters( 'timberkit_warmup_sitemap_url', $resolved, $provider );
+
+		return ( is_string( $filtered ) && self::isFetchableSameHostUrl( $filtered ) )
+			? $filtered
+			: $resolved;
 	}
 
 	/**
-	 * Detect an active AIOSEO installation without a hard dependency on it.
+	 * Which sitemap provider is active, without a hard dependency on any of
+	 * them.
 	 *
-	 * @return bool
+	 * Each plugin is detected by a symbol it defines, never by reading the
+	 * active-plugin list: a must-use load, a renamed directory or a bundled
+	 * copy all keep the symbol and lose the list entry.
+	 *
+	 * @return string A key of {@see self::SITEMAP_PROVIDERS}; `core` when no
+	 *                SEO plugin answers.
 	 */
-	private static function isAioseoActive(): bool {
-		return function_exists( 'aioseo' ) || class_exists( '\AIOSEO\Plugin\AIOSEO' );
+	private static function detectSitemapProvider(): string {
+		if ( function_exists( 'aioseo' ) || class_exists( '\AIOSEO\Plugin\AIOSEO' ) ) {
+			return 'aioseo';
+		}
+
+		if ( defined( 'WPSEO_VERSION' ) || class_exists( '\WPSEO_Sitemaps' ) ) {
+			return 'yoast';
+		}
+
+		return 'core';
 	}
 
 	/**

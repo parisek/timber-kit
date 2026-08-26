@@ -6,6 +6,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `Breeze\WarmupSitemap` recognises **Yoast SEO** and asks for
+  `/sitemap_index.xml`. Providers are now a list checked in order — AIOSEO,
+  Yoast, core — so a project gets the right sitemap from whichever plugin it
+  runs, and the order is stated rather than implied. AIOSEO stays first, so a
+  site that already had it resolves exactly the path it resolved before.
+- `timberkit_warmup_sitemap_url` filter, receiving the resolved URL and the
+  detected provider key. It is the escape hatch for a provider the list does
+  not know yet and for a site serving its sitemap from a non-default path. A
+  non-string return, or a URL on another host, is ignored in favour of the
+  detected path.
+
+### Fixed
+
+- A Yoast site produced an **empty** warmup list, silently. Yoast redirects
+  `/wp-sitemap.xml` to its own index with a 301 and every fetch sends
+  `redirection => 0` (the SSRF guard, deliberately kept), so the core fallback
+  did not degrade to a slower answer — it degraded to no answer at all. With
+  `$breeze_warmup_sitemap` on, the refresh stored nothing and reported nothing,
+  because an empty result is a normal return value and `runRefresh()` swallows
+  throwables by contract. Measured on a live Yoast Premium site: 0 records from
+  the requested path, 1113 from the one Yoast serves.
+
 ## [1.39.0] - 2026-08-24
 
 ### Changed
