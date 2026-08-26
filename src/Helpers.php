@@ -2047,17 +2047,16 @@ class Helpers {
 		$parts = parse_url( $url );
 		$host  = isset( $parts['host'] ) ? strtolower( (string) $parts['host'] ) : '';
 
-		// Domain negotiation first: a per-language host settles the question
-		// without looking at the path, and under that shape no prefix exists.
-		if ( '' !== $host ) {
-			foreach ( $languages as $code => $language ) {
-				$lang_host = isset( $language['url'] )
-					? strtolower( (string) ( parse_url( (string) $language['url'], PHP_URL_HOST ) ?: '' ) )
-					: '';
-				if ( '' !== $lang_host && $lang_host === $host ) {
-					return (string) $code;
-				}
-			}
+		// A per-language host answers first, but ONLY when the hosts actually
+		// tell the languages apart. Under directory negotiation WPML still
+		// reports a `url` for every language and they all share one host, so a
+		// plain host match succeeds for whichever language happens to come
+		// first in the array and every URL resolves to that one. Measured on a
+		// five-language site whose array starts with `cs`: an Italian URL came
+		// back Czech.
+		$by_host = self::discriminatingLanguageHosts( $languages );
+		if ( '' !== $host && isset( $by_host[ $host ] ) ) {
+			return $by_host[ $host ];
 		}
 
 		$path = isset( $parts['path'] ) ? rtrim( (string) $parts['path'], '/' ) : '';
@@ -2071,6 +2070,38 @@ class Helpers {
 		$default = apply_filters( 'wpml_default_language', null );
 
 		return is_string( $default ) ? $default : '';
+	}
+
+	/**
+	 * Host-to-language map, kept only where the hosts discriminate.
+	 *
+	 * A host shared by two languages proves nothing about which one a URL is
+	 * in, so it is dropped rather than resolved arbitrarily. Under directory
+	 * negotiation that drops every entry, which is correct: there the path is
+	 * the only evidence.
+	 *
+	 * @param array<string, mixed> $languages `wpml_active_languages` output.
+	 * @return array<string, string> Host => language code.
+	 */
+	private static function discriminatingLanguageHosts( array $languages ): array {
+		$hosts = array();
+
+		foreach ( $languages as $code => $language ) {
+			if ( ! is_array( $language ) || ! isset( $language['url'] ) ) {
+				continue;
+			}
+
+			$host = strtolower( (string) ( parse_url( (string) $language['url'], PHP_URL_HOST ) ?: '' ) );
+			if ( '' === $host ) {
+				continue;
+			}
+
+			// Second sighting means the host is shared; mark it useless rather
+			// than letting the first language keep it.
+			$hosts[ $host ] = array_key_exists( $host, $hosts ) ? null : (string) $code;
+		}
+
+		return array_filter( $hosts, 'is_string' );
 	}
 
 	/**
