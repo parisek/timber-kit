@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.41.1] - 2026-08-26
+
 ### Fixed
 
 - `Helpers::languageFromUrl()` (new in 1.41.0) read a per-language host before
