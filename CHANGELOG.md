@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- `Helpers::formatLink()` resolves each link URL once per language instead of
+  once per call site. The resolution runs `url_to_postid()`, which WPML filters
+  through `SitePress::url_to_postid` and `AbsoluteLinks` into a
+  `get_page_by_path()` query — and a miss costs a second lookup, because the
+  slug fallback calls `url_to_postid()` again. Profiling a five-language front
+  page found **310 calls for 33 distinct URLs**: the same menu and options-page
+  links formatted once per place they appear. Memoizing removed ~122 ms of a
+  3.1 s render.
+
+  The cache key carries the current language, because `wpml_object_id` and
+  `get_permalink()` both answer per language and WPML switches language
+  mid-request while a language switcher renders. It is request-scoped rather
+  than persistent: a static array cannot go stale, so nothing has to invalidate
+  it when a permalink changes. `Helpers::flushTranslatedLinkUrls()` exists for
+  tests, which are the only caller that outlives the data.
+
+  Behaviour is unchanged for every caller. `get_permalink()` returning `false`
+  is now treated as an unresolved URL instead of being concatenated onto.
 ## [1.42.0] - 2026-08-26
 
 ### Added

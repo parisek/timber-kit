@@ -182,4 +182,85 @@ class FormatLinkTest extends HelpersTestCase {
 		// URL unchanged when post not found
 		$this->assertSame( 'https://example.com/nonexistent', $result['url'] );
 	}
+
+	public function test_repeated_url_resolves_once(): void {
+		$calls = 0;
+		Functions\when( 'url_to_postid' )->alias( function () use ( &$calls ) {
+			$calls++;
+			return 42;
+		} );
+		Functions\when( 'get_permalink' )->justReturn( 'https://example.com/cs/stranka/' );
+		Functions\when( 'apply_filters' )->alias( function ( $hook, $value = null ) {
+			return 'wpml_current_language' === $hook ? 'cs' : $value;
+		} );
+
+		$value = [
+			'title'  => 'Link',
+			'url'    => 'https://example.com/page/',
+			'target' => '',
+		];
+		$field = [ 'wpml_cf_preferences' => 2 ];
+
+		$first  = Helpers::formatLink( $value, 1, $field );
+		$second = Helpers::formatLink( $value, 1, $field );
+
+		$this->assertSame( 'https://example.com/cs/stranka/', $first['url'] );
+		$this->assertSame( $first['url'], $second['url'] );
+		$this->assertSame( 1, $calls, 'url_to_postid must run once for a repeated URL' );
+	}
+
+	public function test_unresolved_url_is_cached_too(): void {
+		// A miss falls through to extract_slug_from_url(), which asks WPML.
+		Functions\when( 'is_plugin_active' )->justReturn( false );
+		$calls = 0;
+		Functions\when( 'url_to_postid' )->alias( function () use ( &$calls ) {
+			$calls++;
+			return 0;
+		} );
+		Functions\when( 'apply_filters' )->alias( function ( $hook, $value = null ) {
+			return 'wpml_current_language' === $hook ? 'cs' : $value;
+		} );
+
+		$value = [
+			'title'  => 'Link',
+			'url'    => 'https://example.com/gone/',
+			'target' => '',
+		];
+		$field = [ 'wpml_cf_preferences' => 2 ];
+
+		$first  = Helpers::formatLink( $value, 1, $field );
+		$second = Helpers::formatLink( $value, 1, $field );
+
+		// URL is left untouched, and the miss is not resolved a second time.
+		$this->assertSame( 'https://example.com/gone/', $first['url'] );
+		$this->assertSame( 'https://example.com/gone/', $second['url'] );
+		// Two url_to_postid calls for ONE resolution: the direct one and the
+		// slug fallback. The second formatLink() call adds none.
+		$this->assertSame( 2, $calls );
+	}
+
+	public function test_same_url_in_two_languages_resolves_separately(): void {
+		$lang = 'cs';
+		Functions\when( 'url_to_postid' )->justReturn( 42 );
+		Functions\when( 'apply_filters' )->alias( function ( $hook, $value = null ) use ( &$lang ) {
+			return 'wpml_current_language' === $hook ? $lang : $value;
+		} );
+		Functions\when( 'get_permalink' )->alias( function () use ( &$lang ) {
+			return 'https://example.com/' . $lang . '/stranka/';
+		} );
+
+		$value = [
+			'title'  => 'Link',
+			'url'    => 'https://example.com/page/',
+			'target' => '',
+		];
+		$field = [ 'wpml_cf_preferences' => 2 ];
+
+		$cs = Helpers::formatLink( $value, 1, $field );
+		$lang = 'en';
+		$en = Helpers::formatLink( $value, 1, $field );
+
+		$this->assertSame( 'https://example.com/cs/stranka/', $cs['url'] );
+		$this->assertSame( 'https://example.com/en/stranka/', $en['url'] );
+	}
 }
