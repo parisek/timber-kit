@@ -106,6 +106,17 @@ class ImageCacheMigrator {
 		$failed = array();
 
 		foreach ( $plan['move'] as $source => $target ) {
+			// plan() only snapshots the filesystem; by the time this loop
+			// reaches an entry, another process (a second invocation, a file
+			// dropped by hand) may have created the target since. rename()
+			// silently replaces an existing destination on POSIX, so the
+			// "never overwrites" rule needs this re-check right here, not
+			// just in plan().
+			if ( is_file( $target ) ) {
+				$failed[] = $source;
+				continue;
+			}
+
 			$target_dir = dirname( $target );
 
 			if ( ! is_dir( $target_dir ) && ! mkdir( $target_dir, 0777, true ) && ! is_dir( $target_dir ) ) {

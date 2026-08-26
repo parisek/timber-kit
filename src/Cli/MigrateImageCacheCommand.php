@@ -81,6 +81,14 @@ class MigrateImageCacheCommand {
 	/**
 	 * Build the cache-name => source-directories map from `_wp_attached_file`.
 	 *
+	 * Every directory goes through {@see guardSourceDir()} first. Skipping a
+	 * directory that fails it (rather than mapping it anyway) matters because
+	 * the flag-enabled `Resizer` applies the identical guard at render time
+	 * (`Resizer::sourcePathSegment()`): a directory it rejects never gets a
+	 * cache subdirectory there either, so the derivative stays at the flat
+	 * key. Mapping it here would move the file into a nested path nothing
+	 * ever looks up again.
+	 *
 	 * @return array<string, list<string>>
 	 */
 	private function buildNameToDirs(): array {
@@ -95,19 +103,66 @@ class MigrateImageCacheCommand {
 				continue;
 			}
 
-			$name = sanitize_file_name( pathinfo( basename( $row ), PATHINFO_FILENAME ) );
-			$dir  = dirname( $row );
-			$dir  = '.' === $dir ? '' : $dir;
+			$name        = sanitize_file_name( pathinfo( basename( $row ), PATHINFO_FILENAME ) );
+			$source_dir  = dirname( $row );
+			$guarded_dir = self::guardSourceDir( $source_dir );
+
+			// An upload at the uploads root (dirname() === '.') legitimately
+			// guards to '' — that is still a valid, flat mapping, so it must
+			// not be conflated with a directory the guard rejected.
+			if ( '' === $guarded_dir && '.' !== $source_dir ) {
+				continue;
+			}
 
 			if ( ! isset( $name_to_dirs[ $name ] ) ) {
 				$name_to_dirs[ $name ] = array();
 			}
 
-			if ( ! in_array( $dir, $name_to_dirs[ $name ], true ) ) {
-				$name_to_dirs[ $name ][] = $dir;
+			if ( ! in_array( $guarded_dir, $name_to_dirs[ $name ], true ) ) {
+				$name_to_dirs[ $name ][] = $guarded_dir;
 			}
 		}
 
 		return $name_to_dirs;
+	}
+
+	/**
+	 * Mirror (not reuse — `Resizer::sourcePathSegment()` is private and takes
+	 * a URL, not a relative path) the per-component guard the runtime applies
+	 * before it will place a derivative under a source directory: every
+	 * component must survive `sanitize_file_name()` unchanged and be neither
+	 * empty nor `.`/`..`. One failing component voids the whole directory
+	 * rather than being silently dropped or repaired — dropping just that
+	 * component would quietly point the migration at a different directory
+	 * than the one the upload is actually in.
+	 *
+	 * Public and static because, unlike the rest of this class, it is a pure
+	 * function of its input — see the class docblock on why the rest isn't
+	 * unit-tested.
+	 *
+	 * @param string $dir Relative directory, e.g. from `dirname( $attached_file )`.
+	 * @return string The same directory, or '' when any component fails the guard.
+	 */
+	public static function guardSourceDir( string $dir ): string {
+		if ( '' === $dir || '.' === $dir ) {
+			return '';
+		}
+
+		$parts = array();
+
+		foreach ( explode( '/', $dir ) as $part ) {
+			if ( '' === $part || '.' === $part || '..' === $part ) {
+				return '';
+			}
+
+			$clean = sanitize_file_name( $part );
+			if ( '' === $clean || $clean !== $part ) {
+				return '';
+			}
+
+			$parts[] = $clean;
+		}
+
+		return implode( '/', $parts );
 	}
 }

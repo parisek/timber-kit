@@ -94,4 +94,27 @@ class MigratePlanTest extends TestCase {
 
 		$this->assertSame( [], ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08' ] ] ) )->plan()['move'] );
 	}
+
+	/**
+	 * A target can appear between `plan()` snapshotting the filesystem and
+	 * `apply()` reaching that entry — another invocation, a manually placed
+	 * file, anything. `rename()` silently replaces an existing destination on
+	 * POSIX, so `apply()` must re-check immediately before calling it, not
+	 * trust the snapshot `plan()` took.
+	 */
+	public function test_apply_does_not_overwrite_a_target_that_appeared_after_planning(): void {
+		$src = $this->seed( '900x0-center/hero.avif' );
+		$migrator = new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08' ] ] );
+
+		$plan = $migrator->plan();
+		$target = $this->seed( '900x0-center/2026/08/hero.avif' );
+		file_put_contents( $target, 'pre-existing' );
+
+		$result = $migrator->apply( $plan );
+
+		$this->assertSame( 0, $result['moved'] );
+		$this->assertSame( [ $src ], $result['failed'] );
+		$this->assertFileExists( $src );
+		$this->assertSame( 'pre-existing', file_get_contents( $target ) );
+	}
 }
