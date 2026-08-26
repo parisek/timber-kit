@@ -93,6 +93,79 @@ class BuildOrderedUrlsTailTest extends TestCase {
 		$this->assertSame( array( 'https://example.test/dropped/' ), $built['tail'] );
 	}
 
+	public function test_a_curated_url_inside_the_cap_never_reaches_the_tail(): void {
+		// The two features meet here, and the question they raise is whether the
+		// tail should exclude curated entries. It must not, and it also does not
+		// have to: the split subtracts everything already kept, so no URL can be
+		// in both lists. Double warming is impossible by construction rather
+		// than by an exclusion someone has to remember.
+		$records = array(
+			$this->record( 'https://example.test/curated/', array( 'manual' => true, 'source' => 'curated' ) ),
+			$this->record( 'https://example.test/ordinary/' ),
+		);
+
+		$built = WarmupSitemap::buildOrderedUrls( $records, Scorer::DEFAULT_WEIGHTS, self::NOW, 1 );
+
+		$this->assertSame( array( 'https://example.test/curated/' ), $built['urls'] );
+		$this->assertNotContains( 'https://example.test/curated/', $built['tail'] );
+	}
+
+	public function test_a_curated_url_pushed_past_the_cap_appears_in_the_tail_exactly_once(): void {
+		// The case an exclusion would break. A curated entry earns the manual
+		// weight and nothing else -- no freshness, no type -- so an ordinary
+		// menu page with a types weight outranks it and pushes it out. Dropping
+		// it from the tail as well would leave the page a project explicitly
+		// named as the only one warmed by nobody.
+		$weights                  = Scorer::DEFAULT_WEIGHTS;
+		$weights['types']['post'] = 600;
+
+		$records = array(
+			$this->record( 'https://example.test/curated/', array( 'manual' => true, 'source' => 'curated' ) ),
+			$this->record( 'https://example.test/hot/', array( 'menu' => true, 'type' => 'post' ) ),
+		);
+
+		$built = WarmupSitemap::buildOrderedUrls( $records, $weights, self::NOW, 1 );
+
+		$this->assertSame( array( 'https://example.test/hot/' ), $built['urls'] );
+		$this->assertSame( array( 'https://example.test/curated/' ), $built['tail'] );
+	}
+
+	public function test_head_and_tail_together_cover_every_record_without_repeating_one(): void {
+		// The invariant the two features share. Neither list is meaningful on
+		// its own: the head promises the most valuable pages are warm now, the
+		// tail promises the rest follow, and together they must be the whole
+		// set with nothing counted twice.
+		$records = array();
+		for ( $i = 0; $i < 12; $i++ ) {
+			$records[] = $this->record( "https://example.test/p{$i}/" );
+		}
+		$records[] = $this->record( 'https://example.test/curated/', array( 'manual' => true, 'source' => 'curated' ) );
+
+		$built = WarmupSitemap::buildOrderedUrls( $records, Scorer::DEFAULT_WEIGHTS, self::NOW, 5 );
+
+		$all = array_merge( $built['urls'], $built['tail'] );
+
+		$this->assertCount( 13, $all, 'every record is placed' );
+		$this->assertSame( $all, array_unique( $all ), 'and none is placed twice' );
+		$this->assertCount( 5, $built['urls'] );
+	}
+
+	public function test_a_curated_only_set_still_produces_a_tail(): void {
+		// The sitemap can be unreachable -- that is the failure #142 was about
+		// -- and the curated list is then the only source of records. The tail
+		// has to work from it alone, or the drain silently covers nothing on
+		// exactly the site that needs it most.
+		$records = array(
+			$this->record( 'https://example.test/a/', array( 'manual' => true, 'source' => 'curated' ) ),
+			$this->record( 'https://example.test/b/', array( 'manual' => true, 'source' => 'curated' ) ),
+		);
+
+		$built = WarmupSitemap::buildOrderedUrls( $records, Scorer::DEFAULT_WEIGHTS, self::NOW, 1 );
+
+		$this->assertCount( 1, $built['urls'] );
+		$this->assertCount( 1, $built['tail'] );
+	}
+
 	public function test_tail_is_empty_when_everything_fits(): void {
 		$records = array( $this->record( 'https://example.test/a/' ) );
 

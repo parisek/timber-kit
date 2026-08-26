@@ -41,7 +41,7 @@ class TailTickTest extends TestCase {
 		Functions\when( 'as_next_scheduled_action' )->justReturn( false );
 		Functions\when( 'as_schedule_single_action' )->justReturn( 1 );
 
-		WarmupSitemap::register( true, null, true, $batch );
+		WarmupSitemap::register( true, null, array(), true, $batch );
 	}
 
 	public function test_skips_the_tick_while_breeze_is_still_warming(): void {

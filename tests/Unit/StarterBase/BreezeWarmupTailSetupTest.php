@@ -50,7 +50,7 @@ class BreezeWarmupTailSetupTest extends TestCase {
 		$actions = array();
 		$this->captureActions( $actions );
 
-		WarmupSitemap::register( true, null, true, 100 );
+		WarmupSitemap::register( true, null, array(), true, 100 );
 
 		$this->assertContains( array( WarmupSitemap::TAIL_HOOK, 10 ), $actions );
 		$this->assertContains( array( 'breeze_clear_all_cache', 1000 ), $actions );
@@ -60,7 +60,7 @@ class BreezeWarmupTailSetupTest extends TestCase {
 		$actions = array();
 		$this->captureActions( $actions );
 
-		WarmupSitemap::register( true, null, false, 100 );
+		WarmupSitemap::register( true, null, array(), false, 100 );
 
 		$tags = array_column( $actions, 0 );
 		$this->assertNotContains( WarmupSitemap::TAIL_HOOK, $tags );
@@ -71,7 +71,7 @@ class BreezeWarmupTailSetupTest extends TestCase {
 		$actions = array();
 		$this->captureActions( $actions );
 
-		WarmupSitemap::register( false, null, true, 100 );
+		WarmupSitemap::register( false, null, array(), true, 100 );
 
 		$tags = array_column( $actions, 0 );
 		$this->assertNotContains( WarmupSitemap::TAIL_HOOK, $tags );

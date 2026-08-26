@@ -131,8 +131,22 @@ final class TailStore {
 			return false;
 		}
 
-		update_option( self::CURSOR_OPTION, array( 'index' => max( 0, $newIndex ), 'hash' => $hash ), false );
+		$wanted = array( 'index' => max( 0, $newIndex ), 'hash' => $hash );
 
-		return true;
+		update_option( self::CURSOR_OPTION, $wanted, false );
+
+		// The return value is read back rather than taken from update_option(),
+		// which answers false for a write that changed nothing as well as for
+		// one that failed. Both happen here: a concurrent tick can have stored
+		// the identical cursor already, and that is success, not failure. So
+		// the question asked is the one the caller actually cares about --
+		// does the stored cursor now say what this tick wanted?
+		//
+		// It matters because the caller acts on the answer. A failed write left
+		// reported as success means every later tick repeats the same batch
+		// forever, with nothing in any log to say so.
+		$stored = self::readCursor();
+
+		return $stored['index'] === $wanted['index'] && $stored['hash'] === $wanted['hash'];
 	}
 }

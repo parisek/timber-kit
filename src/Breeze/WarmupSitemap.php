@@ -547,6 +547,24 @@ final class WarmupSitemap {
 			return;
 		}
 
+		// Deliberately NOT guarded by as_next_scheduled_action(), and not
+		// scheduled with $unique either, even though scheduleTailTick() uses
+		// the guard a few lines up. The difference is where each one is called
+		// from: that one runs on a purge, outside any tick; this one runs
+		// INSIDE the tick whose own action is still on the schedule.
+		//
+		// Measured against a live Action Scheduler rather than assumed. With
+		// the action marked in-progress, as_next_scheduled_action() still
+		// answers true and as_schedule_single_action( …, $unique = true )
+		// refuses and returns 0. So either form would make a tick decline to
+		// schedule its own successor, and the drain would stop after one batch
+		// -- a silent stop, since nothing reports a chain that simply ends.
+		//
+		// The cost of leaving it unguarded is that two overlapping ticks start
+		// two chains, which then run in parallel at double the intended pace.
+		// Closing that needs a successor key that can exclude the running
+		// action; it is not closed here, and the asymmetry above is the reason
+		// the obvious fix is worse than the defect.
 		as_schedule_single_action( time() + self::TAIL_INTERVAL, self::TAIL_HOOK );
 	}
 

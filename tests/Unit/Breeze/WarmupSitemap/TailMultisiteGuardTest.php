@@ -46,7 +46,7 @@ class TailMultisiteGuardTest extends TestCase {
 			}
 		);
 
-		WarmupSitemap::register( true, null, true, 100 );
+		WarmupSitemap::register( true, null, array(), true, 100 );
 
 		$this->assertNotContains( WarmupSitemap::TAIL_HOOK, $actions );
 		$this->assertNotContains( 'breeze_clear_all_cache', $actions );
@@ -66,7 +66,7 @@ class TailMultisiteGuardTest extends TestCase {
 			}
 		);
 
-		WarmupSitemap::register( true, null, true, 100 );
+		WarmupSitemap::register( true, null, array(), true, 100 );
 
 		$this->assertContains( WarmupSitemap::TAIL_HOOK, $actions );
 		$this->assertContains( 'breeze_clear_all_cache', $actions );

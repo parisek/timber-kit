@@ -103,14 +103,25 @@ class TailStoreTest extends TestCase {
 	}
 
 	public function test_advance_writes_when_the_cursor_is_unchanged(): void {
-		$current = array( 'index' => 100, 'hash' => 'h' );
-		Functions\when( 'get_option' )->justReturn( $current );
-		$written = null;
+		// The stub is a store, not a constant. advanceCursor() reads the cursor
+		// back to decide what to report, so a get_option() frozen at the old
+		// value would make a successful write look like a failed one.
+		$current  = array( 'index' => 100, 'hash' => 'h' );
+		$stored   = $current;
+		$written  = null;
 		$autoload = null;
+		Functions\when( 'get_option' )->alias(
+			// A normal closure, not an arrow function: `fn` captures by value at
+			// definition, so the store would answer with its first state forever.
+			function ( string $key, $default = false ) use ( &$stored ) {
+				return $stored;
+			}
+		);
 		Functions\when( 'update_option' )->alias(
-			function ( string $key, $value, $auto = null ) use ( &$written, &$autoload ): bool {
+			function ( string $key, $value, $auto = null ) use ( &$written, &$autoload, &$stored ): bool {
 				$written  = $value;
 				$autoload = $auto;
+				$stored   = $value;
 
 				return true;
 			}
@@ -120,6 +131,17 @@ class TailStoreTest extends TestCase {
 		$this->assertSame( 200, $written['index'] );
 		$this->assertSame( 'h', $written['hash'] );
 		$this->assertFalse( $autoload, 'the cursor must never autoload; every request would otherwise load it' );
+	}
+
+	public function test_a_write_that_does_not_land_is_reported_as_failure(): void {
+		// The defect this pins: the outcome used to be hardcoded true. A cursor
+		// write that fails then leaves every later tick repeating the same
+		// batch, forever, with nothing in any log to say so.
+		$current = array( 'index' => 100, 'hash' => 'h' );
+		Functions\when( 'get_option' )->justReturn( $current );
+		Functions\when( 'update_option' )->justReturn( false );
+
+		$this->assertFalse( TailStore::advanceCursor( $current, 200, 'h' ) );
 	}
 
 	public function test_advance_is_discarded_when_a_purge_reset_the_cursor(): void {
