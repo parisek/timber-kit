@@ -444,9 +444,9 @@ class Breadcrumb {
 
 		foreach ( $links as $key => $item ) {
 			if ( is_string( $item ) && ! empty( $item ) ) {
-				$post_id = url_to_postid( $item );
+				$post_id = Helpers::urlToPostId( $item );
 				if ( $post_id ) {
-					$translated_id = (int) apply_filters( 'wpml_object_id', $post_id, 'page' );
+					$translated_id = $post_id;
 					$data[ $key ] = [
 						'id'    => $translated_id,
 						'title' => '',
@@ -454,9 +454,9 @@ class Breadcrumb {
 					];
 				}
 			} elseif ( is_array( $item ) && isset( $item['url'] ) ) {
-				$post_id = url_to_postid( $item['url'] );
+				$post_id = Helpers::urlToPostId( $item['url'] );
 				if ( $post_id ) {
-					$translated_id = (int) apply_filters( 'wpml_object_id', $post_id, 'page' );
+					$translated_id = $post_id;
 					$url = get_permalink( $translated_id );
 				} else {
 					$translated_id = 0;

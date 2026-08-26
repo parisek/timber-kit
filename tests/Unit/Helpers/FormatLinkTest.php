@@ -133,6 +133,9 @@ class FormatLinkTest extends HelpersTestCase {
 	}
 
 	public function test_wpml_slug_fallback_when_url_to_postid_returns_zero(): void {
+		// The path fallback is host-gated now, so it has to be able to learn
+		// which hosts belong to this site.
+		Functions\when( 'home_url' )->justReturn( 'https://example.com' );
 		$callCount = 0;
 		Functions\when( 'url_to_postid' )->alias( function () use ( &$callCount ) {
 			$callCount++;
@@ -162,6 +165,9 @@ class FormatLinkTest extends HelpersTestCase {
 	}
 
 	public function test_wpml_url_to_postid_zero_both_times(): void {
+		// The path fallback is host-gated now, so it has to be able to learn
+		// which hosts belong to this site.
+		Functions\when( 'home_url' )->justReturn( 'https://example.com' );
 		Functions\when( 'url_to_postid' )->justReturn( 0 );
 		Functions\when( 'is_plugin_active' )->justReturn( false );
 

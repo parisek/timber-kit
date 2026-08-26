@@ -8,6 +8,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `$breeze_warmup_urls` — a curated warmup list that lives in the theme instead
+  of in Breeze's settings row. Merges into the existing `manual` signal at the
+  weight it already carries; no new tier, no change to ordering or the cap.
+  Entries may be relative paths or absolute URLs, and both are resolved rather
+  than trusted: one naming a post or page comes back as `get_permalink()`, so a
+  relative path is correct on every environment and, under domain-per-language,
+  on that language's own host. An entry that resolves to nothing is dropped, and
+  what `url_to_postid()` cannot see is verified with one `HEAD` during the cron
+  refresh — never on the purge path. Filterable as
+  `timberkit_warmup_curated_urls`, its cap as
+  `timberkit_warmup_curated_max_entries`.
+- `Helpers::isSiteUrl()` / `Helpers::siteHosts()` — whether a URL belongs to this
+  site, matching host **and** port, and counting each WPML language's own host
+  under domain-per-language negotiation.
+- `Helpers::urlToPostId()` — URL to post ID with the WPML prefix fallback and
+  `wpml_object_id` translation. `formatLink()` had this logic privately;
+  `Breadcrumb` and the new warmup list needed the same, so it is one function now
+  and both call sites use it.
 - `Breeze\WarmupSitemap` recognises **Yoast SEO** and asks for
   `/sitemap_index.xml`. Providers are now a list checked in order — AIOSEO,
   Yoast, core — so a project gets the right sitemap from whichever plugin it
@@ -28,8 +46,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   non-string return, or a URL on another host, is ignored in favour of the
   detected path.
 
+### Changed
+
+- The warmup refresh no longer returns early when the sitemap is empty or
+  unreachable. Curated entries are added first, so a project that names its
+  pages explicitly still gets them warmed in exactly the situation where the
+  sitemap cannot help. On a site with no curated entries this changes nothing;
+  on one with them, a refresh that used to no-op now does work.
+
 ### Fixed
 
+- `Helpers::formatLink()` no longer replaces a valid link with an empty string.
+  `get_permalink()` answers `false` for a trashed post or a stale WPML
+  translation id, and the concatenations after it coerced that to `''` — so a
+  working URL silently became `''` or a bare `?query`.
+- `Helpers::extract_slug_from_url()` no longer fatals when `wpml_active_languages`
+  answers with `null` while the plugin is active — `array_keys( null )` is a
+  TypeError, and WPML returns null before it has finished booting.
+- `Breadcrumb` now resolves language-prefixed URLs. It called `url_to_postid()`
+  directly, which returns 0 for a valid `/cs/…` URL, so those global links were
+  silently dropped from the trail.
+- The WPML prefix fallback no longer lets a foreign URL borrow a local path.
+  It compares paths, so `https://someone-else.test/about/` matched this site's
+  own About page and was rewritten to a local permalink — in `formatLink()`,
+  where the fallback has lived for years, and in `Breadcrumb`.
 - The same-host guard compared the hostname and ignored the **port**, so a
   sitemap index entry — or a filter callback — pointing at
   `https://<own-host>:9200/` passed it and was fetched. An internal service

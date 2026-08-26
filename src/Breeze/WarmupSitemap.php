@@ -58,6 +58,9 @@ final class WarmupSitemap {
 	/** @var bool Prevent duplicate hook registration. */
 	private static bool $registered = false;
 
+	/** @var array<int, string> Project's curated warmup entries, unresolved. */
+	private static array $curated = array();
+
 	/** @var bool Whether ordering is enabled for this project. */
 	private static bool $priority_enabled = false;
 
@@ -108,9 +111,10 @@ final class WarmupSitemap {
 	 * a project that wires it without going through `StarterBase`.
 	 *
 	 * @param array<string, mixed>|null $weights
+	 * @param array<int, string>        $curated Project's curated warmup entries.
 	 * @return void
 	 */
-	public static function register( bool $priority = false, ?array $weights = null ): void {
+	public static function register( bool $priority = false, ?array $weights = null, array $curated = array() ): void {
 		if ( self::$registered ) {
 			return;
 		}
@@ -122,6 +126,7 @@ final class WarmupSitemap {
 		self::$registered       = true;
 		self::$priority_enabled = $priority;
 		self::$weights          = $weights ?? Scorer::DEFAULT_WEIGHTS;
+		self::$curated          = $curated;
 
 		add_filter( 'breeze_preload_urls', array( self::class, 'filterPreloadUrls' ) );
 		add_action( self::CRON_HOOK, array( self::class, 'runRefresh' ) );
@@ -357,11 +362,15 @@ final class WarmupSitemap {
 			$revision = PriorityStore::revision();
 			$records  = self::fetchSitemapRecords();
 
+			// No early return on an empty sitemap: enrichRecords() adds the
+			// curated entries, and a project that lists them explicitly should
+			// still get them warmed when the sitemap is missing or broken --
+			// which is exactly when it matters most.
+			$records = self::enrichRecords( $records );
+
 			if ( array() === $records ) {
 				return;
 			}
-
-			$records = self::enrichRecords( $records );
 			$weights = self::weights();
 			$built   = self::buildOrderedUrls( $records, $weights, time(), self::maxUrls() );
 
@@ -421,8 +430,16 @@ final class WarmupSitemap {
 	private static function enrichRecords( array $records ): array {
 		$menu       = SignalCollector::menuKeys();
 		$frontPages = SignalCollector::frontPages();
-		$manual     = SignalCollector::manualKeys();
+		// Breeze's own row plus the project's committed list. Either may be
+		// empty; a key present in both is one key.
+		$manual     = SignalCollector::manualKeys() + CuratedUrls::filterReachable( CuratedUrls::keys( self::$curated ) );
 		$languages  = SignalCollector::activeLanguages();
+
+		// A curated entry that the sitemap does not carry has to become a
+		// record, not merely a flag on one. Flagging alone would mean the whole
+		// point of a curated list -- naming a page the sitemap ranks badly or
+		// omits entirely -- silently did nothing.
+		$records = self::appendMissingManual( $records, $manual );
 
 		foreach ( $records as $i => $record ) {
 			$key = (string) $record['key'];
@@ -438,6 +455,57 @@ final class WarmupSitemap {
 					$languages['codes'],
 					$languages['default']
 				);
+		}
+
+		return $records;
+	}
+
+	/**
+	 * Add records for curated keys the sitemap did not supply.
+	 *
+	 * `lastmod` is null on purpose: nothing is known about when the page
+	 * changed, and inventing a date would hand it a freshness score it has not
+	 * earned. `type` is empty for a different reason -- the post type is
+	 * knowable for anything that resolved to an ID, it is simply not carried
+	 * this far yet -- see #148.
+	 *
+	 * Both gaps cost score, and the arithmetic is worth stating rather than
+	 * assuming. A curated entry earns the `manual` weight (800) plus whatever
+	 * `menu` and `front_page` the enrichment below finds, and nothing else. An
+	 * ordinary menu page edited yesterday earns menu (500) plus freshness
+	 * (300) -- a tie on the default weights, and a win for the sitemap page as
+	 * soon as a project sets any `types` weight. So a curated entry does NOT
+	 * reliably outrank the sitemap; it is competitive with it. Entries pushed
+	 * past the URL cap are picked up by the tail drain, which is why the tail
+	 * must never exclude them.
+	 *
+	 * @param array<int, array<string, mixed>> $records Records from the sitemap.
+	 * @param array<string, bool>              $manual  Curated + Breeze keys. Only
+	 *                                                  the keys are read.
+	 * @return array<int, array<string, mixed>>
+	 */
+	private static function appendMissingManual( array $records, array $manual ): array {
+		if ( array() === $manual ) {
+			return $records;
+		}
+
+		$known = array();
+		foreach ( $records as $record ) {
+			$known[ (string) $record['key'] ] = true;
+		}
+
+		foreach ( $manual as $key => $flag ) {
+			if ( isset( $known[ $key ] ) ) {
+				continue;
+			}
+
+			$records[] = array(
+				'url'     => (string) $key,
+				'key'     => (string) $key,
+				'lastmod' => null,
+				'type'    => '',
+				'source'  => 'curated',
+			);
 		}
 
 		return $records;

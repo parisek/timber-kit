@@ -1575,19 +1575,25 @@ class Helpers {
 		if ( isset( $value['url'] ) ) {
 
 			$parsed_url = parse_url( $value['url'] );
-			$post_id = url_to_postid( $value['url'] );
-			// if we are in non default language we could get 0 for valid URLs
-			// then we need to extract only slug from URL
-			if ( $post_id === 0 ) {
-				$url = self::extract_slug_from_url( $value['url'] );
-				$post_id = url_to_postid( $url );
-			}
+			// The prefix fallback and the wpml_object_id translation both live
+			// in urlToPostId() now — this is where they were written, and
+			// its other callers in this package need the same two steps.
+			$post_id = self::urlToPostId( $value['url'] );
 
 			if ( $post_id > 0 ) {
 
-				$post_type = get_post_type( $post_id );
-				$translated_url = apply_filters( 'wpml_object_id', $post_id, $post_type );
-				$translated_url = get_permalink( $translated_url );
+				$translated_url = get_permalink( $post_id );
+
+				// get_permalink() answers false for a trashed post, and for a
+				// WPML translation id that no longer resolves. Without this the
+				// concatenations below coerce false to '' and a previously
+				// valid link becomes an empty string or a bare `?query` —
+				// silently, replacing something that worked. CuratedUrls::resolve()
+				// guards the same call the same way; this is that guard, in the
+				// place the pattern was taken from.
+				if ( ! is_string( $translated_url ) || '' === $translated_url ) {
+					return $value;
+				}
 
 				// Add query if it's there
 				if ( isset( $parsed_url['query'] ) ) {
@@ -1850,6 +1856,156 @@ class Helpers {
 	}
 
 	/**
+	 * Whether a URL belongs to this site.
+	 *
+	 * A bare path does by definition. An absolute URL has to match host AND
+	 * port: `example.test:8080` is a different service from `example.test`, and
+	 * treating them as one turns a same-host check into a request this site can
+	 * be made to send anywhere on that machine.
+	 *
+	 * Under WPML's domain-per-language negotiation every language but the
+	 * default lives on its own host, so `home_url()` alone is not the answer —
+	 * see {@see self::siteHosts()}.
+	 *
+	 * @param string $url Absolute URL, or a path.
+	 * @return bool
+	 */
+	public static function isSiteUrl( string $url ): bool {
+		$parts = parse_url( $url );
+		if ( ! is_array( $parts ) ) {
+			return false;
+		}
+
+		// No host: a path, which is this site's by construction.
+		if ( empty( $parts['host'] ) ) {
+			return true;
+		}
+
+		$scheme = isset( $parts['scheme'] ) ? strtolower( (string) $parts['scheme'] ) : '';
+		if ( 'http' !== $scheme && 'https' !== $scheme ) {
+			return false;
+		}
+
+		if ( ! empty( $parts['user'] ) || ! empty( $parts['pass'] ) ) {
+			return false;
+		}
+
+		$authority = strtolower( (string) $parts['host'] );
+		if ( isset( $parts['port'] ) ) {
+			$authority .= ':' . (int) $parts['port'];
+		}
+
+		return in_array( $authority, self::siteHosts(), true );
+	}
+
+	/**
+	 * Every authority this site answers on, `host` or `host:port`.
+	 *
+	 * `home_url()` plus each active language's own URL, because under
+	 * domain-per-language those are different hosts and refusing them would
+	 * refuse the site's own pages.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function siteHosts(): array {
+		$authorities = array();
+
+		$add = static function ( $url ) use ( &$authorities ): void {
+			$parts = parse_url( (string) $url );
+			if ( ! is_array( $parts ) || empty( $parts['host'] ) ) {
+				return;
+			}
+			$authority = strtolower( (string) $parts['host'] );
+			if ( isset( $parts['port'] ) ) {
+				$authority .= ':' . (int) $parts['port'];
+			}
+			if ( ! in_array( $authority, $authorities, true ) ) {
+				$authorities[] = $authority;
+			}
+		};
+
+		if ( function_exists( 'home_url' ) ) {
+			$add( home_url() );
+		}
+		if ( function_exists( 'site_url' ) ) {
+			$add( site_url() );
+		}
+
+		if ( function_exists( 'apply_filters' ) ) {
+			$languages = apply_filters( 'wpml_active_languages', null, array( 'skip_missing' => false ) );
+			if ( is_array( $languages ) ) {
+				foreach ( $languages as $language ) {
+					if ( is_array( $language ) && ! empty( $language['url'] ) ) {
+						$add( $language['url'] );
+					}
+				}
+			}
+		}
+
+		return $authorities;
+	}
+
+	/**
+	 * Resolve a URL to the post it names, in the current language.
+	 *
+	 * `url_to_postid()` alone is not enough on a WPML site with language URL
+	 * prefixes: it returns 0 for a perfectly valid `/cs/my-page`, because the
+	 * rewrite rules it consults belong to the default language. The second
+	 * lookup strips the prefix via {@see self::extract_slug_from_url()} and asks
+	 * again — which is what `formatLink()` has always done privately, and what
+	 * every other caller of `url_to_postid()` in this package needs for the same
+	 * reason.
+	 *
+	 * The returned ID is passed through `wpml_object_id`, so a caller gets the
+	 * translation that belongs to the language being rendered rather than the
+	 * one whose slug happened to match.
+	 *
+	 * The prefix fallback is host-gated. It compares paths, so without the gate
+	 * `https://someone-else.test/about/` would match this site's own About page
+	 * and be silently rewritten to a local permalink — which is what
+	 * `Breadcrumb` and `formatLink` were doing before this helper existed.
+	 *
+	 * @param string $url Absolute URL, or a path.
+	 * @return int Post ID, or 0 when the URL names nothing on this site.
+	 */
+	public static function urlToPostId( string $url ): int {
+		if ( '' === trim( $url ) || ! function_exists( 'url_to_postid' ) ) {
+			return 0;
+		}
+
+		$post_id = (int) url_to_postid( $url );
+
+		if ( 0 === $post_id ) {
+			// The gate belongs HERE, not above. The lookup that just failed
+			// compared full URLs, so a foreign host could never have matched
+			// anything. The fallback below compares PATHS, and that is where
+			// `https://someone-else.test/about/` would quietly become this
+			// site's own About page. Checking only here also keeps the common
+			// case from needing to know the site's hosts at all.
+			if ( self::isSiteUrl( $url ) ) {
+				$stripped = self::extract_slug_from_url( $url );
+				if ( is_string( $stripped ) && '' !== $stripped ) {
+					$post_id = (int) url_to_postid( $stripped );
+				}
+			}
+		}
+
+		if ( $post_id <= 0 ) {
+			return 0;
+		}
+
+		if ( function_exists( 'apply_filters' ) ) {
+			$post_type  = function_exists( 'get_post_type' ) ? get_post_type( $post_id ) : 'page';
+			$translated = (int) apply_filters( 'wpml_object_id', $post_id, $post_type ?: 'page' );
+			if ( $translated > 0 ) {
+				$post_id = $translated;
+			}
+		}
+
+		return $post_id;
+	}
+
+	/**
 	 * Extract the path (slug) from a URL, stripping the WPML language prefix if present.
 	 *
 	 * Useful as a fallback for `url_to_postid()` when WPML is active with
@@ -1871,8 +2027,18 @@ class Helpers {
 		$path = rtrim( $path, '/' );
 
 		if ( function_exists( 'is_plugin_active' ) && is_plugin_active( 'sitepress-multilingual-cms/sitepress.php' ) ) {
-			// Get all active language codes
+			// Get all active language codes. The guard is not defensive
+			// decoration: the plugin being active does not guarantee the filter
+			// answers with an array — it returns null before WPML has finished
+			// booting — and array_keys( null ) is a TypeError, i.e. a fatal on
+			// a page that only wanted to resolve a link.
 			$active_languages = apply_filters( 'wpml_active_languages', null );
+			if ( ! is_array( $active_languages ) ) {
+				// Fall through rather than return: the contract is that this
+				// always answers with a leading slash, and an early return here
+				// would break it for a relative input.
+				$active_languages = array();
+			}
 			$active_languages = array_keys( $active_languages );
 
 			// Remove language prefix if present
