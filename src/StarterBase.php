@@ -1029,6 +1029,7 @@ class StarterBase extends Site {
 		\WP_CLI::add_command( 'timber-kit acfml-sync-preferences', \Parisek\TimberKit\Cli\AcfmlSyncPreferencesCommand::class );
 		\WP_CLI::add_command( 'timber-kit wpml-cleanup-theme-domain', \Parisek\TimberKit\Cli\WpmlCleanupThemeDomainCommand::class );
 		\WP_CLI::add_command( 'timber-kit outage-screen', \Parisek\TimberKit\Cli\OutageScreenCommand::class );
+		\WP_CLI::add_command( 'timber-kit migrate-image-cache', \Parisek\TimberKit\Cli\MigrateImageCacheCommand::class );
 		// Registered regardless of $svg_dimensions: a sweep a human runs on purpose
 		// is opt-in by being typed, and the existing backlog needs fixing on
 		// projects that have not flipped the upload flag.

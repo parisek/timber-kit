@@ -568,6 +568,7 @@ of these went undocumented for several releases.
 | `wp timber-kit acfml-sync-preferences` | Reconciles WPML translation preferences for programmatically written ACF meta. See § ACFML preference sync. |
 | `wp timber-kit wpml-cleanup-theme-domain` | Purges WPML String Translation rows and compiled files left behind for a text domain that is no longer registered with ST. See § WPML theme-domain cleanup. |
 | `wp timber-kit outage-screen` | Installs the drop-ins that serve the theme's prerendered outage screen. See § Outage screen. |
+| `wp timber-kit migrate-image-cache` | Moves existing resizer cache derivatives into the source-path layout, ahead of enabling `$resizer_source_path_in_cache_key`. Dry-run by default, `--apply` to write. |
 
 ---
 
