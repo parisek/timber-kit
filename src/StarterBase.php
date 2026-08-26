@@ -4045,7 +4045,42 @@ class StarterBase extends Site {
 			return;
 		}
 
-		// Scan cache directory for matching files (including nested directories)
+		if ( $this->resizer_source_path_in_cache_key ) {
+			// Layout is <size>/<source-upload-dir>/<name>.<fmt>. That source
+			// directory and name are the same segments `_wp_attached_file`
+			// carries, so the derivative paths are derivable directly — no
+			// scan, and no risk of matching a different upload's basename.
+			$files_to_delete = $this->cached_derivative_paths_by_source_path( $cache_dir, $attachment_id );
+		} else {
+			$files_to_delete = $this->cached_derivative_paths_by_basename_scan( $cache_dir, $basename );
+		}
+
+		if ( ! empty( $files_to_delete ) ) {
+			// Initialize the WordPress filesystem
+			if ( ! function_exists( 'WP_Filesystem' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+			}
+			global $wp_filesystem;
+			\WP_Filesystem();
+
+			// Delete the matched files
+			foreach ( $files_to_delete as $file_to_delete ) {
+				if ( $wp_filesystem->exists( $file_to_delete ) ) {
+					$wp_filesystem->delete( $file_to_delete );
+				}
+			}
+		}
+	}
+
+	/**
+	 * Locate cached derivatives by scanning the whole cache tree for a matching
+	 * basename — the flag-off layout, where the source path isn't in the key.
+	 *
+	 * @param string $cache_dir Absolute path to `wp-content/cache/image`.
+	 * @param string $basename  Attachment filename without its extension.
+	 * @return list<string> Absolute paths of derivatives to delete.
+	 */
+	private function cached_derivative_paths_by_basename_scan( $cache_dir, $basename ) {
 		$files_to_delete = [];
 
 		$directory_iterator = new \RecursiveIteratorIterator(
@@ -4072,21 +4107,49 @@ class StarterBase extends Site {
 			}
 		}
 
-		if ( ! empty( $files_to_delete ) ) {
-			// Initialize the WordPress filesystem
-			if ( ! function_exists( 'WP_Filesystem' ) ) {
-				require_once ABSPATH . 'wp-admin/includes/file.php';
-			}
-			global $wp_filesystem;
-			\WP_Filesystem();
+		return $files_to_delete;
+	}
 
-			// Delete the matched files
-			foreach ( $files_to_delete as $file_to_delete ) {
-				if ( $wp_filesystem->exists( $file_to_delete ) ) {
-					$wp_filesystem->delete( $file_to_delete );
-				}
+	/**
+	 * Locate cached derivatives directly — the flag-on layout, where the cache
+	 * key is `<size>/<source-upload-dir>/<name>.<fmt>`. `<source-upload-dir>/
+	 * <name>` is `_wp_attached_file` without its extension, so every derivative
+	 * lives at a predictable path under each size directory. No scan, and no
+	 * risk of touching a different upload's derivatives.
+	 *
+	 * Never deletes the size directory or the source subdirectory themselves,
+	 * even once emptied — another attachment's derivative may land there next.
+	 *
+	 * @param string $cache_dir     Absolute path to `wp-content/cache/image`.
+	 * @param int    $attachment_id The attachment being deleted.
+	 * @return list<string> Absolute paths of derivatives to delete.
+	 */
+	private function cached_derivative_paths_by_source_path( $cache_dir, $attachment_id ) {
+		$relative_path = get_post_meta( (int) $attachment_id, '_wp_attached_file', true );
+
+		if ( ! is_string( $relative_path ) || '' === $relative_path ) {
+			return [];
+		}
+
+		$source_dir = trim( dirname( $relative_path ), '.' );
+		$name = pathinfo( $relative_path, PATHINFO_FILENAME );
+
+		if ( '' === $name ) {
+			return [];
+		}
+
+		$files_to_delete = [];
+
+		foreach ( glob( $cache_dir . '/*', GLOB_ONLYDIR ) ?: [] as $size_dir ) {
+			$source_path = '' === $source_dir ? $size_dir : $size_dir . '/' . $source_dir;
+			$matches = glob( $source_path . '/' . $name . '.*' );
+
+			if ( $matches ) {
+				array_push( $files_to_delete, ...$matches );
 			}
 		}
+
+		return $files_to_delete;
 	}
 
 	/**

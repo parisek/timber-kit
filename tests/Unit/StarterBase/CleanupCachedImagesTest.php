@@ -233,6 +233,33 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		);
 	}
 
+	/** Same override the flag's own registration test uses. */
+	private function enableSourcePathCacheKey(): void {
+		( new \ReflectionClass( \Parisek\TimberKit\StarterBase::class ) )
+			->getProperty( 'resizer_source_path_in_cache_key' )
+			->setValue( $this->base, true );
+	}
+
+	public function test_with_the_flag_on_only_the_matching_source_directory_is_deleted(): void {
+		mkdir( $this->cache_dir . '/900x0-center/2022/03', 0777, true );
+		mkdir( $this->cache_dir . '/900x0-center/2022/10', 0777, true );
+		$this->created[] = $this->cache_dir . '/900x0-center/2022/03';
+		$this->created[] = $this->cache_dir . '/900x0-center/2022/10';
+		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/11.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/2022/10/11.avif' );
+
+		$this->stubAttachment( 4711, '2022/03/11.png', siblings: 0 );
+		$this->enableSourcePathCacheKey();
+
+		$this->base->cleanup_cached_images( 4711 );
+
+		$this->assertFileDoesNotExist( $this->cache_dir . '/900x0-center/2022/03/11.avif' );
+		$this->assertFileExists(
+			$this->cache_dir . '/900x0-center/2022/10/11.avif',
+			'a different upload that happens to share a name must survive'
+		);
+	}
+
 	/**
 	 * Without a database the sibling question cannot be answered. Skipping the
 	 * delete leaves a stale file that the next resize overwrites; guessing wrong
