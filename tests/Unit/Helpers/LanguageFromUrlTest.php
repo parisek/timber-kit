@@ -44,8 +44,21 @@ final class LanguageFromUrlTest extends TestCase {
 		);
 	}
 
-	/** @var array<string, array<string, string>> Directory negotiation: no per-language host. */
+	/** @var array<string, array<string, string>> Directory negotiation, minimal shape. */
 	private const DIRECTORY = array( 'en' => array(), 'cs' => array(), 'it' => array() );
+
+	/**
+	 * Directory negotiation as WPML actually reports it: every language carries
+	 * a `url`, and they all share one host. The earlier fixture omitted `url`
+	 * entirely, which is why it could not catch the defect below.
+	 *
+	 * @var array<string, array<string, string>>
+	 */
+	private const DIRECTORY_REAL = array(
+		'cs' => array( 'url' => 'https://example.test/cs/' ),
+		'en' => array( 'url' => 'https://example.test/' ),
+		'it' => array( 'url' => 'https://example.test/it/' ),
+	);
 
 	public function test_reads_the_path_prefix(): void {
 		$this->wpml( self::DIRECTORY );
@@ -81,6 +94,19 @@ final class LanguageFromUrlTest extends TestCase {
 		$this->wpml( self::DIRECTORY );
 
 		$this->assertSame( 'cs', Helpers::languageFromUrl( '/cs/cenik/' ) );
+	}
+
+	public function test_a_host_shared_by_every_language_decides_nothing(): void {
+		// The defect this pins. Under directory negotiation WPML still reports
+		// a `url` per language and they all share one host, so a plain host
+		// match succeeds for whichever language comes first in the array --
+		// here `cs` -- and every URL resolves to it. Measured on a live
+		// five-language site: an Italian URL came back Czech.
+		$this->wpml( self::DIRECTORY_REAL );
+
+		$this->assertSame( 'it', Helpers::languageFromUrl( 'https://example.test/it/glossario/' ) );
+		$this->assertSame( 'cs', Helpers::languageFromUrl( 'https://example.test/cs/cenik/' ) );
+		$this->assertSame( 'en', Helpers::languageFromUrl( 'https://example.test/pricing/' ) );
 	}
 
 	public function test_domain_negotiation_reads_the_host(): void {

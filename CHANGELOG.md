@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `Helpers::languageFromUrl()` (new in 1.41.0) read a per-language host before
+  the path prefix, and under **directory** negotiation that host is the same
+  for every language — so the match succeeded for whichever language came first
+  in WPML's array and every URL resolved to it. Measured on a five-language
+  site whose array starts with `cs`: an Italian URL came back Czech, and the
+  curated warmup list it was written for warmed five copies of the Czech pages.
+  A language host now counts only where the hosts actually tell the languages
+  apart; where they do not, the path is the only evidence and is used alone.
+
+  The 1.41.0 tests missed it because neither fixture had the real shape: the
+  directory one omitted `url` entirely, so the host branch never ran, and the
+  domain one gave each language a distinct host. Both fixtures made the defect
+  unreachable.
+
 ## [1.41.0] - 2026-08-26
 
 ### Added
