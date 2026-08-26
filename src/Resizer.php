@@ -862,6 +862,62 @@ class Resizer {
 	}
 
 	/**
+	 * The source file's own directory, below the uploads root.
+	 *
+	 * Derived from the URL rather than the resolved filesystem path on purpose:
+	 * `resize()` needs this value before it knows whether the file exists
+	 * locally, because a missing source is handed to DevMediaProxy, which
+	 * addresses the very same cache path on another host.
+	 *
+	 * Each segment is sanitized the way the filename already is. The segment is
+	 * appended to a filesystem path, so a `..` reaching the cache root would
+	 * escape it; any segment that does not survive sanitation unchanged voids
+	 * the whole result rather than being silently repaired into a different
+	 * directory.
+	 *
+	 * @param string $src     Absolute source URL.
+	 * @param string $baseurl Uploads base URL.
+	 * @return string Relative directory, no leading or trailing slash; '' when the
+	 *                source is at the uploads root or not below it at all.
+	 */
+	private function sourcePathSegment( string $src, string $baseurl ): string {
+		$src = (string) strtok( $src, '?' );
+		$baseurl = rtrim( $baseurl, '/' );
+
+		if ( $baseurl === '' || strpos( $src, $baseurl . '/' ) !== 0 ) {
+			return '';
+		}
+
+		$relative = substr( $src, strlen( $baseurl ) + 1 );
+		$dir = trim( str_replace( '\\', '/', dirname( $relative ) ), '/' );
+
+		if ( $dir === '' || $dir === '.' ) {
+			return '';
+		}
+
+		$parts = [];
+		foreach ( explode( '/', $dir ) as $part ) {
+			$decoded = rawurldecode( $part );
+
+			// Explicit, not inferred from sanitize_file_name(): WordPress does not
+			// count '.' among its special characters, so a guard resting on that
+			// function altering the string would be resting on trimming behaviour
+			// that is not promised. This segment is appended to a filesystem path.
+			if ( $decoded === '' || $decoded === '.' || $decoded === '..' ) {
+				return '';
+			}
+
+			$clean = sanitize_file_name( $decoded );
+			if ( $clean === '' || $clean !== $decoded ) {
+				return '';
+			}
+			$parts[] = $clean;
+		}
+
+		return implode( '/', $parts );
+	}
+
+	/**
 	 * Process a single image variant
 	 *
 	 * @param array  $variant       Variant specification.
