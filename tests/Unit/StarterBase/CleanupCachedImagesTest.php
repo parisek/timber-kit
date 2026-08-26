@@ -40,6 +40,15 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		$this->makeDir( $this->cache_dir . '/1439x0-center' );
 
 		$this->stubFilesystem();
+
+		// Same stub shape as guardSourceDir()'s own test and Resizer's
+		// SourcePathSegmentTest: keep A-Za-z0-9._-, strip the rest. This is
+		// the function the writer (Resizer.php) sanitizes names through, so
+		// stubbing it here lets the flag-on tests exercise the same
+		// name-collapsing rule the real cache key was written with.
+		Functions\when( 'sanitize_file_name' )->alias( function ( $name ) {
+			return preg_replace( '/[^A-Za-z0-9._-]/', '', (string) $name );
+		} );
 	}
 
 	protected function tearDown(): void {
@@ -257,6 +266,76 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		$this->assertFileExists(
 			$this->cache_dir . '/900x0-center/2022/10/11.avif',
 			'a different upload that happens to share a name must survive'
+		);
+	}
+
+	/**
+	 * A raw (unsanitized) name used directly as a glob pattern turns a bracket
+	 * expression into a live character class. `img[0-9]` is a legitimate
+	 * (if odd) filename component that survives to `_wp_attached_file`
+	 * unsanitized in scenarios the upload sanitizer never saw — a migration
+	 * script, an offloaded-media plugin writing meta directly. Sanitizing it
+	 * the way the writer (`Resizer.php`) does collapses it to `img0-9`, the
+	 * literal name the real derivative was written under; skipping that step
+	 * makes the delete pattern `img[0-9].*`, which glob reads as "img" plus
+	 * exactly one digit — matching an unrelated upload's `img5.avif` and
+	 * missing the target's own `img0-9.avif` entirely.
+	 */
+	public function test_with_the_flag_on_a_glob_metacharacter_in_the_name_does_not_reach_an_unrelated_derivative(): void {
+		mkdir( $this->cache_dir . '/900x0-center/2022/03', 0777, true );
+		$this->created[] = $this->cache_dir . '/900x0-center/2022/03';
+		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/img0-9.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/img5.avif' );
+
+		$this->stubAttachment( 4711, '2022/03/img[0-9].png', siblings: 0 );
+		$this->enableSourcePathCacheKey();
+
+		$this->base->cleanup_cached_images( 4711 );
+
+		$this->assertFileDoesNotExist(
+			$this->cache_dir . '/900x0-center/2022/03/img0-9.avif',
+			'the target attachment\'s own (sanitized) derivative must still be found and deleted'
+		);
+		$this->assertFileExists(
+			$this->cache_dir . '/900x0-center/2022/03/img5.avif',
+			'an unrelated upload must not be swept up by an unsanitized glob pattern'
+		);
+	}
+
+	/**
+	 * `_wp_attached_file` is database content. A corrupted or plugin-written
+	 * value can carry a `..` segment; unguarded, that walks the glob outside
+	 * both the source directory and the cache root. Mirrors
+	 * `MigrateImageCacheCommand::guardSourceDir()`, which collapses any
+	 * invalid directory (including one with a traversal component) to the
+	 * flat root — matching the writer, which does the same when its own
+	 * mirrored guard (`Resizer::sourcePathSegment()`) rejects a component.
+	 */
+	public function test_with_the_flag_on_a_traversal_segment_in_the_directory_is_treated_as_the_flat_root(): void {
+		// The target's real derivative, at the flat root the guard falls back to.
+		$this->seedFile( $this->cache_dir . '/900x0-center/11.avif' );
+
+		// A file well outside the cache tree — a `..` component joined onto
+		// a size directory and walked by the filesystem can reach anything
+		// under WP_CONTENT_DIR, not just a sibling inside the cache. Placed
+		// outside `$cache_dir` on purpose, so it can never be reached by
+		// enumerating `$cache_dir`'s own subdirectories either.
+		$outside_dir = dirname( $this->cache_dir ) . '/decoy';
+		$this->makeDir( $outside_dir );
+		$this->seedFile( $outside_dir . '/11.avif' );
+
+		$this->stubAttachment( 4711, '../decoy/11.png', siblings: 0 );
+		$this->enableSourcePathCacheKey();
+
+		$this->base->cleanup_cached_images( 4711 );
+
+		$this->assertFileExists(
+			$outside_dir . '/11.avif',
+			'a traversal segment must never let the delete walk outside the cache tree'
+		);
+		$this->assertFileDoesNotExist(
+			$this->cache_dir . '/900x0-center/11.avif',
+			'the guard collapses the whole invalid directory to the flat root, matching the writer\'s own fallback'
 		);
 	}
 

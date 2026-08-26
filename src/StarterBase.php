@@ -4131,12 +4131,27 @@ class StarterBase extends Site {
 			return [];
 		}
 
-		$source_dir = trim( dirname( $relative_path ), '.' );
-		$name = pathinfo( $relative_path, PATHINFO_FILENAME );
+		// The writer (Resizer.php) sanitizes the name before it ever reaches
+		// disk. Using the raw value here would both miss the writer's own
+		// sanitized file (an accent or space stripped at write time never
+		// matches back) and, worse, hand a bracket or asterisk straight to
+		// glob() as a live pattern instead of a literal filename — matching
+		// whatever else happens to sit in that character class or wildcard.
+		// A name that sanitizes to nothing can't be resolved either way.
+		$name = sanitize_file_name( pathinfo( $relative_path, PATHINFO_FILENAME ) );
 
 		if ( '' === $name ) {
 			return [];
 		}
+
+		// Mirrors (does not call — StarterBase and MigrateImageCacheCommand
+		// stay decoupled) MigrateImageCacheCommand::guardSourceDir(), which
+		// itself mirrors Resizer::sourcePathSegment(): a directory is only
+		// used whole, component-by-component sanitized and never `.`/`..`.
+		// The writer falls back to the flat root when its own guard rejects
+		// a component, so collapsing to the flat root here — rather than
+		// giving up — reaches the same file the writer actually created.
+		$source_dir = $this->guarded_cached_derivative_source_dir( dirname( $relative_path ) );
 
 		$files_to_delete = [];
 
@@ -4144,12 +4159,54 @@ class StarterBase extends Site {
 			$source_path = '' === $source_dir ? $size_dir : $size_dir . '/' . $source_dir;
 			$matches = glob( $source_path . '/' . $name . '.*' );
 
-			if ( $matches ) {
-				array_push( $files_to_delete, ...$matches );
+			foreach ( $matches ?: [] as $match ) {
+				// A stray directory (e.g. a leftover `.bak` folder) can match
+				// the glob too; deleting it needs a recursive flag this loop
+				// doesn't have, so skip it rather than hand it to delete().
+				if ( is_file( $match ) ) {
+					$files_to_delete[] = $match;
+				}
 			}
 		}
 
 		return $files_to_delete;
+	}
+
+	/**
+	 * Per-component guard for a source-upload directory, mirroring
+	 * `MigrateImageCacheCommand::guardSourceDir()` (itself a mirror of
+	 * `Resizer::sourcePathSegment()`): every component must survive
+	 * `sanitize_file_name()` unchanged and be neither empty nor `.`/`..`.
+	 * One failing component collapses the whole directory to the flat root
+	 * rather than being silently dropped or repaired — dropping just that
+	 * component would point the delete at a different directory than the one
+	 * the upload is actually in.
+	 *
+	 * @param string $dir Relative directory, e.g. from `dirname( $relative_path )`.
+	 * @return string The same directory, or '' (the flat root) when any component fails the guard.
+	 */
+	private function guarded_cached_derivative_source_dir( $dir ) {
+		if ( '' === $dir || '.' === $dir ) {
+			return '';
+		}
+
+		$parts = [];
+
+		foreach ( explode( '/', $dir ) as $part ) {
+			if ( '' === $part || '.' === $part || '..' === $part ) {
+				return '';
+			}
+
+			$clean = sanitize_file_name( $part );
+
+			if ( '' === $clean || $clean !== $part ) {
+				return '';
+			}
+
+			$parts[] = $clean;
+		}
+
+		return implode( '/', $parts );
 	}
 
 	/**
