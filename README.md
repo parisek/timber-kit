@@ -577,12 +577,27 @@ order — the first provider that answers wins:
 | Provider | Detected by | Root |
 | --- | --- | --- |
 | AIOSEO | `aioseo()` / `\AIOSEO\Plugin\AIOSEO` | `/sitemap.xml` |
-| Yoast SEO | `WPSEO_VERSION` / `\WPSEO_Sitemaps` | `/sitemap_index.xml` |
+| Yoast SEO | `WPSEO_VERSION` / `\WPSEO_Sitemaps`, **and** its XML-sitemap switch on | `/sitemap_index.xml` |
 | WordPress core | nothing else answered | `/wp-sitemap.xml` |
 
 Each plugin is recognised by a symbol it defines, never by the active-plugin
 list: a must-use load, a renamed directory or a bundled copy all keep the
 symbol and lose the list entry.
+
+Yoast additionally has to be *serving* a sitemap. It carries a switch that
+turns its XML sitemap off, and when it is off core serves `/wp-sitemap.xml`
+again — so a site in that state answers on the core path and 404s on Yoast's.
+A symbol proves the plugin is loaded; it does not prove the plugin does the
+thing being asked about.
+
+**When the list is empty, Site Health says so.** With `$breeze_warmup_sitemap`
+on, the `warmup_sitemap_resolved` check reports a stored-but-empty URL list as
+critical. Everything upstream of it degrades quietly on purpose — an empty
+sitemap result is a normal return value and the refresh job swallows
+throwables by contract, because a sitemap outage must never surface as a fatal
+in cron. That is right for the purge path and useless to an administrator, and
+this check is the one place the silence is broken. A list that has simply not
+been built yet counts as good; the first purge after activation schedules it.
 
 **Yoast is named rather than left to the core fallback**, and that is not a
 convenience. Yoast redirects `/wp-sitemap.xml` to its own index with a 301, and

@@ -13,6 +13,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Yoast, core — so a project gets the right sitemap from whichever plugin it
   runs, and the order is stated rather than implied. AIOSEO stays first, so a
   site that already had it resolves exactly the path it resolved before.
+- A Site Health check, `warmup_sitemap_resolved`, registered only when
+  `$breeze_warmup_sitemap` is on. The module degrades silently by design — an
+  empty sitemap result is a normal return value and the refresh job swallows
+  throwables by contract — which is right for the purge path and wrong for the
+  administrator, who was left with a warmup that preloads nothing and says
+  nothing. The check reports the one fact worth acting on: the feature is on
+  and the list is empty. A store that has never been refreshed is reported as
+  good, because a fresh install waits for its first purge through no fault of
+  its own.
 - `timberkit_warmup_sitemap_url` filter, receiving the resolved URL and the
   detected provider key. It is the escape hatch for a provider the list does
   not know yet and for a site serving its sitemap from a non-default path. A
@@ -21,6 +30,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- The same-host guard compared the hostname and ignored the **port**, so a
+  sitemap index entry — or a filter callback — pointing at
+  `https://<own-host>:9200/` passed it and was fetched. An internal service
+  bound to another port on the site's own host was reachable that way. Ports
+  are now compared, normalised by scheme first so one origin written two ways
+  still matches. Pre-existing; the sitemap-index path carried it before this
+  branch added a second way to reach the guard.
 - A Yoast site produced an **empty** warmup list, silently. Yoast redirects
   `/wp-sitemap.xml` to its own index with a 301 and every fetch sends
   `redirection => 0` (the SSRF guard, deliberately kept), so the core fallback
@@ -29,6 +45,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   because an empty result is a normal return value and `runRefresh()` swallows
   throwables by contract. Measured on a live Yoast Premium site: 0 records from
   the requested path, 1113 from the one Yoast serves.
+- Yoast is detected on its sitemap switch, not on its symbol alone. Yoast can
+  be loaded with its XML sitemap turned off, and core then serves
+  `/wp-sitemap.xml` again — detecting on the symbol would have sent exactly
+  those sites to an address that 404s, breaking a configuration that worked
+  before Yoast was recognised here.
 
 ## [1.39.0] - 2026-08-24
 

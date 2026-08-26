@@ -608,11 +608,47 @@ final class WarmupSitemap {
 			return 'aioseo';
 		}
 
-		if ( defined( 'WPSEO_VERSION' ) || class_exists( '\WPSEO_Sitemaps' ) ) {
+		if ( self::isYoastSitemapActive() ) {
 			return 'yoast';
 		}
 
 		return 'core';
+	}
+
+	/**
+	 * Whether Yoast is loaded *and* serving its own sitemap.
+	 *
+	 * The symbol alone is not enough. Yoast carries a switch that turns its
+	 * XML sitemap off, and when it is off WordPress core serves
+	 * `/wp-sitemap.xml` again -- so a site in that state answers on the core
+	 * path and 404s on `/sitemap_index.xml`. Detecting on the symbol alone
+	 * would send exactly those sites to the address that does not exist,
+	 * breaking a configuration that worked before Yoast was recognised here.
+	 *
+	 * A symbol proves the plugin is loaded. It does not prove the plugin does
+	 * the thing being asked about.
+	 *
+	 * The option is read directly rather than through `WPSEO_Options`, to keep
+	 * this a soft dependency. An absent or unreadable value counts as on,
+	 * which is Yoast's own default.
+	 *
+	 * @return bool
+	 */
+	private static function isYoastSitemapActive(): bool {
+		if ( ! defined( 'WPSEO_VERSION' ) && ! class_exists( '\WPSEO_Sitemaps' ) ) {
+			return false;
+		}
+
+		if ( ! function_exists( 'get_option' ) ) {
+			return true;
+		}
+
+		$options = get_option( 'wpseo' );
+		if ( ! is_array( $options ) || ! array_key_exists( 'enable_xml_sitemap', $options ) ) {
+			return true;
+		}
+
+		return (bool) $options['enable_xml_sitemap'];
 	}
 
 	/**
@@ -881,9 +917,46 @@ final class WarmupSitemap {
 			return false;
 		}
 
-		$home_host = strtolower( (string) ( parse_url( (string) home_url(), PHP_URL_HOST ) ?: '' ) );
+		$home      = (string) home_url();
+		$home_host = strtolower( (string) ( parse_url( $home, PHP_URL_HOST ) ?: '' ) );
 
-		return '' !== $home_host && strtolower( $parts['host'] ) === $home_host;
+		if ( '' === $home_host || strtolower( $parts['host'] ) !== $home_host ) {
+			return false;
+		}
+
+		// Host alone is not the same origin. Without this, a URL on the site's
+		// own hostname but a different port passes the guard and is fetched --
+		// an internal service bound to :8080 or :9200 on that host becomes
+		// reachable through a sitemap index entry or a filter callback. Ports
+		// are normalised by scheme first, so one origin written two ways
+		// (`https://site` and `https://site:443`) still compares equal.
+		$home_port = parse_url( $home, PHP_URL_PORT );
+		$url_port  = self::effectivePort( $scheme, isset( $parts['port'] ) ? (int) $parts['port'] : null );
+		$site_port = self::effectivePort(
+			strtolower( (string) ( parse_url( $home, PHP_URL_SCHEME ) ?: '' ) ),
+			is_int( $home_port ) ? $home_port : null
+		);
+
+		return $url_port === $site_port;
+	}
+
+	/**
+	 * Port a URL actually connects on, with the scheme's default filled in.
+	 *
+	 * @param string   $scheme Lowercased URL scheme.
+	 * @param int|null $port   Explicit port, or null when the URL omits one.
+	 * @return int 0 when no port is given and the scheme is neither http nor https.
+	 */
+	private static function effectivePort( string $scheme, ?int $port ): int {
+		if ( null !== $port ) {
+			return $port;
+		}
+
+		return match ( $scheme ) {
+			'https' => 443,
+			'http'  => 80,
+			default => 0,
+		};
 	}
 
 	/**
