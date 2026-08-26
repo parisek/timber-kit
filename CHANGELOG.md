@@ -51,6 +51,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   one admin screen and in the weekly cron, so a cache would buy milliseconds
   and owe a staleness bug.
 
+- `StarterBase::$resizer_source_path_in_cache_key` (default `false`) puts the
+  source image's upload directory in the resizer cache key, so two uploads that
+  share a name stop sharing one cached derivative. Without it the derivative is
+  named for the source alone, so `2022/03/11.png` and `2022/10/11.png` — and
+  `11.png` and `11.jpg`, because the extension is dropped too — occupy one path,
+  and whichever renders first decides what the others show. Measured on a
+  five-language production site: 496 names map to more than one source file.
+
+  Enabling it relocates every derivative whose source is below a year/month
+  directory; `wp timber-kit migrate-image-cache` (dry-run by default) moves the
+  existing cache into the new shape rather than re-encoding it. Derivatives whose
+  name maps to more than one source cannot be placed — recovering that
+  association is exactly what the flat layout destroyed — so they are reported
+  and left alone, and re-encoded on first view. A site with year/month folders
+  switched off gets byte-identical paths and needs no migration.
+
+  With the flag on, `cleanup_cached_images()` addresses derivatives by path
+  instead of matching basenames across the tree, so deleting an attachment can
+  no longer reach another upload's images.
+
+  Decision and alternatives: `docs/adr/0007-resizer-source-path-cache-key.md`.
+
 ### Documentation
 
 - README — `Deriving a value from a post body`. `$post->content()` runs
