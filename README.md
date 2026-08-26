@@ -250,6 +250,10 @@ The class is `final` with three public static methods: `render()`, `isInserterPr
 
 `BlockRenderer::flushPostBlockCache($post_id)` is the handler `StarterBase` wires to `acf/save_post` at priority 20. When ACF saves a post, the cache group `acf_block_{$post_id}` is flushed — invalidating exactly the cached blocks tied to that post without touching others. The handler guards against non-numeric ids (ACF options-page strings, opaque `block_*` ids) and against environments without `wp_cache_supports('flush_group')`.
 
+`Helpers::flushResolvedPostIds()` is the same shape for a different cache. `Helpers::urlToPostId()` memoizes its answer on a static keyed by blog, language and URL, because under WPML the lookup is a `get_page_by_path()` query and the same menu and options-page links are resolved once per place they appear. `StarterBase` wires the flush to `clean_post_cache` — the hook that fires exactly when a permalink can have moved.
+
+A web request never needs to call it: the process ends before a permalink can change. **A long-running process does.** WP-CLI commands and persistent workers run many units of work in one process, so a command that renames a slug and then formats a link to it would otherwise be handed the id resolved before the rename. Call `Helpers::flushResolvedPostIds()` from any such caller that does not boot `StarterBase`, and from tests — a static outlives the test that filled it, so a test touching `urlToPostId()` must reset it or be answered by an earlier test's mocks.
+
 ### Site Health board
 
 Opt-in check-list of Porta recommended settings surfaced in Tools → Site Health
