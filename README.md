@@ -1162,6 +1162,29 @@ The Cloudflare always-pass test sitekey/secret pair above (`1x000…AA` / `1x000
 
 When any override is active, an admin notice on WPForms admin screens lists which setting keys are read from `wp-config.php`, so values saved through the WP admin do not silently disappear at runtime without explanation.
 
+### ACF
+
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `$acf_json_keep_on_delete` | bool | `false` | Keep a Local JSON file on disk when its field group, post type or taxonomy is deleted in wp-admin. The database record is still removed; only the unlink is suppressed. Opt-in because it changes what a delete does |
+
+> **Why `$acf_json_keep_on_delete` exists.** ACF treats the JSON file as an export of a database record, so `ACF_Local_JSON` unlinks it on every `acf/trash_*` and `acf/delete_*`. This package inverts that relationship: `acf_json_save_paths()` routes those files into the theme, where they are the versioned source and the database copy is the derivative. A delete in the admin therefore destroys the source. What survives depends on where else that definition exists: a committed file comes back from git, and a group whose database record was only trashed gets its file written again when the record is restored, because ACF hooks `acf/untrash_*` to the save path. A group that lives only in its JSON file has no record to restore, so if it was never committed it has neither, and is gone.
+>
+> It destroys it quietly, which is the reason for the flag rather than a note in a runbook. The postmeta values survive the delete, but every `_<field>` reference now names a definition nothing can resolve. `get_field_objects()` skips an unresolvable reference with a bare `continue` — no notice, no `_doing_it_wrong()` — so `Helpers::formatFields()` returns an array with the key **absent** rather than `false`. Consumer code reads the absent key as "off" and renders defaults. Nothing fails: the page returns 200, `WP_DEBUG` stays silent, and the stored values are still correct in the database.
+>
+> With the flag on, the file stays, ACF registers it again on the next load, and the group reverts to the committed version instead of disappearing.
+>
+> Enable it where the committed JSON is the source of truth for field definitions and the database copy is the derivative. Leave it off where a delete in the admin is meant to remove the definition for good — the flag makes that operation impossible to complete from the admin, because the file registers the group again on the next request. The library keeps it off; deciding which model a project follows is the project's call:
+>
+> ```php
+> class Base extends StarterBase {
+>     public function __construct() {
+>         $this->acf_json_keep_on_delete = true;
+>         parent::__construct();
+>     }
+> }
+> ```
+
 ### Gutenberg
 
 | Property | Type | Default | Description |

@@ -648,6 +648,35 @@ class StarterBase extends Site {
 	protected bool $acf_datastore = false;
 
 	/**
+	 * Keep a Local JSON file on disk when its field group, post type or
+	 * taxonomy is deleted in wp-admin.
+	 *
+	 * Opt-in (default off): it changes what a delete in the ACF admin does, and
+	 * a consumer who expects the file to go with it would be surprised.
+	 *
+	 * ACF treats the JSON file as an export of a database record, so
+	 * `ACF_Local_JSON` unlinks it on `acf/trash_*` and `acf/delete_*`. This
+	 * package inverts that relationship: {@see acf_json_save_paths()} routes
+	 * those files into the theme, where they are the versioned source and the
+	 * database copy is the derivative. Under that arrangement a delete in the
+	 * admin destroys the source.
+	 *
+	 * It destroys it quietly. The postmeta values survive, but every
+	 * `_<field>` reference now points at a definition nothing can resolve, and
+	 * `get_field_objects()` skips an unresolvable reference with a bare
+	 * `continue`. So `Helpers::formatFields()` returns an array with the key
+	 * absent rather than false, consumer code reads the absent key as "off",
+	 * and the page renders its defaults with no error at any layer.
+	 *
+	 * With the flag on, the delete still removes the database record; the file
+	 * stays, ACF registers it again on the next load, and the group reverts to
+	 * the committed version instead of disappearing.
+	 *
+	 * @var bool
+	 */
+	protected bool $acf_json_keep_on_delete = false;
+
+	/**
 	 * Performance — replaces the standalone Speculation Rules plugin
 	 * (https://wordpress.org/plugins/speculation-rules/)
 	 */
@@ -966,6 +995,11 @@ class StarterBase extends Site {
 		add_filter( 'acf/json/save_file_name', array( $this, 'acf_json_save_file_name' ), 10, 3 );
 		add_filter( 'acf/update_value/type=wysiwyg', array( $this, 'sanitize_acf_editor_value' ), 10, 1 );
 		add_filter( 'acf/format_value/type=post_object', array( $this, 'fix_wrong_acf_orders_with_ids' ), 10, 3 );
+		if ( $this->acf_json_keep_on_delete ) {
+			// acf/init runs after ACF constructs ACF_Local_JSON, so the
+			// listeners exist by the time the guard tries to remove them.
+			add_action( 'acf/init', array( $this, 'acf_json_keep_local_on_delete' ) );
+		}
 		if ( $this->acf_datastore ) {
 			// Opt-in: route ACF saves through the REST/datastore path so values land
 			// in revisions + autosave. Site-wide boolean — see the $acf_datastore
@@ -3550,6 +3584,60 @@ class StarterBase extends Site {
 
 		return $filename;
 	}
+
+	/**
+	 * Stop ACF from deleting a Local JSON file when its field group, post type
+	 * or taxonomy is deleted in wp-admin.
+	 *
+	 * Hooked to `acf/init` when `$acf_json_keep_on_delete` is on. Rationale and
+	 * failure mode: see that property's docblock.
+	 *
+	 * `ACF_Local_JSON` registers six delete listeners, two per post type it
+	 * manages. All six are removed, because this package routes all three kinds
+	 * of JSON into the theme via {@see acf_json_save_paths()} — guarding only
+	 * field groups would leave the same hole open one door along.
+	 *
+	 * The database delete is untouched. Only the unlink is.
+	 *
+	 * @return void
+	 */
+	public function acf_json_keep_local_on_delete(): void {
+
+		if ( ! function_exists( 'acf_get_instance' ) ) {
+			return;
+		}
+
+		$json = acf_get_instance( 'ACF_Local_JSON' );
+
+		// Removal matches on callback identity, so the object here must be the
+		// one ACF hooked. acf_get_instance() is a registry lookup and returns
+		// exactly that; constructing a new ACF_Local_JSON would remove nothing
+		// and fail silently, which is the failure this method exists to avoid.
+		if ( ! is_object( $json ) ) {
+			return;
+		}
+
+		$listeners = array(
+			'acf/trash_field_group'  => 'delete_field_group',
+			'acf/delete_field_group' => 'delete_field_group',
+			'acf/trash_post_type'    => 'delete_internal_post_type',
+			'acf/delete_post_type'   => 'delete_internal_post_type',
+			'acf/trash_taxonomy'     => 'delete_internal_post_type',
+			'acf/delete_taxonomy'    => 'delete_internal_post_type',
+		);
+
+		foreach ( $listeners as $hook => $callback ) {
+			// ACF < 6.1 has no post-type/taxonomy JSON and no matching method.
+			// Skipping the absent ones keeps the guard working on that floor
+			// rather than fataling on it.
+			if ( ! method_exists( $json, $callback ) ) {
+				continue;
+			}
+
+			remove_action( $hook, array( $json, $callback ) );
+		}
+	}
+
 
 	/**
 	 * Convert 'page' query var to 'paged' on singular posts and prevent canonical redirect.
