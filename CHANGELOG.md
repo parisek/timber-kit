@@ -50,6 +50,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `/wp-sitemap.xml` again — detecting on the symbol would have sent exactly
   those sites to an address that 404s, breaking a configuration that worked
   before Yoast was recognised here.
+- `$acf_json_keep_on_delete` (opt-in, default off) stops ACF from deleting a
+  Local JSON file when its field group, post type or taxonomy is deleted in
+  wp-admin. The database record is still removed, so the group reverts to the
+  committed file on the next load instead of disappearing. All six
+  `ACF_Local_JSON` delete listeners are removed, not only the field-group pair,
+  because `acf_json_save_paths()` routes post-type and taxonomy JSON into the
+  theme as well. Without it, a delete in the admin destroys a versioned source
+  file and the loss is silent: `get_field_objects()` skips the now-unresolvable
+  `_<field>` references, `Helpers::formatFields()` omits the keys, and consumer
+  code reads them as "off" while the page still returns 200.
 
 ## [1.39.0] - 2026-08-24
 

@@ -96,4 +96,42 @@ class RegisterAcfHooksTest extends StarterBaseTestCase {
 			'datastore is enabled site-wide via the __return_true callback'
 		);
 	}
+
+	public function test_does_not_register_json_delete_guard_by_default(): void {
+		$actions = [];
+		Functions\when( 'add_filter' )->justReturn( true );
+		Functions\when( 'add_action' )->alias( function ( $hook, ...$rest ) use ( &$actions ) {
+			$actions[] = $hook;
+		} );
+
+		$this->invokeRegisterAcfHooks( $this->bareInstance() );
+
+		$this->assertNotContains(
+			'acf/init',
+			$actions,
+			'the Local JSON delete guard must be opt-in — deleting a field group keeps removing its file while $acf_json_keep_on_delete is off (default)'
+		);
+	}
+
+	public function test_registers_json_delete_guard_when_flag_enabled(): void {
+		$actions = [];
+		Functions\when( 'add_filter' )->justReturn( true );
+		Functions\when( 'add_action' )->alias( function ( $hook, $callback = null, ...$rest ) use ( &$actions ) {
+			$actions[] = [ 'hook' => $hook, 'callback' => $callback ];
+		} );
+
+		$instance = $this->bareInstance();
+		$prop = new \ReflectionProperty( StarterBase::class, 'acf_json_keep_on_delete' );
+		$prop->setValue( $instance, true );
+
+		$this->invokeRegisterAcfHooks( $instance );
+
+		$guard = array_values( array_filter( $actions, fn( $a ) => $a['hook'] === 'acf/init' ) );
+		$this->assertCount( 1, $guard, 'flag on → exactly one acf/init action registered' );
+		$this->assertSame(
+			array( $instance, 'acf_json_keep_local_on_delete' ),
+			$guard[0]['callback'],
+			'the guard runs on acf/init, after ACF has constructed ACF_Local_JSON'
+		);
+	}
 }
