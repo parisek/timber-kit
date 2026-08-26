@@ -135,7 +135,19 @@ final class CuratedUrls {
 		// language, whatever was written.
 		$post_id = \Parisek\TimberKit\Helpers::urlToPostId( $absolute );
 		if ( $post_id > 0 ) {
-			$permalink = function_exists( 'get_permalink' ) ? get_permalink( $post_id ) : false;
+			// The permalink is taken inside the entry's own language. WPML
+			// renders get_permalink() in the CURRENT language rather than in
+			// the post's, so an Italian page asked for from a cron request --
+			// which has no language and therefore uses the site default --
+			// comes back as its English sibling. Measured: every non-default
+			// entry of a five-language curated list collapsed onto its default
+			// sibling and was then deduplicated away, leaving a list that
+			// looked honoured and contributed nothing.
+			$language  = \Parisek\TimberKit\Helpers::languageFromUrl( $absolute );
+			$permalink = \Parisek\TimberKit\Helpers::withLanguage(
+				$language,
+				static fn() => function_exists( 'get_permalink' ) ? get_permalink( $post_id ) : false
+			);
 			if ( is_string( $permalink ) && '' !== $permalink ) {
 				// A post ID settles existence. Probing anyway would spend a
 				// request per entry per refresh and, worse, drop a page that

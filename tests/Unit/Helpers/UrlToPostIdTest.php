@@ -73,6 +73,61 @@ final class UrlToPostIdTest extends TestCase {
 		$this->assertSame( 0, Helpers::urlToPostId( '   ' ) );
 	}
 
+	public function test_the_translation_targets_the_language_the_url_names(): void {
+		// The defect this pins: with two arguments, wpml_object_id translates
+		// towards the CURRENT language. On a request that has none of its own
+		// -- cron, WP-CLI -- that is the site default, so an Italian URL whose
+		// lookup already succeeded came back as its English sibling. Measured
+		// on a live five-language site: url_to_postid() resolved the Italian
+		// page correctly and the translation then replaced it.
+		Functions\when( 'url_to_postid' )->justReturn( 5 );
+
+		$asked = null;
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $hook, $value = null, ...$rest ) use ( &$asked ) {
+				if ( 'wpml_active_languages' === $hook ) {
+					return array( 'en' => array(), 'it' => array() );
+				}
+				if ( 'wpml_default_language' === $hook ) {
+					return 'en';
+				}
+				if ( 'wpml_object_id' === $hook ) {
+					$asked = $rest[2] ?? null;
+					return 62;
+				}
+				return $value;
+			}
+		);
+
+		$this->assertSame( 62, Helpers::urlToPostId( 'https://example.test/it/glossario/' ) );
+		$this->assertSame( 'it', $asked, 'the target language must come from the URL, not the request' );
+	}
+
+	public function test_an_unprefixed_url_targets_the_default_language(): void {
+		Functions\when( 'url_to_postid' )->justReturn( 5 );
+
+		$asked = null;
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $hook, $value = null, ...$rest ) use ( &$asked ) {
+				if ( 'wpml_active_languages' === $hook ) {
+					return array( 'en' => array(), 'it' => array() );
+				}
+				if ( 'wpml_default_language' === $hook ) {
+					return 'en';
+				}
+				if ( 'wpml_object_id' === $hook ) {
+					$asked = $rest[2] ?? null;
+					return 5;
+				}
+				return $value;
+			}
+		);
+
+		Helpers::urlToPostId( 'https://example.test/about/' );
+
+		$this->assertSame( 'en', $asked );
+	}
+
 	public function test_the_id_is_translated_for_the_rendered_language(): void {
 		Functions\when( 'url_to_postid' )->justReturn( 5 );
 		Functions\when( 'apply_filters' )->alias(
