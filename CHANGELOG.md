@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `Helpers::languageFromUrl()` — the language a URL names, read from the URL
+  itself rather than from the request. Covers both WPML negotiation shapes, a
+  path prefix and a per-language host.
+- `Helpers::withLanguage()` — run one callback with WPML switched to a given
+  language and switch back in a `finally`, so a throw cannot leave the rest of
+  the request in another language.
 - `$acf_json_keep_on_delete` (opt-in, default off) stops ACF from deleting a
   Local JSON file when its field group, post type or taxonomy is deleted in
   wp-admin. The database record is still removed, so the group reverts to the
@@ -18,6 +24,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   file and the loss is silent: `get_field_objects()` skips the now-unresolvable
   `_<field>` references, `Helpers::formatFields()` omits the keys, and consumer
   code reads them as "off" while the page still returns 200.
+
+### Fixed
+
+- **A curated warmup entry naming a translated page warmed its default-language
+  sibling instead.** Two things had to be wrong at once and both were.
+  `urlToPostId()` passed `wpml_object_id` two arguments, which translates
+  towards the *current* language — and the refresh runs from cron, which has no
+  language, so that is always the site default. Measured on a live
+  five-language site: `url_to_postid()` resolved `/it/glossario-di-termini/` to
+  the Italian page correctly and the translation then replaced it with the
+  English one, so the step meant to repair a mismatch was discarding a correct
+  answer. `get_permalink()` then compounded it: asked for an Italian page's
+  permalink under an English context it answers with the English URL, so fixing
+  the ID alone was not enough.
+
+  The failure was invisible. On a 25-entry curated list covering five
+  languages, all 20 non-default entries collapsed onto their 5 default siblings
+  and were deduplicated away. 22 of the 25 URLs still appeared in the warmup
+  queue — supplied by the sitemap, not by the curated list — so the list looked
+  honoured while contributing nothing.
 
 ## [1.40.0] - 2026-08-26
 

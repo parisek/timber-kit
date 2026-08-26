@@ -1995,14 +1995,120 @@ class Helpers {
 		}
 
 		if ( function_exists( 'apply_filters' ) ) {
-			$post_type  = function_exists( 'get_post_type' ) ? get_post_type( $post_id ) : 'page';
-			$translated = (int) apply_filters( 'wpml_object_id', $post_id, $post_type ?: 'page' );
+			$post_type = function_exists( 'get_post_type' ) ? get_post_type( $post_id ) : 'page';
+
+			// Translate towards the language the URL names, never towards the
+			// ambient one. Two arguments means "the current language", and on a
+			// request without a language of its own -- cron, WP-CLI -- that is
+			// the site default. Measured on a five-language site:
+			// url_to_postid('/it/glossario-di-termini/') resolved the Italian
+			// page correctly, and the two-argument translation then replaced it
+			// with the English one. The step meant to repair a mismatch was
+			// discarding a correct answer.
+			$language   = self::languageFromUrl( $url );
+			$translated = '' !== $language
+				? (int) apply_filters( 'wpml_object_id', $post_id, $post_type ?: 'page', false, $language )
+				: (int) apply_filters( 'wpml_object_id', $post_id, $post_type ?: 'page' );
+
 			if ( $translated > 0 ) {
 				$post_id = $translated;
 			}
 		}
 
 		return $post_id;
+	}
+
+	/**
+	 * The language a URL names, read from the URL itself.
+	 *
+	 * Read from the URL rather than from the ambient context on purpose. The
+	 * refresh jobs that need this run from cron and from WP-CLI, neither of
+	 * which has a language of its own, so the ambient answer is always the
+	 * site's default — and using it silently turns every translated URL into
+	 * its default-language sibling.
+	 *
+	 * Covers both WPML negotiation shapes: a path prefix (`/it/…`) and a
+	 * per-language host. A URL with neither is the default language, which is
+	 * what an unprefixed URL means under directory negotiation.
+	 *
+	 * @param string $url Absolute or root-relative URL.
+	 * @return string Language code, or '' when WPML is absent or cannot answer.
+	 */
+	public static function languageFromUrl( string $url ): string {
+		if ( ! function_exists( 'apply_filters' ) ) {
+			return '';
+		}
+
+		$languages = apply_filters( 'wpml_active_languages', null );
+		if ( ! is_array( $languages ) || array() === $languages ) {
+			return '';
+		}
+
+		$parts = parse_url( $url );
+		$host  = isset( $parts['host'] ) ? strtolower( (string) $parts['host'] ) : '';
+
+		// Domain negotiation first: a per-language host settles the question
+		// without looking at the path, and under that shape no prefix exists.
+		if ( '' !== $host ) {
+			foreach ( $languages as $code => $language ) {
+				$lang_host = isset( $language['url'] )
+					? strtolower( (string) ( parse_url( (string) $language['url'], PHP_URL_HOST ) ?: '' ) )
+					: '';
+				if ( '' !== $lang_host && $lang_host === $host ) {
+					return (string) $code;
+				}
+			}
+		}
+
+		$path = isset( $parts['path'] ) ? rtrim( (string) $parts['path'], '/' ) : '';
+		foreach ( array_keys( $languages ) as $code ) {
+			$prefix = '/' . $code;
+			if ( $path === $prefix || 0 === strpos( $path, $prefix . '/' ) ) {
+				return (string) $code;
+			}
+		}
+
+		$default = apply_filters( 'wpml_default_language', null );
+
+		return is_string( $default ) ? $default : '';
+	}
+
+	/**
+	 * Run a callback with WPML switched to one language, then switch back.
+	 *
+	 * `get_permalink()` renders in the **current** language, not in the
+	 * language of the post it is handed: asked for an Italian page's permalink
+	 * while the request is English, WPML answers with the English URL. So the
+	 * ID being right is not enough — measured on a five-language site,
+	 * `get_permalink( $italian_id )` under an English context returns the
+	 * English permalink.
+	 *
+	 * The restore is in `finally` because this runs alongside other work on the
+	 * same request. A throw that left the language switched would not fail
+	 * here; it would surface later, as the wrong language somewhere unrelated.
+	 *
+	 * @template T
+	 * @param string          $language Language code; '' runs the callback unchanged.
+	 * @param callable():T    $callback
+	 * @return T
+	 */
+	public static function withLanguage( string $language, callable $callback ) {
+		if ( '' === $language || ! function_exists( 'apply_filters' ) || ! function_exists( 'do_action' ) ) {
+			return $callback();
+		}
+
+		$previous = apply_filters( 'wpml_current_language', null );
+		if ( ! is_string( $previous ) || $previous === $language ) {
+			return $callback();
+		}
+
+		do_action( 'wpml_switch_language', $language );
+
+		try {
+			return $callback();
+		} finally {
+			do_action( 'wpml_switch_language', $previous );
+		}
 	}
 
 	/**
