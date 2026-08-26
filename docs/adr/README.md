@@ -71,3 +71,4 @@ guard (test, CI check, convention) that keeps it from drifting, if any.
 - [0005](0005-first-party-gtm-container.md) — Load the GTM container from the kit, configured in code
 - [0006](0006-warmup-priority-precomputed-at-refresh.md) — Precompute warmup priority at refresh, never at purge
 - [0007](0007-prove-cache-purity-from-inputs.md) — Prove cache purity from inputs, never from a render
+- [0007](0007-resizer-source-path-cache-key.md) — Scope the resizer cache key by the source's upload path
