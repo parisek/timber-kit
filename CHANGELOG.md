@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.40.0] - 2026-08-26
+
 ### Added
 
 - `$breeze_warmup_urls` — a curated warmup list that lives in the theme instead
