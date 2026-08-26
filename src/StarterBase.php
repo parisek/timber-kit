@@ -3934,9 +3934,11 @@ class StarterBase extends Site {
 
 		$relative_path = get_post_meta( (int) $attachment_id, '_wp_attached_file', true );
 
-		// No path to match on means no sibling can be keyed to it either.
+		// `get_attached_file()` already returned a path, so an empty meta value
+		// means a filter supplied that path (offloaded media). Siblings are keyed
+		// on the meta, so there is nothing left to compare them against.
 		if ( ! is_string( $relative_path ) || '' === $relative_path ) {
-			return false;
+			return true;
 		}
 
 		$shared = $wpdb->get_var(
@@ -3947,6 +3949,14 @@ class StarterBase extends Site {
 				(int) $attachment_id
 			)
 		);
+
+		// A failed query answers nothing, and it does not announce itself: on
+		// error `get_var()` returns null, which casts to the same 0 a genuine
+		// "no siblings" result gives. Reading it that way would delete on any
+		// transient database error, so both signals are checked instead.
+		if ( null === $shared || '' !== $wpdb->last_error ) {
+			return true;
+		}
 
 		return (int) $shared > 0;
 	}

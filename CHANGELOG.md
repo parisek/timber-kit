@@ -25,6 +25,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `_wp_attached_file`. It fails closed: where that question cannot be answered
   the files are kept, because a stale derivative is overwritten by the next
   resize while one deleted in error vanishes from a page still serving it.
+  "Cannot be answered" covers a missing `$wpdb`, an empty `_wp_attached_file`
+  (a filter supplied the path, so siblings have no key to match on), and a
+  failed query — `get_var()` reports an error by returning null, which casts to
+  the same zero a genuine "no siblings" answer gives, so the null and
+  `last_error` are both checked rather than read as a count.
 
   Not fixed here, and tracked separately: two different files that share a
   basename across upload-year folders still collide in the flat cache
