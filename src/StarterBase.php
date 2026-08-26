@@ -24,6 +24,7 @@ use Parisek\Twig\AttributeExtension;
 use Parisek\Twig\TypographyExtension;
 use Parisek\TimberKit\BlockRenderer;
 use Parisek\TimberKit\Breeze\Health\PreloadChainHealthy;
+use Parisek\TimberKit\Breeze\Health\WarmupSitemapResolved;
 use Parisek\TimberKit\Breeze\WarmupSitemap;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
 use Parisek\TimberKit\Health\Check\FileEditingDisabled;
@@ -1225,7 +1226,7 @@ class StarterBase extends Site {
 	 * @return list<HealthCheck>
 	 */
 	protected function default_health_checks(): array {
-		return array(
+		$checks = array(
 			new XmlrpcDisabled(),
 			new WpVersionHidden(),
 			new AuthorSitemapDisabled(),
@@ -1235,6 +1236,16 @@ class StarterBase extends Site {
 			new GtmContainerNotDuplicated( array() !== $this->gtm_containers && GtmContainer::enabled() ),
 			new PreloadChainHealthy(),
 		);
+
+		// Registered only when the feature is on. A site that never asked for
+		// sitemap warmup would otherwise carry a permanent "not built yet"
+		// row, and a board with rows nobody can act on is a board nobody
+		// reads.
+		if ( $this->breeze_warmup_sitemap ) {
+			$checks[] = new WarmupSitemapResolved();
+		}
+
+		return $checks;
 	}
 
 	/**

@@ -19,21 +19,25 @@ namespace Parisek\TimberKit\Breeze;
 final class SourceNaming {
 
 	/**
-	 * AIOSEO archive index names that share the `<name>-sitemap.xml` shape
-	 * with a post-type sitemap but are not post types at all. A taxonomy
-	 * sitemap cannot be told apart from a post-type one by filename alone;
-	 * that case is not solved here and simply falls through to weight 0,
-	 * the safe default the rest of the design already relies on.
+	 * Archive index names that share the `<name>-sitemap.xml` shape with a
+	 * post-type sitemap but are not post types at all. AIOSEO and Yoast both
+	 * use that shape, so the list is not specific to either: `author` is
+	 * emitted by both, the rest only by AIOSEO. A taxonomy sitemap cannot be
+	 * told apart from a post-type one by filename alone; that case is not
+	 * solved here and simply falls through to weight 0, the safe default the
+	 * rest of the design already relies on.
 	 *
 	 * @var string[]
 	 */
-	private const AIOSEO_NON_POST_TYPE_INDEXES = array( 'author', 'date', 'product_attributes', 'rss', 'additional' );
+	private const NON_POST_TYPE_INDEXES = array( 'author', 'date', 'product_attributes', 'rss', 'additional' );
 
 	/**
 	 * Post type from a sub-sitemap URL.
 	 *
-	 * Core emits `wp-sitemap-posts-<type>-<N>.xml`; AIOSEO emits
-	 * `<type>-sitemap.xml`. The result is not validated against
+	 * Core emits `wp-sitemap-posts-<type>-<N>.xml`; AIOSEO and Yoast both emit
+	 * `<type>-sitemap.xml`, and Yoast appends an index to the name when a type
+	 * spills over one file (`blog-sitemap2.xml`), which the pattern already
+	 * allows for. The result is not validated against
 	 * `get_post_types()` — it is only a key into the weight map, and an
 	 * unknown key scores 0 exactly like an unrecognised name would.
 	 *
@@ -62,7 +66,7 @@ final class SourceNaming {
 				return '';
 			}
 
-			return in_array( $candidate, self::AIOSEO_NON_POST_TYPE_INDEXES, true ) ? '' : $candidate;
+			return in_array( $candidate, self::NON_POST_TYPE_INDEXES, true ) ? '' : $candidate;
 		}
 
 		return '';

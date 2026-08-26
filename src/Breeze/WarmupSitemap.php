@@ -14,8 +14,11 @@ namespace Parisek\TimberKit\Breeze;
  * a manually maintained list capped at 30 entries. This class closes that
  * gap fleet-wide by discovering the sitemap URL set and merging it in.
  *
- * Sitemap source order: AIOSEO (`/sitemap.xml`) when active, otherwise core
- * (`/wp-sitemap.xml`). Both formats may be a sitemap index that points at
+ * Sitemap source order: AIOSEO (`/sitemap.xml`), then Yoast
+ * (`/sitemap_index.xml`), then core (`/wp-sitemap.xml`) — see
+ * {@see self::SITEMAP_PROVIDERS}. A project overrides the resolved address
+ * with the `timberkit_warmup_sitemap_url` filter. Every format may be a
+ * sitemap index that points at
  * per-post-type sub-sitemaps — those are followed recursively, bounded by
  * {@see self::MAX_SUBSITEMAPS} and {@see self::MAX_DEPTH} so a pathological
  * or malicious sitemap can never cause a runaway fetch chain. Every URL
@@ -534,7 +537,39 @@ final class WarmupSitemap {
 	}
 
 	/**
-	 * AIOSEO-first sitemap root URL resolution, falling back to WordPress core.
+	 * Sitemap root path per provider, in detection order.
+	 *
+	 * The order is the contract, not an accident of layout: a site can carry
+	 * more than one SEO plugin, and the first provider that answers wins.
+	 * AIOSEO stays first so an existing AIOSEO site resolves exactly the path
+	 * it resolved before this map existed. `core` is last and always matches.
+	 *
+	 * @var array<string, string>
+	 */
+	private const SITEMAP_PROVIDERS = array(
+		'aioseo' => '/sitemap.xml',
+		'yoast'  => '/sitemap_index.xml',
+		'core'   => '/wp-sitemap.xml',
+	);
+
+	/**
+	 * Sitemap root URL for whichever provider this site runs.
+	 *
+	 * Yoast is named explicitly rather than left to the core fallback. Yoast
+	 * redirects `/wp-sitemap.xml` to its own index with a 301, and
+	 * {@see self::fetchBody()} sends `redirection => 0` on purpose — following
+	 * a redirect is the SSRF surface this module closes. So on a Yoast site the
+	 * core path does not degrade to a slower answer, it degrades to no answer:
+	 * the response code lands outside 200-299 and the body is discarded. The
+	 * refresh then stores an empty list and says nothing, because an empty
+	 * `fetchSitemapRecords()` is a normal return value and `runRefresh()`
+	 * swallows throwables by contract.
+	 *
+	 * The filter is the escape hatch for the provider this list does not know
+	 * yet, and for the site that serves its sitemap from a non-default path.
+	 * Returning a non-string, or a URL off this site's own host, falls back to
+	 * the detected path — {@see self::isFetchableSameHostUrl()} would reject it
+	 * on fetch anyway, and failing here says so while the caller can still act.
 	 *
 	 * @return string Empty string when `home_url()` is unavailable.
 	 */
@@ -543,18 +578,77 @@ final class WarmupSitemap {
 			return '';
 		}
 
-		$path = self::isAioseoActive() ? '/sitemap.xml' : '/wp-sitemap.xml';
+		$provider = self::detectSitemapProvider();
+		$resolved = (string) home_url( self::SITEMAP_PROVIDERS[ $provider ] );
 
-		return (string) home_url( $path );
+		if ( ! function_exists( 'apply_filters' ) ) {
+			return $resolved;
+		}
+
+		$filtered = apply_filters( 'timberkit_warmup_sitemap_url', $resolved, $provider );
+
+		return ( is_string( $filtered ) && self::isFetchableSameHostUrl( $filtered ) )
+			? $filtered
+			: $resolved;
 	}
 
 	/**
-	 * Detect an active AIOSEO installation without a hard dependency on it.
+	 * Which sitemap provider is active, without a hard dependency on any of
+	 * them.
+	 *
+	 * Each plugin is detected by a symbol it defines, never by reading the
+	 * active-plugin list: a must-use load, a renamed directory or a bundled
+	 * copy all keep the symbol and lose the list entry.
+	 *
+	 * @return string A key of {@see self::SITEMAP_PROVIDERS}; `core` when no
+	 *                SEO plugin answers.
+	 */
+	private static function detectSitemapProvider(): string {
+		if ( function_exists( 'aioseo' ) || class_exists( '\AIOSEO\Plugin\AIOSEO' ) ) {
+			return 'aioseo';
+		}
+
+		if ( self::isYoastSitemapActive() ) {
+			return 'yoast';
+		}
+
+		return 'core';
+	}
+
+	/**
+	 * Whether Yoast is loaded *and* serving its own sitemap.
+	 *
+	 * The symbol alone is not enough. Yoast carries a switch that turns its
+	 * XML sitemap off, and when it is off WordPress core serves
+	 * `/wp-sitemap.xml` again -- so a site in that state answers on the core
+	 * path and 404s on `/sitemap_index.xml`. Detecting on the symbol alone
+	 * would send exactly those sites to the address that does not exist,
+	 * breaking a configuration that worked before Yoast was recognised here.
+	 *
+	 * A symbol proves the plugin is loaded. It does not prove the plugin does
+	 * the thing being asked about.
+	 *
+	 * The option is read directly rather than through `WPSEO_Options`, to keep
+	 * this a soft dependency. An absent or unreadable value counts as on,
+	 * which is Yoast's own default.
 	 *
 	 * @return bool
 	 */
-	private static function isAioseoActive(): bool {
-		return function_exists( 'aioseo' ) || class_exists( '\AIOSEO\Plugin\AIOSEO' );
+	private static function isYoastSitemapActive(): bool {
+		if ( ! defined( 'WPSEO_VERSION' ) && ! class_exists( '\WPSEO_Sitemaps' ) ) {
+			return false;
+		}
+
+		if ( ! function_exists( 'get_option' ) ) {
+			return true;
+		}
+
+		$options = get_option( 'wpseo' );
+		if ( ! is_array( $options ) || ! array_key_exists( 'enable_xml_sitemap', $options ) ) {
+			return true;
+		}
+
+		return (bool) $options['enable_xml_sitemap'];
 	}
 
 	/**
@@ -823,9 +917,46 @@ final class WarmupSitemap {
 			return false;
 		}
 
-		$home_host = strtolower( (string) ( parse_url( (string) home_url(), PHP_URL_HOST ) ?: '' ) );
+		$home      = (string) home_url();
+		$home_host = strtolower( (string) ( parse_url( $home, PHP_URL_HOST ) ?: '' ) );
 
-		return '' !== $home_host && strtolower( $parts['host'] ) === $home_host;
+		if ( '' === $home_host || strtolower( $parts['host'] ) !== $home_host ) {
+			return false;
+		}
+
+		// Host alone is not the same origin. Without this, a URL on the site's
+		// own hostname but a different port passes the guard and is fetched --
+		// an internal service bound to :8080 or :9200 on that host becomes
+		// reachable through a sitemap index entry or a filter callback. Ports
+		// are normalised by scheme first, so one origin written two ways
+		// (`https://site` and `https://site:443`) still compares equal.
+		$home_port = parse_url( $home, PHP_URL_PORT );
+		$url_port  = self::effectivePort( $scheme, isset( $parts['port'] ) ? (int) $parts['port'] : null );
+		$site_port = self::effectivePort(
+			strtolower( (string) ( parse_url( $home, PHP_URL_SCHEME ) ?: '' ) ),
+			is_int( $home_port ) ? $home_port : null
+		);
+
+		return $url_port === $site_port;
+	}
+
+	/**
+	 * Port a URL actually connects on, with the scheme's default filled in.
+	 *
+	 * @param string   $scheme Lowercased URL scheme.
+	 * @param int|null $port   Explicit port, or null when the URL omits one.
+	 * @return int 0 when no port is given and the scheme is neither http nor https.
+	 */
+	private static function effectivePort( string $scheme, ?int $port ): int {
+		if ( null !== $port ) {
+			return $port;
+		}
+
+		return match ( $scheme ) {
+			'https' => 443,
+			'http'  => 80,
+			default => 0,
+		};
 	}
 
 	/**

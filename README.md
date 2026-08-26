@@ -568,9 +568,60 @@ the site's XML sitemap via the `breeze_preload_urls` filter.
 Breeze 2.5 re-warms the cache after a full purge, but its own URL sources are
 the homepage, a few auto-detected pages, and a manual list capped at 30 entries
 — so on a real site most pages are rebuilt by the first visitor to ask for them.
-The class discovers the sitemap (AIOSEO's `/sitemap.xml` when active, otherwise
-core's `/wp-sitemap.xml`), follows a sitemap index recursively within bounded
-limits, and merges the result in.
+The class discovers the sitemap, follows a sitemap index recursively within
+bounded limits, and merges the result in.
+
+**Which sitemap it asks for** depends on what the project runs, checked in this
+order — the first provider that answers wins:
+
+| Provider | Detected by | Root |
+| --- | --- | --- |
+| AIOSEO | `aioseo()` / `\AIOSEO\Plugin\AIOSEO` | `/sitemap.xml` |
+| Yoast SEO | `WPSEO_VERSION` / `\WPSEO_Sitemaps`, **and** its XML-sitemap switch on | `/sitemap_index.xml` |
+| WordPress core | nothing else answered | `/wp-sitemap.xml` |
+
+Each plugin is recognised by a symbol it defines, never by the active-plugin
+list: a must-use load, a renamed directory or a bundled copy all keep the
+symbol and lose the list entry.
+
+Yoast additionally has to be *serving* a sitemap. It carries a switch that
+turns its XML sitemap off, and when it is off core serves `/wp-sitemap.xml`
+again — so a site in that state answers on the core path and 404s on Yoast's.
+A symbol proves the plugin is loaded; it does not prove the plugin does the
+thing being asked about.
+
+**When the list is empty, Site Health says so.** With `$breeze_warmup_sitemap`
+on, the `warmup_sitemap_resolved` check reports a stored-but-empty URL list as
+critical. Everything upstream of it degrades quietly on purpose — an empty
+sitemap result is a normal return value and the refresh job swallows
+throwables by contract, because a sitemap outage must never surface as a fatal
+in cron. That is right for the purge path and useless to an administrator, and
+this check is the one place the silence is broken. A list that has simply not
+been built yet counts as good; the first purge after activation schedules it.
+
+**Yoast is named rather than left to the core fallback**, and that is not a
+convenience. Yoast redirects `/wp-sitemap.xml` to its own index with a 301, and
+every fetch here sends `redirection => 0` on purpose — following a redirect is
+the SSRF surface this module closes. So on a Yoast site the core path does not
+degrade to a slower answer, it degrades to **no** answer: the response code
+lands outside 200-299 and the body is dropped. The refresh then stores an empty
+list and says nothing, because an empty result is a normal return value and the
+cron job swallows throwables by contract.
+
+**`timberkit_warmup_sitemap_url`** overrides the resolved address — for a
+provider this list does not know yet, or a site serving its sitemap from a
+non-default path. It receives the resolved URL and the detected provider key:
+
+```php
+add_filter( 'timberkit_warmup_sitemap_url', function ( string $url, string $provider ): string {
+    return 'https://example.com/custom-sitemap.xml';
+}, 10, 2 );
+```
+
+A returned value that is not a string, or a URL on another host, is ignored and
+the detected path is used instead. The same-host guard would reject it at fetch
+time anyway; refusing it here keeps the guard and still warms the site, rather
+than silently warming nothing because one callback was wrong.
 
 `fetchSitemapUrls()` deduplicates by **canonical URL form**, not by exact
 string: two spellings of the same page — differing only in trailing slash,
@@ -637,11 +688,14 @@ class Base extends StarterBase {
 ```
 
 The post type is derived from the **sub-sitemap filename**, not looked up in
-the database: `wp-sitemap-posts-<type>-N.xml` for core,
-`<type>-sitemap.xml` for AIOSEO. A URL whose sub-sitemap doesn't match either
-shape gets no type, so its `types` weight is 0. AIOSEO's structural indexes
-(`author`, `date`, `product_attributes`, `rss`, `additional`) are excluded on
-purpose — they share the `<name>-sitemap.xml` shape but aren't post types. A
+the database: `wp-sitemap-posts-<type>-N.xml` for core, `<type>-sitemap.xml`
+for AIOSEO and Yoast alike (Yoast appends an index when a type spills over one
+file — `blog-sitemap2.xml` — which the pattern allows for). A URL whose
+sub-sitemap doesn't match either shape gets no type, so its `types` weight is
+0. The structural indexes (`author`, `date`, `product_attributes`, `rss`,
+`additional`) are excluded on purpose — they share the `<name>-sitemap.xml`
+shape but aren't post types. `author` comes from both plugins, the rest from
+AIOSEO. A
 taxonomy sitemap can't be told apart from a post-type one by filename either,
 so it falls through to weight 0 as well. If a `types` weight seems to have no
 effect, check the sub-sitemap's filename first.

@@ -82,6 +82,247 @@ class FetchSitemapUrlsTest extends TestCase {
 		$this->assertSame( array( 'https://example.test/aioseo-page/' ), $result );
 	}
 
+	public function test_prefers_yoast_sitemap_index_when_active(): void {
+		// Yoast redirects /wp-sitemap.xml to its own index with a 301, and
+		// fetchBody() sends redirection => 0 on purpose. Resolving the core
+		// path on a Yoast site therefore yields no records at all, not a
+		// slower answer -- so the provider has to be named, not fallen back to.
+		if ( ! defined( 'WPSEO_VERSION' ) ) {
+			define( 'WPSEO_VERSION', '24.0' );
+		}
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+
+		$requested = array();
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( $url ) use ( &$requested ) {
+				$requested[] = $url;
+				return Fixtures::response( Fixtures::urlset( array( 'https://example.test/yoast-page/' ) ) );
+			}
+		);
+
+		$result = WarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( array( 'https://example.test/sitemap_index.xml' ), $requested );
+		$this->assertSame( array( 'https://example.test/yoast-page/' ), $result );
+	}
+
+	public function test_aioseo_wins_over_yoast_when_both_are_present(): void {
+		// Detection order is a contract, not an accident of layout: AIOSEO
+		// stays first so a site that already had both keeps resolving the path
+		// it resolved before the provider map existed.
+		if ( ! function_exists( 'aioseo' ) ) {
+			// See the note in test_prefers_aioseo_sitemap_when_active().
+			eval( 'function aioseo() { return true; }' );
+		}
+		if ( ! defined( 'WPSEO_VERSION' ) ) {
+			define( 'WPSEO_VERSION', '24.0' );
+		}
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+
+		$requested = array();
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( $url ) use ( &$requested ) {
+				$requested[] = $url;
+				return Fixtures::response( Fixtures::urlset( array( 'https://example.test/page/' ) ) );
+			}
+		);
+
+		WarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( array( 'https://example.test/sitemap.xml' ), $requested );
+	}
+
+	public function test_filter_overrides_the_resolved_sitemap_url(): void {
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+		Functions\when( 'apply_filters' )->alias(
+			fn( $hook, $value, ...$args ) => 'timberkit_warmup_sitemap_url' === $hook
+				? 'https://example.test/custom/sitemap.xml'
+				: $value
+		);
+
+		$requested = array();
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( $url ) use ( &$requested ) {
+				$requested[] = $url;
+				return Fixtures::response( Fixtures::urlset( array( 'https://example.test/custom-page/' ) ) );
+			}
+		);
+
+		$result = WarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( array( 'https://example.test/custom/sitemap.xml' ), $requested );
+		$this->assertSame( array( 'https://example.test/custom-page/' ), $result );
+	}
+
+	public function test_filter_receives_the_detected_provider(): void {
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+
+		$seen = null;
+		Functions\when( 'apply_filters' )->alias(
+			function ( $hook, $value, ...$args ) use ( &$seen ) {
+				if ( 'timberkit_warmup_sitemap_url' === $hook ) {
+					$seen = $args[0] ?? null;
+				}
+				return $value;
+			}
+		);
+		Functions\when( 'wp_remote_get' )->alias(
+			fn( $url ) => Fixtures::response( Fixtures::urlset( array( 'https://example.test/page/' ) ) )
+		);
+
+		WarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( 'core', $seen );
+	}
+
+	public function test_filter_returning_an_off_host_url_falls_back_to_the_detected_path(): void {
+		// isFetchableSameHostUrl() would reject it at fetch time anyway. Doing
+		// it here keeps the SSRF guard and still warms the site, instead of
+		// silently warming nothing because one filter callback was wrong.
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+		Functions\when( 'apply_filters' )->alias(
+			fn( $hook, $value, ...$args ) => 'timberkit_warmup_sitemap_url' === $hook
+				? 'https://evil.test/sitemap.xml'
+				: $value
+		);
+
+		$requested = array();
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( $url ) use ( &$requested ) {
+				$requested[] = $url;
+				return Fixtures::response( Fixtures::urlset( array( 'https://example.test/page/' ) ) );
+			}
+		);
+
+		WarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( array( 'https://example.test/wp-sitemap.xml' ), $requested );
+	}
+
+	public function test_rejects_a_filter_url_on_the_same_host_but_another_port(): void {
+		// Host alone is not the same origin. A service bound to :9200 on the
+		// site's own hostname is a different service, and fetching it is the
+		// SSRF this guard exists to stop.
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+		Functions\when( 'apply_filters' )->alias(
+			fn( $hook, $value, ...$args ) => 'timberkit_warmup_sitemap_url' === $hook
+				? 'https://example.test:9200/sitemap.xml'
+				: $value
+		);
+
+		$requested = array();
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( $url ) use ( &$requested ) {
+				$requested[] = $url;
+				return Fixtures::response( Fixtures::urlset( array( 'https://example.test/page/' ) ) );
+			}
+		);
+
+		WarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( array( 'https://example.test/wp-sitemap.xml' ), $requested );
+	}
+
+	public function test_accepts_a_filter_url_whose_port_is_the_scheme_default(): void {
+		// The same origin written two ways must not be read as two origins.
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+		Functions\when( 'apply_filters' )->alias(
+			fn( $hook, $value, ...$args ) => 'timberkit_warmup_sitemap_url' === $hook
+				? 'https://example.test:443/custom.xml'
+				: $value
+		);
+
+		$requested = array();
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( $url ) use ( &$requested ) {
+				$requested[] = $url;
+				return Fixtures::response( Fixtures::urlset( array( 'https://example.test/page/' ) ) );
+			}
+		);
+
+		WarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( array( 'https://example.test:443/custom.xml' ), $requested );
+	}
+
+	public function test_skips_a_sitemap_index_entry_on_another_port(): void {
+		// The filter is developer-written; a sitemap index is not. This is the
+		// path an attacker actually controls.
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+
+		$requested = array();
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( $url ) use ( &$requested ) {
+				$requested[] = $url;
+				return 'https://example.test/wp-sitemap.xml' === $url
+					? Fixtures::response(
+						Fixtures::sitemapIndex(
+							array(
+								'https://example.test:9200/internal.xml',
+								'https://example.test/wp-sitemap-posts.xml',
+							)
+						)
+					)
+					: Fixtures::response( Fixtures::urlset( array( 'https://example.test/page/' ) ) );
+			}
+		);
+
+		$result = WarmupSitemap::fetchSitemapUrls();
+
+		$this->assertNotContains( 'https://example.test:9200/internal.xml', $requested );
+		$this->assertSame( array( 'https://example.test/page/' ), $result );
+	}
+
+	public function test_falls_back_to_core_when_yoast_sitemaps_are_switched_off(): void {
+		// Yoast can be loaded with its XML sitemap turned off, and then core
+		// serves /wp-sitemap.xml again. Detecting on the symbol alone would
+		// send those sites to an address that 404s -- a configuration that
+		// worked before Yoast was recognised here.
+		if ( ! defined( 'WPSEO_VERSION' ) ) {
+			define( 'WPSEO_VERSION', '24.0' );
+		}
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+		Functions\when( 'get_option' )->alias(
+			fn( $name, $default = false ) => 'wpseo' === $name
+				? array( 'enable_xml_sitemap' => false )
+				: $default
+		);
+
+		$requested = array();
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( $url ) use ( &$requested ) {
+				$requested[] = $url;
+				return Fixtures::response( Fixtures::urlset( array( 'https://example.test/page/' ) ) );
+			}
+		);
+
+		WarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( array( 'https://example.test/wp-sitemap.xml' ), $requested );
+	}
+
+	public function test_yoast_stays_selected_when_the_sitemap_switch_is_absent(): void {
+		// Yoast's own default is on, so an option that never stored the key
+		// must not be read as off.
+		if ( ! defined( 'WPSEO_VERSION' ) ) {
+			define( 'WPSEO_VERSION', '24.0' );
+		}
+		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
+		Functions\when( 'get_option' )->alias( fn( $name, $default = false ) => 'wpseo' === $name ? array() : $default );
+
+		$requested = array();
+		Functions\when( 'wp_remote_get' )->alias(
+			function ( $url ) use ( &$requested ) {
+				$requested[] = $url;
+				return Fixtures::response( Fixtures::urlset( array( 'https://example.test/page/' ) ) );
+			}
+		);
+
+		WarmupSitemap::fetchSitemapUrls();
+
+		$this->assertSame( array( 'https://example.test/sitemap_index.xml' ), $requested );
+	}
+
 	public function test_recurses_into_sitemap_index_entries(): void {
 		Functions\when( 'home_url' )->alias( fn( $path = '' ) => 'https://example.test' . $path );
 
