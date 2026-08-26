@@ -8,28 +8,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
-- `Helpers::formatLink()` resolves each link URL once per language instead of
-  once per call site. The resolution runs `url_to_postid()`, which WPML filters
-  through `SitePress::url_to_postid` and `AbsoluteLinks` into a
+- `Helpers::formatLink()` resolves each link URL once per blog and language
+  instead of once per call site. The resolution runs `url_to_postid()`, which
+  WPML filters through `SitePress::url_to_postid` and `AbsoluteLinks` into a
   `get_page_by_path()` query — and a miss costs a second lookup, because the
-  slug fallback calls `url_to_postid()` again. Profiling a five-language front
-  page found **310 calls for 33 distinct URLs**: the same menu and options-page
-  links formatted once per place they appear. Memoizing removed ~122 ms of a
-  3.1 s render.
+  slug fallback calls `url_to_postid()` again.
 
-  The cache key carries the current language, because `wpml_object_id` and
-  `get_permalink()` both answer per language and WPML switches language
-  mid-request while a language switcher renders. It is request-scoped rather
-  than persistent: a static array cannot go stale, so nothing has to invalidate
-  it when a permalink changes. `Helpers::flushTranslatedLinkUrls()` exists for
-  tests, which are the only caller that outlives the data.
+  Measured end to end on a five-language front page, by patching the site and
+  re-profiling rather than by extrapolating:
 
-  Behaviour is unchanged for every caller. `get_permalink()` returning `false`
+| | before | after |
+  | --- | ---: | ---: |
+  | `url_to_postid` calls | 310 | 47 |
+  | time in the filter chain | 134.1 ms | 96.7 ms |
+Behaviour is unchanged for every caller. `get_permalink()` returning `false`
   is now treated as an unresolved URL instead of being concatenated onto.
 ## [1.42.0] - 2026-08-26
 
-### Added
+  310 calls covered **33 distinct URLs** — the same menu and options-page links
+  formatted once per place they appear. The 47 remaining are those 33 plus a
+  slug-fallback second lookup for the 14 that resolve to nothing.
 
+The saving is **~37 ms of a 3.1 s render**, about 1.2 %. An earlier draft of
+  this entry claimed ~122 ms by scaling the per-call cost; measurement showed
+  the eliminated calls were the cheap ones, because WordPress and WPML already
+  cache parts of the path internally. The expensive work is the distinct
+  resolutions, which remain.
+
+  The cache key carries the blog id and the current language. `url_to_postid()`,
+  `get_permalink()` and `wpml_object_id` all answer for the current blog and the
+  current language, so `switch_to_blog()` or a WPML language switch changes the
+  correct answer for an unchanged URL.
+
+  The cache is in-process. For a web request that equals request-scoped, because
+  the process ends before a permalink can change. Under WP-CLI or a persistent
+  worker it does not, so `StarterBase` flushes the memo on `clean_post_cache`,
+  and `Helpers::flushTranslatedLinkUrls()` is public for long-running callers
+  that do not boot StarterBase.
 - `$breeze_warmup_tail` — keep warming the URLs the cap excluded, a batch at a
   time, in score order, pausing whenever Breeze is draining its own preload
   queue. Batch size is `$breeze_warmup_tail_batch` (default 100 per five-minute
@@ -148,6 +163,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `Helpers::formatLink()` no longer concatenates a query string or fragment onto
+  `get_permalink()`'s `false` return. An id that failed to resolve produced a URL
+  like `?a=1`; the link is now left as stored.
 - `Helpers::formatLink()` no longer replaces a valid link with an empty string.
   `get_permalink()` answers `false` for a trashed post or a stale WPML
   translation id, and the concatenations after it coerced that to `''` — so a

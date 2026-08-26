@@ -941,6 +941,15 @@ class StarterBase extends Site {
 	 */
 	private function registerTimberHooks(): void {
 		add_filter( 'timber/context', array( $this, 'timber_context' ) );
+
+		// Helpers::formatLink() memoizes resolved link URLs in-process. That is
+		// safe for a web request, which ends before a permalink can change, and
+		// unsafe for WP-CLI or a worker, where one process handles many units of
+		// work: a command that renames a slug and then formats a link to it would
+		// be handed the permalink from before the rename. clean_post_cache fires
+		// whenever a post's caches are invalidated, which is exactly when a
+		// permalink can have moved, so the memo follows the same boundary.
+		add_action( 'clean_post_cache', array( Helpers::class, 'flushTranslatedLinkUrls' ) );
 		add_filter( 'timber/twig', array( $this, 'timber_twig' ) );
 		add_filter( 'timber/loader/loader', array( $this, 'timber_twig_loader' ) );
 		add_filter( 'timber/locations', array( $this, 'register_timber_kit_namespace' ), 20 );

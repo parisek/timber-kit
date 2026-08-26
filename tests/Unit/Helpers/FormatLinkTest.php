@@ -263,4 +263,70 @@ class FormatLinkTest extends HelpersTestCase {
 		$this->assertSame( 'https://example.com/cs/stranka/', $cs['url'] );
 		$this->assertSame( 'https://example.com/en/stranka/', $en['url'] );
 	}
+
+	public function test_same_url_on_two_blogs_resolves_separately(): void {
+		$blog = 1;
+		Functions\when( 'get_current_blog_id' )->alias( function () use ( &$blog ) {
+			return $blog;
+		} );
+		Functions\when( 'url_to_postid' )->justReturn( 42 );
+		Functions\when( 'apply_filters' )->alias( function ( $hook, $value = null ) {
+			return 'wpml_current_language' === $hook ? 'cs' : $value;
+		} );
+		Functions\when( 'get_permalink' )->alias( function () use ( &$blog ) {
+			return 'https://blog' . $blog . '.example.com/stranka/';
+		} );
+
+		$value = [ 'title' => 'Link', 'url' => 'https://example.com/page/', 'target' => '' ];
+		$field = [ 'wpml_cf_preferences' => 2 ];
+
+		$first = Helpers::formatLink( $value, 1, $field );
+		$blog  = 2;
+		$second = Helpers::formatLink( $value, 1, $field );
+
+		// switch_to_blog() changes the correct answer for an unchanged URL.
+		$this->assertSame( 'https://blog1.example.com/stranka/', $first['url'] );
+		$this->assertSame( 'https://blog2.example.com/stranka/', $second['url'] );
+	}
+
+	public function test_flush_lets_a_changed_permalink_through(): void {
+		$permalink = 'https://example.com/cs/stary-slug/';
+		Functions\when( 'url_to_postid' )->justReturn( 42 );
+		Functions\when( 'apply_filters' )->alias( function ( $hook, $value = null ) {
+			return 'wpml_current_language' === $hook ? 'cs' : $value;
+		} );
+		Functions\when( 'get_permalink' )->alias( function () use ( &$permalink ) {
+			return $permalink;
+		} );
+
+		$value = [ 'title' => 'Link', 'url' => 'https://example.com/page/', 'target' => '' ];
+		$field = [ 'wpml_cf_preferences' => 2 ];
+
+		$before = Helpers::formatLink( $value, 1, $field );
+
+		// A long-running process renames the slug. Without the flush the memo
+		// would keep handing out the permalink from before the rename.
+		$permalink = 'https://example.com/cs/novy-slug/';
+		$this->assertSame( $before['url'], Helpers::formatLink( $value, 1, $field )['url'] );
+
+		Helpers::flushTranslatedLinkUrls();
+
+		$this->assertSame( 'https://example.com/cs/novy-slug/', Helpers::formatLink( $value, 1, $field )['url'] );
+	}
+
+	public function test_false_permalink_leaves_url_untouched(): void {
+		Functions\when( 'url_to_postid' )->justReturn( 42 );
+		Functions\when( 'apply_filters' )->alias( function ( $hook, $value = null ) {
+			return 'wpml_current_language' === $hook ? 'cs' : $value;
+		} );
+		// get_permalink() returns false for an id it cannot resolve.
+		Functions\when( 'get_permalink' )->justReturn( false );
+
+		$value = [ 'title' => 'Link', 'url' => 'https://example.com/page/?a=1', 'target' => '' ];
+
+		$result = Helpers::formatLink( $value, 1, [ 'wpml_cf_preferences' => 2 ] );
+
+		// Previously this concatenated the query onto false, yielding "?a=1".
+		$this->assertSame( 'https://example.com/page/?a=1', $result['url'] );
+	}
 }

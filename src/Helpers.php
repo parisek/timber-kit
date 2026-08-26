@@ -1516,7 +1516,7 @@ class Helpers {
 	}
 
 	/**
-	 * Memoized link translations for this request, keyed by "<language>|<url>".
+	 * Memoized link translations, keyed by "<blog>|<language>|<url>".
 	 *
 	 * A null entry is a real answer — "this URL resolves to no post" — and is
 	 * cached like any other, so a miss is not re-resolved on every call.
@@ -1615,10 +1615,19 @@ class Helpers {
 	 * language switcher renders every language in turn), so a key of URL alone
 	 * would hand the switcher one language's permalinks for every entry.
 	 *
-	 * The cache is request-scoped on purpose. A persistent cache would have to
-	 * be invalidated whenever a permalink, a translation link or a language
-	 * setting changes; a static array cannot go stale, because the process ends
-	 * before any of that can happen.
+	 * The cache is in-process, not persistent. For a web request that is the
+	 * same thing, because the process ends before a permalink can change. It is
+	 * NOT the same thing under WP-CLI or a persistent worker, where one process
+	 * runs many units of work and can outlive the data it cached — a migration
+	 * that renames a slug and then formats a link would otherwise be handed the
+	 * old permalink. {@see \Parisek\TimberKit\StarterBase} therefore flushes
+	 * this on `clean_post_cache`, and {@see flushTranslatedLinkUrls()} is public
+	 * so a long-running caller that does not boot StarterBase can do the same.
+	 *
+	 * The key carries the blog id as well. `url_to_postid()`, `get_permalink()`
+	 * and `wpml_object_id` all answer for the *current* blog, so on multisite a
+	 * `switch_to_blog()` between two calls changes the correct answer for an
+	 * unchanged URL.
 	 *
 	 * @param string $url The stored link URL, in the source language.
 	 * @return string|null The translated URL, or null when the URL resolves to
@@ -1626,7 +1635,8 @@ class Helpers {
 	 */
 	private static function translateLinkUrl( string $url ): ?string {
 		$lang = apply_filters( 'wpml_current_language', null );
-		$key  = ( is_string( $lang ) ? $lang : '' ) . '|' . $url;
+		$blog = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$key  = $blog . '|' . ( is_string( $lang ) ? $lang : '' ) . '|' . $url;
 
 		if ( array_key_exists( $key, self::$translatedLinkUrls ) ) {
 			return self::$translatedLinkUrls[ $key ];
@@ -1686,8 +1696,11 @@ class Helpers {
 	/**
 	 * Drop the memoized link URLs.
 	 *
-	 * Only tests need this: a request cannot outlive the data the cache
-	 * describes, so production never has a reason to clear it.
+	 * A web request never needs this — it ends before a permalink can change.
+	 * A long-running process does: WP-CLI and persistent workers run many units
+	 * of work in one process, so the cache can outlive the data it describes.
+	 * StarterBase wires this to `clean_post_cache`; call it directly from any
+	 * long-running caller that does not boot StarterBase, and from tests.
 	 */
 	public static function flushTranslatedLinkUrls(): void {
 		self::$translatedLinkUrls = [];
