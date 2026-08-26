@@ -950,6 +950,7 @@ class StarterBase extends Site {
 		// whenever a post's caches are invalidated, which is exactly when a
 		// permalink can have moved, so the memo follows the same boundary.
 		add_action( 'clean_post_cache', array( Helpers::class, 'flushTranslatedLinkUrls' ) );
+		add_action( 'clean_post_cache', array( Helpers::class, 'flushResolvedPostIds' ) );
 		add_filter( 'timber/twig', array( $this, 'timber_twig' ) );
 		add_filter( 'timber/loader/loader', array( $this, 'timber_twig_loader' ) );
 		add_filter( 'timber/locations', array( $this, 'register_timber_kit_namespace' ), 20 );

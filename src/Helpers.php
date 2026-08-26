@@ -1515,6 +1515,9 @@ class Helpers {
 		return $field['value'];
 	}
 
+	/** @var array<string, int> Memoized URL-to-post-id answers, keyed by "<blog>|<language>|<url>". */
+	private static array $resolvedPostIds = [];
+
 	/**
 	 * Memoized link translations, keyed by "<blog>|<language>|<url>".
 	 *
@@ -2039,6 +2042,59 @@ class Helpers {
 	}
 
 	/**
+	 * URL to post ID, memoized for the request.
+	 *
+	 * Expensive and repetitive: under WPML `url_to_postid()` is filtered
+	 * through `SitePress::url_to_postid` and `AbsoluteLinks` into a
+	 * `get_page_by_path()` query, so every call is a database lookup and a miss
+	 * costs a second one through the slug fallback. Profiling a five-language
+	 * front page found 310 calls covering 33 distinct URLs -- the same menu and
+	 * options-page links resolved once per place they appear.
+	 *
+	 * The key carries the blog id and the current language. The blog because
+	 * `switch_to_blog()` changes the correct answer for an unchanged URL. The
+	 * language is more conservative than it now needs to be: since the
+	 * translation targets the language the URL names rather than the ambient
+	 * one, the final answer should no longer vary with the current language.
+	 * The intermediate `url_to_postid()` lookup still does, though, and that
+	 * the two cancel out is a reasoning chain, not a measurement -- so the key
+	 * keeps the language until someone measures it. Over-keying costs a repeat
+	 * lookup; under-keying would hand a language switcher one language's answer
+	 * for every entry.
+	 *
+	 * @param string $url Absolute or relative URL to resolve.
+	 * @return int Post ID, or 0 when nothing resolves.
+	 */
+	public static function urlToPostId( string $url ): int {
+		$lang = function_exists( 'apply_filters' ) ? apply_filters( 'wpml_current_language', null ) : null;
+		$blog = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$key  = $blog . '|' . ( is_string( $lang ) ? $lang : '' ) . '|' . $url;
+
+		if ( array_key_exists( $key, self::$resolvedPostIds ) ) {
+			return self::$resolvedPostIds[ $key ];
+		}
+
+		return self::$resolvedPostIds[ $key ] = self::resolveUrlToPostId( $url );
+	}
+
+	/**
+	 * Drop the memoized URL-to-post-id answers.
+	 *
+	 * A web request never needs this: it ends before a permalink can change.
+	 * A long-running process does. WP-CLI and persistent workers run many units
+	 * of work in one process, so a command that renames a slug and then formats
+	 * a link to it would otherwise be handed the id resolved before the rename.
+	 * {@see \Parisek\TimberKit\StarterBase} wires this to `clean_post_cache`;
+	 * call it directly from any long-running caller that does not boot
+	 * StarterBase, and from tests.
+	 */
+	public static function flushResolvedPostIds(): void {
+		self::$resolvedPostIds = [];
+	}
+
+	/**
+	 * The uncached body of {@see urlToPostId()}.
+	 *
 	 * Resolve a URL to the post it names, in the current language.
 	 *
 	 * `url_to_postid()` alone is not enough on a WPML site with language URL
@@ -2061,7 +2117,7 @@ class Helpers {
 	 * @param string $url Absolute URL, or a path.
 	 * @return int Post ID, or 0 when the URL names nothing on this site.
 	 */
-	public static function urlToPostId( string $url ): int {
+	private static function resolveUrlToPostId( string $url ): int {
 		if ( '' === trim( $url ) || ! function_exists( 'url_to_postid' ) ) {
 			return 0;
 		}

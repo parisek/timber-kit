@@ -212,6 +212,13 @@ class FormatLinkTest extends HelpersTestCase {
 	public function test_unresolved_url_is_cached_too(): void {
 		// A miss falls through to extract_slug_from_url(), which asks WPML.
 		Functions\when( 'is_plugin_active' )->justReturn( false );
+		// The slug fallback is gated on the URL being this site's, so the URL
+		// below has to be one. Without home_url() the gate cannot answer and
+		// the fallback never runs -- which would leave this asserting one
+		// lookup instead of the two a miss actually costs.
+		Functions\when( 'home_url' )->alias(
+			static fn( string $path = '' ): string => 'https://example.com' . $path
+		);
 		$calls = 0;
 		Functions\when( 'url_to_postid' )->alias( function () use ( &$calls ) {
 			$calls++;
