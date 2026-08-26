@@ -889,6 +889,23 @@ class StarterBase extends Site {
 	protected bool $resizer_quality_in_cache_key = false;
 
 	/**
+	 * Put the source image's upload directory in the resizer cache key.
+	 *
+	 * Off by default. Two uploads that share a name -- the same name in two
+	 * months, or the same name with two extensions -- occupy one cache path
+	 * without this, and whichever renders first decides what the other one
+	 * shows. Set **true** to separate them.
+	 *
+	 * Switching it on relocates every derivative whose source is not at the
+	 * uploads root: the old files orphan and the public URLs change. Run
+	 * `wp timber-kit migrate-image-cache` to move them instead of re-encoding
+	 * them. A site with year/month folders switched off sees no change at all.
+	 *
+	 * @var bool
+	 */
+	protected bool $resizer_source_path_in_cache_key = false;
+
+	/**
 	 * Which field holds each post type's social preview image.
 	 *
 	 * `[ 'project' => 'hero_image' ]`, or a list to try in order:
@@ -1378,6 +1395,11 @@ class StarterBase extends Site {
 			// Default is false (quality absent from the key, the historic paths).
 			// Opting in relocates every non-default-quality variant.
 			add_filter( 'timber_kit_resizer_quality_in_cache_key', '__return_true' );
+		}
+		if ( $this->resizer_source_path_in_cache_key ) {
+			// Default is false (the historic flat paths). Opting in relocates
+			// every derivative whose source is below a year/month directory.
+			add_filter( 'timber_kit_resizer_source_path_in_cache_key', '__return_true' );
 		}
 		if ( ! $this->resizer_skip_animated ) {
 			// Default is true (animated sources pass through untouched). Opting out

@@ -1259,6 +1259,7 @@ Available hooks:
 - `timber_kit_resizer_remote_variant_probe_timeout` — HTTP timeout for variant probes, default `2.0`
 - `timber_kit_resizer_remote_variant_probe_limit` — max remote variant probes per request, default `50`
 - `timber_kit_resizer_quality_in_cache_key` — put a variant's quality in its cache key, default `false` (also settable as `StarterBase::$resizer_quality_in_cache_key`). Without it, re-cutting the same dimensions at a different quality serves the previously generated file. Opt-in because switching it on relocates every non-default-quality variant: old cache files orphan and public URLs change.
+- `timber_kit_resizer_source_path_in_cache_key` — put the source image's upload directory in its cache key, default `false` (also settable as `StarterBase::$resizer_source_path_in_cache_key`). Without it, two uploads that share a name occupy one cache path and whichever renders first decides what the other one shows. Opt-in because switching it on relocates every derivative whose source is not at the uploads root: old cache files orphan and public URLs change. Run `wp timber-kit migrate-image-cache` to move them instead of re-encoding them.
 - `timber_kit_resizer_aspect_tolerance` — tolerance band around 1:1 used by `Resizer::classifyAspect()` to decide whether a source qualifies as `square`, default `0.1`. Returning a smaller value (e.g. `0.05`) tightens the square band; returning a larger value (e.g. `0.2`) loosens it.
 
 ### Google Tag Manager
