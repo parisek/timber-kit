@@ -165,4 +165,34 @@ final class CuratedUrlsTest extends TestCase {
 			CuratedUrls::filterReachable( array( 'https://example.test/flaky/' => true ) )
 		);
 	}
+
+	public function test_the_list_is_filterable_from_outside_the_theme(): void {
+		// The reason this filter exists: a project may keep its config in an
+		// mu-plugin, and without it the curated list would be the one warmup
+		// setting unreachable from there.
+		Functions\when( 'url_to_postid' )->justReturn( 0 );
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $hook, $value = null, ...$rest ) {
+				return 'timberkit_warmup_curated_urls' === $hook ? array( '/added/' ) : $value;
+			}
+		);
+
+		$this->assertSame(
+			array( 'https://example.test/added/' ),
+			array_keys( CuratedUrls::keys( array( '/original/' ) ) )
+		);
+	}
+
+	public function test_the_cap_is_filterable_and_truncates(): void {
+		Functions\when( 'url_to_postid' )->justReturn( 0 );
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $hook, $value = null, ...$rest ) {
+				return 'timberkit_warmup_curated_max_entries' === $hook ? 1 : $value;
+			}
+		);
+
+		$keys = CuratedUrls::keys( array( '/one/', '/two/', '/three/' ) );
+
+		$this->assertSame( array( 'https://example.test/one/' ), array_keys( $keys ) );
+	}
 }

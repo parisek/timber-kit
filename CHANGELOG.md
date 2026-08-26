@@ -16,7 +16,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   relative path is correct on every environment and, under domain-per-language,
   on that language's own host. An entry that resolves to nothing is dropped, and
   what `url_to_postid()` cannot see is verified with one `HEAD` during the cron
-  refresh — never on the purge path.
+  refresh — never on the purge path. Filterable as
+  `timberkit_warmup_curated_urls`, its cap as
+  `timberkit_warmup_curated_max_entries`.
 - `Helpers::isSiteUrl()` / `Helpers::siteHosts()` — whether a URL belongs to this
   site, matching host **and** port, and counting each WPML language's own host
   under domain-per-language negotiation.
@@ -43,6 +45,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   not know yet and for a site serving its sitemap from a non-default path. A
   non-string return, or a URL on another host, is ignored in favour of the
   detected path.
+
+### Changed
+
+- The warmup refresh no longer returns early when the sitemap is empty or
+  unreachable. Curated entries are added first, so a project that names its
+  pages explicitly still gets them warmed in exactly the situation where the
+  sitemap cannot help. On a site with no curated entries this changes nothing;
+  on one with them, a refresh that used to no-op now does work.
 
 ### Fixed
 

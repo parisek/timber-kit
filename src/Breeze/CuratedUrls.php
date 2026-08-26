@@ -39,8 +39,8 @@ namespace Parisek\TimberKit\Breeze;
  */
 final class CuratedUrls {
 
-	/** @var int Cap on entries accepted from a project, before resolution. */
-	private const MAX_ENTRIES = 200;
+	/** @var int Default cap on entries accepted from a project, before resolution. */
+	private const DEFAULT_MAX_ENTRIES = 200;
 
 	/** @var int Timeout, in seconds, for one reachability probe. */
 	private const PROBE_TIMEOUT = 5;
@@ -53,11 +53,33 @@ final class CuratedUrls {
 	 *                             reachability probe.
 	 */
 	public static function keys( array $entries ): array {
+		// Filterable for the same reason every other knob in this subsystem is:
+		// a project may keep its config in an mu-plugin rather than in the theme
+		// subclass, and without this the curated list would be the one warmup
+		// setting unreachable from there.
+		//
+		// Unlike `timberkit_warmup_priority_weights` this does not have to be a
+		// pure function — nothing fingerprints it. The cost of that is a delay:
+		// a changed list is picked up at the next refresh, within CACHE_TTL,
+		// not on the next purge.
+		if ( function_exists( 'apply_filters' ) ) {
+			$filtered = apply_filters( 'timberkit_warmup_curated_urls', $entries );
+			if ( is_array( $filtered ) ) {
+				$entries = $filtered;
+			}
+		}
+
+		$max = self::DEFAULT_MAX_ENTRIES;
+		if ( function_exists( 'apply_filters' ) ) {
+			$candidate = apply_filters( 'timberkit_warmup_curated_max_entries', $max );
+			$max       = is_numeric( $candidate ) ? max( 0, (int) $candidate ) : $max;
+		}
+
 		$keys  = array();
 		$count = 0;
 
 		foreach ( $entries as $entry ) {
-			if ( $count >= self::MAX_ENTRIES ) {
+			if ( $count >= $max ) {
 				break;
 			}
 			if ( ! is_string( $entry ) ) {

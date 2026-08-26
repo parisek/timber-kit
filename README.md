@@ -708,6 +708,49 @@ fresh. The signal is free — it is already in the XML we parse — and
 resolving real publication dates would mean matching URLs back to posts
 through WPML and custom permalinks.
 
+### Naming pages yourself
+
+The scorer treats Breeze's own manual list as a strong signal, but that list
+lives in a `wp_options` row: it cannot be reviewed, carries no reason for any
+entry, differs per environment by accident, and a database import wipes it —
+after which the site quietly stops warming what mattered.
+
+`$breeze_warmup_urls` is the same signal, kept in the theme:
+
+```php
+protected array $breeze_warmup_urls = array(
+    '/blog/',
+    '/cs/blog/',
+    'https://example.de/blog/',
+);
+```
+
+It merges into `manual` at the weight that source already carries. It adds an
+input, not a tier: ordering, weights and the cap are untouched.
+
+**Relative or absolute, and the difference matters.** A relative path is right
+most of the time — the same code runs on ddev, on staging and in production, and
+an absolute URL would be silently wrong on two of the three. An absolute URL is
+needed when the target is not on `home_url()`'s host at all, which under WPML's
+domain-per-language negotiation is every language but the default.
+
+Both are resolved rather than trusted. An entry naming a post or a page becomes
+its ID and comes back as `get_permalink()`, so what is stored is this
+environment's own URL in this environment's own language. **An entry that
+resolves to nothing is dropped**, so a deleted page stops being warmed without
+anyone having to remember the list exists.
+
+`url_to_postid()` cannot see term archives, so those are kept as URLs and
+verified with one `HEAD` during the cron refresh — never on the purge path,
+which runs while an editor waits for a save. A probe that fails outright keeps
+the entry: one flaky lookup must not empty a curated list.
+
+Filterable as `timberkit_warmup_curated_urls`, and its 200-entry cap as
+`timberkit_warmup_curated_max_entries`, for projects that keep configuration in
+an mu-plugin rather than in the theme subclass. Unlike the weights filter this
+one need not be pure — nothing fingerprints it — but a change is picked up at
+the next refresh rather than the next purge.
+
 **The cap is not the whole cost.** `timberkit_warmup_sitemap_max_urls`
 (default 200) applies only to sitemap-sourced URLs. Entries Breeze itself
 supplies are warmed on top of it, and every language's homepage and menu
