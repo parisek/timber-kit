@@ -49,7 +49,7 @@ class SourcePathCacheKeyTest extends ResizerTestCase {
 
 	/**
 	 * Returns the cache_key of each normalized variant after resize() has
-	 * augmented it. Implemented in Step 3 of this task.
+	 * augmented it.
 	 *
 	 * @return list<string>
 	 */

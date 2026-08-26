@@ -4190,6 +4190,10 @@ class StarterBase extends Site {
 			return '';
 		}
 
+		// No backslash normalization here, unlike Resizer::sourcePathSegment()
+		// (which reads a URL): this reads dirname() of `_wp_attached_file`,
+		// a database value WordPress always stores with forward slashes, so
+		// a backslash cannot occur in this input domain.
 		$parts = [];
 
 		foreach ( explode( '/', $dir ) as $part ) {
