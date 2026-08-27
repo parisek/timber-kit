@@ -27,12 +27,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   menu instead of one per page, and keeps the highlighted item right by
   construction rather than by a key that remembers to carry the URL.
 
-  Measured on the sloneek front page: a 90-item menu spends **61-104 ms per
-  request** on those fields, out of 529-702 ms of PHP. That is the cost of the
-  work a cache hit removes, not a before/after page time — producing a real hit
-  needs a persistent object cache and the measurement host has none. Without
-  the field-group memo released alongside it the same work costs 154-266 ms, so
-  the two overlap and this is the residual.
+  Measured against a real Redis object cache on the sloneek front page, 90
+  items across five menus: **402 ms to 344-350 ms**, over two back-to-back
+  runs, with `/blog/` going 907 ms to 836-857 ms. Rendered HTML is
+  byte-identical once non-deterministic ids are normalized, with a valid
+  control pair either side.
+
+  An earlier draft of this entry quoted 61-104 ms of removed *work* instead,
+  because the measurement host had no persistent object cache and could not
+  produce a hit. It has one now, and the end-to-end number is the smaller
+  claim: the walk still rebuilds `is_active` and `in_active_trail` on a hit,
+  which is the point of the split.
 
 ### It stores only what it can prove is storable
 
@@ -43,20 +48,41 @@ current query or the current user. Storing that output would freeze one page's
 rendered shortcode onto every other page — and it serializes perfectly, so no
 type check would catch it.
 
-So both are detected rather than assumed, and either one makes the walk store
-nothing for that menu:
+**The proof runs before the work, not after it.** An earlier draft watched the
+render instead and asked whether formatting had changed anything. That is not a
+proof of purity, and the counterexample is ordinary: an unregistered `[foo]`
+comes back byte-identical, reads as static, and the literal `[foo]` is stored.
+The day a plugin registers that shortcode, every page serves the frozen source
+text instead of its output — with nothing to log and nothing to notice.
 
-- **Dynamism** is measured as *change*, not as *opportunity*. Running
-  `do_shortcode()` is not the signal; a shortcode that altered the value is.
-  Most editor content holds none and comes back byte-identical — treating the
-  call itself as the signal rejected the largest menu on the measurement site,
-  68 items whose fields were provably a function of stored content. Same rule
-  for the formatter filter: its presence is not dynamism, changing the value is.
-- **Storability** rejects objects, resources and closures. An object may
-  serialize and return carrying state that was true when it was stored.
+So the three surfaces are decided from what is stored:
 
-One unstorable slot condemns the whole menu rather than storing a payload with
-a hole in it, which would be replayed as complete.
+- **Shortcodes.** `do_shortcode()` needs an opening bracket to do anything, so a
+  menu item whose every stored meta string has none formats to a function of
+  what it stores. The test reads raw meta, which `wp_get_nav_menu_items()` has
+  already primed, so it costs a memory read. It is deliberately blunt: a bracket
+  in a plain-text field is not a shortcode and the menu is refused anyway. A
+  false refusal costs one uncached menu; a false accept is wrong on every page.
+- **Formatter filters.** No static proof of a callback's purity is available, so
+  one registered `field_formatter_*` callback refuses every menu. That is the
+  default rather than the verdict — it goes through
+  `timber_kit_cache_menu_fields` with everything else, so a project that knows
+  its own formatter is pure can say so.
+- **Rendered forms.** The `post_object` branch that renders Contact Form 7 or
+  WPForms is dynamic whatever the stored value is: the markup carries a nonce.
+  No inspection of stored data predicts it, so this one surface stays counted
+  during the build.
+
+**Storability** is unchanged and still rejects objects, resources and closures;
+an object may serialize and return carrying state that was true when it was
+stored. One unstorable slot condemns the whole menu rather than storing a
+payload with a hole in it, which would be replayed as complete.
+
+Measured on the sloneek front page against a real Redis object cache: 402 ms
+before, 344-350 ms after, over two back-to-back runs — **~53 ms, 13 % of the
+request**. `/blog/` goes 907 ms to 836-857 ms. Rendered HTML is byte-identical
+once non-deterministic ids are normalized, with a valid control pair either
+side.
 
 ### Lifetime and re-entrancy
 

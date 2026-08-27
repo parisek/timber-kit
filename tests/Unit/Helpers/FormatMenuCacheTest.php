@@ -26,12 +26,28 @@ class FormatMenuCacheTest extends HelpersTestCase {
 
 	private int $lastTtl = -1;
 
+	/**
+	 * Raw stored meta the gate inspects, keyed by menu item id.
+	 *
+	 * @var array<int, array<string, mixed>>
+	 */
+	private array $meta = [];
+
 	protected function setUp(): void {
 		parent::setUp();
 		$this->store        = [];
 		$this->itemWork = 0;
 		$this->lastTtl  = -1;
+		$this->meta     = [];
 		Helpers::flushMenuFields();
+
+		// The gate reads raw meta before it stores anything formatted from it.
+		// Empty is the shortcode-free answer; the tests that plant a shortcode
+		// fill $this->meta instead.
+		Functions\when( 'get_post_meta' )->alias(
+			fn ( $id, $key = '', $single = false ) => $this->meta[ (int) $id ] ?? []
+		);
+		Functions\when( 'get_term_meta' )->justReturn( [] );
 
 		Functions\when( 'get_field_objects' )->justReturn( [] );
 		Functions\when( 'is_plugin_active' )->justReturn( false );
@@ -219,12 +235,48 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		// field: a callback may read the global post or the current query. It
 		// serializes perfectly, which is exactly why an object check would miss
 		// it.
+		$this->meta[11] = [ 'body' => [ '<p>x [sc]</p>' ] ];
 		$this->menuItemsCarryField( [ 'key' => 'f', 'name' => 'body', 'type' => 'wysiwyg' ], '<p>x [sc]</p>' );
 		Functions\when( 'do_shortcode' )->alias(
 			static fn ( $v ) => str_replace( '[sc]', '<b>rendered</b>', (string) $v )
 		);
 
 		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertSame( [], $this->store );
+	}
+
+	public function test_an_unregistered_shortcode_is_refused_although_nothing_changed(): void {
+		// The case that decided the gate's direction. `[sc]` is not registered,
+		// so do_shortcode() hands it straight back and the render is a fixed
+		// point — a gate that watched the output would call this static and
+		// store the literal `[sc]`. Then a plugin registers the shortcode and
+		// every page serves the frozen source text instead of its output, with
+		// nothing to log and nothing to notice.
+		$this->meta[11] = [ 'body' => [ '<p>x [sc]</p>' ] ];
+		$this->menuItemsCarryField( [ 'key' => 'f', 'name' => 'body', 'type' => 'wysiwyg' ], '<p>x [sc]</p>' );
+		Functions\when( 'do_shortcode' )->alias( static fn ( $v ) => $v );
+
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertSame( [], $this->store );
+	}
+
+	public function test_a_registered_field_formatter_filter_refuses_every_menu(): void {
+		// No static proof of a formatter callback's purity is available, so one
+		// registered callback ends it — for a menu whose own stored values are
+		// provably shortcode-free, which is what makes the refusal visible.
+		// Written into the registry directly: Brain Monkey stubs `add_filter()`
+		// and never touches `$wp_filter`, which is what production reads.
+		$GLOBALS['wp_filter']['field_formatter_text'] = [ 10 => [ 'cb' => [] ] ];
+
+		try {
+			Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+		} finally {
+			// A global outlives the test that set it, and the next one would
+			// then measure this filter rather than its own subject.
+			unset( $GLOBALS['wp_filter']['field_formatter_text'] );
+		}
 
 		$this->assertSame( [], $this->store );
 	}

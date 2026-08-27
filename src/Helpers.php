@@ -1624,14 +1624,14 @@ class Helpers {
 				$field['value'] = '';
 			}
 
-			$field['value'] = self::runShortcodes( $field['value'] );
+			$field['value'] = do_shortcode( $field['value'] );
 
 		} elseif ( $field['type'] === 'textarea' ) {
 
 			if ( self::isTextareaContentEmpty( $field['value'] ) ) {
 				$field['value'] = '';
 			} else {
-				$field['value'] = self::runShortcodes( $field['value'] );
+				$field['value'] = do_shortcode( $field['value'] );
 			}
 
 		} elseif ( $field['type'] === 'image' ) {
@@ -1770,13 +1770,7 @@ class Helpers {
 		}
 
 		// allow to alter formatter for specific field type
-		$before_filter = $field;
-		$field         = apply_filters( 'field_formatter_' . $field['type'], $field, $post_id );
-		if ( $field !== $before_filter ) {
-			// A project callback may derive its result from anything. Its mere
-			// presence is not dynamism — changing the value is.
-			++self::$dynamic_format_count;
-		}
+		$field = apply_filters( 'field_formatter_' . $field['type'], $field, $post_id );
 
 		return $field['value'];
 	}
@@ -2064,49 +2058,21 @@ class Helpers {
 	}
 
 	/**
-	 * Expand shortcodes, and record it only if any of them produced something.
-	 *
-	 * Running `do_shortcode()` is not dynamism; **a shortcode that changed the
-	 * value is.** Most editor content holds no shortcode at all and comes back
-	 * byte-identical, so treating the call as the signal condemned the largest
-	 * menu on the measurement site — 68 items whose fields were provably a
-	 * function of stored content.
-	 *
-	 * A shortcode whose output equals its own source text is not distinguished,
-	 * and is the one case this reads as static. It renders the same thing on
-	 * every page by definition, so the misreading is harmless.
-	 *
-	 * @param mixed $value Raw field value.
-	 * @return mixed Value with shortcodes expanded.
-	 */
-	private static function runShortcodes( mixed $value ): mixed {
-		if ( ! is_string( $value ) || ! function_exists( 'do_shortcode' ) ) {
-			return $value;
-		}
-
-		$expanded = do_shortcode( $value );
-		if ( $expanded !== $value ) {
-			++self::$dynamic_format_count;
-		}
-
-		return $expanded;
-	}
-
-	/**
 	 * How many times formatting has produced output that is not a pure function
 	 * of the stored field.
 	 *
-	 * `fieldFormatter()` runs `do_shortcode()` on editor content and hands every
-	 * field to a `field_formatter_{$type}` filter. A shortcode callback may read
-	 * the global post, the current query, the request URL or the current user,
-	 * and a filter callback may read anything at all — so the *rendered* result
-	 * can differ between two pages that hold the identical stored value.
+	 * Exactly one place increments it: the `post_object` branch that renders a
+	 * Contact Form 7 or WPForms form. That form's markup carries a nonce and a
+	 * per-render id, so it is dynamic no matter what the stored value is, and
+	 * no inspection of the stored value can predict it.
 	 *
-	 * Anything that wants to store formatted output across requests reads this
-	 * counter either side of the work and refuses to store what it saw move.
-	 * Detecting the dynamism beats assuming its absence: the assumption is
-	 * invisible when it is wrong, and what it produces is one page's rendered
-	 * shortcode frozen onto every other page.
+	 * Every other dynamic surface in `fieldFormatter()` is decided **before**
+	 * the work runs, by {@see storedValuesAreShortcodeFree()} and
+	 * {@see hasFieldFormatterFilters()}. That direction matters: observing one
+	 * render cannot prove a formatter is pure. An unregistered `[foo]` comes
+	 * back byte-identical and reads as static, and the literal `[foo]` is then
+	 * stored — until a plugin registers the shortcode and every page serves the
+	 * frozen source text instead of its output.
 	 *
 	 * @var int
 	 */
@@ -2120,6 +2086,113 @@ class Helpers {
 	 */
 	public static function dynamicFormatCount(): int {
 		return self::$dynamic_format_count;
+	}
+
+	/**
+	 * Whether any `field_formatter_{$type}` filter has a callback.
+	 *
+	 * A formatter callback may derive its result from the global post, the
+	 * current query, the request or the current user, and nothing about the
+	 * stored value says which. There is no static proof of purity available
+	 * here, so the presence of any such callback ends the matter: the caller
+	 * stores nothing.
+	 *
+	 * Not memoized. A callback added between two menus in one long-running
+	 * process would otherwise be invisible to the second.
+	 *
+	 * @return bool
+	 */
+	public static function hasFieldFormatterFilters(): bool {
+		global $wp_filter;
+
+		if ( ! is_array( $wp_filter ) && ! ( $wp_filter instanceof \ArrayAccess ) ) {
+			return false;
+		}
+
+		foreach ( (array) $wp_filter as $tag => $hook ) {
+			if ( ! is_string( $tag ) || ! str_starts_with( $tag, 'field_formatter_' ) ) {
+				continue;
+			}
+
+			// `WP_Hook` in production; an array in anything that assembles the
+			// registry by hand. Reading only the object shape would answer "no
+			// filters" for the second, which is the answer that stores.
+			$callbacks = is_object( $hook ) ? ( $hook->callbacks ?? null ) : $hook;
+
+			if ( ! empty( $callbacks ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether one post's stored meta is free of anything `do_shortcode()` could
+	 * act on.
+	 *
+	 * `fieldFormatter()` runs `do_shortcode()` over `wysiwyg` and `textarea`
+	 * values, and that is the only place stored content can turn into
+	 * page-dependent output. A shortcode needs an opening bracket, so a post
+	 * whose every stored string has none is one whose formatting is a function
+	 * of what is stored — provably, without rendering it first.
+	 *
+	 * The test is on the **raw** meta, which `wp_get_nav_menu_items()` has
+	 * already primed into the object cache, so this reads memory rather than
+	 * the database.
+	 *
+	 * It is deliberately blunt. A bracket in a plain-text field is not a
+	 * shortcode and the menu is refused anyway: a false refusal costs one
+	 * uncached menu, a false accept freezes one page's output onto every page.
+	 *
+	 * @param int $post_id Post id whose stored meta to inspect.
+	 * @return bool
+	 */
+	public static function storedValuesAreShortcodeFree( int $post_id ): bool {
+		if ( $post_id <= 0 || ! function_exists( 'get_post_meta' ) ) {
+			return false;
+		}
+
+		return self::isShortcodeFree( get_post_meta( $post_id ) );
+	}
+
+	/**
+	 * The same test against a term's stored meta, for the menu's own fields.
+	 *
+	 * @param int $term_id Term id whose stored meta to inspect.
+	 * @return bool
+	 */
+	public static function termValuesAreShortcodeFree( int $term_id ): bool {
+		if ( $term_id <= 0 || ! function_exists( 'get_term_meta' ) ) {
+			return false;
+		}
+
+		return self::isShortcodeFree( get_term_meta( $term_id ) );
+	}
+
+	/**
+	 * @param mixed $value Meta value, at any depth.
+	 * @return bool
+	 */
+	private static function isShortcodeFree( mixed $value ): bool {
+		if ( is_string( $value ) ) {
+			return ! str_contains( $value, '[' );
+		}
+
+		if ( is_array( $value ) ) {
+			foreach ( $value as $item ) {
+				if ( ! self::isShortcodeFree( $item ) ) {
+					return false;
+				}
+			}
+
+			return true;
+		}
+
+		// A serialized object in meta comes back as an object here. It is not a
+		// string this can clear, and MenuFieldsCache rejects it on storability
+		// anyway; saying "not proven" keeps the two answers consistent.
+		return ! is_object( $value ) && ! is_resource( $value );
 	}
 
 	/**

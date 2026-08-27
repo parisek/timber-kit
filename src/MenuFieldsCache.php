@@ -58,6 +58,18 @@ final class MenuFieldsCache {
 	private static array $unstorable = [];
 
 	/**
+	 * Whether the walk of this menu may store anything at all.
+	 *
+	 * Recorded at `open()` rather than asked again per slot: `isCacheable()`
+	 * scans the filter registry, and the answer must not change halfway through
+	 * one menu — a walk that started storable and finished unstorable would
+	 * write a payload with a hole in it.
+	 *
+	 * @var array<int, bool>
+	 */
+	private static array $active = [];
+
+	/**
 	 * Begin a walk of one menu, replaying a stored payload if there is one.
 	 *
 	 * Re-entrant on purpose. Formatting a field can reach code that asks for the
@@ -79,8 +91,9 @@ final class MenuFieldsCache {
 		self::$payload[ $menu_id ]    = [];
 		self::$dirty[ $menu_id ]      = false;
 		self::$unstorable[ $menu_id ] = false;
+		self::$active[ $menu_id ]     = self::isCacheable( $menu_id );
 
-		if ( ! self::isCacheable( $menu_id ) ) {
+		if ( ! self::$active[ $menu_id ] ) {
 			return;
 		}
 
@@ -113,18 +126,17 @@ final class MenuFieldsCache {
 		$unstorable = self::$unstorable[ $menu_id ] ?? true;
 		$payload    = self::$payload[ $menu_id ] ?? [];
 
+		$active = self::$active[ $menu_id ] ?? false;
+
 		unset(
 			self::$depth[ $menu_id ],
 			self::$payload[ $menu_id ],
 			self::$dirty[ $menu_id ],
-			self::$unstorable[ $menu_id ]
+			self::$unstorable[ $menu_id ],
+			self::$active[ $menu_id ]
 		);
 
-		if ( ! $complete || ! $dirty || $unstorable || [] === $payload ) {
-			return;
-		}
-
-		if ( ! self::isCacheable( $menu_id ) ) {
+		if ( ! $active || ! $complete || ! $dirty || $unstorable || [] === $payload ) {
 			return;
 		}
 
@@ -170,6 +182,7 @@ final class MenuFieldsCache {
 		self::$payload    = [];
 		self::$dirty      = [];
 		self::$unstorable = [];
+		self::$active     = [];
 	}
 
 	/**
@@ -183,15 +196,28 @@ final class MenuFieldsCache {
 			return (array) self::$payload[ $menu_id ][ $slot ];
 		}
 
+		// Decided BEFORE the build, from what is stored. Observing one render
+		// cannot prove a formatter is pure — an unregistered shortcode comes
+		// back unchanged and reads as static.
+		// Only asked when this walk can actually store. The check reads meta,
+		// and a walk that will store nothing has no reason to pay for it.
+		$provable = ! ( self::$active[ $menu_id ] ?? false )
+			|| ( self::MENU_SLOT === $slot
+				? Helpers::termValuesAreShortcodeFree( $menu_id )
+				: Helpers::storedValuesAreShortcodeFree( (int) $slot ) );
+
 		$before = Helpers::dynamicFormatCount();
 		$fields = (array) $build();
-		$moved  = Helpers::dynamicFormatCount() !== $before;
+
+		// The one dynamic surface no stored value can predict: a rendered CF7 or
+		// WPForms form, whose markup carries a nonce.
+		$moved = Helpers::dynamicFormatCount() !== $before;
 
 		if ( ! isset( self::$payload[ $menu_id ] ) ) {
 			return $fields;
 		}
 
-		if ( $moved || ! self::isStorable( $fields ) ) {
+		if ( ! $provable || $moved || ! self::isStorable( $fields ) ) {
 			// One unstorable slot condemns the whole menu rather than storing a
 			// payload with a hole in it: a partial payload would be replayed as
 			// complete, and the missing fields would simply not render.
@@ -245,11 +271,17 @@ final class MenuFieldsCache {
 			return false;
 		}
 
-		return (bool) apply_filters(
-			'timber_kit_cache_menu_fields',
-			CacheSignature::isAvailable(),
-			$menu_id
-		);
+		// A `field_formatter_{$type}` callback may read anything, and nothing
+		// about the stored value says which. There is no static proof of purity
+		// to be had, so one registered callback ends it for every menu.
+		//
+		// It is a default, not a verdict: it goes through the filter with
+		// everything else, so a project that knows its own formatter is pure can
+		// say so — and a project that does not, does not have to know the rule
+		// exists.
+		$default = CacheSignature::isAvailable() && ! Helpers::hasFieldFormatterFilters();
+
+		return (bool) apply_filters( 'timber_kit_cache_menu_fields', $default, $menu_id );
 	}
 
 	/**
