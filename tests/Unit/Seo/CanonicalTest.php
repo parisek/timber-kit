@@ -18,23 +18,41 @@ use PHPUnit\Framework\TestCase;
  */
 final class CanonicalTest extends TestCase {
 
+	/**
+	 * Whether `$_SERVER['REQUEST_URI']` existed before this test touched it,
+	 * and its original value -- restored in tearDown() so no test leaks
+	 * superglobal state into the rest of the suite.
+	 */
+	private bool $had_request_uri = false;
+
+	private mixed $original_request_uri = null;
+
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+
+		$this->had_request_uri      = array_key_exists( 'REQUEST_URI', $_SERVER );
+		$this->original_request_uri = $_SERVER['REQUEST_URI'] ?? null;
 
 		Functions\when( 'user_trailingslashit' )->alias(
 			static fn( string $string ): string => rtrim( $string, '/' ) . '/'
 		);
 
-		// Every fixture URL below lives on this host; `home_url()` mirrors
-		// whatever path the test hands `$wp->request`.
+		// Every fixture URL below lives on this host and carries no language
+		// prefix by default -- individual tests override this to model a
+		// WPML directory-per-language install instead.
 		Functions\when( 'home_url' )->alias(
 			static fn( string $path = '' ): string => 'https://x.test' . $path
 		);
 	}
 
 	protected function tearDown(): void {
-		unset( $GLOBALS['wp'] );
+		if ( $this->had_request_uri ) {
+			$_SERVER['REQUEST_URI'] = $this->original_request_uri;
+		} else {
+			unset( $_SERVER['REQUEST_URI'] );
+		}
+
 		Monkey\tearDown();
 		parent::tearDown();
 	}
@@ -53,17 +71,17 @@ final class CanonicalTest extends TestCase {
 	}
 
 	/**
-	 * Sets `$wp->request` to the path WordPress matched for this request --
-	 * unprefixed, the way `WP::$request` really carries it, e.g. `blog`.
+	 * Sets `$_SERVER['REQUEST_URI']` -- the raw request line, exactly as a
+	 * browser sent it, unfiltered by anything WordPress or a language plugin
+	 * does to it afterwards.
 	 */
-	private function onRequest( string $path ): void {
-		$GLOBALS['wp']          = new \stdClass();
-		$GLOBALS['wp']->request = $path;
+	private function onRequest( string $uri ): void {
+		$_SERVER['REQUEST_URI'] = $uri;
 	}
 
 	public function testASingularPageGetsASelfReferencingCanonical(): void {
 		$this->onPage( 0, 10 );
-		$this->onRequest( 'blog' );
+		$this->onRequest( '/blog/' );
 
 		$this->assertSame(
 			'https://x.test/blog/page/10/',
@@ -73,7 +91,7 @@ final class CanonicalTest extends TestCase {
 
 	public function testAnArchiveIsCoveredByTheSameCallback(): void {
 		$this->onPage( 3, 0 );
-		$this->onRequest( 'blog' );
+		$this->onRequest( '/blog/' );
 
 		$this->assertSame(
 			'https://x.test/blog/page/3/',
@@ -83,7 +101,7 @@ final class CanonicalTest extends TestCase {
 
 	public function testTheFirstPageIsLeftAlone(): void {
 		$this->onPage( 0, 0 );
-		$this->onRequest( 'blog' );
+		$this->onRequest( '/blog/' );
 
 		$this->assertSame(
 			'https://x.test/blog/',
@@ -114,7 +132,7 @@ final class CanonicalTest extends TestCase {
 	 */
 	public function testACanonicalDescribingTheCurrentListingIsPaginated(): void {
 		$this->onPage( 2, 0 );
-		$this->onRequest( 'blog/page/2' );
+		$this->onRequest( '/blog/page/2/' );
 
 		$this->assertSame(
 			'https://x.test/blog/page/2/',
@@ -128,7 +146,7 @@ final class CanonicalTest extends TestCase {
 	 */
 	public function testAManualCanonicalToADifferentPageIsUntouched(): void {
 		$this->onPage( 2, 0 );
-		$this->onRequest( 'blog/page/2' );
+		$this->onRequest( '/blog/page/2/' );
 
 		$this->assertSame(
 			'https://x.test/campaign/',
@@ -142,7 +160,7 @@ final class CanonicalTest extends TestCase {
 	 */
 	public function testAManualCanonicalToAnotherDomainIsUntouched(): void {
 		$this->onPage( 2, 0 );
-		$this->onRequest( 'blog/page/2' );
+		$this->onRequest( '/blog/page/2/' );
 
 		$this->assertSame(
 			'https://other.example/x/',
@@ -151,17 +169,78 @@ final class CanonicalTest extends TestCase {
 	}
 
 	/**
-	 * Degradation path: with no usable `$wp->request` this package cannot
-	 * tell whether the canonical describes the current request, so it must
-	 * fail safe by leaving the canonical alone rather than guessing.
+	 * Degradation path: with no usable `$_SERVER['REQUEST_URI']` this package
+	 * cannot tell whether the canonical describes the current request, so it
+	 * must fail safe by leaving the canonical alone rather than guessing.
 	 */
 	public function testAnUnreadableCurrentRequestLeavesTheCanonicalAlone(): void {
 		$this->onPage( 2, 0 );
-		unset( $GLOBALS['wp'] );
+		unset( $_SERVER['REQUEST_URI'] );
 
 		$this->assertSame(
 			'https://x.test/blog/',
 			Canonical::filter( 'https://x.test/blog/' )
+		);
+	}
+
+	/**
+	 * WPML's directory-per-language mode filters `home_url()` to prepend the
+	 * current language's directory to whatever path it is handed. A stub
+	 * modelling that -- rather than the flat "no prefixing" stub the old
+	 * suite used -- is what the previous version of `currentUrl()` fed a
+	 * double-prefixed path into: `home_url( '/cs/blog/page/2' )` came back as
+	 * `/cs/cs/blog/page/2`. Deriving the path from `REQUEST_URI` instead of
+	 * from a call through `home_url()` is immune to that filter entirely, so
+	 * this must still match.
+	 */
+	public function testALanguagePrefixingHomeUrlDoesNotDoublePrefixTheCurrentUrl(): void {
+		Functions\when( 'home_url' )->alias(
+			static fn( string $path = '' ): string => 'https://x.test/cs' . $path
+		);
+
+		$this->onPage( 2, 0 );
+		$this->onRequest( '/cs/blog/page/2/' );
+
+		$this->assertSame(
+			'https://x.test/cs/blog/page/2/',
+			Canonical::filter( 'https://x.test/cs/blog/' )
+		);
+	}
+
+	/**
+	 * Full round trip for a WPML directory-mode site: the language segment
+	 * lives in both the canonical and the request path, and the two must
+	 * still compare equal once pagination is stripped.
+	 */
+	public function testADirectoryModeRoundTripPaginatesTheLanguagePrefixedCanonical(): void {
+		Functions\when( 'home_url' )->alias(
+			static fn( string $path = '' ): string => 'https://site.test/cs' . $path
+		);
+
+		$this->onPage( 2, 0 );
+		$this->onRequest( '/cs/blog/page/2/' );
+
+		$this->assertSame(
+			'https://site.test/cs/blog/page/2/',
+			Canonical::filter( 'https://site.test/cs/blog/' )
+		);
+	}
+
+	/**
+	 * Full round trip for a WPML domain-mode site: no directory segment
+	 * anywhere, `home_url()` already resolves to the language's own domain.
+	 */
+	public function testADomainModeRoundTripPaginatesTheCanonical(): void {
+		Functions\when( 'home_url' )->alias(
+			static fn( string $path = '' ): string => 'https://site.cz' . $path
+		);
+
+		$this->onPage( 2, 0 );
+		$this->onRequest( '/blog/page/2/' );
+
+		$this->assertSame(
+			'https://site.cz/blog/page/2/',
+			Canonical::filter( 'https://site.cz/blog/' )
 		);
 	}
 }

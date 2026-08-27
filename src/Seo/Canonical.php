@@ -91,27 +91,49 @@ final class Canonical {
 	}
 
 	/**
-	 * The current request, built from WordPress rather than `$_SERVER` where
-	 * possible.
+	 * The current request, built from two sources that each answer reliably
+	 * on their own axis -- never from `home_url( $path )`, which is not one
+	 * of those sources.
 	 *
-	 * `home_url()` is used because it is already language-aware on a WPML
-	 * domain-per-language install -- it returns the current language's own
-	 * domain, so a language domain compares equal to itself instead of
-	 * looking like a cross-domain override. `$wp->request` is the path
-	 * WordPress matched for this request, unprefixed by the language segment
-	 * a directory-per-language install adds to the front, which `home_url()`
-	 * restores.
+	 * The host comes from `home_url()` called with no path. That keeps it
+	 * language-aware on a WPML domain-per-language install -- it returns the
+	 * current language's own domain, so a language domain compares equal to
+	 * itself instead of looking like a cross-domain override.
 	 *
-	 * @return string|null Current URL, or null if the global isn't usable.
+	 * The path comes from the raw `$_SERVER['REQUEST_URI']`, not from
+	 * `$wp->request`. `$wp->request` is WordPress's own parsed match, and on
+	 * a WPML directory-per-language install it still carries the language
+	 * segment -- `cs/blog/page/2`. Passing that through `home_url( $path )`
+	 * does not restore anything: WPML's `home_url` filter prepends the
+	 * language directory to whatever path it is given, with no way to tell
+	 * an already-prefixed path from a bare one, so the segment is added
+	 * twice (`/cs/cs/blog/`). That mismatch made every paginated canonical on
+	 * such a site fail the comparison in {@see self::describesCurrentRequest()}
+	 * and silently disabled pagination tagging for every language but the
+	 * one at the domain root. `REQUEST_URI` has no filter standing between it
+	 * and the browser's request line, so it carries the segment exactly
+	 * once, prefixed or not.
+	 *
+	 * @return string|null Current URL, or null if either source is unusable.
 	 */
 	private static function currentUrl(): ?string {
-		global $wp;
-
-		if ( ! is_object( $wp ) || ! isset( $wp->request ) || ! is_string( $wp->request ) ) {
+		if ( ! isset( $_SERVER['REQUEST_URI'] ) || ! is_string( $_SERVER['REQUEST_URI'] ) ) {
 			return null;
 		}
 
-		return home_url( '/' . ltrim( $wp->request, '/' ) );
+		$request_path = parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH );
+
+		if ( ! is_string( $request_path ) || '' === $request_path ) {
+			return null;
+		}
+
+		$home_parts = parse_url( home_url() );
+
+		if ( ! is_array( $home_parts ) || empty( $home_parts['scheme'] ) || empty( $home_parts['host'] ) ) {
+			return null;
+		}
+
+		return $home_parts['scheme'] . '://' . $home_parts['host'] . $request_path;
 	}
 
 	/**
