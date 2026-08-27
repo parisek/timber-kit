@@ -15,9 +15,9 @@ use Tests\Unit\HelpersTestCase;
  * evaluates its location rules, measured at 8-10 ms against 96 groups whether
  * or not the screen repeats.
  *
- * The nav-menu-item half of it is opt-in, and these tests pin that the default
- * is the safe one — ACF hands the whole screen to every registered location
- * type, so a custom matcher may legitimately answer per item.
+ * These tests drive the nav-menu-item sharing explicitly through its filter,
+ * both ways. Whether it is on by default on a given site is decided by
+ * {@see NavMenuItemSharingSafetyTest}, which covers the detection itself.
  */
 class FieldGroupsMemoTest extends HelpersTestCase {
 
@@ -61,21 +61,20 @@ class FieldGroupsMemoTest extends HelpersTestCase {
 		return $method->invoke( null, $screen );
 	}
 
-	private function optIn(): void {
+	private function shareMenuItems(): void {
 		$this->shareMenuItems = true;
 		Helpers::flushFieldGroups();
 	}
 
-	public function test_menu_items_are_asked_separately_by_default(): void {
-		// The default must stay safe: a custom location type may read the item id.
+	public function test_menu_items_are_asked_separately_when_sharing_is_off(): void {
 		$this->lookup( [ 'nav_menu_item' => 101, 'nav_menu' => 75 ] );
 		$this->lookup( [ 'nav_menu_item' => 102, 'nav_menu' => 75 ] );
 
 		$this->assertCount( 2, $this->seen );
 	}
 
-	public function test_items_of_one_menu_share_an_answer_when_opted_in(): void {
-		$this->optIn();
+	public function test_items_of_one_menu_share_an_answer_when_sharing_is_on(): void {
+		$this->shareMenuItems();
 
 		$this->lookup( [ 'nav_menu_item' => 101, 'nav_menu' => 75 ] );
 		$this->lookup( [ 'nav_menu_item' => 102, 'nav_menu' => 75 ] );
@@ -84,18 +83,18 @@ class FieldGroupsMemoTest extends HelpersTestCase {
 		$this->assertCount( 1, $this->seen );
 	}
 
-	public function test_the_real_item_id_still_reaches_acf_when_opted_in(): void {
+	public function test_the_real_item_id_still_reaches_acf_when_sharing_is_on(): void {
 		// The normalization is in the cache key only. ACF's own location type
 		// checks that the key is set, so a placeholder would change the answer.
-		$this->optIn();
+		$this->shareMenuItems();
 
 		$this->lookup( [ 'nav_menu_item' => 101, 'nav_menu' => 75 ] );
 
 		$this->assertSame( 101, $this->seen[0]['nav_menu_item'] );
 	}
 
-	public function test_a_different_menu_is_asked_separately_when_opted_in(): void {
-		$this->optIn();
+	public function test_a_different_menu_is_asked_separately_when_sharing_is_on(): void {
+		$this->shareMenuItems();
 
 		$this->lookup( [ 'nav_menu_item' => 101, 'nav_menu' => 75 ] );
 		$this->lookup( [ 'nav_menu_item' => 102, 'nav_menu' => 76 ] );
@@ -104,7 +103,7 @@ class FieldGroupsMemoTest extends HelpersTestCase {
 	}
 
 	public function test_one_options_page_is_asked_once(): void {
-		// Not gated: the options-page screen carries no per-caller id.
+		// Never gated: the options-page screen carries no per-caller id.
 		$this->lookup( [ 'options_page' => 'site-settings' ] );
 		$this->lookup( [ 'options_page' => 'site-settings' ] );
 

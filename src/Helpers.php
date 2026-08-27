@@ -1319,26 +1319,24 @@ class Helpers {
 	/**
 	 * Whether every item of one menu may share one field-group answer.
 	 *
-	 * **Off by default, and the default is the safe one.** ACF hands the whole
-	 * screen to every registered location type and to the
-	 * `acf/location/rule_match` filter, and `acf_register_location_type()` is
-	 * public API — so a project or plugin can register a matcher that reads
-	 * `nav_menu_item` and answers differently per item. Sharing would then serve
-	 * the first item's groups to all of them, silently. A screen whose
-	 * `nav_menu_item` is literally `'*'` collides for the same reason.
+	 * **On by default, and it switches itself off where it would be wrong.**
 	 *
-	 * ACF's own `ACF_Location_Nav_Menu_Item::match()` reads the key only to
-	 * confirm it is set and then matches on `nav_menu`, so on a site with no
-	 * such custom matcher the answers are identical and asking per item is
-	 * wasted work. Opt in there:
+	 * ACF's own `ACF_Location_Nav_Menu_Item::match()` reads `nav_menu_item` only
+	 * to confirm the key is set and then matches on `nav_menu`, so the item id
+	 * cannot change which groups match and asking once per item is wasted work.
+	 * That holds for every location type ACF ships and for nobody else's by
+	 * guarantee: `acf_register_location_type()` is public API, ACF hands the
+	 * whole screen to every registered type, and a matcher that answers per item
+	 * is a legitimate thing to write.
 	 *
-	 * ```php
-	 * add_filter( 'timber_kit_share_nav_menu_item_field_groups', '__return_true' );
-	 * ```
+	 * So the default is not a bet — it is
+	 * {@see navMenuItemSharingIsSafe()}, which checks that every registered
+	 * location type is one ACF ships. A site that registers its own gets the
+	 * per-item lookups back automatically, with nothing to configure.
 	 *
-	 * Measured on a 90-item menu against 96 field groups: 96 lookups fall to 11,
-	 * worth about 9 % of the render. Turn it on only if no custom location type
-	 * and no location-match filter on the site reads the item id.
+	 * `timber_kit_share_nav_menu_item_field_groups` overrides the verdict in
+	 * either direction — force it off while auditing, or force it on for a
+	 * custom type that is known not to read the item id.
 	 *
 	 * @return bool
 	 */
@@ -1346,11 +1344,66 @@ class Helpers {
 		if ( null === self::$share_nav_menu_item_groups ) {
 			self::$share_nav_menu_item_groups = (bool) apply_filters(
 				'timber_kit_share_nav_menu_item_field_groups',
-				false
+				self::navMenuItemSharingIsSafe()
 			);
 		}
 
 		return self::$share_nav_menu_item_groups;
+	}
+
+	/**
+	 * Whether only ACF's own location types can see the screen.
+	 *
+	 * The one thing that makes sharing unsafe is a matcher that reads the item
+	 * id, and the only way to add one is `acf_register_location_type()`. Every
+	 * registered type whose class file sits inside `ACF_PATH` is ACF's own, and
+	 * ACF's own were read: `nav_menu_item` is the only type that touches the
+	 * key, and only through `isset()`.
+	 *
+	 * Anything it cannot verify counts as unsafe — a missing `ACF_PATH`, a class
+	 * with no file (eval'd or from an extension), a type from anywhere else.
+	 *
+	 * Known limit: a callback on `acf/location/rule_match` or
+	 * `acf/location/match_rule` also receives the screen and is not detectable
+	 * this way. Writing menu-item-specific logic there instead of registering a
+	 * location type is contrived, and the one common callback — ACFML's — reads
+	 * `post_id`, `lang` and `page_parent`. A site that does it anyway turns the
+	 * filter above off.
+	 *
+	 * @return bool
+	 */
+	private static function navMenuItemSharingIsSafe(): bool {
+		if ( ! defined( 'ACF_PATH' ) || ! function_exists( 'acf_get_location_types' ) ) {
+			return false;
+		}
+
+		$acf_path = (string) constant( 'ACF_PATH' );
+		if ( '' === $acf_path ) {
+			return false;
+		}
+
+		$types = acf_get_location_types();
+		if ( ! is_array( $types ) || empty( $types ) ) {
+			return false;
+		}
+
+		foreach ( $types as $type ) {
+			if ( ! is_object( $type ) ) {
+				return false;
+			}
+
+			try {
+				$file = ( new \ReflectionClass( $type ) )->getFileName();
+			} catch ( \ReflectionException $e ) {
+				return false;
+			}
+
+			if ( ! is_string( $file ) || ! str_starts_with( $file, $acf_path ) ) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**

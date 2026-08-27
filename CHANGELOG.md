@@ -12,9 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   two in-process memos below. A web request never needs either; WP-CLI
   commands, persistent workers and tests do, because a static outlives the unit
   of work that filled it.
-- `timber_kit_share_nav_menu_item_field_groups` — opt in to letting every item
-  of one menu share a field-group answer. **Off by default, and the default is
-  the safe one.** See below for the contract it asks you to accept.
+- `timber_kit_share_nav_menu_item_field_groups` — override the automatic
+  verdict described below, in either direction. Nothing to set for it to work.
 
 ### Changed
 
@@ -32,51 +31,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `Helpers::getFieldObjectsByScreen()` called `acf_get_field_groups($screen)`
   once per screen. ACF caches nothing here: every call walks each registered
   field group and evaluates its location rules, measured at 8-10 ms against 96
-  groups whether or not the screen repeats. Answers are now memoized per
-  screen.
+  groups whether or not the screen repeats. `formatFields()` asks once per nav
+  menu item, so a 90-item menu paid for 90 answers. Answers are now memoized
+  per screen.
 
   Measured on the sloneek front page by patching the site and re-measuring, not
-  by scaling the profile. Fastest of twelve warm requests, two independent
-  rounds:
+  by scaling the profile. Fastest of twelve warm requests, **with no
+  configuration of any kind**:
 
-| | probes | `acf_get_field_groups()` | page |
+| | Imagick probes | `acf_get_field_groups()` | page |
   | --- | ---: | ---: | ---: |
-  | before | 320 | 109 | 652-668 ms |
-  | default | 1 | 96 | 603-609 ms |
-  | with the opt-in filter | 1 | 11 | 551-556 ms |
+  | before | 320 | 109 | 671 ms |
+  | after | 1 | 11 | 561 ms |
 
-  So **43-65 ms by default**, and **101-112 ms with the filter on** — roughly
-  7-10 % and 15-17 %. The saving scales with images and menu items, not with
-  the page. Rendered HTML is byte-identical once the random `uniqueId()` values
-  are normalized, checked against a control pair of runs of the unchanged code
-  because the page is not deterministic without one.
+  **110 ms, 16 %**, reproduced across three rounds at 101-112 ms. The saving
+  scales with images and menu items, not with the page. Rendered HTML is
+  byte-identical once the random `uniqueId()` values are normalized, checked
+  against a control pair of runs of the unchanged code because the page is not
+  deterministic without one.
 
-### The nav-menu opt-in, and why it is not the default
+### How the nav-menu sharing stays correct
 
-`formatFields()` asks ACF for field groups once per nav menu item, and on a
-90-item menu the answers are identical — ACF's own
-`ACF_Location_Nav_Menu_Item::match()` reads the item id only to confirm the key
-is set, then matches on `nav_menu`.
+Every item of one menu shares a field-group answer, which is where most of the
+saving comes from. That is safe while ACF's own location types are the only
+things that see the screen: `ACF_Location_Nav_Menu_Item::match()` reads
+`nav_menu_item` only to confirm the key is set, then matches on `nav_menu`.
 
-That is true of ACF's own matcher and **not guaranteed of anyone else's**.
-`acf_register_location_type()` is public API, ACF hands the whole screen to
-every registered location type and to the `acf/location/rule_match` filter, and
-a matcher that answers per item is a legitimate thing to write. Sharing one
-answer would then serve the first item's groups to all of them, with no error
-and no log. A screen whose `nav_menu_item` is literally `'*'` collides for the
-same reason.
+It is not safe in general. `acf_register_location_type()` is public API, ACF
+hands the whole screen to every registered type, and a matcher that answers per
+item is a legitimate thing to write — a "show this group on this one menu item"
+rule for a mega-menu is the obvious case. Sharing would then serve the first
+item's groups to every item, with no error and no log.
 
-So the sharing is opt-in, and only for sites that know their own location
-rules:
+So the kit does not guess and does not ask. Before sharing, it checks that
+**every registered location type is one ACF ships**, by resolving each class to
+its file and requiring it inside `ACF_PATH`. A site that registers its own gets
+the per-item lookups back automatically, with nothing to configure and no
+notice to read. Anything unverifiable — a missing `ACF_PATH`, an empty
+registry, a class with no file — counts as unsafe.
 
-```php
-add_filter( 'timber_kit_share_nav_menu_item_field_groups', '__return_true' );
-```
-
-Turn it on only if no custom location type and no location-match filter on the
-site reads the item id. The installed ACFML integration hooks
-`acf/location/rule_match` but reads `post_id`, `lang` and `page_parent`, so it
-does not block the opt-in.
+The one thing the check cannot see is a callback on `acf/location/rule_match`
+or `acf/location/match_rule`, which also receives the screen. Writing
+menu-item-specific logic there instead of registering a location type is
+contrived, and the one common callback — ACFML's — reads `post_id`, `lang` and
+`page_parent`. A site that does it anyway sets
+`timber_kit_share_nav_menu_item_field_groups` to `false`.
 
 ### What the memo does not cover
 

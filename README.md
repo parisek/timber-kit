@@ -258,13 +258,13 @@ Two capability probes are memoized on statics, because both answer a question th
 
 `Helpers::getFieldObjectsByScreen()` asks ACF which field groups match a screen. ACF caches nothing here — every call walks each registered field group and evaluates its location rules, 8-10 ms against 96 groups whether or not the screen repeats. Answers are memoized per screen; `Helpers::flushFieldGroups()` drops them, and `StarterBase` wires it to `acf/update_field_group`, `acf/delete_field_group`, `acf/trash_field_group` and `acf/untrash_field_group`. ACF fires all four dynamically as `acf/{$verb}_{$hook_name}`, which is why a literal search for them finds nothing.
 
-**`formatFields()` asks once per nav menu item, and sharing those answers is opt-in:**
+**`formatFields()` asks once per nav menu item, and those answers are shared — automatically, with nothing to configure.** On a 90-item menu it takes 96 lookups down to 11, most of the saving.
 
-```php
-add_filter( 'timber_kit_share_nav_menu_item_field_groups', '__return_true' );
-```
+Sharing is safe while ACF's own location types are the only things that see the screen: `ACF_Location_Nav_Menu_Item::match()` reads the item id only to confirm the key is set, then matches on `nav_menu`. It is not safe in general — `acf_register_location_type()` is public API, ACF hands the whole screen to every registered type, and a "show this group on this one menu item" rule for a mega-menu is a legitimate thing to write. Sharing would then serve the first item's groups to every item, with no error and no log.
 
-On a 90-item menu it takes 96 lookups down to 11, worth about 9 % of the render. It is off by default because ACF's own `ACF_Location_Nav_Menu_Item::match()` reads the item id only to confirm the key is set — and nobody else's matcher has to. `acf_register_location_type()` is public API, ACF hands the whole screen to every registered location type and to the `acf/location/rule_match` filter, and a matcher that answers per item is a legitimate thing to write. Sharing would then serve the first item's groups to every item, with no error and no log. **Turn it on only if no custom location type and no location-match filter on the site reads the item id.**
+So the kit checks rather than guesses: before sharing, **every registered location type must resolve to a class file inside `ACF_PATH`**. A site that registers its own gets the per-item lookups back automatically. Anything unverifiable — no `ACF_PATH`, an empty registry, a class with no file — counts as unsafe.
+
+The check cannot see a callback on `acf/location/rule_match` or `acf/location/match_rule`, which also receives the screen. ACFML's reads `post_id`, `lang` and `page_parent`, so it is fine; a site whose own callback reads the item id sets `timber_kit_share_nav_menu_item_field_groups` to `false`. The same filter forces sharing on for a custom location type known not to read the id.
 
 **A web request never needs either flush.** A long-running process does: WP-CLI commands and persistent workers run many units of work in one process, so a command that saves a field group and then formats fields would otherwise be handed the list read before the save. Call the flush from any such caller that does not boot `StarterBase`, and from tests — a static outlives the test that filled it.
 
