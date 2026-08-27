@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `Resizer::flushBackendFormats()` and `Helpers::flushFieldGroups()` drop the
+  two in-process memos below. A web request never needs either; WP-CLI
+  commands, persistent workers and tests do, because a static outlives the unit
+  of work that filled it.
+- `timber_kit_share_nav_menu_item_field_groups` — override the automatic
+  verdict described below, in either direction. Nothing to set for it to work.
+
 ### Changed
 
 - `Helpers::formatLink()` resolves each link URL once per blog and language
@@ -23,6 +32,103 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   | time in the filter chain | 134.1 ms | 96.7 ms |
 Behaviour is unchanged for every caller. `get_permalink()` returning `false`
   is now treated as an unresolved URL instead of being concatenated onto.
+- `acf_get_fields()` is memoized per field group for the request. ACF caches
+  nothing here either, and the answer is the same for every screen a group
+  matches — so `getFieldObjectsByScreen()` asked it **348 times for 21 distinct
+  answers** on the sloneek front page, once per group per screen.
+
+  Measured directly on the work removed: 26-38 ms falls to 5-8 ms. End to end
+  the page moved 16-34 ms across two rounds, which is the same saving seen
+  through a noisier instrument. Rendered HTML is byte-identical, checked
+  against a control pair of runs of the unchanged code.
+
+  Field definitions are configuration, not content: they come from the theme's
+  JSON, they do not depend on the page being rendered, and nothing a visitor
+  does changes them. **So this needs no invalidation beyond the request it
+  lives in** — unlike a value, which does. The key carries the blog id and the
+  language because groups are registered per site and ACFML translates a
+  field's label, instructions and choices; a group with neither a key nor an id
+  has no identity to memoize on and is asked every time rather than sharing an
+  entry with the next anonymous group.
+
+  `Helpers::flushFieldGroups()` drops it alongside the screen memo.
+
+
+- Two capability probes that ran once per object now run once per request.
+  Both had a memo already; both stored it on the instance the caller throws
+  away, so it never answered anything.
+
+  `Resizer::probeBackendFormats()` built a `new Imagick()` and asked it for the
+  format list. One `|resizer` call builds one Resizer, so a page that resizes
+  320 images probed 320 times — for a list that is a property of the
+  ImageMagick build and cannot change while the process runs. The memo moves to
+  a static, keyed by concrete class so a subclass that stubs the probe cannot
+  answer for the base class.
+
+  `Helpers::getFieldObjectsByScreen()` called `acf_get_field_groups($screen)`
+  once per screen. ACF caches nothing here: every call walks each registered
+  field group and evaluates its location rules, measured at 8-10 ms against 96
+  groups whether or not the screen repeats. `formatFields()` asks once per nav
+  menu item, so a 90-item menu paid for 90 answers. Answers are now memoized
+  per screen.
+
+  Measured on the sloneek front page by patching the site and re-measuring, not
+  by scaling the profile. Fastest of twelve warm requests, **with no
+  configuration of any kind**:
+
+| | Imagick probes | `acf_get_field_groups()` | page |
+  | --- | ---: | ---: | ---: |
+  | before | 320 | 109 | 671 ms |
+  | after | 1 | 11 | 561 ms |
+
+  **110 ms, 16 %**, reproduced across three rounds at 101-112 ms. The saving
+  scales with images and menu items, not with the page. Rendered HTML is
+  byte-identical once the random `uniqueId()` values are normalized, checked
+  against a control pair of runs of the unchanged code because the page is not
+  deterministic without one.
+
+### How the nav-menu sharing stays correct
+
+Every item of one menu shares a field-group answer, which is where most of the
+saving comes from. That is safe while ACF's own location types are the only
+things that see the screen: `ACF_Location_Nav_Menu_Item::match()` reads
+`nav_menu_item` only to confirm the key is set, then matches on `nav_menu`.
+
+It is not safe in general. `acf_register_location_type()` is public API, ACF
+hands the whole screen to every registered type, and a matcher that answers per
+item is a legitimate thing to write — a "show this group on this one menu item"
+rule for a mega-menu is the obvious case. Sharing would then serve the first
+item's groups to every item, with no error and no log.
+
+So the kit does not guess and does not ask. Before sharing, it checks that
+**every registered location type is one ACF ships**, by resolving each class to
+its file and requiring it inside `ACF_PATH`. A site that registers its own gets
+the per-item lookups back automatically, with nothing to configure and no
+notice to read. Anything unverifiable — a missing `ACF_PATH`, an empty
+registry, a class with no file — counts as unsafe.
+
+The one thing the check cannot see is a callback on `acf/location/rule_match`
+or `acf/location/match_rule`, which also receives the screen. Writing
+menu-item-specific logic there instead of registering a location type is
+contrived, and the one common callback — ACFML's — reads `post_id`, `lang` and
+`page_parent`. A site that does it anyway sets
+`timber_kit_share_nav_menu_item_field_groups` to `false`.
+
+### What the memo does not cover
+
+The memo freezes the first answer for a screen until something flushes it.
+`acf_get_field_groups()` is not a pure function of the screen: a group
+registered late through `acf_add_local_field_group()`, an `acf/load_field_groups`
+callback, or a location-match filter reading mutable state can all change the
+answer within one process. `StarterBase` flushes on `acf/update_field_group`,
+`acf/delete_field_group`, `acf/trash_field_group` and `acf/untrash_field_group`
+— ACF fires all four dynamically as `acf/{$verb}_{$hook_name}`, which is why a
+literal search for them finds nothing. Anything else that changes groups
+mid-process must call `Helpers::flushFieldGroups()` itself.
+
+A screen `wp_json_encode()` cannot encode is never memoized, because casting
+`false` to a string would collapse every such screen onto one key.
+
 ## [1.42.0] - 2026-08-26
 
   310 calls covered **33 distinct URLs** — the same menu and options-page links

@@ -140,11 +140,34 @@ class Resizer {
 	private bool $quality_in_cache_key;
 
 	/**
-	 * Memoized allow-list of decodable input MIME types (per request).
+	 * Memoized allow-list of decodable input MIME types, per instance.
+	 *
+	 * Per instance, not per request: the theme builds one Resizer per `|resizer`
+	 * call, so this only ever answers the second question asked of one image.
+	 * The backend probe behind it is memoized per process instead — see
+	 * {@see $backend_formats_memo}.
 	 *
 	 * @var array<int, string>|null
 	 */
 	private ?array $decodable_cache = null;
+
+	/**
+	 * Memoized format list reported by the active image backend.
+	 *
+	 * Static, because the list is a property of the ImageMagick or GD build and
+	 * cannot change while the process runs, while `$decodable_cache` above dies
+	 * with its instance. One `|resizer` call builds one Resizer, so the probe ran
+	 * once per resized image: 320 `new Imagick()` + `queryFormats()` pairs on the
+	 * sloneek front page, 52 ms of a 990 ms render.
+	 *
+	 * Keyed by concrete class: a subclass that overrides
+	 * {@see probeBackendFormatsUncached()} must not fill the base class's
+	 * entry, or ordinary Resizer instances downstream of it would be answered
+	 * with its stubbed list. The test fixture does exactly that.
+	 *
+	 * @var array<string, array<int, string>>
+	 */
+	private static array $backend_formats_memo = [];
 
 	/**
 	 * Initialize resizer settings, each of which can be overridden via a WordPress filter.
@@ -197,7 +220,9 @@ class Resizer {
 
 	/**
 	 * The allow-list of input MIME types: the desired superset intersected with what
-	 * the active backend can decode. Memoized per request.
+	 * the active backend can decode. Memoized per instance, and one `|resizer`
+	 * call builds one instance — the backend probe behind it carries the
+	 * process-wide memo.
 	 *
 	 * Filterable via `timber_kit_resizer_allowed_types` ( `array<int,string> $mimes,
 	 * array<int,string> $backend_formats` ) for projects that need to force a format
@@ -485,6 +510,34 @@ class Resizer {
 	 * @return array<int, string>
 	 */
 	protected function probeBackendFormats(): array {
+		return self::$backend_formats_memo[ static::class ]
+			??= $this->probeBackendFormatsUncached();
+	}
+
+	/**
+	 * Drop the memoized backend format list.
+	 *
+	 * A web request never needs this: an ImageMagick build cannot change while
+	 * the process runs. Tests do, because a static outlives the test that filled
+	 * it, and so does any process that reloads the image backend.
+	 *
+	 * @return void
+	 */
+	public static function flushBackendFormats(): void {
+		self::$backend_formats_memo = [];
+	}
+
+	/**
+	 * Ask the active backend which formats it can decode.
+	 *
+	 * Split from {@see probeBackendFormats()} so the memo above wraps it. Both
+	 * stay `protected`: a test that stubs `probeBackendFormats()` replaces the
+	 * memo too and never fills it, and a test that stubs this one gets memoized,
+	 * so it must reset the memo afterwards.
+	 *
+	 * @return array<int, string>
+	 */
+	protected function probeBackendFormatsUncached(): array {
 		if ( extension_loaded( 'imagick' ) && class_exists( '\Imagick' ) ) {
 			try {
 				$formats = ( new \Imagick() )->queryFormats();

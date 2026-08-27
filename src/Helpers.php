@@ -1226,6 +1226,264 @@ class Helpers {
 	}
 
 	/**
+	 * Memoized `acf_get_field_groups()` answers, keyed by screen.
+	 *
+	 * ACF does not cache this call. Every invocation walks each registered field
+	 * group and evaluates its location rules, so the cost is
+	 * `groups x screens` — measured at 8-10 ms per call against 96 groups,
+	 * whether or not the screen repeats.
+	 *
+	 * @var array<string, array<int, mixed>>
+	 */
+	private static array $field_groups_memo = [];
+
+	/**
+	 * Memoized `acf_get_fields()` answers, keyed by field group.
+	 *
+	 * ACF does not cache this either, and the answer is the same for every
+	 * screen a group matches. `getFieldObjectsByScreen()` asks once per group
+	 * **per screen**, so a 90-item menu asked 348 times for what turned out to
+	 * be 21 distinct answers.
+	 *
+	 * Field definitions are configuration, not content: they come from the
+	 * theme's JSON, they do not depend on the page being rendered, and nothing
+	 * a visitor does changes them. That is why this needs no invalidation
+	 * beyond the request it lives in.
+	 *
+	 * @var array<string, array<int, mixed>>
+	 */
+	private static array $group_fields_memo = [];
+
+	/**
+	 * Memoized answer of the `timber_kit_share_nav_menu_item_field_groups` filter.
+	 *
+	 * @var bool|null
+	 */
+	private static ?bool $share_nav_menu_item_groups = null;
+
+	/**
+	 * Drop the memoized field-group answers.
+	 *
+	 * A web request never needs this: the process ends before a field group can
+	 * change. `StarterBase` wires it to `acf/update_field_group` for the admin
+	 * save, and it is public for WP-CLI commands, persistent workers and tests,
+	 * where one process registers groups and then reads them back.
+	 *
+	 * @return void
+	 */
+	public static function flushFieldGroups(): void {
+		self::$field_groups_memo           = [];
+		self::$group_fields_memo           = [];
+		self::$share_nav_menu_item_groups  = null;
+	}
+
+	/**
+	 * `acf_get_fields()` behind a per-group memo.
+	 *
+	 * @param array<string, mixed>|mixed $group Field group, as ACF returned it.
+	 * @return array<int, mixed> The group's fields; empty when it has none.
+	 */
+	private static function fieldsForGroup( $group ): array {
+		$key = self::groupFieldsMemoKey( $group );
+
+		if ( null === $key ) {
+			$fields = acf_get_fields( $group );
+
+			return is_array( $fields ) ? $fields : [];
+		}
+
+		if ( ! array_key_exists( $key, self::$group_fields_memo ) ) {
+			$fields = acf_get_fields( $group );
+			self::$group_fields_memo[ $key ] = is_array( $fields ) ? $fields : [];
+		}
+
+		return self::$group_fields_memo[ $key ];
+	}
+
+	/**
+	 * Cache key for one field group's fields.
+	 *
+	 * A group without a key or an id has no identity to memoize on, and gets
+	 * asked every time rather than sharing an entry with the next such group.
+	 *
+	 * Carries the blog id and the language for the same reasons the screen memo
+	 * does: groups are registered per site, and ACFML translates a field's
+	 * label, instructions and choices.
+	 *
+	 * @param array<string, mixed>|mixed $group Field group.
+	 * @return string|null
+	 */
+	private static function groupFieldsMemoKey( $group ): ?string {
+		if ( ! is_array( $group ) ) {
+			return null;
+		}
+
+		$identity = '';
+		foreach ( [ 'key', 'ID', 'id' ] as $candidate ) {
+			if ( isset( $group[ $candidate ] ) && is_scalar( $group[ $candidate ] ) ) {
+				$identity = (string) $group[ $candidate ];
+				break;
+			}
+		}
+
+		if ( '' === $identity ) {
+			return null;
+		}
+
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+
+		return $blog_id . '|' . self::getLanguage() . '|' . $identity;
+	}
+
+
+	/**
+	 * `acf_get_field_groups()` behind a per-screen memo.
+	 *
+	 * @param array<string, mixed> $screen Screen array passed to `acf_get_field_groups()`.
+	 * @return array<int, mixed> Matching field groups; empty when none match.
+	 */
+	private static function fieldGroupsForScreen( array $screen ): array {
+		$key = self::fieldGroupsMemoKey( $screen );
+		if ( null === $key ) {
+			$groups = acf_get_field_groups( $screen );
+			return is_array( $groups ) ? $groups : [];
+		}
+
+		if ( ! array_key_exists( $key, self::$field_groups_memo ) ) {
+			$groups = acf_get_field_groups( $screen );
+			self::$field_groups_memo[ $key ] = is_array( $groups ) ? $groups : [];
+		}
+
+		return self::$field_groups_memo[ $key ];
+	}
+
+	/**
+	 * Cache key for one screen.
+	 *
+	 * Carries the blog id and the language because field groups are registered
+	 * per site and ACFML translates a group's own strings, so both change the
+	 * correct answer for an unchanged screen.
+	 *
+	 * `nav_menu_item` is normalized to a presence marker.
+	 * `ACF_Location_Nav_Menu_Item::match()` reads that key only to confirm it is
+	 * set and then hands the whole decision to the `nav_menu` location type, so
+	 * the item id cannot change which groups match — every item of one menu
+	 * shares an answer. Without the normalization the memo would key on an id
+	 * that never affects the result and never hit.
+	 *
+	 * @param array<string, mixed> $screen Screen array.
+	 * @return string
+	 */
+	private static function fieldGroupsMemoKey( array $screen ): ?string {
+		if ( isset( $screen['nav_menu_item'] ) && self::sharesNavMenuItemFieldGroups() ) {
+			$screen['nav_menu_item'] = '*';
+		}
+		ksort( $screen );
+
+		$encoded = wp_json_encode( $screen );
+		if ( ! is_string( $encoded ) ) {
+			// An unencodable screen has no usable identity. Casting `false` to a
+			// string would collapse every such screen onto one key and hand the
+			// first one's groups to all the others.
+			return null;
+		}
+
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+
+		return $blog_id . '|' . self::getLanguage() . '|' . $encoded;
+	}
+
+	/**
+	 * Whether every item of one menu may share one field-group answer.
+	 *
+	 * **On by default, and it switches itself off where it would be wrong.**
+	 *
+	 * ACF's own `ACF_Location_Nav_Menu_Item::match()` reads `nav_menu_item` only
+	 * to confirm the key is set and then matches on `nav_menu`, so the item id
+	 * cannot change which groups match and asking once per item is wasted work.
+	 * That holds for every location type ACF ships and for nobody else's by
+	 * guarantee: `acf_register_location_type()` is public API, ACF hands the
+	 * whole screen to every registered type, and a matcher that answers per item
+	 * is a legitimate thing to write.
+	 *
+	 * So the default is not a bet — it is
+	 * {@see navMenuItemSharingIsSafe()}, which checks that every registered
+	 * location type is one ACF ships. A site that registers its own gets the
+	 * per-item lookups back automatically, with nothing to configure.
+	 *
+	 * `timber_kit_share_nav_menu_item_field_groups` overrides the verdict in
+	 * either direction — force it off while auditing, or force it on for a
+	 * custom type that is known not to read the item id.
+	 *
+	 * @return bool
+	 */
+	private static function sharesNavMenuItemFieldGroups(): bool {
+		if ( null === self::$share_nav_menu_item_groups ) {
+			self::$share_nav_menu_item_groups = (bool) apply_filters(
+				'timber_kit_share_nav_menu_item_field_groups',
+				self::navMenuItemSharingIsSafe()
+			);
+		}
+
+		return self::$share_nav_menu_item_groups;
+	}
+
+	/**
+	 * Whether only ACF's own location types can see the screen.
+	 *
+	 * The one thing that makes sharing unsafe is a matcher that reads the item
+	 * id, and the only way to add one is `acf_register_location_type()`. Every
+	 * registered type whose class file sits inside `ACF_PATH` is ACF's own, and
+	 * ACF's own were read: `nav_menu_item` is the only type that touches the
+	 * key, and only through `isset()`.
+	 *
+	 * Anything it cannot verify counts as unsafe — a missing `ACF_PATH`, a class
+	 * with no file (eval'd or from an extension), a type from anywhere else.
+	 *
+	 * Known limit: a callback on `acf/location/rule_match` or
+	 * `acf/location/match_rule` also receives the screen and is not detectable
+	 * this way. Writing menu-item-specific logic there instead of registering a
+	 * location type is contrived, and the one common callback — ACFML's — reads
+	 * `post_id`, `lang` and `page_parent`. A site that does it anyway turns the
+	 * filter above off.
+	 *
+	 * @return bool
+	 */
+	private static function navMenuItemSharingIsSafe(): bool {
+		if ( ! defined( 'ACF_PATH' ) || ! function_exists( 'acf_get_location_types' ) ) {
+			return false;
+		}
+
+		$acf_path = (string) constant( 'ACF_PATH' );
+		if ( '' === $acf_path ) {
+			return false;
+		}
+
+		$types = acf_get_location_types();
+		if ( ! is_array( $types ) || empty( $types ) ) {
+			return false;
+		}
+
+		foreach ( $types as $type ) {
+			if ( ! is_object( $type ) ) {
+				return false;
+			}
+
+			try {
+				$file = ( new \ReflectionClass( $type ) )->getFileName();
+			} catch ( \ReflectionException $e ) {
+				return false;
+			}
+
+			if ( ! is_string( $file ) || ! str_starts_with( $file, $acf_path ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
 	 * Resolve ACF field objects for an explicit location-rule screen.
 	 *
 	 * Walks `acf_get_field_groups($screen)` → `acf_get_fields($group)` and
@@ -1253,15 +1511,15 @@ class Helpers {
 			return false;
 		}
 
-		$groups = acf_get_field_groups( $screen );
-		if ( ! is_array( $groups ) || empty( $groups ) ) {
+		$groups = self::fieldGroupsForScreen( $screen );
+		if ( empty( $groups ) ) {
 			return false;
 		}
 
 		$fields = [];
 		foreach ( $groups as $group ) {
-			$group_fields = acf_get_fields( $group );
-			if ( ! is_array( $group_fields ) ) {
+			$group_fields = self::fieldsForGroup( $group );
+			if ( [] === $group_fields ) {
 				continue;
 			}
 			foreach ( $group_fields as $field ) {
