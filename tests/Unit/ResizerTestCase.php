@@ -14,6 +14,9 @@ abstract class ResizerTestCase extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+		// The backend format list is memoized on a static, which outlives the
+		// test that filled it.
+		Resizer::flushBackendFormats();
 	}
 
 	protected function tearDown(): void {
