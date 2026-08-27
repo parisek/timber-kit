@@ -11,6 +11,7 @@ parameters:
     treatPhpDocTypesAsCertain: false
     stubFiles:
         - phpstan-stubs/wpml.stub
+        - phpstan-stubs/acf.stub
     reportUnmatchedIgnoredErrors: false
     ignoreErrors:
         - '#Offset .relative. does not exist on array#'

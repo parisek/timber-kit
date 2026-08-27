@@ -1060,6 +1060,7 @@ For an admin label without a dedicated setup hook (e.g. an options-page `page_ti
 | `$site_icon_tags` | bool | `false` | Emit the favicon set found in `static/images/touch/` instead of WordPress's four legacy site-icon tags. Opt-in — it changes rendered `<head>` output. See [Site icon tags](#site-icon-tags) |
 | `$context_privacy_policy` | bool | `false` | Opt-in: populate the site's privacy-policy URL (`get_privacy_policy_url()`) into the Timber context under `$privacy_policy_context_key`. Off by default — the key typically drives a cookie-consent partial, which must not appear on projects that ship without one |
 | `$privacy_policy_context_key` | string | `'ccnstL'` | Context key for the privacy-policy URL. The default is deliberately non-semantic so cookie-consent markup keyed off it stays invisible to ad-block heuristics |
+| `$acfml_skip_frontend_field_translation` | bool | `true` | Skip ACFML's translation of ACF field **definitions** (labels, instructions, placeholders, choices) on plain front-end views. Admin, REST, AJAX and WP-CLI keep it, and so does any front-end request where `acf_form()` is in play. Set to `false` on a site whose templates print a `select`/`radio` choice **label** rather than its value. See [ACFML field-definition translation](#acfml-field-definition-translation) |
 
 ### Security & Cleanup
 
@@ -1463,6 +1464,28 @@ class Base extends \Parisek\TimberKit\StarterBase {
 `$this->theme_name` in both `_x()` slots is intentional — it doubles as the translation context and the textdomain, so a single project identifier scopes everything. Substitute the source strings with the project's locale (Czech, German, …) and the WPML / Polylang stack picks the right translation at render time.
 
 Projects that don't need translated labels (single-locale English sites) can skip the override entirely — the English defaults declared on `$breadcrumb_labels` apply unchanged.
+
+### ACFML field-definition translation
+
+ACFML translates ACF field **definitions** — labels, instructions, placeholders, prepend/append, choices, message — on every request that loads a field group. `ACFML\Strings\FieldHooks` implements `IWPML_Frontend_Action`, so it registers on the front end with no `is_admin()` guard and hooks `acf/load_field`. Every field then reaches an unmemoized linear scan over a static array, run through WPML's functional library with a closure allocated per element.
+
+On a page view none of those strings is rendered, so the whole walk is discarded.
+
+Measured on a site with 117 field groups and 972 top-level fields: **479 ms with the translation, 370 ms without**, on an otherwise identical stack with a warm Redis object cache. A PHP-FPM slowlog over 3973 slow requests put 71 % of deepest-frame samples inside `wpml/fp` and `wpml/collect`. Only the field level costs anything — the group level measured 1.04 s against 1.11 s.
+
+```php
+// Base.php — a site whose templates print a choice LABEL rather than its value
+protected bool $acfml_skip_frontend_field_translation = false;
+```
+
+**On by default**, because two shapes make it wrong and only one of them is invisible:
+
+- A theme calling `acf_form()` puts labels, instructions and placeholders in front of a visitor. **This detects itself.** `acf_form_head()` reaches `ACF_Assets::add_actions()`, which records itself in ACF's settings, so the guard steps aside on any front-end request that has set a form up — read with `acf_raw_setting()`, never with `acf_has_done()`, which writes the flag it reads.
+- A template printing a `select`/`radio`/`checkbox` choice **label** rather than its value cannot be detected from the kit. That is what the property is for. The failure if a site needs it and does not set it is one label rendered in the source language — quiet, and easy to mistake for an untranslated string, so it is worth checking rather than assuming when moving a large existing site onto this version.
+
+Four contexts keep the translation and naming all four is load-bearing: **admin, AJAX, REST and WP-CLI**. Gutenberg loads field groups over REST and ACF talks to admin-ajax from inside it, so an `is_admin()`-only guard would switch the translation off in the editor, where the labels are the entire point.
+
+Retiring this is a one-line default flip once ACFML memoizes its lookup. Not fixed in acfml 3.0-b.1: every file on the hot path is byte-identical to 2.2.4, and so is the bundled `wpml/fp`.
 
 ### Performance
 

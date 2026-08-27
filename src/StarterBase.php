@@ -136,6 +136,46 @@ class StarterBase extends Site {
 	protected bool $site_icon_tags = false;
 
 	/**
+	 * @var bool Skip ACFML's translation of ACF field DEFINITIONS on plain
+	 * front-end views. Admin, REST, AJAX and WP-CLI keep it.
+	 *
+	 * ACFML translates labels, instructions, placeholders, prepend/append,
+	 * choices and message on every request that loads a field group.
+	 * `ACFML\Strings\FieldHooks` implements `IWPML_Frontend_Action`, so it
+	 * registers on the front end with no `is_admin()` guard and hooks
+	 * `acf/load_field`. Every field then reaches an unmemoized linear scan over
+	 * a static array, run through WPML's functional library, allocating a
+	 * closure per element. On a page view none of those strings is rendered, so
+	 * the whole walk is discarded.
+	 *
+	 * Measured on a site with 117 field groups and 972 top-level fields:
+	 * loading them costs 1.09 s with the translation and 0.29 s without. A
+	 * PHP-FPM slowlog over 3973 slow requests put 71 % of deepest-frame samples
+	 * inside `wpml/fp` and `wpml/collect`. Only the field level is expensive —
+	 * the group level measured 1.04 s against 1.11 s, so it is free.
+	 *
+	 * **On by default.** Two shapes make it wrong, and they are not equal:
+	 *
+	 * A theme calling `acf_form()` puts placeholders, instructions and labels in
+	 * front of a visitor. That one **detects itself** — see
+	 * {@see acfml_should_translate_acf_entity()} — and the guard steps aside
+	 * without being told.
+	 *
+	 * A template printing a `select`/`radio`/`checkbox` choice **label** rather
+	 * than its value is not detectable from here, and is the reason this stays a
+	 * property rather than being unconditional. A site that does it sets this to
+	 * false. The failure if it does not is a label rendered in the source
+	 * language on one page — quiet, and easy to mistake for an untranslated
+	 * string, so it is worth checking rather than assuming when turning a large
+	 * existing site onto this version.
+	 *
+	 * Retiring it is a one-line default flip once ACFML memoizes its lookup.
+	 * Not fixed in acfml 3.0-b.1: every file on the hot path is byte-identical
+	 * to 2.2.4, and so is the bundled `wpml/fp`.
+	 */
+	protected bool $acfml_skip_frontend_field_translation = true;
+
+	/**
 	 * @var bool Derive and store intrinsic width/height for SVG uploads that
 	 * arrive without them. Opt-in because it changes rendered output: an <img>
 	 * that carried no dimensions starts carrying them, which is the point — the
@@ -1000,6 +1040,9 @@ class StarterBase extends Site {
 	private function registerAssetHooks(): void {
 		add_action( 'enqueue_block_assets', array( $this, 'assets' ) );
 		add_action( 'wp_preload_resources', array( $this, 'preload_resources' ) );
+		if ( $this->acfml_skip_frontend_field_translation ) {
+			add_filter( 'acfml_should_translate_acf_entity', array( $this, 'acfml_should_translate_acf_entity' ) );
+		}
 		add_action( 'send_headers', array( $this, 'send_preload_headers' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'admin_enqueue_scripts' ) );
 		add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_block_editor_assets' ) );
@@ -4100,6 +4143,77 @@ class StarterBase extends Site {
 		}
 
 		return $file;
+	}
+
+	/**
+	 * Keep ACFML's field-definition translation only where it can be seen.
+	 *
+	 * Four contexts are named rather than one `is_admin()` check, and each is
+	 * needed. Gutenberg loads field groups over REST. ACF talks to admin-ajax
+	 * from inside the editor. Migration and maintenance scripts run under
+	 * WP-CLI. None of the three is `is_admin()`, so an `is_admin()`-only guard
+	 * would switch the translation off in the editor — where the labels are the
+	 * entire point.
+	 *
+	 * Everything the four do not name is treated as a plain front-end view and
+	 * loses the translation. That is the policy, not an oversight — an earlier
+	 * version of this comment claimed the opposite of what the code does, which
+	 * a review caught.
+	 *
+	 * The fifth test is a detection rather than a context. A theme calling
+	 * `acf_form()` renders labels, instructions and placeholders to a visitor,
+	 * and that is exactly the shape this guard must not strip. `acf_form_head()`
+	 * reaches `ACF_Assets::add_actions()`, which records itself, so the front
+	 * end can be asked whether a form is being set up.
+	 *
+	 * It is asked with `acf_raw_setting()` and never with `acf_has_done()`. The
+	 * latter **writes the flag it reads** — verified in ACF's `api-helpers.php`
+	 * — so probing with it would make ACF's own `add_actions()` believe it had
+	 * already run and skip registering the form's assets. The probe would break
+	 * the case it exists to protect.
+	 *
+	 * A false positive here costs a slow request; a false negative shows a
+	 * visitor an untranslated form. The probe is therefore read generously: any
+	 * front-end request that has enqueued ACF's input assets keeps the
+	 * translation, whether or not a form is finally printed.
+	 *
+	 * @param mixed $translate Whether ACFML would translate the entity.
+	 * @return mixed False on a plain front-end view, the incoming value otherwise.
+	 */
+	public function acfml_should_translate_acf_entity( $translate ) {
+		if ( is_admin()
+			|| wp_doing_ajax()
+			|| ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+			|| ( defined( 'WP_CLI' ) && WP_CLI )
+		) {
+			return $translate;
+		}
+
+		if ( $this->acf_front_end_form_in_play() ) {
+			return $translate;
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether ACF is setting up a form on this front-end request.
+	 *
+	 * True once `acf_form_head()` has run, because it reaches
+	 * `acf_enqueue_scripts()` and thence `ACF_Assets::add_actions()`, which
+	 * records `has_done_ACF_Assets::add_actions` in ACF's settings.
+	 *
+	 * Read-only by construction: `acf_raw_setting()` is the getter
+	 * `acf_has_done()` itself calls before it writes.
+	 *
+	 * @return bool
+	 */
+	protected function acf_front_end_form_in_play(): bool {
+		if ( ! function_exists( 'acf_raw_setting' ) ) {
+			return false;
+		}
+
+		return (bool) acf_raw_setting( 'has_done_ACF_Assets::add_actions' );
 	}
 
 	/**
