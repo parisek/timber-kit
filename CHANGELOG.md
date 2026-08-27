@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- `StarterBase::$acfml_skip_frontend_field_translation` — opt-in, default off.
+- `StarterBase::$acfml_skip_frontend_field_translation` — **on by default**.
   Skips ACFML's translation of ACF field **definitions** (labels, instructions,
   placeholders, prepend/append, choices, message) on plain front-end views.
 
@@ -24,10 +24,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `wpml/collect`. Only the field level is expensive — the group level measured
   1.04 s against 1.11 s.
 
-  **Off by default is a refusal, not timidity.** Switching it on is wrong for a
-  site that renders field definitions to visitors: a theme calling `acf_form()`,
-  or a template printing a `select`/`radio` choice *label* rather than its
-  value. Neither is detectable from the kit, so the consuming site asserts it.
+  **On by default**, because two shapes make it wrong and only one of them is
+  invisible. A theme calling `acf_form()` puts labels, instructions and
+  placeholders in front of a visitor — and that shape **detects itself**:
+  `acf_form_head()` reaches `ACF_Assets::add_actions()`, which records itself,
+  so the guard steps aside on any front-end request that has set a form up. It
+  is read with `acf_raw_setting()` and never with `acf_has_done()`, which writes
+  the flag it reads and would make ACF skip registering the form's own assets.
+
+  A template printing a `select`/`radio`/`checkbox` choice *label* rather than
+  its value is not detectable from here. That is what the property is for. The
+  failure if a site needs it and does not set it is one label rendered in the
+  source language — quiet, and worth checking rather than assuming when moving
+  a large existing site onto this version.
 
   Four contexts keep the translation, and naming all four is load-bearing:
   admin, AJAX, REST and WP-CLI. Gutenberg loads field groups over REST and ACF

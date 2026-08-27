@@ -1,0 +1,22 @@
+<?php
+
+/**
+ * Corrections to `php-stubs/acf-pro-stubs`, which reproduces ACF's own
+ * docblocks faithfully — including where they are wrong about the code beneath
+ * them.
+ */
+
+/**
+ * `acf_raw_setting()` is documented `@return void` in ACF and in the generated
+ * stubs. Its body is `return acf()->get_setting( $name );`, so it returns the
+ * setting — which is the entire reason to call it.
+ *
+ * It matters here rather than being pedantry: it is the read-only way to ask
+ * ACF a question. Its sibling `acf_has_done()` answers the same question and
+ * WRITES the flag while doing so, so a probe that used it would break the
+ * subsystem it was probing.
+ *
+ * @param string $name
+ * @return mixed
+ */
+function acf_raw_setting($name = '') {}

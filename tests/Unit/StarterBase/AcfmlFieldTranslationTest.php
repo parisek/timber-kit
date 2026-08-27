@@ -26,9 +26,12 @@ class AcfmlFieldTranslationTest extends HelpersTestCase {
 		};
 	}
 
-	private function contexts( bool $admin, bool $ajax ): void {
+	private function contexts( bool $admin, bool $ajax, bool $acf_form = false ): void {
 		Functions\when( 'is_admin' )->justReturn( $admin );
 		Functions\when( 'wp_doing_ajax' )->justReturn( $ajax );
+		Functions\when( 'acf_raw_setting' )->alias(
+			static fn ( $name = '' ) => 'has_done_ACF_Assets::add_actions' === $name ? $acf_form : null
+		);
 	}
 
 	public function test_a_plain_front_end_view_skips_the_translation(): void {
@@ -72,4 +75,47 @@ class AcfmlFieldTranslationTest extends HelpersTestCase {
 
 		$this->assertFalse( $this->subject()->acfml_should_translate_acf_entity( false ) );
 	}
+	public function test_an_acf_form_on_the_front_end_keeps_the_translation(): void {
+		// The shape that makes the default wrong, and the reason it can be a
+		// default at all: acf_form() puts labels, instructions and placeholders
+		// in front of a visitor, and it detects itself.
+		$this->contexts( false, false, true );
+
+		$this->assertTrue( $this->subject()->acfml_should_translate_acf_entity( true ) );
+	}
+
+	public function test_the_probe_is_read_only(): void {
+		// acf_has_done() WRITES the flag it reads, so probing with it would make
+		// ACF's own add_actions() believe it had already run and skip
+		// registering the form's assets — breaking the case the probe protects.
+		// Only the getter may be called.
+		$called = [];
+		Functions\when( 'is_admin' )->justReturn( false );
+		Functions\when( 'wp_doing_ajax' )->justReturn( false );
+		Functions\when( 'acf_has_done' )->alias(
+			static function () use ( &$called ) {
+				$called[] = 'acf_has_done';
+				return false;
+			}
+		);
+		Functions\when( 'acf_raw_setting' )->alias(
+			static function () use ( &$called ) {
+				$called[] = 'acf_raw_setting';
+				return false;
+			}
+		);
+
+		$this->subject()->acfml_should_translate_acf_entity( true );
+
+		$this->assertSame( [ 'acf_raw_setting' ], $called );
+	}
+
+	public function test_it_is_on_by_default(): void {
+		// The flip this version makes. A property defaulting the other way is a
+		// feature nobody switches on.
+		$property = new \ReflectionProperty( StarterBase::class, 'acfml_skip_frontend_field_translation' );
+
+		$this->assertTrue( $property->getDefaultValue() );
+	}
+
 }

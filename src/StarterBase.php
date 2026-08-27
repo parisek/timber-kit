@@ -153,18 +153,26 @@ class StarterBase extends Site {
 	 * inside `wpml/fp` and `wpml/collect`. Only the field level is expensive —
 	 * the group level measured 1.04 s against 1.11 s, so it is free.
 	 *
-	 * **Off by default, and that is a refusal rather than timidity.** Switching
-	 * it on is wrong for a site that renders field definitions to visitors: a
-	 * theme calling `acf_form()`, where placeholders, instructions and labels
-	 * become visitor-facing, or a template printing a `select`/`radio` choice
-	 * LABEL rather than its value. Neither is detectable from here, so the
-	 * consuming site asserts it.
+	 * **On by default.** Two shapes make it wrong, and they are not equal:
+	 *
+	 * A theme calling `acf_form()` puts placeholders, instructions and labels in
+	 * front of a visitor. That one **detects itself** — see
+	 * {@see acfml_should_translate_acf_entity()} — and the guard steps aside
+	 * without being told.
+	 *
+	 * A template printing a `select`/`radio`/`checkbox` choice **label** rather
+	 * than its value is not detectable from here, and is the reason this stays a
+	 * property rather than being unconditional. A site that does it sets this to
+	 * false. The failure if it does not is a label rendered in the source
+	 * language on one page — quiet, and easy to mistake for an untranslated
+	 * string, so it is worth checking rather than assuming when turning a large
+	 * existing site onto this version.
 	 *
 	 * Retiring it is a one-line default flip once ACFML memoizes its lookup.
 	 * Not fixed in acfml 3.0-b.1: every file on the hot path is byte-identical
 	 * to 2.2.4, and so is the bundled `wpml/fp`.
 	 */
-	protected bool $acfml_skip_frontend_field_translation = false;
+	protected bool $acfml_skip_frontend_field_translation = true;
 
 	/**
 	 * @var bool Derive and store intrinsic width/height for SVG uploads that
@@ -4115,9 +4123,27 @@ class StarterBase extends Site {
 	 * would switch the translation off in the editor — where the labels are the
 	 * entire point.
 	 *
-	 * The default direction is deliberate: anything this cannot classify keeps
-	 * the translation. The cost of guessing wrong that way is a slow request;
-	 * guessing wrong the other way shows an editor untranslated labels.
+	 * Everything the four do not name is treated as a plain front-end view and
+	 * loses the translation. That is the policy, not an oversight — an earlier
+	 * version of this comment claimed the opposite of what the code does, which
+	 * a review caught.
+	 *
+	 * The fifth test is a detection rather than a context. A theme calling
+	 * `acf_form()` renders labels, instructions and placeholders to a visitor,
+	 * and that is exactly the shape this guard must not strip. `acf_form_head()`
+	 * reaches `ACF_Assets::add_actions()`, which records itself, so the front
+	 * end can be asked whether a form is being set up.
+	 *
+	 * It is asked with `acf_raw_setting()` and never with `acf_has_done()`. The
+	 * latter **writes the flag it reads** — verified in ACF's `api-helpers.php`
+	 * — so probing with it would make ACF's own `add_actions()` believe it had
+	 * already run and skip registering the form's assets. The probe would break
+	 * the case it exists to protect.
+	 *
+	 * A false positive here costs a slow request; a false negative shows a
+	 * visitor an untranslated form. The probe is therefore read generously: any
+	 * front-end request that has enqueued ACF's input assets keeps the
+	 * translation, whether or not a form is finally printed.
 	 *
 	 * @param mixed $translate Whether ACFML would translate the entity.
 	 * @return mixed False on a plain front-end view, the incoming value otherwise.
@@ -4131,7 +4157,31 @@ class StarterBase extends Site {
 			return $translate;
 		}
 
+		if ( $this->acf_front_end_form_in_play() ) {
+			return $translate;
+		}
+
 		return false;
+	}
+
+	/**
+	 * Whether ACF is setting up a form on this front-end request.
+	 *
+	 * True once `acf_form_head()` has run, because it reaches
+	 * `acf_enqueue_scripts()` and thence `ACF_Assets::add_actions()`, which
+	 * records `has_done_ACF_Assets::add_actions` in ACF's settings.
+	 *
+	 * Read-only by construction: `acf_raw_setting()` is the getter
+	 * `acf_has_done()` itself calls before it writes.
+	 *
+	 * @return bool
+	 */
+	protected function acf_front_end_form_in_play(): bool {
+		if ( ! function_exists( 'acf_raw_setting' ) ) {
+			return false;
+		}
+
+		return (bool) acf_raw_setting( 'has_done_ACF_Assets::add_actions' );
 	}
 
 	/**
