@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.43.0] - 2026-08-27
+
 ### Added
 
 - `Resizer::flushBackendFormats()` and `Helpers::flushFieldGroups()` drop the
