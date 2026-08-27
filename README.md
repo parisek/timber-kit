@@ -329,6 +329,47 @@ the database** (majority vote, tie-break toward core tables; `--collate=`
 overrides). Tables with COMPACT/REDUNDANT row formats and long indexed
 columns are flagged (767-byte index-prefix limit) and require `--force`.
 
+### Seo
+
+Everything the kit knows about an SEO plugin lives under `src/Seo/`
+(`Plugin`, `Canonical`, `PagedRequest`, `Pagination`, `Yoast`, `Aioseo`) —
+enforced by a boundary test, `tests/Unit/Architecture/SeoBoundaryTest.php`, the
+same way `src/Breeze/` is enforced by `BreezeBoundaryTest`.
+
+`Plugin::detect()` picks one plugin when more than one is loaded (AIOSEO wins
+— it is the migration target) and is used by both capabilities below, so the
+two never disagree about which plugin is running.
+
+| Capability | Yoast | AIOSEO |
+| --- | --- | --- |
+| canonical | ✅ | ✅ |
+| title | n/a — plugin retiring | not yet |
+| og:image | n/a — plugin retiring | ✅ (`SocialImageBridge`) |
+| sitemap path | ✅ (`Breeze\WarmupSitemap`) | ✅ (`Breeze\WarmupSitemap`) |
+
+`n/a — plugin retiring` is a decision, not an omission: Yoast is the plugin
+being migrated away from on this fleet, so writing its title adapter would be
+work invested in a dependency on its way out. AIOSEO carries canonical only
+for the matching reason on the other side — its title support is real but not
+yet written.
+
+#### Self-referencing canonical on paginated routes
+
+A listing rendered by a block on an ordinary page is singular as far as an SEO
+plugin is concerned — it sees one post, not an archive — so the plugin
+resolves the canonical to `get_permalink()` and every page of the listing
+claims to be page one. `Canonical::register()` fixes this by putting the
+`/page/N/` segment back onto the canonical it hands to whichever plugin is
+active.
+
+Gated by `$seo_canonical_pagination` on `Base extends StarterBase`, default
+`false`. A site whose listings are real post-type archives already gets a
+correct canonical from its plugin and needs nothing:
+
+```php
+protected bool $seo_canonical_pagination = true;
+```
+
 ### WpmlBlockOverride
 
 Runtime override of Copy field values in ACF Gutenberg blocks for WPML-multilingual sites. Hooks `render_block_data` at priority 20 (after WPML's own handlers) and, for ACF blocks rendered in a non-default language, overwrites `attrs.data.<field>` for fields marked `wpml_cf_preferences = 1` (Copy) with the source-language post's value. Attachment IDs (image / file / gallery) are remapped to per-language duplicates via `wpml_object_id`.

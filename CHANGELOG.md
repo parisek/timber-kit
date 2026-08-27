@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `Seo\Canonical` — a self-referencing canonical on paginated routes, for
+  whichever of Yoast or All in One SEO is running. A listing rendered by a
+  block on an ordinary page is singular as far as an SEO plugin is concerned,
+  so it resolves the canonical to `get_permalink()` and every page claims to
+  be page one. Measured on one site: `/blog/page/2/` through `/blog/page/10/`
+  all pointed at `/blog/`, as did the same routes on two further listings.
+  Behind `$seo_canonical_pagination`, default `false` — a site whose listings
+  are real post-type archives already gets this from its plugin.
+
 ## [1.43.0] - 2026-08-27
 
 ### Added
