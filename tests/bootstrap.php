@@ -115,6 +115,16 @@ if ( ! class_exists( 'WP_Term' ) ) {
 	}
 }
 
+// Minimal Breeze_Cache_Preloader stub: the Breeze plugin class the tail tick
+// dispatches URLs through. Not a dependency of this package, so tests supply
+// a no-op stand-in the same way the WPML stub covers TranslationManagement.
+if ( ! class_exists( 'Breeze_Cache_Preloader' ) ) {
+	class Breeze_Cache_Preloader {
+		public static function preload_url( string $url ): void {
+		}
+	}
+}
+
 // Minimal WP_User stub for tests that need an instance to satisfy `instanceof WP_User`.
 // `#[\AllowDynamicProperties]` mirrors WordPress core, which annotates `WP_User`
 // the same way (dynamic props are hydrated from the `$data` user row).

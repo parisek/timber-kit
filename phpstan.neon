@@ -18,6 +18,9 @@ parameters:
         - '#Call to static method .* on an unknown class Timber#'
         # WP-CLI is a separate package, not in the WordPress stubs (cf. Timber above).
         - '#Call to static method .* on an unknown class WP_CLI#'
+        # Breeze_Cache_Preloader is the Breeze plugin's class, not a dependency
+        # of this package (cf. WP-CLI and Timber above).
+        - '#Call to static method .* on an unknown class Breeze_Cache_Preloader#'
         # wp_get_attachment_metadata stub shape omits original_image; presence is
         # guarded by `! empty( $metadata['original_image'] )` before the unset.
         -
