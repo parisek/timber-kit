@@ -8,6 +8,43 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `Helpers::formatFields( $post, $is_preview, $render_embeds = true )` and the
+  matching `fieldFormatter()` parameter. `false` hands back the shortcode for a
+  `post_object` field pointing at a form (`wpforms`, `wpcf7_contact_form`)
+  instead of rendering it. The default is unchanged, so no existing caller
+  moves.
+
+  Pass it when building a context. A context build formats every field on the
+  options page whether or not the page will print it, and the documented
+  canonical call — `Helpers::formatFields( 'option' )` from `timber_context()`
+  — therefore rendered a form on **every** request of **every** page. Measured
+  on a production site: 6 kB of form markup built and discarded per request.
+
+  The asset cost is the larger half and the original report named the wrong
+  mechanism for it. WPForms enqueues in `wp_head` only when `is_singular()` and
+  the post content holds the shortcode or block; what loads its stylesheets and
+  jQuery site-wide is the `wp_footer` pass, which fires because a rendered form
+  registered itself during the context build. Same outcome, different hook, and
+  it matters: the fix has to stop the render, not the output.
+
+  A second copy of the form's element ids also landed in the DOM of any page
+  that rendered the same form itself.
+
+- `|shortcode` Twig filter, the other half. A deferred embed is a string, so the
+  one template that prints the form renders it there:
+  `{{ content.contact.form|shortcode }}`. Rendering at that point is when the
+  form plugin discovers the form; WPForms handles it explicitly by enqueueing on
+  `wp_footer`, at the cost of a brief flash of unstyled content — which is the
+  trade the deferral buys on every page that has no form at all.
+
+  A rendered form carries a nonce, so `fieldFormatter()` counts it as dynamic
+  and nothing may cache it. Deferring the embed is therefore also what lets the
+  rest of an options page be storable — the same rule the menu cache follows
+  ([ADR-0007](docs/adr/0007-prove-cache-purity-from-inputs.md)).
+
+
+### Added
+
 - `CacheSignature` — the shared part of every cross-request cache key: site,
   language, the current user's roles, and a content version from
   `wp_cache_get_last_changed()` over `posts` and `terms`. WordPress bumps those

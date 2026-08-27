@@ -794,6 +794,25 @@ class Helpers {
 	 * all, and reads identically to "the data is not there". `get_field()` by
 	 * name still resolves in that situation; prefer it when probing.
 	 *
+	 * **Pass `$render_embeds = false` when building a context.** A context build
+	 * formats every field on the options page whether or not the page will print
+	 * it, and a `post_object` pointing at a form is rendered by running its
+	 * shortcode. That spends the render on every page — measured at 6 kB of
+	 * markup on a site with one such field — and it is what makes the form
+	 * plugin load its stylesheets and jQuery site-wide: a rendered form
+	 * registers itself, and the plugin's `wp_footer` pass then enqueues assets
+	 * for it. It also puts a second copy of the form's element ids into the DOM
+	 * of any page that renders the same form itself.
+	 *
+	 * The template that actually prints the form renders it there:
+	 * `{{ content.contact.form|shortcode }}`.
+	 *
+	 * There is a second effect worth knowing. A rendered form carries a nonce,
+	 * so it is never a function of stored data and nothing may cache it —
+	 * `fieldFormatter()` counts it as dynamic for exactly that reason.
+	 * Deferring the embed is therefore also what lets the rest of an options
+	 * page be storable at all.
+	 *
 	 * @param object|int|string|null $post       Post object, term object, numeric post ID,
 	 *                                            options-page string key, or null to use the
 	 *                                            current queried object.
@@ -802,9 +821,14 @@ class Helpers {
 	 *                                            certain form plugins, and keeps the raw
 	 *                                            definition of an unfilled repeater /
 	 *                                            flexible_content so a placeholder can render.
+	 * @param bool                   $render_embeds False hands back the shortcode for a
+	 *                                            `post_object` field pointing at a form
+	 *                                            (`wpforms`, `wpcf7_contact_form`) instead of
+	 *                                            rendering it. Default true keeps every existing
+	 *                                            caller's behaviour.
 	 * @return array<string, mixed> Associative array keyed by ACF field name with formatted values.
 	 */
-	public static function formatFields( $post = null, $is_preview = false ) {
+	public static function formatFields( $post = null, $is_preview = false, bool $render_embeds = true ) {
 
 		$post_id = null;
 
@@ -870,7 +894,7 @@ class Helpers {
 		$content = [];
 		if ( ! empty( $fields ) ) {
 			foreach ( $fields as $key => $field ) {
-				$value = self::fieldFormatter( $field, $post_id, $is_preview );
+				$value = self::fieldFormatter( $field, $post_id, $is_preview, $render_embeds );
 
 				if ( self::isFormattedFieldPresent( $field, $value ) ) {
 					$content[ $key ] = $value;
@@ -1577,7 +1601,7 @@ class Helpers {
 	 *               checking `$field['type'] === 'true_false'` against the
 	 *               original field definition alongside the returned value.
 	 */
-	public static function fieldFormatter( $field, $post_id = null, $is_preview = false ) {
+	public static function fieldFormatter( $field, $post_id = null, $is_preview = false, bool $render_embeds = true ) {
 
 		// we need to allow post_id null when we are using it during preview block without saving
 		if ( empty( $field ) ) {
@@ -1674,21 +1698,29 @@ class Helpers {
 		} elseif ( $field['type'] === 'post_object' ) {
 
 			if ( $field['value'] instanceof \WP_Post ) {
+				// Two reasons to hand back the shortcode instead of the form.
+				// A preview cannot render one at all. And a caller building a
+				// context does not know whether the page will print it, so
+				// rendering costs every page the work and the plugin's assets —
+				// see `$render_embeds` on formatFields().
+				$defer = $is_preview || ! $render_embeds;
+
 				if ( $field['value']->post_type === 'wpcf7_contact_form' ) {
-					// during preview we need to return only shortcode as preview is not working
-					if ( $is_preview ) {
-						$field['value'] = '[contact-form-7 id="' . $field['value']->ID . '" title=""]';
-					} else {
-						++self::$dynamic_format_count;
-						$field['value'] = do_shortcode( '[contact-form-7 id="' . $field['value']->ID . '" title=""]' );
-					}
+					$shortcode = '[contact-form-7 id="' . $field['value']->ID . '" title=""]';
 				} elseif ( $field['value']->post_type === 'wpforms' ) {
-					if ( $is_preview ) {
-						// during preview we need to return only shortcode as preview is not working
-						$field['value'] = '[wpforms id="' . $field['value']->ID . '"]';
+					$shortcode = '[wpforms id="' . $field['value']->ID . '"]';
+				} else {
+					$shortcode = null;
+				}
+
+				if ( null !== $shortcode ) {
+					if ( $defer ) {
+						$field['value'] = $shortcode;
 					} else {
+						// A rendered form carries a nonce, so it is never a
+						// function of stored data. Nothing may cache it.
 						++self::$dynamic_format_count;
-						$field['value'] = do_shortcode( '[wpforms id="' . $field['value']->ID . '"]' );
+						$field['value'] = do_shortcode( $shortcode );
 					}
 				}
 			}
@@ -1716,7 +1748,7 @@ class Helpers {
 						foreach ( $value as $sub_key => &$sub_value ) {
 							if ( isset( $sub_fields[ $sub_key ] ) ) {
 								$sub_fields[ $sub_key ]['value'] = $sub_value;
-								$sub_value = self::fieldFormatter( $sub_fields[ $sub_key ], $post_id, $is_preview );
+								$sub_value = self::fieldFormatter( $sub_fields[ $sub_key ], $post_id, $is_preview, $render_embeds );
 							}
 						}
 						if ( 'repeater' === $field['type'] && is_array( $value ) ) {
@@ -1725,7 +1757,7 @@ class Helpers {
 					} else {
 						if ( isset( $sub_fields[ $key ] ) ) {
 							$sub_fields[ $key ]['value'] = $value;
-							$value = self::fieldFormatter( $sub_fields[ $key ], $post_id, $is_preview );
+							$value = self::fieldFormatter( $sub_fields[ $key ], $post_id, $is_preview, $render_embeds );
 						}
 					}
 				}
@@ -1755,13 +1787,13 @@ class Helpers {
 						foreach ( $value as $layout_key => &$layout_value ) {
 							if ( isset( $layouts[ $value['acf_fc_layout'] ][ $layout_key ] ) ) {
 								$layouts[ $value['acf_fc_layout'] ][ $layout_key ]['value'] = $layout_value;
-								$layout_value = self::fieldFormatter( $layouts[ $value['acf_fc_layout'] ][ $layout_key ], $post_id, $is_preview );
+								$layout_value = self::fieldFormatter( $layouts[ $value['acf_fc_layout'] ][ $layout_key ], $post_id, $is_preview, $render_embeds );
 							}
 						}
 					} else {
 						if ( isset( $layouts[ $key ] ) ) {
 							$layouts[ $key ]['value'] = $value;
-							$value = self::fieldFormatter( $layouts[ $key ], $post_id, $is_preview );
+							$value = self::fieldFormatter( $layouts[ $key ], $post_id, $is_preview, $render_embeds );
 						}
 					}
 				}
