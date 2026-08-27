@@ -63,6 +63,49 @@ final class PaginationTest extends TestCase {
 	}
 
 	/**
+	 * A localised `pagination_base` (WPML, `qtranslate`, hand-rolled rewrite
+	 * rules) can rename the segment from `page` to anything the site chooses —
+	 * a Czech site commonly serves `strana`. Both directions must honour it:
+	 * appending must write the site's own word, and stripping (for
+	 * idempotency) must recognise it too, or a re-filtered canonical would grow
+	 * a second, wrong segment.
+	 *
+	 * @return array<string, array{0: string, 1: int, 2: string, 3: string}>
+	 */
+	public static function canonicalsWithACustomBase(): array {
+		return array(
+			'a later page gains the custom segment' => array(
+				'https://x.test/blog/',
+				2,
+				'https://x.test/blog/strana/2/',
+				'strana',
+			),
+			'the custom segment is stripped for idempotency' => array(
+				'https://x.test/blog/strana/2/',
+				2,
+				'https://x.test/blog/strana/2/',
+				'strana',
+			),
+			'a regex metacharacter in the base is treated literally' => array(
+				'https://x.test/blog/page.two/2/',
+				2,
+				'https://x.test/blog/page.two/2/',
+				'page.two',
+			),
+		);
+	}
+
+	#[DataProvider( 'canonicalsWithACustomBase' )]
+	public function testACustomBaseIsHonouredInBothDirections(
+		string $canonical,
+		int $page,
+		string $expected,
+		string $base
+	): void {
+		$this->assertSame( $expected, Pagination::append( $canonical, $page, $base ) );
+	}
+
+	/**
 	 * Yoast's `wpseo_canonical` may hand back `false` to drop the tag entirely.
 	 * Appending to that would resurrect a canonical someone deliberately
 	 * removed, so the adapters must never reach this method with a non-string —

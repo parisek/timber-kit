@@ -27,10 +27,17 @@ final class Pagination {
 	/**
 	 * @param string $canonical Canonical URL as the SEO plugin resolved it.
 	 * @param int    $page      Requested page; 1 means unpaginated.
+	 * @param string $base      The site's pagination segment. Defaults to
+	 *                          WordPress's own default of `page`; a caller
+	 *                          reading `$wp_rewrite->pagination_base` (see
+	 *                          {@see PaginationBase}) supplies the site's real
+	 *                          value where it differs. Kept a plain parameter,
+	 *                          not a global read, so this method stays pure
+	 *                          and testable without WordPress.
 	 *
 	 * @return string Canonical carrying the right pagination segment.
 	 */
-	public static function append( string $canonical, int $page ): string {
+	public static function append( string $canonical, int $page, string $base = 'page' ): string {
 		if ( '' === $canonical ) {
 			return $canonical;
 		}
@@ -45,12 +52,16 @@ final class Pagination {
 			$suffix = substr( $canonical, $cut );
 		}
 
+		// preg_quote() so a base containing a regex metacharacter (a literal
+		// dot, say) cannot corrupt the pattern.
+		$quoted_base = preg_quote( $base, '#' );
+
 		// Strip any pagination the plugin already emitted, so this is
 		// idempotent and so page 1 cannot keep a `/page/1/` it should not have.
-		$path = (string) preg_replace( '#/page/\d+/?$#', '/', $path );
+		$path = (string) preg_replace( '#/' . $quoted_base . '/\d+/?$#', '/', $path );
 
 		if ( $page > 1 ) {
-			$path = user_trailingslashit( rtrim( $path, '/' ) . '/page/' . $page );
+			$path = user_trailingslashit( rtrim( $path, '/' ) . '/' . $base . '/' . $page );
 		}
 
 		return $path . $suffix;

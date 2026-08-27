@@ -44,7 +44,7 @@ final class Canonical {
 			return $canonical;
 		}
 
-		return Pagination::append( $canonical, PagedRequest::current() );
+		return Pagination::append( $canonical, PagedRequest::current(), PaginationBase::current() );
 	}
 
 	/**
