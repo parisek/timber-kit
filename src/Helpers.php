@@ -1624,14 +1624,14 @@ class Helpers {
 				$field['value'] = '';
 			}
 
-			$field['value'] = do_shortcode( $field['value'] );
+			$field['value'] = self::expandShortcodes( $field['value'] );
 
 		} elseif ( $field['type'] === 'textarea' ) {
 
 			if ( self::isTextareaContentEmpty( $field['value'] ) ) {
 				$field['value'] = '';
 			} else {
-				$field['value'] = do_shortcode( $field['value'] );
+				$field['value'] = self::expandShortcodes( $field['value'] );
 			}
 
 		} elseif ( $field['type'] === 'image' ) {
@@ -1679,6 +1679,7 @@ class Helpers {
 					if ( $is_preview ) {
 						$field['value'] = '[contact-form-7 id="' . $field['value']->ID . '" title=""]';
 					} else {
+						++self::$dynamic_format_count;
 						$field['value'] = do_shortcode( '[contact-form-7 id="' . $field['value']->ID . '" title=""]' );
 					}
 				} elseif ( $field['value']->post_type === 'wpforms' ) {
@@ -1686,6 +1687,7 @@ class Helpers {
 						// during preview we need to return only shortcode as preview is not working
 						$field['value'] = '[wpforms id="' . $field['value']->ID . '"]';
 					} else {
+						++self::$dynamic_format_count;
 						$field['value'] = do_shortcode( '[wpforms id="' . $field['value']->ID . '"]' );
 					}
 				}
@@ -2056,6 +2058,502 @@ class Helpers {
 	}
 
 	/**
+	 * How many times formatting has produced output that is not a pure function
+	 * of the stored field.
+	 *
+	 * Exactly one place increments it: the `post_object` branch that renders a
+	 * Contact Form 7 or WPForms form. That form's markup carries a nonce and a
+	 * per-render id, so it is dynamic no matter what the stored value is, and
+	 * no inspection of the stored value can predict it.
+	 *
+	 * Every other dynamic surface in `fieldFormatter()` is decided **before**
+	 * It is raised by {@see expandShortcodes()} as well, which inspects the
+	 * value ACF produced before handing it to `do_shortcode()`.
+	 *
+	 * Every increment is decided from an INPUT, never from whether an output
+	 * differed. Observing the output cannot prove purity: an unregistered
+	 * `[foo]` comes back byte-identical, reads as static, and the literal
+	 * `[foo]` is then stored — until a plugin registers the shortcode and every
+	 * page serves the frozen source text instead of its output.
+	 *
+	 * @var int
+	 */
+	private static int $dynamic_format_count = 0;
+
+	/**
+	 * Reading of the dynamic-formatting counter.
+	 *
+	 * @internal
+	 * @return int
+	 */
+	public static function dynamicFormatCount(): int {
+		return self::$dynamic_format_count;
+	}
+
+	/**
+	 * Expand shortcodes, recording first whether there was anything to expand.
+	 *
+	 * The check is on the **input**, before the call, and that is the whole
+	 * design. Checking the output instead asks "did anything change", which an
+	 * unregistered shortcode answers with "no" — it is handed back unaltered,
+	 * reads as static, and the literal gets stored until a plugin registers it.
+	 *
+	 * Checking the stored meta instead — the previous attempt — asks the wrong
+	 * store. Values reach here through `get_field()`, and ACF can supply one
+	 * that no meta row holds: `acf/pre_load_value` short-circuits the database,
+	 * `default_value` fills in for an absent row, `acf/load_value` replaces what
+	 * was loaded, and a group or clone sub-field takes its own default the same
+	 * way. A menu whose meta is provably bracket-free can therefore still put a
+	 * shortcode through this call. Verified against
+	 * `acf-value-functions.php::acf_get_value()`.
+	 *
+	 * This sees the value ACF actually produced, whatever produced it, and asks
+	 * core's own question about it — see {@see holdsRegisteredShortcode()}.
+	 *
+	 * @param mixed $value Field value as ACF resolved it.
+	 * @return mixed Value with shortcodes expanded.
+	 */
+	private static function expandShortcodes( mixed $value ): mixed {
+		if ( is_string( $value ) && self::holdsRegisteredShortcode( $value ) ) {
+			++self::$dynamic_format_count;
+		}
+
+		return do_shortcode( $value );
+	}
+
+	/**
+	 * Whether `do_shortcode()` can change this string at all.
+	 *
+	 * Core answers this itself before it does any work, and the answer is
+	 * exact: `do_shortcode()` returns its input untouched unless a **registered**
+	 * tag name appears in it. So this mirrors that early exit rather than
+	 * approximating it — same order, same regex, cited so the two can be
+	 * compared:
+	 *
+	 * ```php
+	 * // wp-includes/shortcodes.php, do_shortcode()
+	 * if ( ! str_contains( $content, '[' ) ) { return $content; }
+	 * if ( empty( $shortcode_tags ) || ! is_array( $shortcode_tags ) ) { return $content; }
+	 * preg_match_all( '@\[([^<>&/\[\]\x00-\x20=]++)@', $content, $matches );
+	 * $tagnames = array_intersect( array_keys( $shortcode_tags ), $matches[1] );
+	 * if ( empty( $tagnames ) ) { return $content; }
+	 * ```
+	 *
+	 * A bracket in prose is therefore no longer treated as a shortcode, which
+	 * an earlier and blunter version of this check did — it refused any value
+	 * holding `[`, and a menu label reading "Ceník [2026]" was enough to cost a
+	 * site its cache.
+	 *
+	 * **The precision is only sound because the registered tag set is in the
+	 * cache key.** Whether a string holds a shortcode is not a property of the
+	 * string; it is a property of the string *and* what is registered. Answer
+	 * it without carrying that second input and the literal `[foo]` gets stored
+	 * while `foo` is unregistered, then served forever after a plugin registers
+	 * it. See {@see shortcodeTagsVersion()}.
+	 *
+	 * @param string $value Value about to be handed to `do_shortcode()`.
+	 * @return bool
+	 */
+	private static function holdsRegisteredShortcode( string $value ): bool {
+		if ( ! str_contains( $value, '[' ) ) {
+			return false;
+		}
+
+		$tags = self::registeredShortcodeTags();
+
+		if ( [] === $tags ) {
+			return false;
+		}
+
+		if ( ! preg_match_all( '@\[([^<>&/\[\]\x00-\x20=]++)@', $value, $matches ) ) {
+			return false;
+		}
+
+		return [] !== array_intersect( $tags, $matches[1] );
+	}
+
+	/**
+	 * Registered shortcode tag names.
+	 *
+	 * @return array<int, string>
+	 */
+	private static function registeredShortcodeTags(): array {
+		global $shortcode_tags;
+
+		if ( empty( $shortcode_tags ) || ! is_array( $shortcode_tags ) ) {
+			return [];
+		}
+
+		return array_map( 'strval', array_keys( $shortcode_tags ) );
+	}
+
+	/**
+	 * A token that changes when the set of registered shortcodes changes.
+	 *
+	 * The second half of the check above, and not optional. "This value holds
+	 * no shortcode" is an answer about the value *and* the registry, so a cache
+	 * that stores the first must carry the second — otherwise activating a
+	 * plugin turns every stored literal into a permanently wrong render, with
+	 * no content change to make the entry unreachable.
+	 *
+	 * Only the names matter. A callback swapped behind an unchanged name does
+	 * not change whether the value was expandable, and the values here are
+	 * closures that do not hash.
+	 *
+	 * Not memoized: a shortcode registered late in a request must not be
+	 * invisible to the menu formatted after it.
+	 *
+	 * @return string
+	 */
+	public static function shortcodeTagsVersion(): string {
+		$tags = self::registeredShortcodeTags();
+
+		if ( [] === $tags ) {
+			return 'none';
+		}
+
+		sort( $tags );
+
+		return substr( md5( implode( ',', $tags ) ), 0, 8 );
+	}
+
+	/**
+	 * Whether every callback that can change a loaded ACF value is one we trust.
+	 *
+	 * This is the hole the shortcode check cannot see. `acf/pre_load_value`
+	 * short-circuits the database, `acf/load_value` replaces what was read, and
+	 * a callback on either may return something derived from the current user,
+	 * the query or the request. No inspection of the value proves otherwise —
+	 * by the time the value exists, the callback has already run.
+	 *
+	 * So the same rule the `field_formatter_*` scan uses applies here: an
+	 * unrecognised callback ends it. What differs is that refusing outright
+	 * would be wrong. ACF registers its own plumbing on this hook —
+	 * `_acf_apply_hook_variations()`, which is what makes
+	 * `acf/load_value/type=wysiwyg` fire at all — and ACFML registers one on
+	 * every WPML site. Refusing on presence would switch the cache off almost
+	 * everywhere, including the site it was measured on.
+	 *
+	 * Callbacks are therefore judged by where they are defined, the same test
+	 * {@see navMenuItemSharingIsSafe()} applies to location types. ACF's own
+	 * code is trusted because it is the mechanism, not a policy. ACFML's is
+	 * trusted because what it varies on is the language, and the language is
+	 * already in the cache key — it is a function of inputs the key carries.
+	 *
+	 * **The variation tags are scanned too.** ACF fans the base hook out into
+	 * `acf/load_value/type=…`, `…/name=…` and `…/key=…`, so a project callback
+	 * can sit on a tag the base name never mentions. A scan of the two literal
+	 * tags would report "nothing registered" for a site with fourteen of them
+	 * live, which is the answer that stores.
+	 *
+	 * Not memoized: a callback added between two menus in one long-running
+	 * process must not be invisible to the second.
+	 *
+	 * @return bool
+	 */
+	public static function valueLoadHooksAreTrusted(): bool {
+		global $wp_filter;
+
+		if ( ! is_array( $wp_filter ) && ! ( $wp_filter instanceof \ArrayAccess ) ) {
+			return true;
+		}
+
+		$roots = self::trustedValueLoadRoots();
+
+		foreach ( (array) $wp_filter as $tag => $hook ) {
+			if ( ! is_string( $tag ) || ! self::isValueLoadTag( $tag ) ) {
+				continue;
+			}
+
+			$callbacks = is_object( $hook ) ? ( $hook->callbacks ?? [] ) : $hook;
+
+			foreach ( (array) $callbacks as $at_priority ) {
+				foreach ( (array) $at_priority as $entry ) {
+					$function = is_array( $entry ) ? ( $entry['function'] ?? null ) : $entry;
+
+					if ( null === $function ) {
+						continue;
+					}
+
+					if ( ! self::callbackIsUnder( $function, $roots ) ) {
+						return false;
+					}
+				}
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * @param string $tag Hook tag.
+	 * @return bool
+	 */
+	private static function isValueLoadTag( string $tag ): bool {
+		foreach ( [ 'acf/load_value', 'acf/pre_load_value' ] as $base ) {
+			if ( $tag === $base || str_starts_with( $tag, $base . '/' ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Directories whose value-load callbacks are trusted.
+	 *
+	 * Filterable so a project can vouch for its own — the escape hatch that
+	 * keeps the refusal from being a dead end. Adding a path here is a claim
+	 * that its callbacks vary only on things the cache key already carries.
+	 *
+	 * @return array<int, string>
+	 */
+	private static function trustedValueLoadRoots(): array {
+		$roots = [];
+
+		foreach ( [ 'ACF_PATH', 'ACFML_PLUGIN_PATH', 'ICL_PLUGIN_PATH', 'WPML_PLUGIN_PATH' ] as $constant ) {
+			if ( ! defined( $constant ) ) {
+				continue;
+			}
+
+			$path = (string) constant( $constant );
+			if ( '' !== $path ) {
+				$roots[] = rtrim( $path, '/\\' );
+			}
+		}
+
+		/**
+		 * Filters the directories whose ACF value-load callbacks are trusted.
+		 *
+		 * @param array<int, string> $roots Absolute directory paths.
+		 */
+		$roots = apply_filters( 'timber_kit_trusted_value_load_roots', $roots );
+
+		return is_array( $roots ) ? array_values( array_filter( array_map( 'strval', $roots ) ) ) : [];
+	}
+
+	/**
+	 * Whether a callback is defined inside one of the given directories.
+	 *
+	 * Anything unreflectable counts as untrusted. A callback whose file cannot
+	 * be named is exactly the one there is no case for trusting.
+	 *
+	 * @param mixed                $function Callback in any of PHP's shapes.
+	 * @param array<int, string>   $roots    Absolute directory paths.
+	 * @return bool
+	 */
+	private static function callbackIsUnder( mixed $function, array $roots ): bool {
+		if ( [] === $roots ) {
+			return false;
+		}
+
+		try {
+			if ( is_array( $function ) && isset( $function[0], $function[1] ) ) {
+				$reflection = new \ReflectionMethod( $function[0], (string) $function[1] );
+			} elseif ( is_string( $function ) && str_contains( $function, '::' ) ) {
+				$reflection = new \ReflectionMethod( $function );
+			} elseif ( is_object( $function ) && ! ( $function instanceof \Closure ) ) {
+				$reflection = new \ReflectionMethod( $function, '__invoke' );
+			} else {
+				$reflection = new \ReflectionFunction( $function );
+			}
+		} catch ( \ReflectionException | \TypeError $e ) {
+			return false;
+		}
+
+		$file = $reflection->getFileName();
+
+		if ( ! is_string( $file ) || '' === $file ) {
+			// An internal function has no file. It is also not something a
+			// project registered, but there is no way to tell the two apart.
+			return false;
+		}
+
+		foreach ( $roots as $root ) {
+			if ( str_starts_with( $file, $root ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * A token that changes when the field definitions a menu reads change.
+	 *
+	 * Field groups load from theme JSON, not from `wp_posts`. Deploying a file
+	 * that edits a `default_value` or a return format therefore moves neither
+	 * the `posts` nor the `terms` last-changed counter, and a value cache keyed
+	 * only on those keeps serving what the previous definition produced —
+	 * until the entry expires, which is a lifetime, not a correctness bound.
+	 *
+	 * ACF stamps each group with `modified`, and its local-JSON loader takes
+	 * that from the file. Hashing the groups a menu actually reads is therefore
+	 * exact in both directions: an edit in the admin moves it, and so does a
+	 * deploy. It costs no query — `fieldGroupsForScreen()` has already fetched
+	 * and memoized these for the walk that is about to use them.
+	 *
+	 * A group with no `modified` contributes its key, so a definition that
+	 * appears or disappears still moves the token.
+	 *
+	 * **Both screens are asked, and that is not thoroughness.**
+	 * `ACF_Location_Nav_Menu_Item::match()` requires `nav_menu_item` to be SET
+	 * before it delegates to `nav_menu`, so the menu screen alone matches no
+	 * item group at all. Measured on the reference site: the `nav_menu` screen
+	 * returns zero groups and the item screen returns the one that holds every
+	 * menu field. Asking only the first produced a token that never moved — a
+	 * version check that reads as working and versions nothing.
+	 *
+	 * The item screen costs no extra walk. `fieldGroupsMemoKey()` normalizes
+	 * `nav_menu_item` to a presence marker whenever sharing is safe, so the
+	 * placeholder id here lands on the same memo entry the per-item lookups
+	 * use.
+	 *
+	 * A site registering its own ACF location type that narrows groups to
+	 * specific items turns that normalization off; the placeholder id is then
+	 * its own memo entry, and a config change confined to such a group still
+	 * would not move this token.
+	 *
+	 * @param int $menu_id `nav_menu` term id.
+	 * @return string
+	 */
+	public static function menuFieldConfigVersion( int $menu_id ): string {
+		if ( ! function_exists( 'acf_get_field_groups' ) ) {
+			return 'none';
+		}
+
+		$screens = [
+			// Menu-level groups.
+			[ 'nav_menu' => $menu_id ],
+			// Item-level groups. `ACF_Location_Nav_Menu_Item::match()` requires
+			// this key to be SET before it delegates, so the menu screen alone
+			// matches none of them.
+			[ 'nav_menu_item' => 0, 'nav_menu' => $menu_id ],
+		];
+
+		$stamps = [];
+		foreach ( $screens as $screen ) {
+			foreach ( self::fieldGroupsForScreen( $screen ) as $group ) {
+				$group = (array) $group;
+				$key   = (string) ( $group['key'] ?? '' );
+				if ( '' === $key ) {
+					continue;
+				}
+				$stamps[ $key ] = (string) ( $group['modified'] ?? '' );
+			}
+		}
+
+		if ( [] === $stamps ) {
+			return 'nogroups';
+		}
+
+		ksort( $stamps );
+
+		return substr( md5( (string) wp_json_encode( $stamps ) ), 0, 12 );
+	}
+
+	/**
+	 * Whether any `field_formatter_{$type}` filter has a callback.
+	 *
+	 * A formatter callback may derive its result from the global post, the
+	 * current query, the request or the current user, and nothing about the
+	 * stored value says which. There is no static proof of purity available
+	 * here, so the presence of any such callback ends the matter: the caller
+	 * stores nothing.
+	 *
+	 * Not memoized. A callback added between two menus in one long-running
+	 * process would otherwise be invisible to the second.
+	 *
+	 * @return bool
+	 */
+	public static function hasFieldFormatterFilters(): bool {
+		global $wp_filter;
+
+		if ( ! is_array( $wp_filter ) && ! ( $wp_filter instanceof \ArrayAccess ) ) {
+			return false;
+		}
+
+		foreach ( (array) $wp_filter as $tag => $hook ) {
+			if ( ! is_string( $tag ) || ! str_starts_with( $tag, 'field_formatter_' ) ) {
+				continue;
+			}
+
+			// `WP_Hook` in production; an array in anything that assembles the
+			// registry by hand. Reading only the object shape would answer "no
+			// filters" for the second, which is the answer that stores.
+			$callbacks = is_object( $hook ) ? ( $hook->callbacks ?? null ) : $hook;
+
+			if ( ! empty( $callbacks ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Drop the in-flight menu field payloads.
+	 *
+	 * Delegates to {@see MenuFieldsCache::flush()}, because callers reach the
+	 * menu through `Helpers` and would not think to look elsewhere for its
+	 * reset.
+	 *
+	 * @internal
+	 * @return void
+	 */
+	public static function flushMenuFields(): void {
+		MenuFieldsCache::flush();
+	}
+
+	/**
+	 * What the menu cache decided this request, and why, keyed by menu term id.
+	 *
+	 * Delegates to {@see MenuFieldsCache::decisions()}. A caller reaches the
+	 * menu through `Helpers`, and would not think to look elsewhere for the
+	 * answer to "why was it not cached".
+	 *
+	 * @return array<int, string>
+	 */
+	public static function menuCacheDecisions(): array {
+		return MenuFieldsCache::decisions();
+	}
+
+	/**
+	 * Delete every stored menu payload, now.
+	 *
+	 * The sibling of the reset above, for the case where an entry is believed
+	 * wrong and must be gone before the next content change rather than after
+	 * it. Delegates to {@see MenuFieldsCache::flushStored()}.
+	 *
+	 * @return bool Whether the stored entries were flushed.
+	 */
+	public static function flushStoredMenuFields(): bool {
+		return MenuFieldsCache::flushStored();
+	}
+
+	/**
+	 * The menu's own fields, formatted.
+	 *
+	 * @param int $menu_id Menu term id.
+	 * @return array<string, mixed>
+	 */
+	private static function buildMenuLevelFields( int $menu_id ): array {
+		$extra       = [];
+		$menu_fields = $menu_id > 0 ? self::getFieldObjectsForNavMenu( $menu_id ) : false;
+
+		if ( is_array( $menu_fields ) ) {
+			foreach ( $menu_fields as $key => $field ) {
+				$value = self::fieldFormatter( $field, 'term_' . $menu_id );
+				if ( ! empty( $value ) ) {
+					$extra[ $key ] = $value;
+				}
+			}
+		}
+
+		return $extra;
+	}
+
+	/**
 	 * Convert a Timber menu (or menu name) into a nested flat array structure.
 	 *
 	 * Recursively processes menu items and their children.  WordPress default
@@ -2079,6 +2577,38 @@ class Helpers {
 
 		// If a menu name (string) was passed, fetch the menu object once.
 		$menu = is_string( $menu_or_name ) ? Timber::get_menu( $menu_or_name ) : $menu_or_name;
+
+		$menu_id = (int) ( $menu->term_id ?? $menu->id ?? 0 );
+
+		if ( null !== $parent_item ) {
+			return self::walkMenu( $menu, $menu_id, $parent_item );
+		}
+
+		// The outermost walk owns the payload. `finally` because an exception
+		// mid-walk must not leave the state resident, and `$complete` because a
+		// walk that threw must not have its half-filled payload stored as if it
+		// had finished.
+		MenuFieldsCache::open( $menu_id );
+		$complete = false;
+		try {
+			$result   = self::walkMenu( $menu, $menu_id, null );
+			$complete = true;
+
+			return $result;
+		} finally {
+			MenuFieldsCache::close( $menu_id, $complete );
+		}
+	}
+
+	/**
+	 * Walk one level of a menu.
+	 *
+	 * @param \Timber\Menu|null     $menu        Menu object, as resolved by the caller.
+	 * @param int                   $menu_id     Menu term id.
+	 * @param \Timber\MenuItem|null $parent_item Parent item when walking children.
+	 * @return MenuData|array<int, array<string, mixed>>
+	 */
+	private static function walkMenu( $menu, int $menu_id, $parent_item ) {
 
 		// Decide which items to process: root items or a parent's children.
 		$source_items = [];
@@ -2112,11 +2642,16 @@ class Helpers {
 			$description = $item->description;
 			if ( function_exists( 'is_plugin_active' ) && is_plugin_active( 'sitepress-multilingual-cms/sitepress.php' ) && ! empty( $description ) ) {
 				$default_language = apply_filters( 'wpml_default_language', null );
-				icl_register_string( $menu->name . ' menu', 'Menu Item Description ' . $item->ID, $description, false, $default_language );
-				$description = icl_t( $menu->name . ' menu', 'Menu Item Description ' . $item->ID, $description );
+				$menu_name        = (string) ( $menu->name ?? '' );
+				icl_register_string( $menu_name . ' menu', 'Menu Item Description ' . $item->ID, $description, false, $default_language );
+				$description = icl_t( $menu_name . ' menu', 'Menu Item Description ' . $item->ID, $description );
 			}
 
-			$acf_fields = (array) Helpers::formatFields( $item );
+			$acf_fields = MenuFieldsCache::itemFields(
+				$menu_id,
+				(int) ( $item->ID ?? 0 ),
+				static fn (): array => (array) self::formatFields( $item )
+			);
 
 			$items[] = [
 				'id' => $item->ID,
@@ -2126,7 +2661,9 @@ class Helpers {
 				'attributes' => $attributes,
 				'in_active_trail' => $item->current_item_ancestor,
 				'is_active' => $item->current,
-				'below' => self::formatMenu( $menu, $item ),
+				// Straight to the walk, not back through formatMenu(): the payload
+				// belongs to the outermost call and a child level must not reopen it.
+				'below' => self::walkMenu( $menu, $menu_id, $item ),
 			] + $acf_fields;
 		}
 
@@ -2144,18 +2681,10 @@ class Helpers {
 			return $items;
 		}
 
-		$menu_id = (int) ( $menu->term_id ?? $menu->id ?? 0 );
-		$menu_fields = $menu_id > 0 ? self::getFieldObjectsForNavMenu( $menu_id ) : false;
-
-		$extra = [];
-		if ( is_array( $menu_fields ) ) {
-			foreach ( $menu_fields as $key => $field ) {
-				$value = self::fieldFormatter( $field, 'term_' . $menu_id );
-				if ( ! empty( $value ) ) {
-					$extra[ $key ] = $value;
-				}
-			}
-		}
+		$extra = MenuFieldsCache::menuFields(
+			$menu_id,
+			static fn (): array => self::buildMenuLevelFields( $menu_id )
+		);
 
 		return new MenuData( $items, [
 			'id'          => $menu_id,
