@@ -25,9 +25,16 @@ final class CanonicalTest extends TestCase {
 		Functions\when( 'user_trailingslashit' )->alias(
 			static fn( string $string ): string => rtrim( $string, '/' ) . '/'
 		);
+
+		// Every fixture URL below lives on this host; `home_url()` mirrors
+		// whatever path the test hands `$wp->request`.
+		Functions\when( 'home_url' )->alias(
+			static fn( string $path = '' ): string => 'https://x.test' . $path
+		);
 	}
 
 	protected function tearDown(): void {
+		unset( $GLOBALS['wp'] );
 		Monkey\tearDown();
 		parent::tearDown();
 	}
@@ -45,8 +52,18 @@ final class CanonicalTest extends TestCase {
 		);
 	}
 
+	/**
+	 * Sets `$wp->request` to the path WordPress matched for this request --
+	 * unprefixed, the way `WP::$request` really carries it, e.g. `blog`.
+	 */
+	private function onRequest( string $path ): void {
+		$GLOBALS['wp']          = new \stdClass();
+		$GLOBALS['wp']->request = $path;
+	}
+
 	public function testASingularPageGetsASelfReferencingCanonical(): void {
 		$this->onPage( 0, 10 );
+		$this->onRequest( 'blog' );
 
 		$this->assertSame(
 			'https://x.test/blog/page/10/',
@@ -56,6 +73,7 @@ final class CanonicalTest extends TestCase {
 
 	public function testAnArchiveIsCoveredByTheSameCallback(): void {
 		$this->onPage( 3, 0 );
+		$this->onRequest( 'blog' );
 
 		$this->assertSame(
 			'https://x.test/blog/page/3/',
@@ -65,6 +83,7 @@ final class CanonicalTest extends TestCase {
 
 	public function testTheFirstPageIsLeftAlone(): void {
 		$this->onPage( 0, 0 );
+		$this->onRequest( 'blog' );
 
 		$this->assertSame(
 			'https://x.test/blog/',
@@ -85,5 +104,64 @@ final class CanonicalTest extends TestCase {
 		$this->onPage( 0, 10 );
 
 		$this->assertNull( Canonical::filter( null ) );
+	}
+
+	/**
+	 * The whole point of the PR: a request on `/blog/page/2/` whose plugin
+	 * resolved the canonical to the un-paginated `/blog/` still gets the
+	 * segment back, because the canonical -- pagination stripped -- describes
+	 * this request.
+	 */
+	public function testACanonicalDescribingTheCurrentListingIsPaginated(): void {
+		$this->onPage( 2, 0 );
+		$this->onRequest( 'blog/page/2' );
+
+		$this->assertSame(
+			'https://x.test/blog/page/2/',
+			Canonical::filter( 'https://x.test/blog/' )
+		);
+	}
+
+	/**
+	 * A manual canonical pointed at a different page on the same site --
+	 * an editor's deliberate override -- is left exactly as they set it.
+	 */
+	public function testAManualCanonicalToADifferentPageIsUntouched(): void {
+		$this->onPage( 2, 0 );
+		$this->onRequest( 'blog/page/2' );
+
+		$this->assertSame(
+			'https://x.test/campaign/',
+			Canonical::filter( 'https://x.test/campaign/' )
+		);
+	}
+
+	/**
+	 * A manual canonical pointed at another domain entirely is left alone too
+	 * -- host is part of the comparison, not just path.
+	 */
+	public function testAManualCanonicalToAnotherDomainIsUntouched(): void {
+		$this->onPage( 2, 0 );
+		$this->onRequest( 'blog/page/2' );
+
+		$this->assertSame(
+			'https://other.example/x/',
+			Canonical::filter( 'https://other.example/x/' )
+		);
+	}
+
+	/**
+	 * Degradation path: with no usable `$wp->request` this package cannot
+	 * tell whether the canonical describes the current request, so it must
+	 * fail safe by leaving the canonical alone rather than guessing.
+	 */
+	public function testAnUnreadableCurrentRequestLeavesTheCanonicalAlone(): void {
+		$this->onPage( 2, 0 );
+		unset( $GLOBALS['wp'] );
+
+		$this->assertSame(
+			'https://x.test/blog/',
+			Canonical::filter( 'https://x.test/blog/' )
+		);
 	}
 }
