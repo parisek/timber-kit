@@ -10,6 +10,8 @@ declare(strict_types=1);
 
 namespace Parisek\TimberKit;
 
+use Parisek\TimberKit\Seo\Plugin;
+
 /**
  * Hands an SEO plugin the preview image resolved for the current post.
  *
@@ -131,7 +133,7 @@ class SocialImageBridge {
 	 * @return bool
 	 */
 	private static function aioseoActive(): bool {
-		return function_exists( 'aioseo' );
+		return 'aioseo' === Plugin::active();
 	}
 
 	/**
