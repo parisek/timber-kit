@@ -9,70 +9,71 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Added
 
 - `CacheSignature` — the shared part of every cross-request cache key: site,
-  language, the current user's roles, and a content version. Anything cached
-  across requests needs one answer to "when are two renders interchangeable?",
-  and two callers that answer it differently will disagree about who may be
-  served whose content.
+  language, the current user's roles, and a content version from
+  `wp_cache_get_last_changed()` over `posts` and `terms`. WordPress bumps those
+  counters itself, so a saved post changes the key rather than requiring a hook
+  to notice it.
 
-  The content version is `wp_cache_get_last_changed()` over `posts` and
-  `terms`. WordPress bumps those itself whenever anything in the group is
-  invalidated, so **a saved post changes the key rather than requiring a hook to
-  notice it**. The alternative is a list of actions to flush on, which is only
-  as complete as whoever last added a plugin remembered — and a stale menu is a
-  wrong link on every page, with no error and no log. The cost is one rebuild
-  per content change.
+  **Nothing is memoized.** Three of the four inputs can move inside one request
+  — `switch_to_blog()`, a user switch, a save in a long-running process — and a
+  memo would key the second site's menu under the first site's name, silently.
+  Two independent reviews found that hole from different directions, which is
+  what the memo cost against what it saved.
 
-- `Helpers::formatMenu()` stores the half of a formatted menu that does not
-  depend on the page being rendered: the ACF fields on each item and on the menu
-  itself. `is_active` and `in_active_trail` stay outside it and are recomputed
-  by the walk on every request, so the highlighted item is right by construction
-  rather than by a key that remembers to carry the URL. That split is what keeps
-  this to one entry per menu instead of one per page.
+- `MenuFieldsCache` — the page-independent half of a formatted menu, across
+  requests. The ACF fields on each item and on the menu itself are the same on
+  every URL and are stored; `is_active` and `in_active_trail` are not, and the
+  walk recomputes them every request. That split keeps this to one entry per
+  menu instead of one per page, and keeps the highlighted item right by
+  construction rather than by a key that remembers to carry the URL.
 
   Measured on the sloneek front page: a 90-item menu spends **61-104 ms per
-  request** on those fields, out of 529-702 ms of PHP — about 12 %. That is the
-  cost of the work a cache hit removes, not a before/after page time: producing
-  a real hit needs a persistent object cache, and the measurement host has none.
-  Without the field-group memo released alongside it the same work costs
-  154-266 ms, so the two overlap and this is the residual.
+  request** on those fields, out of 529-702 ms of PHP. That is the cost of the
+  work a cache hit removes, not a before/after page time — producing a real hit
+  needs a persistent object cache and the measurement host has none. Without
+  the field-group memo released alongside it the same work costs 154-266 ms, so
+  the two overlap and this is the residual.
 
-  Requires a persistent object cache; without one the whole path is skipped
-  rather than paying for a read and a write that always miss.
-  `timber_kit_cache_menu_fields` turns it off for a site whose menu items carry
-  a field that is not a function of stored content.
-  `Helpers::flushMenuFields()` resets the in-flight assembly state for
-  long-running processes and tests; the stored entries need no flushing, because
-  a content change makes the old key unreachable rather than wrong.
+### It stores only what it can prove is storable
 
-### Fixed
+Formatting a field is not always a function of the stored value.
+`fieldFormatter()` expands shortcodes and hands every field to a
+`field_formatter_{$type}` filter, and either can read the global post, the
+current query or the current user. Storing that output would freeze one page's
+rendered shortcode onto every other page — and it serializes perfectly, so no
+type check would catch it.
 
-- `StarterBase::cleanup_cached_images()` deleted resizer derivatives that other
-  attachments were still using. The cache under `wp-content/cache/image` is
-  keyed by file, but one file routinely carries several attachment rows: WPML
-  writes one per language, and a duplicate upload can be pointed at a path that
-  already exists. Deleting any one of those rows wiped the shared derivatives,
-  and the site then regenerated them — or, where the encoder was broken, served
-  a damaged image.
+So both are detected rather than assumed, and either one makes the walk store
+nothing for that menu:
 
-  Measured on a five-language site: 5542 files were shared by 25981 attachment
-  rows, so roughly four fifths of the media library could take a live image
-  down with it. The homepage hero lost its derivatives while five attachment
-  rows and the rendered page still referenced them.
+- **Dynamism** is measured as *change*, not as *opportunity*. Running
+  `do_shortcode()` is not the signal; a shortcode that altered the value is.
+  Most editor content holds none and comes back byte-identical — treating the
+  call itself as the signal rejected the largest menu on the measurement site,
+  68 items whose fields were provably a function of stored content. Same rule
+  for the formatter filter: its presence is not dynamism, changing the value is.
+- **Storability** rejects objects, resources and closures. An object may
+  serialize and return carrying state that was true when it was stored.
 
-  The delete now runs only when no other attachment points at the same
-  `_wp_attached_file`. It fails closed: where that question cannot be answered
-  the files are kept, because a stale derivative is overwritten by the next
-  resize while one deleted in error vanishes from a page still serving it.
-  "Cannot be answered" covers a missing `$wpdb`, an empty `_wp_attached_file`
-  (a filter supplied the path, so siblings have no key to match on), and a
-  failed query — `get_var()` reports an error by returning null, which casts to
-  the same zero a genuine "no siblings" answer gives, so the null and
-  `last_error` are both checked rather than read as a count.
+One unstorable slot condemns the whole menu rather than storing a payload with
+a hole in it, which would be replayed as complete.
 
-  Not fixed here, and tracked separately: two different files that share a
-  basename across upload-year folders still collide in the flat cache
-  namespace, so deleting one can remove the other's derivative. That needs a
-  cache-naming change, not a guard.
+### Lifetime and re-entrancy
+
+`wp_cache_set()` is given a lifetime (`timber_kit_menu_fields_ttl`, 12 h). The
+key already carries a content version, so an entry goes unreachable rather than
+stale; the lifetime bounds **accumulation**, because every content change
+orphans the previous generation and nothing deletes it.
+
+The walk is depth-counted and closed from a `finally`. An exception mid-walk
+stores nothing and leaves no state resident, and a re-entrant call for the same
+menu no longer discards what the outer walk recorded.
+
+Requires a persistent object cache; without one the path is skipped rather than
+paying for a read and a write that always miss.
+`timber_kit_cache_menu_fields` turns it off. `Helpers::flushMenuFields()` resets
+the in-flight assembly state for long-running processes and tests; stored
+entries need no flushing.
 
 ## [1.42.0] - 2026-08-26
 

@@ -21,7 +21,6 @@ class SharedSignatureTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
-		CacheSignature::flush();
 
 		Functions\when( 'get_current_blog_id' )->justReturn( 1 );
 		Functions\when( 'apply_filters' )->alias(
@@ -38,13 +37,11 @@ class SharedSignatureTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		CacheSignature::flush();
 		Monkey\tearDown();
 		parent::tearDown();
 	}
 
 	private function signature(): string {
-		CacheSignature::flush();
 		return CacheSignature::shared();
 	}
 
@@ -116,18 +113,21 @@ class SharedSignatureTest extends TestCase {
 		$this->assertNotSame( $one, $this->signature(), 'A menu is a term.' );
 	}
 
-	public function test_the_signature_holds_still_within_one_request(): void {
+	public function test_the_signature_follows_a_mid_request_site_switch(): void {
+		// switch_to_blog() inside one request is ordinary on multisite, and a
+		// memoized signature would key the second site's menu under the first
+		// site's name. Term ids collide across sites, so the entry would be
+		// found and served. Nothing is memoized for exactly this reason.
 		$one = CacheSignature::shared();
-		Functions\when( 'get_current_blog_id' )->justReturn( 99 );
-
-		$this->assertSame( $one, CacheSignature::shared(), 'Memoized until flushed.' );
-	}
-
-	public function test_flush_lets_a_long_running_process_move_on(): void {
-		$one = CacheSignature::shared();
-		Functions\when( 'get_current_blog_id' )->justReturn( 99 );
-		CacheSignature::flush();
+		Functions\when( 'get_current_blog_id' )->justReturn( 2 );
 
 		$this->assertNotSame( $one, CacheSignature::shared() );
+	}
+
+	public function test_the_signature_follows_a_mid_request_user_switch(): void {
+		$anon = CacheSignature::shared();
+		$this->loggedInWith( [ 'administrator' ] );
+
+		$this->assertNotSame( $anon, CacheSignature::shared() );
 	}
 }

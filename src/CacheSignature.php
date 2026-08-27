@@ -39,18 +39,6 @@ namespace Parisek\TimberKit;
  */
 final class CacheSignature {
 
-	/**
-	 * Memoized signature for this request.
-	 *
-	 * Every input is meant to hold still for the length of one render, so
-	 * computing it per lookup would buy nothing. A process that outlives a
-	 * render — WP-CLI, a worker — must call {@see flush()}; there the inputs do
-	 * move, and a stale signature would hand it the answer from before its own
-	 * write.
-	 *
-	 * @var string|null
-	 */
-	private static ?string $memo = null;
 
 	/**
 	 * The shared part of a cross-request cache key.
@@ -62,21 +50,24 @@ final class CacheSignature {
 	 * @return string
 	 */
 	public static function shared(): string {
-		if ( null !== self::$memo ) {
-			return self::$memo;
-		}
-
+		// Deliberately not memoized. Every input is cheap, and three of the four
+		// can move inside one request: `switch_to_blog()` changes the site,
+		// `switch_to_user()` or a late `wp_set_current_user()` changes the
+		// audience, and a save during a long-running process changes the
+		// content version. A memo would hold the first answer and key the
+		// second site's menu under the first site's name — silently, with no
+		// error and no log. Two reviewers found that hole independently, one
+		// through the blog switch and one through the user switch, which is
+		// what a memo here costs against what it saves.
 		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
 
-		self::$memo = sprintf(
+		return sprintf(
 			'b%d|l%s|a%s|%s',
 			$blog_id,
 			Helpers::getLanguage(),
 			self::audience(),
 			self::contentVersion()
 		);
-
-		return self::$memo;
 	}
 
 	/**
@@ -94,16 +85,6 @@ final class CacheSignature {
 		return function_exists( 'wp_using_ext_object_cache' )
 			&& wp_using_ext_object_cache()
 			&& function_exists( 'wp_cache_get_last_changed' );
-	}
-
-	/**
-	 * Drop the memoized signature.
-	 *
-	 * @internal
-	 * @return void
-	 */
-	public static function flush(): void {
-		self::$memo = null;
 	}
 
 	/**

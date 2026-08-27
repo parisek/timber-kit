@@ -256,11 +256,17 @@ The class is `final` with three public static methods: `render()`, `isInserterPr
 
 Roles rather than user id: role is the axis plugins gate menus on, and it keeps the stored variants to the number of roles instead of the number of accounts. The content version is `wp_cache_get_last_changed()` over `posts` and `terms` — WordPress bumps those itself, so a saved post or an edited term changes the key instead of needing a hook to notice. Nothing has to be flushed, and nothing can be forgotten.
 
-`CacheSignature::isAvailable()` is false without a persistent object cache, and callers skip both the read and the write rather than always miss. `CacheSignature::flush()` drops the per-request memo for WP-CLI, workers and tests.
+**It is deliberately not memoized.** `switch_to_blog()`, a user switch and a save inside a long-running process all move an input mid-request, and a memoized signature would key the second site's menu under the first site's name — found, silently, because term ids collide across sites.
 
-**`Helpers::formatMenu()` stores the half of a menu that does not depend on the page.** The ACF fields on each item and on the menu itself are the same on every URL and are cached; `is_active` and `in_active_trail` are not, and the walk recomputes them every request. Cache the whole menu instead and the highlighted item freezes on whatever page filled the entry — a wrong highlight on every page but one, which no status check can see.
+`CacheSignature::isAvailable()` is false without a persistent object cache, and callers skip both the read and the write rather than always miss.
 
-That split also keeps it to one entry per menu rather than one per page. On a 90-item menu the cached half is 61-104 ms of a 529-702 ms render. `timber_kit_cache_menu_fields` turns it off; `Helpers::flushMenuFields()` resets the in-flight state.
+**`MenuFieldsCache` stores the half of a menu that does not depend on the page.** The ACF fields on each item and on the menu itself are the same on every URL and are cached; `is_active` and `in_active_trail` are not, and the walk recomputes them every request. Cache the whole menu instead and the highlighted item freezes on whatever page filled the entry — a wrong highlight on every page but one, which no status check can see. The split also keeps it to one entry per menu rather than one per page. On a 90-item menu the cached half is 61-104 ms of a 529-702 ms render.
+
+It stores only what it can prove is storable. Formatting expands shortcodes and runs a `field_formatter_{$type}` filter, either of which may read the global post or the current query, so **dynamism is measured as change rather than as opportunity**: running `do_shortcode()` is not the signal, a shortcode that altered the value is. Objects, resources and closures are rejected outright. One unstorable slot condemns the whole menu, rather than storing a payload with a hole that would be replayed as complete.
+
+Entries carry a lifetime (`timber_kit_menu_fields_ttl`, 12 h by default). The key already versions content, so the lifetime is not about staleness — it bounds the generations each content change orphans, which nothing else deletes.
+
+`timber_kit_cache_menu_fields` turns the whole path off. `Helpers::flushMenuFields()` resets the in-flight assembly state for WP-CLI, workers and tests; stored entries need no flushing.
 
 ### Site Health board
 

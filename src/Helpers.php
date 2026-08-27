@@ -1366,14 +1366,14 @@ class Helpers {
 				$field['value'] = '';
 			}
 
-			$field['value'] = do_shortcode( $field['value'] );
+			$field['value'] = self::runShortcodes( $field['value'] );
 
 		} elseif ( $field['type'] === 'textarea' ) {
 
 			if ( self::isTextareaContentEmpty( $field['value'] ) ) {
 				$field['value'] = '';
 			} else {
-				$field['value'] = do_shortcode( $field['value'] );
+				$field['value'] = self::runShortcodes( $field['value'] );
 			}
 
 		} elseif ( $field['type'] === 'image' ) {
@@ -1421,6 +1421,7 @@ class Helpers {
 					if ( $is_preview ) {
 						$field['value'] = '[contact-form-7 id="' . $field['value']->ID . '" title=""]';
 					} else {
+						++self::$dynamic_format_count;
 						$field['value'] = do_shortcode( '[contact-form-7 id="' . $field['value']->ID . '" title=""]' );
 					}
 				} elseif ( $field['value']->post_type === 'wpforms' ) {
@@ -1428,6 +1429,7 @@ class Helpers {
 						// during preview we need to return only shortcode as preview is not working
 						$field['value'] = '[wpforms id="' . $field['value']->ID . '"]';
 					} else {
+						++self::$dynamic_format_count;
 						$field['value'] = do_shortcode( '[wpforms id="' . $field['value']->ID . '"]' );
 					}
 				}
@@ -1510,7 +1512,13 @@ class Helpers {
 		}
 
 		// allow to alter formatter for specific field type
-		$field = apply_filters( 'field_formatter_' . $field['type'], $field, $post_id );
+		$before_filter = $field;
+		$field         = apply_filters( 'field_formatter_' . $field['type'], $field, $post_id );
+		if ( $field !== $before_filter ) {
+			// A project callback may derive its result from anything. Its mere
+			// presence is not dynamism — changing the value is.
+			++self::$dynamic_format_count;
+		}
 
 		return $field['value'];
 	}
@@ -1702,132 +1710,85 @@ class Helpers {
 	}
 
 	/**
-	 * Cache group for the page-independent half of a formatted menu.
+	 * Expand shortcodes, and record it only if any of them produced something.
+	 *
+	 * Running `do_shortcode()` is not dynamism; **a shortcode that changed the
+	 * value is.** Most editor content holds no shortcode at all and comes back
+	 * byte-identical, so treating the call as the signal condemned the largest
+	 * menu on the measurement site — 68 items whose fields were provably a
+	 * function of stored content.
+	 *
+	 * A shortcode whose output equals its own source text is not distinguished,
+	 * and is the one case this reads as static. It renders the same thing on
+	 * every page by definition, so the misreading is harmless.
+	 *
+	 * @param mixed $value Raw field value.
+	 * @return mixed Value with shortcodes expanded.
 	 */
-	private const MENU_FIELDS_GROUP = 'timber-kit-menu';
+	private static function runShortcodes( mixed $value ): mixed {
+		if ( ! is_string( $value ) || ! function_exists( 'do_shortcode' ) ) {
+			return $value;
+		}
+
+		$expanded = do_shortcode( $value );
+		if ( $expanded !== $value ) {
+			++self::$dynamic_format_count;
+		}
+
+		return $expanded;
+	}
 
 	/**
-	 * Reserved slot for the menu's own fields inside an item-keyed payload.
+	 * How many times formatting has produced output that is not a pure function
+	 * of the stored field.
 	 *
-	 * A string among integer post ids, so it cannot collide with one.
+	 * `fieldFormatter()` runs `do_shortcode()` on editor content and hands every
+	 * field to a `field_formatter_{$type}` filter. A shortcode callback may read
+	 * the global post, the current query, the request URL or the current user,
+	 * and a filter callback may read anything at all — so the *rendered* result
+	 * can differ between two pages that hold the identical stored value.
+	 *
+	 * Anything that wants to store formatted output across requests reads this
+	 * counter either side of the work and refuses to store what it saw move.
+	 * Detecting the dynamism beats assuming its absence: the assumption is
+	 * invisible when it is wrong, and what it produces is one page's rendered
+	 * shortcode frozen onto every other page.
+	 *
+	 * @var int
 	 */
-	private const MENU_LEVEL_SLOT = '#menu';
+	private static int $dynamic_format_count = 0;
 
 	/**
-	 * Field payloads being assembled or replayed, keyed by menu id.
+	 * Reading of the dynamic-formatting counter.
 	 *
-	 * @var array<int, array<int|string, mixed>>
+	 * @internal
+	 * @return int
 	 */
-	private static array $menu_field_payload = [];
+	public static function dynamicFormatCount(): int {
+		return self::$dynamic_format_count;
+	}
 
 	/**
-	 * Menus whose payload gained something the cache does not have yet.
+	 * Drop the in-flight menu field payloads.
 	 *
-	 * @var array<int, bool>
-	 */
-	private static array $menu_field_dirty = [];
-
-	/**
-	 * Drop the in-flight menu payloads.
-	 *
-	 * The stored entries need no flushing — {@see CacheSignature} keys them by
-	 * a content version, so a change makes the old key unreachable rather than
-	 * wrong. This resets only the per-request assembly state, which a
-	 * long-running process and a test both outlive.
+	 * Delegates to {@see MenuFieldsCache::flush()}, because callers reach the
+	 * menu through `Helpers` and would not think to look elsewhere for its
+	 * reset.
 	 *
 	 * @internal
 	 * @return void
 	 */
 	public static function flushMenuFields(): void {
-		self::$menu_field_payload = [];
-		self::$menu_field_dirty   = [];
+		MenuFieldsCache::flush();
 	}
 
 	/**
-	 * Begin a menu walk, replaying the stored field payload if there is one.
-	 *
-	 * **What is cached is the half of a menu that does not depend on the page
-	 * being rendered.** The ACF fields on each item and on the menu itself are
-	 * the same on every URL; `is_active` and `in_active_trail` are not, and
-	 * they stay outside — recomputed by the walk on every request, so the
-	 * highlighted item is right by construction rather than by a key that
-	 * remembers to carry the URL.
-	 *
-	 * That split is what keeps this to one entry per menu instead of one per
-	 * page. It is also the whole saving: the fields are 76 % of the cost of
-	 * formatting a menu, measured against a 90-item menu.
-	 *
-	 * @param int $menu_id Menu term id.
-	 * @return void
-	 */
-	private static function openMenuFieldPayload( int $menu_id ): void {
-		self::$menu_field_payload[ $menu_id ] = [];
-		self::$menu_field_dirty[ $menu_id ]   = false;
-
-		if ( ! self::menuFieldsAreCacheable( $menu_id ) ) {
-			return;
-		}
-
-		$stored = wp_cache_get( self::menuFieldsCacheKey( $menu_id ), self::MENU_FIELDS_GROUP );
-		if ( is_array( $stored ) ) {
-			self::$menu_field_payload[ $menu_id ] = $stored;
-		}
-	}
-
-	/**
-	 * Persist the payload if the walk produced anything new, and let it go.
-	 *
-	 * @param int $menu_id Menu term id.
-	 * @return void
-	 */
-	private static function closeMenuFieldPayload( int $menu_id ): void {
-		$dirty   = self::$menu_field_dirty[ $menu_id ] ?? false;
-		$payload = self::$menu_field_payload[ $menu_id ] ?? [];
-
-		unset( self::$menu_field_payload[ $menu_id ], self::$menu_field_dirty[ $menu_id ] );
-
-		if ( ! $dirty || [] === $payload || ! self::menuFieldsAreCacheable( $menu_id ) ) {
-			return;
-		}
-
-		wp_cache_set( self::menuFieldsCacheKey( $menu_id ), $payload, self::MENU_FIELDS_GROUP );
-	}
-
-	/**
-	 * One menu item's formatted ACF fields, from the payload or freshly built.
-	 *
-	 * @param int    $menu_id Menu term id.
-	 * @param object $item    Menu item.
-	 * @return array<string, mixed>
-	 */
-	private static function menuItemFields( int $menu_id, object $item ): array {
-		$item_id = (int) ( $item->ID ?? 0 );
-
-		if ( array_key_exists( $item_id, self::$menu_field_payload[ $menu_id ] ?? [] ) ) {
-			return (array) self::$menu_field_payload[ $menu_id ][ $item_id ];
-		}
-
-		$fields = (array) self::formatFields( $item );
-
-		if ( isset( self::$menu_field_payload[ $menu_id ] ) ) {
-			self::$menu_field_payload[ $menu_id ][ $item_id ] = $fields;
-			self::$menu_field_dirty[ $menu_id ]               = true;
-		}
-
-		return $fields;
-	}
-
-	/**
-	 * The menu's own fields, from the payload or freshly built.
+	 * The menu's own fields, formatted.
 	 *
 	 * @param int $menu_id Menu term id.
 	 * @return array<string, mixed>
 	 */
-	private static function menuLevelFields( int $menu_id ): array {
-		if ( array_key_exists( self::MENU_LEVEL_SLOT, self::$menu_field_payload[ $menu_id ] ?? [] ) ) {
-			return (array) self::$menu_field_payload[ $menu_id ][ self::MENU_LEVEL_SLOT ];
-		}
-
+	private static function buildMenuLevelFields( int $menu_id ): array {
 		$extra       = [];
 		$menu_fields = $menu_id > 0 ? self::getFieldObjectsForNavMenu( $menu_id ) : false;
 
@@ -1840,48 +1801,7 @@ class Helpers {
 			}
 		}
 
-		if ( isset( self::$menu_field_payload[ $menu_id ] ) ) {
-			self::$menu_field_payload[ $menu_id ][ self::MENU_LEVEL_SLOT ] = $extra;
-			self::$menu_field_dirty[ $menu_id ]                            = true;
-		}
-
 		return $extra;
-	}
-
-	/**
-	 * Whether this menu's payload may cross requests.
-	 *
-	 * A menu with no term id has nothing stable to key on. Everything else is
-	 * {@see CacheSignature::isAvailable()} — without a persistent object cache
-	 * the entry dies with the request, and paying for a read and a write to
-	 * always miss is worse than not trying.
-	 *
-	 * `timber_kit_cache_menu_fields` turns it off for a site whose menu items
-	 * carry a field that is not a function of stored content.
-	 *
-	 * @param int $menu_id Menu term id.
-	 * @return bool
-	 */
-	private static function menuFieldsAreCacheable( int $menu_id ): bool {
-		if ( $menu_id <= 0 || ! function_exists( 'wp_cache_get' ) ) {
-			return false;
-		}
-
-		return (bool) apply_filters(
-			'timber_kit_cache_menu_fields',
-			CacheSignature::isAvailable(),
-			$menu_id
-		);
-	}
-
-	/**
-	 * Cache key for one menu's field payload.
-	 *
-	 * @param int $menu_id Menu term id.
-	 * @return string
-	 */
-	private static function menuFieldsCacheKey( int $menu_id ): string {
-		return 'menu-fields:' . $menu_id . '|' . CacheSignature::shared();
 	}
 
 	/**
@@ -1909,12 +1829,37 @@ class Helpers {
 		// If a menu name (string) was passed, fetch the menu object once.
 		$menu = is_string( $menu_or_name ) ? Timber::get_menu( $menu_or_name ) : $menu_or_name;
 
-		// Needed before the walk, not after it: the cached payload is keyed by
-		// menu, and the walk is what fills it.
 		$menu_id = (int) ( $menu->term_id ?? $menu->id ?? 0 );
-		if ( null === $parent_item ) {
-			self::openMenuFieldPayload( $menu_id );
+
+		if ( null !== $parent_item ) {
+			return self::walkMenu( $menu, $menu_id, $parent_item );
 		}
+
+		// The outermost walk owns the payload. `finally` because an exception
+		// mid-walk must not leave the state resident, and `$complete` because a
+		// walk that threw must not have its half-filled payload stored as if it
+		// had finished.
+		MenuFieldsCache::open( $menu_id );
+		$complete = false;
+		try {
+			$result   = self::walkMenu( $menu, $menu_id, null );
+			$complete = true;
+
+			return $result;
+		} finally {
+			MenuFieldsCache::close( $menu_id, $complete );
+		}
+	}
+
+	/**
+	 * Walk one level of a menu.
+	 *
+	 * @param \Timber\Menu|null     $menu        Menu object, as resolved by the caller.
+	 * @param int                   $menu_id     Menu term id.
+	 * @param \Timber\MenuItem|null $parent_item Parent item when walking children.
+	 * @return MenuData|array<int, array<string, mixed>>
+	 */
+	private static function walkMenu( $menu, int $menu_id, $parent_item ) {
 
 		// Decide which items to process: root items or a parent's children.
 		$source_items = [];
@@ -1948,11 +1893,16 @@ class Helpers {
 			$description = $item->description;
 			if ( function_exists( 'is_plugin_active' ) && is_plugin_active( 'sitepress-multilingual-cms/sitepress.php' ) && ! empty( $description ) ) {
 				$default_language = apply_filters( 'wpml_default_language', null );
-				icl_register_string( $menu->name . ' menu', 'Menu Item Description ' . $item->ID, $description, false, $default_language );
-				$description = icl_t( $menu->name . ' menu', 'Menu Item Description ' . $item->ID, $description );
+				$menu_name        = (string) ( $menu->name ?? '' );
+				icl_register_string( $menu_name . ' menu', 'Menu Item Description ' . $item->ID, $description, false, $default_language );
+				$description = icl_t( $menu_name . ' menu', 'Menu Item Description ' . $item->ID, $description );
 			}
 
-			$acf_fields = self::menuItemFields( $menu_id, $item );
+			$acf_fields = MenuFieldsCache::itemFields(
+				$menu_id,
+				(int) ( $item->ID ?? 0 ),
+				static fn (): array => (array) self::formatFields( $item )
+			);
 
 			$items[] = [
 				'id' => $item->ID,
@@ -1962,7 +1912,9 @@ class Helpers {
 				'attributes' => $attributes,
 				'in_active_trail' => $item->current_item_ancestor,
 				'is_active' => $item->current,
-				'below' => self::formatMenu( $menu, $item ),
+				// Straight to the walk, not back through formatMenu(): the payload
+				// belongs to the outermost call and a child level must not reopen it.
+				'below' => self::walkMenu( $menu, $menu_id, $item ),
 			] + $acf_fields;
 		}
 
@@ -1977,12 +1929,13 @@ class Helpers {
 		// in PHP, so an empty MenuData would flip every `{% if menu %}` guard
 		// in consuming templates. See the design spec.
 		if ( $items === [] ) {
-			self::closeMenuFieldPayload( $menu_id );
 			return $items;
 		}
 
-		$extra = self::menuLevelFields( $menu_id );
-		self::closeMenuFieldPayload( $menu_id );
+		$extra = MenuFieldsCache::menuFields(
+			$menu_id,
+			static fn (): array => self::buildMenuLevelFields( $menu_id )
+		);
 
 		return new MenuData( $items, [
 			'id'          => $menu_id,

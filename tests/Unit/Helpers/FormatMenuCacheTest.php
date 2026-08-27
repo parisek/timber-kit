@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Tests\Unit\Helpers;
 
 use Brain\Monkey\Functions;
-use Parisek\TimberKit\CacheSignature;
 use Parisek\TimberKit\Helpers;
+use Parisek\TimberKit\MenuFieldsCache;
 use Tests\Unit\HelpersTestCase;
 
 /**
@@ -24,12 +24,14 @@ class FormatMenuCacheTest extends HelpersTestCase {
 
 	private int $itemWork = 0;
 
+	private int $lastTtl = -1;
+
 	protected function setUp(): void {
 		parent::setUp();
 		$this->store        = [];
 		$this->itemWork = 0;
+		$this->lastTtl  = -1;
 		Helpers::flushMenuFields();
-		CacheSignature::flush();
 
 		Functions\when( 'get_field_objects' )->justReturn( [] );
 		Functions\when( 'is_plugin_active' )->justReturn( false );
@@ -64,8 +66,9 @@ class FormatMenuCacheTest extends HelpersTestCase {
 			fn ( $key, $group = '' ) => $this->store[ $group . '/' . $key ] ?? false
 		);
 		Functions\when( 'wp_cache_set' )->alias(
-			function ( $key, $value, $group = '' ) {
+			function ( $key, $value, $group = '', $expire = 0 ) {
 				$this->store[ $group . '/' . $key ] = $value;
+				$this->lastTtl                      = (int) $expire;
 				return true;
 			}
 		);
@@ -73,7 +76,6 @@ class FormatMenuCacheTest extends HelpersTestCase {
 
 	protected function tearDown(): void {
 		Helpers::flushMenuFields();
-		CacheSignature::flush();
 		parent::tearDown();
 	}
 
@@ -150,7 +152,6 @@ class FormatMenuCacheTest extends HelpersTestCase {
 
 		Functions\when( 'is_user_logged_in' )->justReturn( true );
 		Functions\when( 'wp_get_current_user' )->justReturn( (object) [ 'roles' => [ 'editor' ] ] );
-		CacheSignature::flush();
 		$this->itemWork = 0;
 
 		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
@@ -165,11 +166,121 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		Functions\when( 'wp_cache_get_last_changed' )->alias(
 			static fn ( string $group ) => 'posts' === $group ? 'posts:2' : $group . ':1'
 		);
-		CacheSignature::flush();
 		$this->itemWork = 0;
 
 		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
 
 		$this->assertGreaterThan( 0, $this->itemWork, 'A renamed page moves the links inside the menu.' );
+	}
+
+	/**
+	 * @param array<string, mixed> $field
+	 */
+	private function menuItemsCarryField( array $field, mixed $value ): void {
+		Functions\when( 'acf_get_field_groups' )->justReturn( [ [ 'key' => 'g' ] ] );
+		Functions\when( 'acf_get_fields' )->justReturn( [ $field ] );
+		Functions\when( 'get_field' )->justReturn( $value );
+	}
+
+	/**
+	 * @return array<int|string, mixed>
+	 */
+	private function storedPayload(): array {
+		$this->assertCount( 1, $this->store, 'Expected exactly one stored entry.' );
+
+		return (array) reset( $this->store );
+	}
+
+	public function test_the_stored_payload_carries_no_page_dependent_keys(): void {
+		// The invariant the split exists for, asserted where it actually lives.
+		// Asserting the rendered output cannot catch a regression here: the item
+		// array is built as [...] + $acf_fields and the left operand wins, so a
+		// payload carrying these keys would render correctly and poison nothing
+		// until the merge operator changed.
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11, true, true ) ] ) );
+
+		foreach ( $this->storedPayload() as $slot => $fields ) {
+			$this->assertArrayNotHasKey( 'is_active', (array) $fields, "slot {$slot}" );
+			$this->assertArrayNotHasKey( 'in_active_trail', (array) $fields, "slot {$slot}" );
+		}
+	}
+
+	public function test_a_ttl_is_set(): void {
+		// The key carries a content version, so an entry goes unreachable rather
+		// than stale. The lifetime bounds accumulation of the generations it
+		// leaves behind, which nothing else deletes.
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertGreaterThan( 0, $this->lastTtl );
+	}
+
+	public function test_shortcode_rendered_output_is_never_stored(): void {
+		// do_shortcode() output is a function of the request, not of the stored
+		// field: a callback may read the global post or the current query. It
+		// serializes perfectly, which is exactly why an object check would miss
+		// it.
+		$this->menuItemsCarryField( [ 'key' => 'f', 'name' => 'body', 'type' => 'wysiwyg' ], '<p>x [sc]</p>' );
+		Functions\when( 'do_shortcode' )->alias(
+			static fn ( $v ) => str_replace( '[sc]', '<b>rendered</b>', (string) $v )
+		);
+
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertSame( [], $this->store );
+	}
+
+	public function test_a_field_holding_an_object_is_never_stored(): void {
+		$this->menuItemsCarryField( [ 'key' => 'f', 'name' => 'rel', 'type' => 'relationship' ], (object) [ 'ID' => 5 ] );
+
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertSame( [], $this->store );
+	}
+
+	public function test_a_walk_that_throws_stores_nothing(): void {
+		$calls = 0;
+		Functions\when( 'wp_get_post_terms' )->alias(
+			function () use ( &$calls ) {
+				if ( ++$calls === 2 ) {
+					throw new \RuntimeException( 'boom' );
+				}
+				return [ (object) [ 'term_id' => 7 ] ];
+			}
+		);
+
+		try {
+			Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ), $this->makeItem( 12 ) ] ) );
+			$this->fail( 'The exception must escape.' );
+		} catch ( \RuntimeException ) {
+			// expected
+		}
+
+		$this->assertSame( [], $this->store, 'A half-finished walk must not be stored as complete.' );
+	}
+
+	public function test_a_reentrant_walk_does_not_lose_the_write(): void {
+		// An inner call for the same menu used to unset the outer walk's state,
+		// after which the outer walk recorded nothing and stored nothing —
+		// correct output, silently no cache.
+		MenuFieldsCache::open( 7 );
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+		$this->assertSame( [], $this->store, 'The inner close must not write.' );
+
+		MenuFieldsCache::close( 7 );
+
+		$this->assertCount( 1, $this->store, 'The outermost close must write what the walk recorded.' );
+	}
+
+	public function test_content_without_shortcodes_is_still_stored(): void {
+		// Running do_shortcode() is not dynamism; a shortcode that changed the
+		// value is. Most editor content holds none and comes back identical,
+		// and treating the call itself as the signal rejected the largest menu
+		// on the measurement site.
+		$this->menuItemsCarryField( [ 'key' => 'f', 'name' => 'body', 'type' => 'wysiwyg' ], '<p>plain</p>' );
+		Functions\when( 'do_shortcode' )->alias( static fn ( $v ) => $v );
+
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertNotSame( [], $this->store );
 	}
 }
