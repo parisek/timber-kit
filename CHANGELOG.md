@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.44.0] - 2026-08-27
+
 ### Added
 
 - `StarterBase::$acfml_skip_frontend_field_translation` — **on by default**.
@@ -80,6 +82,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   produce a hit. It has one now, and the end-to-end number is the smaller
   claim: the walk still rebuilds `is_active` and `in_active_trail` on a hit,
   which is the point of the split.
+
+- `Seo\Canonical` — a self-referencing canonical on paginated routes, for
+  whichever of Yoast or All in One SEO is running. A listing rendered by a
+  block on an ordinary page is singular as far as an SEO plugin is concerned,
+  so it resolves the canonical to `get_permalink()` and every page claims to
+  be page one. Measured on one site: `/blog/page/2/` through `/blog/page/10/`
+  all pointed at `/blog/`, as did the same routes on two further listings.
+  Behind `$seo_canonical_pagination`, default `true` — see Changed below.
+  Reads the site's own `$wp_rewrite->pagination_base` rather than assuming
+  `page`, and leaves a manual canonical alone whenever it points somewhere
+  other than the current request.
 
 ### It stores only what it can prove is storable
 
@@ -184,6 +197,28 @@ paying for a read and a write that always miss.
 `timber_kit_cache_menu_fields` turns it off. `Helpers::flushMenuFields()` resets
 the in-flight assembly state for long-running processes and tests; stored
 entries need no flushing.
+
+### Fixed
+
+- `Seo\Canonical::filter()` was a silent no-op on every WPML + Yoast install.
+  WPML's Yoast glue (`wp-seo-multilingual`) registers its own
+  `wpseo_canonical` callback at the same filter priority and, on a tie, runs
+  first — handing this method a whole-string URL-encoded canonical
+  (`https%3A%2F%2F...`) instead of a real URL. `parse_url()` found no host in
+  that, so the current-request comparison always failed and every paginated
+  canonical passed through untouched, on every one of the five languages
+  tested. Now decodes once when the raw value has no host, before comparing
+  or appending the pagination segment; a value that still has no host after
+  one decode is treated as unusable, same as before.
+
+### Changed
+
+- `$seo_canonical_pagination` defaults `true`, not `false` — an approved
+  exception to this package's default-off rule for new behaviour (see
+  `AGENTS.md` § Feature flags & breaking changes). Safe on: the filter is
+  idempotent and a no-op on a site whose listings are real post-type
+  archives, since re-deriving the canonical from itself reproduces the
+  identical string.
 
 ## [1.43.0] - 2026-08-27
 
