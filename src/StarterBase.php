@@ -941,6 +941,16 @@ class StarterBase extends Site {
 	 */
 	private function registerTimberHooks(): void {
 		add_filter( 'timber/context', array( $this, 'timber_context' ) );
+
+		// Helpers::formatLink() memoizes resolved link URLs in-process. That is
+		// safe for a web request, which ends before a permalink can change, and
+		// unsafe for WP-CLI or a worker, where one process handles many units of
+		// work: a command that renames a slug and then formats a link to it would
+		// be handed the permalink from before the rename. clean_post_cache fires
+		// whenever a post's caches are invalidated, which is exactly when a
+		// permalink can have moved, so the memo follows the same boundary.
+		add_action( 'clean_post_cache', array( Helpers::class, 'flushTranslatedLinkUrls' ) );
+		add_action( 'clean_post_cache', array( Helpers::class, 'flushResolvedPostIds' ) );
 		add_filter( 'timber/twig', array( $this, 'timber_twig' ) );
 		add_filter( 'timber/loader/loader', array( $this, 'timber_twig_loader' ) );
 		add_filter( 'timber/locations', array( $this, 'register_timber_kit_namespace' ), 20 );
@@ -1024,6 +1034,13 @@ class StarterBase extends Site {
 		add_filter( 'acf/json/save_file_name', array( $this, 'acf_json_save_file_name' ), 10, 3 );
 		add_filter( 'acf/update_value/type=wysiwyg', array( $this, 'sanitize_acf_editor_value' ), 10, 1 );
 		add_filter( 'acf/format_value/type=post_object', array( $this, 'fix_wrong_acf_orders_with_ids' ), 10, 3 );
+		// Field groups are memoized per screen for the render; a change in the same
+		// request must not be answered from the list read before it. ACF fires
+		// these four dynamically as "acf/{$verb}_{$hook_name}", which is why a
+		// literal grep for them finds nothing.
+		foreach ( array( 'update', 'delete', 'trash', 'untrash' ) as $verb ) {
+			add_action( 'acf/' . $verb . '_field_group', array( Helpers::class, 'flushFieldGroups' ) );
+		}
 		if ( $this->acf_json_keep_on_delete ) {
 			// acf/init runs after ACF constructs ACF_Local_JSON, so the
 			// listeners exist by the time the guard tries to remove them.

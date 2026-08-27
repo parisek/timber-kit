@@ -268,6 +268,31 @@ Entries carry a lifetime (`timber_kit_menu_fields_ttl`, 12 h by default). The ke
 
 `timber_kit_cache_menu_fields` turns the whole path off. `Helpers::flushMenuFields()` resets the in-flight assembly state for WP-CLI, workers and tests; stored entries need no flushing.
 
+`Helpers::flushResolvedPostIds()` is the same shape for a different cache. `Helpers::urlToPostId()` memoizes its answer on a static keyed by blog, language and URL, because under WPML the lookup is a `get_page_by_path()` query and the same menu and options-page links are resolved once per place they appear. `StarterBase` wires the flush to `clean_post_cache` — the hook that fires exactly when a permalink can have moved.
+
+A web request never needs to call it: the process ends before a permalink can change. **A long-running process does.** WP-CLI commands and persistent workers run many units of work in one process, so a command that renames a slug and then formats a link to it would otherwise be handed the id resolved before the rename. Call `Helpers::flushResolvedPostIds()` from any such caller that does not boot `StarterBase`, and from tests — a static outlives the test that filled it, so a test touching `urlToPostId()` must reset it or be answered by an earlier test's mocks.
+### In-process memos
+
+Two capability probes are memoized on statics, because both answer a question that is expensive to compute and cheap to store.
+
+`Resizer::probeBackendFormats()` asks the active ImageMagick or GD build which formats it can decode. The answer is a property of the build. It used to be probed once per Resizer instance and one `|resizer` call builds one instance, so a page resizing 320 images built 320 `Imagick` objects to ask the same question. The memo is keyed by concrete class, so a subclass that stubs the probe cannot answer for the base class. `Resizer::flushBackendFormats()` drops it.
+
+`Helpers::getFieldObjectsByScreen()` asks ACF which field groups match a screen. ACF caches nothing here — every call walks each registered field group and evaluates its location rules, 8-10 ms against 96 groups whether or not the screen repeats. Answers are memoized per screen; `Helpers::flushFieldGroups()` drops them, and `StarterBase` wires it to `acf/update_field_group`, `acf/delete_field_group`, `acf/trash_field_group` and `acf/untrash_field_group`. ACF fires all four dynamically as `acf/{$verb}_{$hook_name}`, which is why a literal search for them finds nothing.
+
+**`formatFields()` asks once per nav menu item, and those answers are shared — automatically, with nothing to configure.** On a 90-item menu it takes 96 lookups down to 11, most of the saving.
+
+Sharing is safe while ACF's own location types are the only things that see the screen: `ACF_Location_Nav_Menu_Item::match()` reads the item id only to confirm the key is set, then matches on `nav_menu`. It is not safe in general — `acf_register_location_type()` is public API, ACF hands the whole screen to every registered type, and a "show this group on this one menu item" rule for a mega-menu is a legitimate thing to write. Sharing would then serve the first item's groups to every item, with no error and no log.
+
+So the kit checks rather than guesses: before sharing, **every registered location type must resolve to a class file inside `ACF_PATH`**. A site that registers its own gets the per-item lookups back automatically. Anything unverifiable — no `ACF_PATH`, an empty registry, a class with no file — counts as unsafe.
+
+The check cannot see a callback on `acf/location/rule_match` or `acf/location/match_rule`, which also receives the screen. ACFML's reads `post_id`, `lang` and `page_parent`, so it is fine; a site whose own callback reads the item id sets `timber_kit_share_nav_menu_item_field_groups` to `false`. The same filter forces sharing on for a custom location type known not to read the id.
+
+**A web request never needs either flush.** A long-running process does: WP-CLI commands and persistent workers run many units of work in one process, so a command that saves a field group and then formats fields would otherwise be handed the list read before the save. Call the flush from any such caller that does not boot `StarterBase`, and from tests — a static outlives the test that filled it.
+
+The memo freezes the first answer until something flushes it, and `acf_get_field_groups()` is not a pure function of the screen: a late `acf_add_local_field_group()`, an `acf/load_field_groups` callback, or a location-match filter reading mutable state can all change the answer mid-process. The four hooks above cover the admin edit; anything else must flush for itself. A screen `wp_json_encode()` cannot encode is never memoized, because casting `false` to a string would collapse every such screen onto one key.
+
+These are in-process memos, not a persistent cache. They remove repeated work inside one render; they do not remove the first call of each request. Moving either into the object cache is a separate decision, and its cost is invalidation rather than implementation: ACF field groups load from theme JSON files and no hook fires when a deploy changes one. A persistent cache would also still want a static in front of it, because `wp_cache_get()` is not free.
+
 ### Site Health board
 
 Opt-in check-list of Porta recommended settings surfaced in Tools → Site Health

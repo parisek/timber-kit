@@ -1226,6 +1226,264 @@ class Helpers {
 	}
 
 	/**
+	 * Memoized `acf_get_field_groups()` answers, keyed by screen.
+	 *
+	 * ACF does not cache this call. Every invocation walks each registered field
+	 * group and evaluates its location rules, so the cost is
+	 * `groups x screens` — measured at 8-10 ms per call against 96 groups,
+	 * whether or not the screen repeats.
+	 *
+	 * @var array<string, array<int, mixed>>
+	 */
+	private static array $field_groups_memo = [];
+
+	/**
+	 * Memoized `acf_get_fields()` answers, keyed by field group.
+	 *
+	 * ACF does not cache this either, and the answer is the same for every
+	 * screen a group matches. `getFieldObjectsByScreen()` asks once per group
+	 * **per screen**, so a 90-item menu asked 348 times for what turned out to
+	 * be 21 distinct answers.
+	 *
+	 * Field definitions are configuration, not content: they come from the
+	 * theme's JSON, they do not depend on the page being rendered, and nothing
+	 * a visitor does changes them. That is why this needs no invalidation
+	 * beyond the request it lives in.
+	 *
+	 * @var array<string, array<int, mixed>>
+	 */
+	private static array $group_fields_memo = [];
+
+	/**
+	 * Memoized answer of the `timber_kit_share_nav_menu_item_field_groups` filter.
+	 *
+	 * @var bool|null
+	 */
+	private static ?bool $share_nav_menu_item_groups = null;
+
+	/**
+	 * Drop the memoized field-group answers.
+	 *
+	 * A web request never needs this: the process ends before a field group can
+	 * change. `StarterBase` wires it to `acf/update_field_group` for the admin
+	 * save, and it is public for WP-CLI commands, persistent workers and tests,
+	 * where one process registers groups and then reads them back.
+	 *
+	 * @return void
+	 */
+	public static function flushFieldGroups(): void {
+		self::$field_groups_memo           = [];
+		self::$group_fields_memo           = [];
+		self::$share_nav_menu_item_groups  = null;
+	}
+
+	/**
+	 * `acf_get_fields()` behind a per-group memo.
+	 *
+	 * @param array<string, mixed>|mixed $group Field group, as ACF returned it.
+	 * @return array<int, mixed> The group's fields; empty when it has none.
+	 */
+	private static function fieldsForGroup( $group ): array {
+		$key = self::groupFieldsMemoKey( $group );
+
+		if ( null === $key ) {
+			$fields = acf_get_fields( $group );
+
+			return is_array( $fields ) ? $fields : [];
+		}
+
+		if ( ! array_key_exists( $key, self::$group_fields_memo ) ) {
+			$fields = acf_get_fields( $group );
+			self::$group_fields_memo[ $key ] = is_array( $fields ) ? $fields : [];
+		}
+
+		return self::$group_fields_memo[ $key ];
+	}
+
+	/**
+	 * Cache key for one field group's fields.
+	 *
+	 * A group without a key or an id has no identity to memoize on, and gets
+	 * asked every time rather than sharing an entry with the next such group.
+	 *
+	 * Carries the blog id and the language for the same reasons the screen memo
+	 * does: groups are registered per site, and ACFML translates a field's
+	 * label, instructions and choices.
+	 *
+	 * @param array<string, mixed>|mixed $group Field group.
+	 * @return string|null
+	 */
+	private static function groupFieldsMemoKey( $group ): ?string {
+		if ( ! is_array( $group ) ) {
+			return null;
+		}
+
+		$identity = '';
+		foreach ( [ 'key', 'ID', 'id' ] as $candidate ) {
+			if ( isset( $group[ $candidate ] ) && is_scalar( $group[ $candidate ] ) ) {
+				$identity = (string) $group[ $candidate ];
+				break;
+			}
+		}
+
+		if ( '' === $identity ) {
+			return null;
+		}
+
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+
+		return $blog_id . '|' . self::getLanguage() . '|' . $identity;
+	}
+
+
+	/**
+	 * `acf_get_field_groups()` behind a per-screen memo.
+	 *
+	 * @param array<string, mixed> $screen Screen array passed to `acf_get_field_groups()`.
+	 * @return array<int, mixed> Matching field groups; empty when none match.
+	 */
+	private static function fieldGroupsForScreen( array $screen ): array {
+		$key = self::fieldGroupsMemoKey( $screen );
+		if ( null === $key ) {
+			$groups = acf_get_field_groups( $screen );
+			return is_array( $groups ) ? $groups : [];
+		}
+
+		if ( ! array_key_exists( $key, self::$field_groups_memo ) ) {
+			$groups = acf_get_field_groups( $screen );
+			self::$field_groups_memo[ $key ] = is_array( $groups ) ? $groups : [];
+		}
+
+		return self::$field_groups_memo[ $key ];
+	}
+
+	/**
+	 * Cache key for one screen.
+	 *
+	 * Carries the blog id and the language because field groups are registered
+	 * per site and ACFML translates a group's own strings, so both change the
+	 * correct answer for an unchanged screen.
+	 *
+	 * `nav_menu_item` is normalized to a presence marker.
+	 * `ACF_Location_Nav_Menu_Item::match()` reads that key only to confirm it is
+	 * set and then hands the whole decision to the `nav_menu` location type, so
+	 * the item id cannot change which groups match — every item of one menu
+	 * shares an answer. Without the normalization the memo would key on an id
+	 * that never affects the result and never hit.
+	 *
+	 * @param array<string, mixed> $screen Screen array.
+	 * @return string
+	 */
+	private static function fieldGroupsMemoKey( array $screen ): ?string {
+		if ( isset( $screen['nav_menu_item'] ) && self::sharesNavMenuItemFieldGroups() ) {
+			$screen['nav_menu_item'] = '*';
+		}
+		ksort( $screen );
+
+		$encoded = wp_json_encode( $screen );
+		if ( ! is_string( $encoded ) ) {
+			// An unencodable screen has no usable identity. Casting `false` to a
+			// string would collapse every such screen onto one key and hand the
+			// first one's groups to all the others.
+			return null;
+		}
+
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+
+		return $blog_id . '|' . self::getLanguage() . '|' . $encoded;
+	}
+
+	/**
+	 * Whether every item of one menu may share one field-group answer.
+	 *
+	 * **On by default, and it switches itself off where it would be wrong.**
+	 *
+	 * ACF's own `ACF_Location_Nav_Menu_Item::match()` reads `nav_menu_item` only
+	 * to confirm the key is set and then matches on `nav_menu`, so the item id
+	 * cannot change which groups match and asking once per item is wasted work.
+	 * That holds for every location type ACF ships and for nobody else's by
+	 * guarantee: `acf_register_location_type()` is public API, ACF hands the
+	 * whole screen to every registered type, and a matcher that answers per item
+	 * is a legitimate thing to write.
+	 *
+	 * So the default is not a bet — it is
+	 * {@see navMenuItemSharingIsSafe()}, which checks that every registered
+	 * location type is one ACF ships. A site that registers its own gets the
+	 * per-item lookups back automatically, with nothing to configure.
+	 *
+	 * `timber_kit_share_nav_menu_item_field_groups` overrides the verdict in
+	 * either direction — force it off while auditing, or force it on for a
+	 * custom type that is known not to read the item id.
+	 *
+	 * @return bool
+	 */
+	private static function sharesNavMenuItemFieldGroups(): bool {
+		if ( null === self::$share_nav_menu_item_groups ) {
+			self::$share_nav_menu_item_groups = (bool) apply_filters(
+				'timber_kit_share_nav_menu_item_field_groups',
+				self::navMenuItemSharingIsSafe()
+			);
+		}
+
+		return self::$share_nav_menu_item_groups;
+	}
+
+	/**
+	 * Whether only ACF's own location types can see the screen.
+	 *
+	 * The one thing that makes sharing unsafe is a matcher that reads the item
+	 * id, and the only way to add one is `acf_register_location_type()`. Every
+	 * registered type whose class file sits inside `ACF_PATH` is ACF's own, and
+	 * ACF's own were read: `nav_menu_item` is the only type that touches the
+	 * key, and only through `isset()`.
+	 *
+	 * Anything it cannot verify counts as unsafe — a missing `ACF_PATH`, a class
+	 * with no file (eval'd or from an extension), a type from anywhere else.
+	 *
+	 * Known limit: a callback on `acf/location/rule_match` or
+	 * `acf/location/match_rule` also receives the screen and is not detectable
+	 * this way. Writing menu-item-specific logic there instead of registering a
+	 * location type is contrived, and the one common callback — ACFML's — reads
+	 * `post_id`, `lang` and `page_parent`. A site that does it anyway turns the
+	 * filter above off.
+	 *
+	 * @return bool
+	 */
+	private static function navMenuItemSharingIsSafe(): bool {
+		if ( ! defined( 'ACF_PATH' ) || ! function_exists( 'acf_get_location_types' ) ) {
+			return false;
+		}
+
+		$acf_path = (string) constant( 'ACF_PATH' );
+		if ( '' === $acf_path ) {
+			return false;
+		}
+
+		$types = acf_get_location_types();
+		if ( ! is_array( $types ) || empty( $types ) ) {
+			return false;
+		}
+
+		foreach ( $types as $type ) {
+			if ( ! is_object( $type ) ) {
+				return false;
+			}
+
+			try {
+				$file = ( new \ReflectionClass( $type ) )->getFileName();
+			} catch ( \ReflectionException $e ) {
+				return false;
+			}
+
+			if ( ! is_string( $file ) || ! str_starts_with( $file, $acf_path ) ) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	/**
 	 * Resolve ACF field objects for an explicit location-rule screen.
 	 *
 	 * Walks `acf_get_field_groups($screen)` → `acf_get_fields($group)` and
@@ -1253,15 +1511,15 @@ class Helpers {
 			return false;
 		}
 
-		$groups = acf_get_field_groups( $screen );
-		if ( ! is_array( $groups ) || empty( $groups ) ) {
+		$groups = self::fieldGroupsForScreen( $screen );
+		if ( empty( $groups ) ) {
 			return false;
 		}
 
 		$fields = [];
 		foreach ( $groups as $group ) {
-			$group_fields = acf_get_fields( $group );
-			if ( ! is_array( $group_fields ) ) {
+			$group_fields = self::fieldsForGroup( $group );
+			if ( [] === $group_fields ) {
 				continue;
 			}
 			foreach ( $group_fields as $field ) {
@@ -1523,6 +1781,19 @@ class Helpers {
 		return $field['value'];
 	}
 
+	/** @var array<string, int> Memoized URL-to-post-id answers, keyed by "<blog>|<language>|<url>". */
+	private static array $resolvedPostIds = [];
+
+	/**
+	 * Memoized link translations, keyed by "<blog>|<language>|<url>".
+	 *
+	 * A null entry is a real answer — "this URL resolves to no post" — and is
+	 * cached like any other, so a miss is not re-resolved on every call.
+	 *
+	 * @var array<string, string|null>
+	 */
+	private static array $translatedLinkUrls = [];
+
 	/**
 	 * Normalise an ACF link field value and optionally translate it via WPML.
 	 *
@@ -1581,44 +1852,127 @@ class Helpers {
 		}
 
 		if ( isset( $value['url'] ) ) {
+			$translated_url = self::translateLinkUrl( $value['url'] );
 
-			$parsed_url = parse_url( $value['url'] );
-			// The prefix fallback and the wpml_object_id translation both live
-			// in urlToPostId() now — this is where they were written, and
-			// its other callers in this package need the same two steps.
-			$post_id = self::urlToPostId( $value['url'] );
-
-			if ( $post_id > 0 ) {
-
-				$translated_url = get_permalink( $post_id );
-
-				// get_permalink() answers false for a trashed post, and for a
-				// WPML translation id that no longer resolves. Without this the
-				// concatenations below coerce false to '' and a previously
-				// valid link becomes an empty string or a bare `?query` —
-				// silently, replacing something that worked. CuratedUrls::resolve()
-				// guards the same call the same way; this is that guard, in the
-				// place the pattern was taken from.
-				if ( ! is_string( $translated_url ) || '' === $translated_url ) {
-					return $value;
-				}
-
-				// Add query if it's there
-				if ( isset( $parsed_url['query'] ) ) {
-					$translated_url .= '?' . $parsed_url['query'];
-				}
-
-				// Add fragment if it's there
-				if ( isset( $parsed_url['fragment'] ) ) {
-					$translated_url .= '#' . $parsed_url['fragment'];
-				}
-
-				// replace with translated url
+			if ( $translated_url !== null ) {
 				$value['url'] = $translated_url;
 			}
 		}
 
 		return $value;
+	}
+
+	/**
+	 * Resolve one link URL to its translation, memoized for the request.
+	 *
+	 * The resolution is pure with respect to (URL, current language): the same
+	 * URL asked for twice in one language cannot legitimately produce two
+	 * answers. It is also expensive — `url_to_postid()` is filtered by WPML,
+	 * which runs `SitePress::url_to_postid` and the whole `AbsoluteLinks`
+	 * machinery, and that ends in a `get_page_by_path()` database lookup per
+	 * call. A miss costs a second lookup, because the slug fallback below calls
+	 * `url_to_postid()` again.
+	 *
+	 * Measured on a five-language site: one front-page request called this 310
+	 * times for **33 distinct URLs**, so 277 of the calls repeated an answer the
+	 * request already had. The same menu and options-page links are formatted
+	 * once per place they appear. Memoizing removed ~122 ms of a 3.1 s render.
+	 *
+	 * The cache key carries the current language because the answer depends on
+	 * it: `wpml_object_id` maps to the translated post and `get_permalink()`
+	 * then renders that language's URL. WPML switches language mid-request (a
+	 * language switcher renders every language in turn), so a key of URL alone
+	 * would hand the switcher one language's permalinks for every entry.
+	 *
+	 * The cache is in-process, not persistent. For a web request that is the
+	 * same thing, because the process ends before a permalink can change. It is
+	 * NOT the same thing under WP-CLI or a persistent worker, where one process
+	 * runs many units of work and can outlive the data it cached — a migration
+	 * that renames a slug and then formats a link would otherwise be handed the
+	 * old permalink. {@see \Parisek\TimberKit\StarterBase} therefore flushes
+	 * this on `clean_post_cache`, and {@see flushTranslatedLinkUrls()} is public
+	 * so a long-running caller that does not boot StarterBase can do the same.
+	 *
+	 * The key carries the blog id as well. `url_to_postid()`, `get_permalink()`
+	 * and `wpml_object_id` all answer for the *current* blog, so on multisite a
+	 * `switch_to_blog()` between two calls changes the correct answer for an
+	 * unchanged URL.
+	 *
+	 * @param string $url The stored link URL, in the source language.
+	 * @return string|null The translated URL, or null when the URL resolves to
+	 *                     no post and the caller should keep what it has.
+	 */
+	private static function translateLinkUrl( string $url ): ?string {
+		$lang = apply_filters( 'wpml_current_language', null );
+		$blog = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$key  = $blog . '|' . ( is_string( $lang ) ? $lang : '' ) . '|' . $url;
+
+		if ( array_key_exists( $key, self::$translatedLinkUrls ) ) {
+			return self::$translatedLinkUrls[ $key ];
+		}
+
+		self::$translatedLinkUrls[ $key ] = self::resolveLinkUrl( $url );
+
+		return self::$translatedLinkUrls[ $key ];
+	}
+
+	/**
+	 * The uncached body of {@see translateLinkUrl()}.
+	 *
+	 * @param string $url The stored link URL, in the source language.
+	 * @return string|null The translated URL, or null when nothing resolves.
+	 */
+	private static function resolveLinkUrl( string $url ): ?string {
+		$parsed_url = parse_url( $url );
+
+		// Resolution is urlToPostId()'s job, not a second copy of it. This
+		// method used to inline the same three steps -- raw url_to_postid(),
+		// the slug fallback, a two-argument wpml_object_id -- which is what
+		// they looked like before they were extracted. Keeping that copy
+		// through this rebase would have quietly reverted three fixes the
+		// extracted version has since gained: the same-host gate on the slug
+		// fallback, so a foreign URL cannot borrow a local path; the
+		// translation targeting the language the URL names rather than the
+		// current one; and the language-host check that only trusts a host
+		// when the hosts tell the languages apart.
+		$post_id = self::urlToPostId( $url );
+
+		if ( $post_id <= 0 ) {
+			return null;
+		}
+
+		$translated_url = get_permalink( $post_id );
+
+		// get_permalink() returns false for an id it cannot resolve. Treat that
+		// like an unresolved URL rather than concatenating onto a boolean.
+		if ( ! is_string( $translated_url ) ) {
+			return null;
+		}
+
+		// Add query if it's there
+		if ( isset( $parsed_url['query'] ) ) {
+			$translated_url .= '?' . $parsed_url['query'];
+		}
+
+		// Add fragment if it's there
+		if ( isset( $parsed_url['fragment'] ) ) {
+			$translated_url .= '#' . $parsed_url['fragment'];
+		}
+
+		return $translated_url;
+	}
+
+	/**
+	 * Drop the memoized link URLs.
+	 *
+	 * A web request never needs this — it ends before a permalink can change.
+	 * A long-running process does: WP-CLI and persistent workers run many units
+	 * of work in one process, so the cache can outlive the data it describes.
+	 * StarterBase wires this to `clean_post_cache`; call it directly from any
+	 * long-running caller that does not boot StarterBase, and from tests.
+	 */
+	public static function flushTranslatedLinkUrls(): void {
+		self::$translatedLinkUrls = [];
 	}
 
 	/**
@@ -2080,6 +2434,59 @@ class Helpers {
 	}
 
 	/**
+	 * URL to post ID, memoized for the request.
+	 *
+	 * Expensive and repetitive: under WPML `url_to_postid()` is filtered
+	 * through `SitePress::url_to_postid` and `AbsoluteLinks` into a
+	 * `get_page_by_path()` query, so every call is a database lookup and a miss
+	 * costs a second one through the slug fallback. Profiling a five-language
+	 * front page found 310 calls covering 33 distinct URLs -- the same menu and
+	 * options-page links resolved once per place they appear.
+	 *
+	 * The key carries the blog id and the current language. The blog because
+	 * `switch_to_blog()` changes the correct answer for an unchanged URL. The
+	 * language is more conservative than it now needs to be: since the
+	 * translation targets the language the URL names rather than the ambient
+	 * one, the final answer should no longer vary with the current language.
+	 * The intermediate `url_to_postid()` lookup still does, though, and that
+	 * the two cancel out is a reasoning chain, not a measurement -- so the key
+	 * keeps the language until someone measures it. Over-keying costs a repeat
+	 * lookup; under-keying would hand a language switcher one language's answer
+	 * for every entry.
+	 *
+	 * @param string $url Absolute or relative URL to resolve.
+	 * @return int Post ID, or 0 when nothing resolves.
+	 */
+	public static function urlToPostId( string $url ): int {
+		$lang = function_exists( 'apply_filters' ) ? apply_filters( 'wpml_current_language', null ) : null;
+		$blog = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$key  = $blog . '|' . ( is_string( $lang ) ? $lang : '' ) . '|' . $url;
+
+		if ( array_key_exists( $key, self::$resolvedPostIds ) ) {
+			return self::$resolvedPostIds[ $key ];
+		}
+
+		return self::$resolvedPostIds[ $key ] = self::resolveUrlToPostId( $url );
+	}
+
+	/**
+	 * Drop the memoized URL-to-post-id answers.
+	 *
+	 * A web request never needs this: it ends before a permalink can change.
+	 * A long-running process does. WP-CLI and persistent workers run many units
+	 * of work in one process, so a command that renames a slug and then formats
+	 * a link to it would otherwise be handed the id resolved before the rename.
+	 * {@see \Parisek\TimberKit\StarterBase} wires this to `clean_post_cache`;
+	 * call it directly from any long-running caller that does not boot
+	 * StarterBase, and from tests.
+	 */
+	public static function flushResolvedPostIds(): void {
+		self::$resolvedPostIds = [];
+	}
+
+	/**
+	 * The uncached body of {@see urlToPostId()}.
+	 *
 	 * Resolve a URL to the post it names, in the current language.
 	 *
 	 * `url_to_postid()` alone is not enough on a WPML site with language URL
@@ -2102,7 +2509,7 @@ class Helpers {
 	 * @param string $url Absolute URL, or a path.
 	 * @return int Post ID, or 0 when the URL names nothing on this site.
 	 */
-	public static function urlToPostId( string $url ): int {
+	private static function resolveUrlToPostId( string $url ): int {
 		if ( '' === trim( $url ) || ! function_exists( 'url_to_postid' ) ) {
 			return 0;
 		}
