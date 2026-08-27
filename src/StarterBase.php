@@ -36,6 +36,7 @@ use Parisek\TimberKit\Health\Check\XmlrpcDisabled;
 use Parisek\TimberKit\Health\CheckRegistry;
 use Parisek\TimberKit\Health\HealthCheck;
 use Parisek\TimberKit\Health\SiteHealthAdapter;
+use Parisek\TimberKit\Seo\Canonical;
 
 /**
  * Base class for WordPress themes using Timber/Twig templating.
@@ -851,6 +852,17 @@ class StarterBase extends Site {
 	protected string|bool $social_image_bridge = false;
 
 	/**
+	 * Emit a self-referencing canonical on paginated routes.
+	 *
+	 * Off by default because it changes a rendered tag. A site whose listings
+	 * are post-type archives already gets this from its SEO plugin and needs
+	 * nothing; the flag is for sites whose listings are blocks on ordinary
+	 * pages, where the plugin sees a singular post and emits page one's URL for
+	 * every page.
+	 */
+	protected bool $seo_canonical_pagination = false;
+
+	/**
 	 * Slim orchestrator — resolves theme identity, delegates hook registration
 	 * to concern-focused private methods, then hands off to Timber\Site.
 	 *
@@ -871,6 +883,7 @@ class StarterBase extends Site {
 		$this->registerCommentDisablingHooks();
 		$this->registerPerformanceHooks();
 		$this->registerSiteHealthHooks();
+		$this->registerSeoHooks();
 
 		$this->setup_dev_media_proxy();
 		$this->setup_wpforms_config_bridge();
@@ -1306,6 +1319,20 @@ class StarterBase extends Site {
 		}
 
 		add_filter( 'site_status_tests', array( $this, 'site_health_register_checks' ) );
+	}
+
+	/**
+	 * Register the self-referencing canonical (gated by
+	 * $seo_canonical_pagination, default off).
+	 *
+	 * @return void
+	 */
+	private function registerSeoHooks(): void {
+		if ( ! $this->seo_canonical_pagination ) {
+			return;
+		}
+
+		Canonical::register();
 	}
 
 	/**
