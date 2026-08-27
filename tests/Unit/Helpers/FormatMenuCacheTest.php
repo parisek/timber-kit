@@ -235,7 +235,6 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		// field: a callback may read the global post or the current query. It
 		// serializes perfectly, which is exactly why an object check would miss
 		// it.
-		$this->meta[11] = [ 'body' => [ '<p>x [sc]</p>' ] ];
 		$this->menuItemsCarryField( [ 'key' => 'f', 'name' => 'body', 'type' => 'wysiwyg' ], '<p>x [sc]</p>' );
 		Functions\when( 'do_shortcode' )->alias(
 			static fn ( $v ) => str_replace( '[sc]', '<b>rendered</b>', (string) $v )
@@ -253,9 +252,27 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		// store the literal `[sc]`. Then a plugin registers the shortcode and
 		// every page serves the frozen source text instead of its output, with
 		// nothing to log and nothing to notice.
-		$this->meta[11] = [ 'body' => [ '<p>x [sc]</p>' ] ];
 		$this->menuItemsCarryField( [ 'key' => 'f', 'name' => 'body', 'type' => 'wysiwyg' ], '<p>x [sc]</p>' );
 		Functions\when( 'do_shortcode' )->alias( static fn ( $v ) => $v );
+
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertSame( [], $this->store );
+	}
+
+	public function test_a_shortcode_acf_supplies_but_no_meta_row_holds_is_refused(): void {
+		// The hole that sank the previous gate, which read raw post meta. ACF
+		// does not have to read meta at all: `acf/pre_load_value` short-circuits
+		// the database, `default_value` fills in for an absent row, and
+		// `acf/load_value` replaces what was loaded. So a menu item whose meta
+		// is provably bracket-free can still put `[contextual]` through
+		// `do_shortcode()` — and the old gate would have stored that request's
+		// rendered output onto every other page.
+		//
+		// Meta is left EMPTY on purpose. That is the whole point of the test.
+		$this->meta[11] = [];
+		$this->menuItemsCarryField( [ 'key' => 'f', 'name' => 'body', 'type' => 'wysiwyg' ], '[contextual]' );
+		Functions\when( 'do_shortcode' )->alias( static fn ( $v ) => 'Buy now' );
 
 		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
 
@@ -335,4 +352,36 @@ class FormatMenuCacheTest extends HelpersTestCase {
 
 		$this->assertNotSame( [], $this->store );
 	}
+	public function test_stored_entries_can_be_flushed_on_demand(): void {
+		// The lever an operator needs when an entry is believed wrong and the
+		// next content change is too late. Without it the only option is
+		// wp_cache_flush(), which empties every group on the host.
+		$flushed = [];
+		Functions\when( 'wp_cache_supports' )->justReturn( true );
+		Functions\when( 'wp_cache_flush_group' )->alias(
+			function ( $group ) use ( &$flushed ) {
+				$flushed[] = $group;
+				foreach ( array_keys( $this->store ) as $k ) {
+					if ( str_starts_with( (string) $k, $group . '/' ) ) {
+						unset( $this->store[ $k ] );
+					}
+				}
+				return true;
+			}
+		);
+
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+		$this->assertNotSame( [], $this->store, 'nothing was stored, so the flush proves nothing' );
+
+		$this->assertTrue( Helpers::flushStoredMenuFields() );
+		$this->assertSame( [], $this->store );
+		$this->assertSame( [ 'timber-kit-menu' ], $flushed );
+	}
+
+	public function test_a_backend_without_group_flush_says_so_instead_of_looking_successful(): void {
+		Functions\when( 'wp_cache_supports' )->justReturn( false );
+
+		$this->assertFalse( Helpers::flushStoredMenuFields() );
+	}
+
 }

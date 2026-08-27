@@ -167,6 +167,39 @@ final class MenuFieldsCache {
 	}
 
 	/**
+	 * Delete every stored menu payload, now.
+	 *
+	 * The key carries a content version, so ordinary staleness needs no flush —
+	 * a saved post makes the old key unreachable by itself. This is for the case
+	 * that is not ordinary: an entry is believed wrong and has to be gone before
+	 * the next content change, not after it.
+	 *
+	 * Without it the only lever is `wp_cache_flush()`, which empties the whole
+	 * object cache — every group, and on shared infrastructure every site.
+	 * {@see BlockRenderer} already takes this narrower route; so does this.
+	 *
+	 * A backend with no `flush_group` support leaves the entries in place, and
+	 * says so by returning false rather than by looking successful.
+	 *
+	 * @return bool Whether the group was flushed.
+	 */
+	public static function flushStored(): bool {
+		if ( ! function_exists( 'wp_using_ext_object_cache' ) || ! wp_using_ext_object_cache() ) {
+			return false;
+		}
+
+		if ( ! function_exists( 'wp_cache_supports' ) || ! wp_cache_supports( 'flush_group' ) ) {
+			return false;
+		}
+
+		if ( ! function_exists( 'wp_cache_flush_group' ) ) {
+			return false;
+		}
+
+		return (bool) wp_cache_flush_group( self::GROUP );
+	}
+
+	/**
 	 * Drop every in-flight walk.
 	 *
 	 * Stored entries need no flushing: {@see CacheSignature} keys them by a
@@ -196,28 +229,21 @@ final class MenuFieldsCache {
 			return (array) self::$payload[ $menu_id ][ $slot ];
 		}
 
-		// Decided BEFORE the build, from what is stored. Observing one render
-		// cannot prove a formatter is pure — an unregistered shortcode comes
-		// back unchanged and reads as static.
-		// Only asked when this walk can actually store. The check reads meta,
-		// and a walk that will store nothing has no reason to pay for it.
-		$provable = ! ( self::$active[ $menu_id ] ?? false )
-			|| ( self::MENU_SLOT === $slot
-				? Helpers::termValuesAreShortcodeFree( $menu_id )
-				: Helpers::storedValuesAreShortcodeFree( (int) $slot ) );
-
 		$before = Helpers::dynamicFormatCount();
 		$fields = (array) $build();
 
-		// The one dynamic surface no stored value can predict: a rendered CF7 or
-		// WPForms form, whose markup carries a nonce.
-		$moved = Helpers::dynamicFormatCount() !== $before;
+		// Raised while the fields were built, by whichever surface could not be
+		// cleared in advance: a value that reached `do_shortcode()` carrying a
+		// bracket, or a rendered CF7/WPForms embed whose markup holds a nonce.
+		// Both are decided from the INPUT, before the dynamic call runs — never
+		// from whether its output differed.
+		$dynamic = Helpers::dynamicFormatCount() !== $before;
 
 		if ( ! isset( self::$payload[ $menu_id ] ) ) {
 			return $fields;
 		}
 
-		if ( ! $provable || $moved || ! self::isStorable( $fields ) ) {
+		if ( $dynamic || ! self::isStorable( $fields ) ) {
 			// One unstorable slot condemns the whole menu rather than storing a
 			// payload with a hole in it: a partial payload would be replayed as
 			// complete, and the missing fields would simply not render.

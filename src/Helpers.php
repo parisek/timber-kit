@@ -1624,14 +1624,14 @@ class Helpers {
 				$field['value'] = '';
 			}
 
-			$field['value'] = do_shortcode( $field['value'] );
+			$field['value'] = self::expandShortcodes( $field['value'] );
 
 		} elseif ( $field['type'] === 'textarea' ) {
 
 			if ( self::isTextareaContentEmpty( $field['value'] ) ) {
 				$field['value'] = '';
 			} else {
-				$field['value'] = do_shortcode( $field['value'] );
+				$field['value'] = self::expandShortcodes( $field['value'] );
 			}
 
 		} elseif ( $field['type'] === 'image' ) {
@@ -2067,12 +2067,14 @@ class Helpers {
 	 * no inspection of the stored value can predict it.
 	 *
 	 * Every other dynamic surface in `fieldFormatter()` is decided **before**
-	 * the work runs, by {@see storedValuesAreShortcodeFree()} and
-	 * {@see hasFieldFormatterFilters()}. That direction matters: observing one
-	 * render cannot prove a formatter is pure. An unregistered `[foo]` comes
-	 * back byte-identical and reads as static, and the literal `[foo]` is then
-	 * stored — until a plugin registers the shortcode and every page serves the
-	 * frozen source text instead of its output.
+	 * It is raised by {@see expandShortcodes()} as well, which inspects the
+	 * value ACF produced before handing it to `do_shortcode()`.
+	 *
+	 * Every increment is decided from an INPUT, never from whether an output
+	 * differed. Observing the output cannot prove purity: an unregistered
+	 * `[foo]` comes back byte-identical, reads as static, and the literal
+	 * `[foo]` is then stored — until a plugin registers the shortcode and every
+	 * page serves the frozen source text instead of its output.
 	 *
 	 * @var int
 	 */
@@ -2086,6 +2088,39 @@ class Helpers {
 	 */
 	public static function dynamicFormatCount(): int {
 		return self::$dynamic_format_count;
+	}
+
+	/**
+	 * Expand shortcodes, recording first whether there was anything to expand.
+	 *
+	 * The check is on the **input**, before the call, and that is the whole
+	 * design. Checking the output instead asks "did anything change", which an
+	 * unregistered shortcode answers with "no" — it is handed back unaltered,
+	 * reads as static, and the literal gets stored until a plugin registers it.
+	 *
+	 * Checking the stored meta instead — the previous attempt — asks the wrong
+	 * store. Values reach here through `get_field()`, and ACF can supply one
+	 * that no meta row holds: `acf/pre_load_value` short-circuits the database,
+	 * `default_value` fills in for an absent row, `acf/load_value` replaces what
+	 * was loaded, and a group or clone sub-field takes its own default the same
+	 * way. A menu whose meta is provably bracket-free can therefore still put a
+	 * shortcode through this call. Verified against
+	 * `acf-value-functions.php::acf_get_value()`.
+	 *
+	 * This sees the value ACF actually produced, whatever produced it.
+	 *
+	 * @param mixed $value Field value as ACF resolved it.
+	 * @return mixed Value with shortcodes expanded.
+	 */
+	private static function expandShortcodes( mixed $value ): mixed {
+		if ( is_string( $value ) && str_contains( $value, '[' ) ) {
+			// A bracket is not a shortcode, and this counts it as one anyway. A
+			// false positive costs one uncached menu; a false negative is wrong
+			// on every page.
+			++self::$dynamic_format_count;
+		}
+
+		return do_shortcode( $value );
 	}
 
 	/**
@@ -2128,74 +2163,6 @@ class Helpers {
 	}
 
 	/**
-	 * Whether one post's stored meta is free of anything `do_shortcode()` could
-	 * act on.
-	 *
-	 * `fieldFormatter()` runs `do_shortcode()` over `wysiwyg` and `textarea`
-	 * values, and that is the only place stored content can turn into
-	 * page-dependent output. A shortcode needs an opening bracket, so a post
-	 * whose every stored string has none is one whose formatting is a function
-	 * of what is stored — provably, without rendering it first.
-	 *
-	 * The test is on the **raw** meta, which `wp_get_nav_menu_items()` has
-	 * already primed into the object cache, so this reads memory rather than
-	 * the database.
-	 *
-	 * It is deliberately blunt. A bracket in a plain-text field is not a
-	 * shortcode and the menu is refused anyway: a false refusal costs one
-	 * uncached menu, a false accept freezes one page's output onto every page.
-	 *
-	 * @param int $post_id Post id whose stored meta to inspect.
-	 * @return bool
-	 */
-	public static function storedValuesAreShortcodeFree( int $post_id ): bool {
-		if ( $post_id <= 0 || ! function_exists( 'get_post_meta' ) ) {
-			return false;
-		}
-
-		return self::isShortcodeFree( get_post_meta( $post_id ) );
-	}
-
-	/**
-	 * The same test against a term's stored meta, for the menu's own fields.
-	 *
-	 * @param int $term_id Term id whose stored meta to inspect.
-	 * @return bool
-	 */
-	public static function termValuesAreShortcodeFree( int $term_id ): bool {
-		if ( $term_id <= 0 || ! function_exists( 'get_term_meta' ) ) {
-			return false;
-		}
-
-		return self::isShortcodeFree( get_term_meta( $term_id ) );
-	}
-
-	/**
-	 * @param mixed $value Meta value, at any depth.
-	 * @return bool
-	 */
-	private static function isShortcodeFree( mixed $value ): bool {
-		if ( is_string( $value ) ) {
-			return ! str_contains( $value, '[' );
-		}
-
-		if ( is_array( $value ) ) {
-			foreach ( $value as $item ) {
-				if ( ! self::isShortcodeFree( $item ) ) {
-					return false;
-				}
-			}
-
-			return true;
-		}
-
-		// A serialized object in meta comes back as an object here. It is not a
-		// string this can clear, and MenuFieldsCache rejects it on storability
-		// anyway; saying "not proven" keeps the two answers consistent.
-		return ! is_object( $value ) && ! is_resource( $value );
-	}
-
-	/**
 	 * Drop the in-flight menu field payloads.
 	 *
 	 * Delegates to {@see MenuFieldsCache::flush()}, because callers reach the
@@ -2207,6 +2174,19 @@ class Helpers {
 	 */
 	public static function flushMenuFields(): void {
 		MenuFieldsCache::flush();
+	}
+
+	/**
+	 * Delete every stored menu payload, now.
+	 *
+	 * The sibling of the reset above, for the case where an entry is believed
+	 * wrong and must be gone before the next content change rather than after
+	 * it. Delegates to {@see MenuFieldsCache::flushStored()}.
+	 *
+	 * @return bool Whether the stored entries were flushed.
+	 */
+	public static function flushStoredMenuFields(): bool {
+		return MenuFieldsCache::flushStored();
 	}
 
 	/**
