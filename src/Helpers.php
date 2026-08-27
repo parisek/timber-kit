@@ -1238,6 +1238,23 @@ class Helpers {
 	private static array $field_groups_memo = [];
 
 	/**
+	 * Memoized `acf_get_fields()` answers, keyed by field group.
+	 *
+	 * ACF does not cache this either, and the answer is the same for every
+	 * screen a group matches. `getFieldObjectsByScreen()` asks once per group
+	 * **per screen**, so a 90-item menu asked 348 times for what turned out to
+	 * be 21 distinct answers.
+	 *
+	 * Field definitions are configuration, not content: they come from the
+	 * theme's JSON, they do not depend on the page being rendered, and nothing
+	 * a visitor does changes them. That is why this needs no invalidation
+	 * beyond the request it lives in.
+	 *
+	 * @var array<string, array<int, mixed>>
+	 */
+	private static array $group_fields_memo = [];
+
+	/**
 	 * Memoized answer of the `timber_kit_share_nav_menu_item_field_groups` filter.
 	 *
 	 * @var bool|null
@@ -1255,9 +1272,69 @@ class Helpers {
 	 * @return void
 	 */
 	public static function flushFieldGroups(): void {
-		self::$field_groups_memo = [];
-		self::$share_nav_menu_item_groups = null;
+		self::$field_groups_memo           = [];
+		self::$group_fields_memo           = [];
+		self::$share_nav_menu_item_groups  = null;
 	}
+
+	/**
+	 * `acf_get_fields()` behind a per-group memo.
+	 *
+	 * @param array<string, mixed>|mixed $group Field group, as ACF returned it.
+	 * @return array<int, mixed> The group's fields; empty when it has none.
+	 */
+	private static function fieldsForGroup( $group ): array {
+		$key = self::groupFieldsMemoKey( $group );
+
+		if ( null === $key ) {
+			$fields = acf_get_fields( $group );
+
+			return is_array( $fields ) ? $fields : [];
+		}
+
+		if ( ! array_key_exists( $key, self::$group_fields_memo ) ) {
+			$fields = acf_get_fields( $group );
+			self::$group_fields_memo[ $key ] = is_array( $fields ) ? $fields : [];
+		}
+
+		return self::$group_fields_memo[ $key ];
+	}
+
+	/**
+	 * Cache key for one field group's fields.
+	 *
+	 * A group without a key or an id has no identity to memoize on, and gets
+	 * asked every time rather than sharing an entry with the next such group.
+	 *
+	 * Carries the blog id and the language for the same reasons the screen memo
+	 * does: groups are registered per site, and ACFML translates a field's
+	 * label, instructions and choices.
+	 *
+	 * @param array<string, mixed>|mixed $group Field group.
+	 * @return string|null
+	 */
+	private static function groupFieldsMemoKey( $group ): ?string {
+		if ( ! is_array( $group ) ) {
+			return null;
+		}
+
+		$identity = '';
+		foreach ( [ 'key', 'ID', 'id' ] as $candidate ) {
+			if ( isset( $group[ $candidate ] ) && is_scalar( $group[ $candidate ] ) ) {
+				$identity = (string) $group[ $candidate ];
+				break;
+			}
+		}
+
+		if ( '' === $identity ) {
+			return null;
+		}
+
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+
+		return $blog_id . '|' . self::getLanguage() . '|' . $identity;
+	}
+
 
 	/**
 	 * `acf_get_field_groups()` behind a per-screen memo.
@@ -1441,8 +1518,8 @@ class Helpers {
 
 		$fields = [];
 		foreach ( $groups as $group ) {
-			$group_fields = acf_get_fields( $group );
-			if ( ! is_array( $group_fields ) ) {
+			$group_fields = self::fieldsForGroup( $group );
+			if ( [] === $group_fields ) {
 				continue;
 			}
 			foreach ( $group_fields as $field ) {

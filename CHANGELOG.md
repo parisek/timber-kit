@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- `acf_get_fields()` is memoized per field group for the request. ACF caches
+  nothing here either, and the answer is the same for every screen a group
+  matches — so `getFieldObjectsByScreen()` asked it **348 times for 21 distinct
+  answers** on the sloneek front page, once per group per screen.
+
+  Measured directly on the work removed: 26-38 ms falls to 5-8 ms. End to end
+  the page moved 16-34 ms across two rounds, which is the same saving seen
+  through a noisier instrument. Rendered HTML is byte-identical, checked
+  against a control pair of runs of the unchanged code.
+
+  Field definitions are configuration, not content: they come from the theme's
+  JSON, they do not depend on the page being rendered, and nothing a visitor
+  does changes them. **So this needs no invalidation beyond the request it
+  lives in** — unlike a value, which does. The key carries the blog id and the
+  language because groups are registered per site and ACFML translates a
+  field's label, instructions and choices; a group with neither a key nor an id
+  has no identity to memoize on and is asked every time rather than sharing an
+  entry with the next anonymous group.
+
+  `Helpers::flushFieldGroups()` drops it alongside the screen memo.
+
 ### Added
 
 - `Resizer::flushBackendFormats()` and `Helpers::flushFieldGroups()` drop the
