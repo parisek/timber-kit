@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Parisek\TimberKit\Breeze;
 
 use Parisek\TimberKit\Breeze\TailPlanner;
+use Parisek\TimberKit\Seo\Plugin;
 
 /**
  * Feeds Breeze's Cache Warmup preloader with every URL from the site's XML
@@ -879,7 +880,7 @@ final class WarmupSitemap {
 	 *                SEO plugin answers.
 	 */
 	private static function detectSitemapProvider(): string {
-		if ( function_exists( 'aioseo' ) || class_exists( '\AIOSEO\Plugin\AIOSEO' ) ) {
+		if ( 'aioseo' === Plugin::active() ) {
 			return 'aioseo';
 		}
 
@@ -905,7 +906,7 @@ final class WarmupSitemap {
 	 *
 	 * The option is read directly rather than through `WPSEO_Options`, to keep
 	 * this a soft dependency. An absent or unreadable value counts as on,
-	 * which is Yoast's own default.
+	 * which is Yoast's own default -- decided by {@see Plugin::supportsYoastSitemap()}.
 	 *
 	 * @return bool
 	 */
@@ -919,11 +920,8 @@ final class WarmupSitemap {
 		}
 
 		$options = get_option( 'wpseo' );
-		if ( ! is_array( $options ) || ! array_key_exists( 'enable_xml_sitemap', $options ) ) {
-			return true;
-		}
 
-		return (bool) $options['enable_xml_sitemap'];
+		return Plugin::supportsYoastSitemap( is_array( $options ) ? $options : null );
 	}
 
 	/**
