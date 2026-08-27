@@ -2124,6 +2124,167 @@ class Helpers {
 	}
 
 	/**
+	 * Whether every callback that can change a loaded ACF value is one we trust.
+	 *
+	 * This is the hole the shortcode check cannot see. `acf/pre_load_value`
+	 * short-circuits the database, `acf/load_value` replaces what was read, and
+	 * a callback on either may return something derived from the current user,
+	 * the query or the request. No inspection of the value proves otherwise —
+	 * by the time the value exists, the callback has already run.
+	 *
+	 * So the same rule the `field_formatter_*` scan uses applies here: an
+	 * unrecognised callback ends it. What differs is that refusing outright
+	 * would be wrong. ACF registers its own plumbing on this hook —
+	 * `_acf_apply_hook_variations()`, which is what makes
+	 * `acf/load_value/type=wysiwyg` fire at all — and ACFML registers one on
+	 * every WPML site. Refusing on presence would switch the cache off almost
+	 * everywhere, including the site it was measured on.
+	 *
+	 * Callbacks are therefore judged by where they are defined, the same test
+	 * {@see navMenuItemSharingIsSafe()} applies to location types. ACF's own
+	 * code is trusted because it is the mechanism, not a policy. ACFML's is
+	 * trusted because what it varies on is the language, and the language is
+	 * already in the cache key — it is a function of inputs the key carries.
+	 *
+	 * **The variation tags are scanned too.** ACF fans the base hook out into
+	 * `acf/load_value/type=…`, `…/name=…` and `…/key=…`, so a project callback
+	 * can sit on a tag the base name never mentions. A scan of the two literal
+	 * tags would report "nothing registered" for a site with fourteen of them
+	 * live, which is the answer that stores.
+	 *
+	 * Not memoized: a callback added between two menus in one long-running
+	 * process must not be invisible to the second.
+	 *
+	 * @return bool
+	 */
+	public static function valueLoadHooksAreTrusted(): bool {
+		global $wp_filter;
+
+		if ( ! is_array( $wp_filter ) && ! ( $wp_filter instanceof \ArrayAccess ) ) {
+			return true;
+		}
+
+		$roots = self::trustedValueLoadRoots();
+
+		foreach ( (array) $wp_filter as $tag => $hook ) {
+			if ( ! is_string( $tag ) || ! self::isValueLoadTag( $tag ) ) {
+				continue;
+			}
+
+			$callbacks = is_object( $hook ) ? ( $hook->callbacks ?? [] ) : $hook;
+
+			foreach ( (array) $callbacks as $at_priority ) {
+				foreach ( (array) $at_priority as $entry ) {
+					$function = is_array( $entry ) ? ( $entry['function'] ?? null ) : $entry;
+
+					if ( null === $function ) {
+						continue;
+					}
+
+					if ( ! self::callbackIsUnder( $function, $roots ) ) {
+						return false;
+					}
+				}
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * @param string $tag Hook tag.
+	 * @return bool
+	 */
+	private static function isValueLoadTag( string $tag ): bool {
+		foreach ( [ 'acf/load_value', 'acf/pre_load_value' ] as $base ) {
+			if ( $tag === $base || str_starts_with( $tag, $base . '/' ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Directories whose value-load callbacks are trusted.
+	 *
+	 * Filterable so a project can vouch for its own — the escape hatch that
+	 * keeps the refusal from being a dead end. Adding a path here is a claim
+	 * that its callbacks vary only on things the cache key already carries.
+	 *
+	 * @return array<int, string>
+	 */
+	private static function trustedValueLoadRoots(): array {
+		$roots = [];
+
+		foreach ( [ 'ACF_PATH', 'ACFML_PLUGIN_PATH', 'ICL_PLUGIN_PATH', 'WPML_PLUGIN_PATH' ] as $constant ) {
+			if ( ! defined( $constant ) ) {
+				continue;
+			}
+
+			$path = (string) constant( $constant );
+			if ( '' !== $path ) {
+				$roots[] = rtrim( $path, '/\\' );
+			}
+		}
+
+		/**
+		 * Filters the directories whose ACF value-load callbacks are trusted.
+		 *
+		 * @param array<int, string> $roots Absolute directory paths.
+		 */
+		$roots = apply_filters( 'timber_kit_trusted_value_load_roots', $roots );
+
+		return is_array( $roots ) ? array_values( array_filter( array_map( 'strval', $roots ) ) ) : [];
+	}
+
+	/**
+	 * Whether a callback is defined inside one of the given directories.
+	 *
+	 * Anything unreflectable counts as untrusted. A callback whose file cannot
+	 * be named is exactly the one there is no case for trusting.
+	 *
+	 * @param mixed                $function Callback in any of PHP's shapes.
+	 * @param array<int, string>   $roots    Absolute directory paths.
+	 * @return bool
+	 */
+	private static function callbackIsUnder( mixed $function, array $roots ): bool {
+		if ( [] === $roots ) {
+			return false;
+		}
+
+		try {
+			if ( is_array( $function ) && isset( $function[0], $function[1] ) ) {
+				$reflection = new \ReflectionMethod( $function[0], (string) $function[1] );
+			} elseif ( is_string( $function ) && str_contains( $function, '::' ) ) {
+				$reflection = new \ReflectionMethod( $function );
+			} elseif ( is_object( $function ) && ! ( $function instanceof \Closure ) ) {
+				$reflection = new \ReflectionMethod( $function, '__invoke' );
+			} else {
+				$reflection = new \ReflectionFunction( $function );
+			}
+		} catch ( \ReflectionException | \TypeError $e ) {
+			return false;
+		}
+
+		$file = $reflection->getFileName();
+
+		if ( ! is_string( $file ) || '' === $file ) {
+			// An internal function has no file. It is also not something a
+			// project registered, but there is no way to tell the two apart.
+			return false;
+		}
+
+		foreach ( $roots as $root ) {
+			if ( str_starts_with( $file, $root ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
 	 * A token that changes when the field definitions a menu reads change.
 	 *
 	 * Field groups load from theme JSON, not from `wp_posts`. Deploying a file

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Helpers;
 
+use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
 use Parisek\TimberKit\Helpers;
 use Parisek\TimberKit\MenuFieldsCache;
@@ -423,6 +424,64 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
 
 		$this->assertSame( 0, $this->itemWork );
+	}
+
+	public function test_an_untrusted_value_load_callback_refuses_every_menu(): void {
+		// The surface the shortcode check cannot reach: acf/load_value runs
+		// before the value exists, so a callback reading the current user
+		// leaves nothing in the value to detect. This test's callback is
+		// defined in the test file, which is under no trusted root.
+		$GLOBALS['wp_filter']['acf/load_value'] = [ 10 => [ 'cb' => [ 'function' => static fn ( $v ) => $v ] ] ];
+
+		try {
+			Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+		} finally {
+			unset( $GLOBALS['wp_filter']['acf/load_value'] );
+		}
+
+		$this->assertSame( [], $this->store );
+	}
+
+	public function test_a_variation_tag_is_scanned_too(): void {
+		// ACF fans the base hook out into acf/load_value/type=..., so a project
+		// callback can sit on a tag the base name never mentions. Measured on
+		// the reference site: fourteen variation tags live, none of them named
+		// `acf/load_value`. A scan of the literal tags alone would report
+		// "nothing registered" and store.
+		$GLOBALS['wp_filter']['acf/load_value/type=wysiwyg'] = [ 10 => [ 'cb' => [ 'function' => static fn ( $v ) => $v ] ] ];
+
+		try {
+			Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+		} finally {
+			unset( $GLOBALS['wp_filter']['acf/load_value/type=wysiwyg'] );
+		}
+
+		$this->assertSame( [], $this->store );
+	}
+
+	public function test_a_callback_under_a_trusted_root_still_caches(): void {
+		// ACF's own _acf_apply_hook_variations() and ACFML's link converter sit
+		// on this hook on every WPML site. Refusing on presence would switch the
+		// cache off almost everywhere, including the site it was measured on —
+		// so this is the test that keeps the gate from being a blanket refusal
+		// wearing an allowlist's name.
+		require_once __DIR__ . '/../../Fixtures/Acf/trusted-value-load.php';
+		$root = realpath( __DIR__ . '/../../Fixtures/Acf' );
+
+		$GLOBALS['wp_filter']['acf/load_value'] = [
+			10 => [ 'cb' => [ 'function' => '\\Tests\\Fixtures\\Acf\\trustedValueLoad' ] ],
+		];
+		Filters\expectApplied( 'timber_kit_trusted_value_load_roots' )
+			->zeroOrMoreTimes()
+			->andReturn( [ $root ] );
+
+		try {
+			Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+		} finally {
+			unset( $GLOBALS['wp_filter']['acf/load_value'] );
+		}
+
+		$this->assertNotSame( [], $this->store );
 	}
 
 }

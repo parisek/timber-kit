@@ -305,7 +305,13 @@ final class MenuFieldsCache {
 		// everything else, so a project that knows its own formatter is pure can
 		// say so — and a project that does not, does not have to know the rule
 		// exists.
-		$default = CacheSignature::isAvailable() && ! Helpers::hasFieldFormatterFilters();
+		$default = CacheSignature::isAvailable()
+			&& ! Helpers::hasFieldFormatterFilters()
+			// The value-load hooks are the surface the shortcode check cannot
+			// see: by the time a value exists, a callback on them has already
+			// run. Judged by where they are defined rather than by presence,
+			// because ACF's own plumbing and ACFML both sit there.
+			&& Helpers::valueLoadHooksAreTrusted();
 
 		return (bool) apply_filters( 'timber_kit_cache_menu_fields', $default, $menu_id );
 	}
