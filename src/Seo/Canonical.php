@@ -47,6 +47,22 @@ final class Canonical {
 		$page = PagedRequest::current();
 		$base = PaginationBase::current();
 
+		// WPML's Yoast glue (`wp-seo-multilingual`) registers its own
+		// `wpseo_canonical` callback at the same priority as this one, and
+		// PHP breaks same-priority ties by registration order -- so on a
+		// WPML + Yoast install its `canonical_filter()` runs first and hands
+		// this method a URL-encoded string (`https%3A%2F%2F...`) instead of a
+		// real URL. `parse_url()` finds no host in that, so every comparison
+		// below would fail and the feature would silently do nothing on
+		// exactly the installs it was written for -- something downstream
+		// (WordPress's own `wp_head` output buffering, in practice) decodes
+		// it again before it reaches the page, so the encoding was never
+		// meaningful, only in-transit noise between two plugins. Decode once
+		// and operate on the decoded string; if that still has no host, the
+		// input was never a URL at all and this falls through to the normal
+		// fail-safe path below.
+		$resolved = self::decodeIfEncoded( $canonical );
+
 		// A manual canonical (Yoast's and AIOSEO's editors both offer the
 		// field) is a deliberate override -- an editor pointing `/blog/` at
 		// `/campaign/` means every page of the listing to point at
@@ -59,12 +75,59 @@ final class Canonical {
 		// request. A canonical that matches was either left alone by the
 		// plugin or manually set to the page's own URL, and both deserve the
 		// segment; anything else -- cross-domain, cross-page -- passes
-		// through untouched.
-		if ( $page > 1 && ! self::describesCurrentRequest( $canonical, $base ) ) {
+		// through untouched, exactly as it arrived (still encoded, if it
+		// arrived encoded -- this method never repairs a value it is not
+		// going to touch).
+		if ( $page > 1 && ! self::describesCurrentRequest( $resolved, $base ) ) {
 			return $canonical;
 		}
 
-		return Pagination::append( $canonical, $page, $base );
+		// From here the canonical is being rewritten regardless, so the
+		// return value is the decoded, paginated URL rather than a
+		// re-encoded one. A canonical tag must contain a real URL --
+		// percent-encoding its scheme and slashes does not produce one -- and
+		// the live symptom this fixes (a clean, decoded tag rendering on the
+		// page) proves something later in the pipeline decodes it anyway.
+		// Handing back the decoded form is therefore not a guess about what
+		// that later step wants; it is the value already known to survive
+		// the trip.
+		return Pagination::append( $resolved, $page, $base );
+	}
+
+	/**
+	 * Decode a canonical once if it looks like it was URL-encoded whole.
+	 *
+	 * A real canonical's `parse_url()` always yields a host. One that does
+	 * not is either garbage or has been percent-encoded end to end by
+	 * something upstream (`urlencode()`/`rawurlencode()` applied to the whole
+	 * string, not just a component of it) -- decoding once recovers the host
+	 * in the second case. Exactly one decode: a value that still has no host
+	 * after it is treated as unusable rather than decoded again, because a
+	 * second pass invites a decoding-oracle shape this package has no case
+	 * for.
+	 *
+	 * @param string $canonical Canonical as the plugin resolved it.
+	 *
+	 * @return string The canonical, decoded once if that recovers a host;
+	 *                otherwise the original, untouched string.
+	 */
+	private static function decodeIfEncoded( string $canonical ): string {
+		if ( self::hasHost( $canonical ) ) {
+			return $canonical;
+		}
+
+		$decoded = urldecode( $canonical );
+
+		return self::hasHost( $decoded ) ? $decoded : $canonical;
+	}
+
+	/**
+	 * @param string $url URL to check.
+	 */
+	private static function hasHost( string $url ): bool {
+		$parts = parse_url( $url );
+
+		return is_array( $parts ) && ! empty( $parts['host'] );
 	}
 
 	/**

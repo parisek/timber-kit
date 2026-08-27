@@ -19,6 +19,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `page`, and leaves a manual canonical alone whenever it points somewhere
   other than the current request.
 
+### Fixed
+
+- `Seo\Canonical::filter()` was a silent no-op on every WPML + Yoast install.
+  WPML's Yoast glue (`wp-seo-multilingual`) registers its own
+  `wpseo_canonical` callback at the same filter priority and, on a tie, runs
+  first — handing this method a whole-string URL-encoded canonical
+  (`https%3A%2F%2F...`) instead of a real URL. `parse_url()` found no host in
+  that, so the current-request comparison always failed and every paginated
+  canonical passed through untouched, on every one of the five languages
+  tested. Now decodes once when the raw value has no host, before comparing
+  or appending the pagination segment; a value that still has no host after
+  one decode is treated as unusable, same as before.
+
 ### Changed
 
 - `$seo_canonical_pagination` defaults `true`, not `false` — an approved

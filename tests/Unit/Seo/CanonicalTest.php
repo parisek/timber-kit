@@ -243,4 +243,68 @@ final class CanonicalTest extends TestCase {
 			Canonical::filter( 'https://site.cz/blog/' )
 		);
 	}
+
+	/**
+	 * WPML's Yoast glue (`wp-seo-multilingual`) registers its own
+	 * `wpseo_canonical` callback at the same priority as this one and runs
+	 * first, handing this method a whole-string URL-encoded canonical
+	 * instead of a real URL. Without a decode step, `parse_url()` finds no
+	 * host in it, the current-request comparison always fails, and the
+	 * feature silently does nothing on every WPML + Yoast install -- the
+	 * exact regression this test guards against.
+	 */
+	public function testAUrlEncodedCanonicalDescribingTheCurrentListingIsPaginated(): void {
+		$this->onPage( 2, 0 );
+		$this->onRequest( '/blog/page/2/' );
+
+		$this->assertSame(
+			'https://x.test/blog/page/2/',
+			Canonical::filter( 'https%3A%2F%2Fx.test%2Fblog%2F' )
+		);
+	}
+
+	/**
+	 * The unencoded case must keep working -- the decode step is additive,
+	 * never a detour a plain canonical is routed through unnecessarily.
+	 */
+	public function testAPlainCanonicalDescribingTheCurrentListingIsStillPaginated(): void {
+		$this->onPage( 2, 0 );
+		$this->onRequest( '/blog/page/2/' );
+
+		$this->assertSame(
+			'https://x.test/blog/page/2/',
+			Canonical::filter( 'https://x.test/blog/' )
+		);
+	}
+
+	/**
+	 * The manual-canonical guard must survive the decode fix, not be traded
+	 * away for it: an encoded canonical that describes a different page is
+	 * still left exactly as it arrived -- still encoded, because this method
+	 * never repairs a value it isn't going to touch.
+	 */
+	public function testAUrlEncodedCanonicalToADifferentPageIsUntouched(): void {
+		$this->onPage( 2, 0 );
+		$this->onRequest( '/blog/page/2/' );
+
+		$this->assertSame(
+			'https%3A%2F%2Fx.test%2Fcampaign%2F',
+			Canonical::filter( 'https%3A%2F%2Fx.test%2Fcampaign%2F' )
+		);
+	}
+
+	/**
+	 * A value that is neither a URL nor a decodable one must not be coerced
+	 * into anything -- one decode attempt, and if that still has no host the
+	 * fail-safe path (same as an unreadable current request) takes over.
+	 */
+	public function testAnUndecodableGarbageValueLeavesTheCanonicalAlone(): void {
+		$this->onPage( 2, 0 );
+		$this->onRequest( '/blog/page/2/' );
+
+		$this->assertSame(
+			'not a url at all',
+			Canonical::filter( 'not a url at all' )
+		);
+	}
 }
