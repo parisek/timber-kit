@@ -1410,8 +1410,18 @@ class Resizer {
 		// Stripped of its extension by default — flag on keeps it (ADR 0007):
 		// the derivative name must carry the source's own extension too, or
 		// hero.jpg and hero.png in one directory collide on one derivative.
+		//
+		// Flag on decodes the URL basename first, mirroring sourcePathSegment()'s
+		// handling of the directory half: $default_image['src'] is a URL, so a
+		// space or accented character is percent-encoded there but not in
+		// `_wp_attached_file`. StarterBase::cached_derivative_paths_by_source_path()
+		// and MigrateImageCacheCommand's map builder both name the source from
+		// the decoded DB value -- without decoding here too, the writer and the
+		// deleter/migrator name the same source differently and never agree.
+		// The flag-off branch is untouched: it must stay byte-for-byte identical
+		// to the previous behaviour.
 		$filename = $this->source_path_in_cache_key
-			? sanitize_file_name( basename( $default_image['src'] ) )
+			? sanitize_file_name( rawurldecode( basename( (string) strtok( $default_image['src'], '?' ) ) ) )
 			: sanitize_file_name( pathinfo( basename( $default_image['src'] ), PATHINFO_FILENAME ) );
 
 		// Get actual source file path by converting URL to filesystem path
