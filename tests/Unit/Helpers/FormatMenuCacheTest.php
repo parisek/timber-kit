@@ -528,4 +528,39 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		$this->assertSame( 'formatter-filter', $seen );
 	}
 
+	public function test_the_config_version_sees_item_level_groups(): void {
+		// The bug this pins shipped for one commit and no test caught it: the
+		// version asked the `nav_menu` screen only, and
+		// ACF_Location_Nav_Menu_Item::match() requires `nav_menu_item` to be SET
+		// before it delegates. So the menu screen matched nothing, the token was
+		// the constant 'nogroups', and a version check that reads as working
+		// versioned nothing.
+		//
+		// Measured on the reference site: `nav_menu` alone returns zero groups;
+		// the item screen returns the one holding every menu field. This stub
+		// reproduces that asymmetry, which the earlier stub did not — it handed
+		// back the same group for any screen, so both versions passed.
+		$modified = 1000;
+		Functions\when( 'acf_get_field_groups' )->alias(
+			static function ( $screen = [] ) use ( &$modified ) {
+				return isset( $screen['nav_menu_item'] )
+					? [ [ 'key' => 'group_nav_menu_item_main', 'modified' => $modified ] ]
+					: [];
+			}
+		);
+
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+		$first = array_keys( $this->store );
+		$this->assertNotSame( [], $first );
+
+		$modified = 2000;
+		Helpers::flushFieldGroups();
+		Helpers::flushMenuFields();
+		$this->itemWork = 0;
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertGreaterThan( 0, $this->itemWork, 'an item-level definition change was not seen' );
+		$this->assertNotSame( $first, array_keys( $this->store ) );
+	}
+
 }

@@ -2302,15 +2302,23 @@ class Helpers {
 	 * A group with no `modified` contributes its key, so a definition that
 	 * appears or disappears still moves the token.
 	 *
-	 * **It asks the `nav_menu` screen only, deliberately.** Item groups are
-	 * located by the same `nav_menu` rule — `ACF_Location_Nav_Menu_Item::match()`
-	 * confirms the key is set and hands the decision straight to `nav_menu` —
-	 * so one screen covers both, and asking a second would cost a real
-	 * `acf_get_field_groups()` walk rather than a memo hit. The exception is a
-	 * site that registers its own location type narrowing groups to specific
-	 * items; {@see sharesNavMenuItemFieldGroups()} already detects that shape
-	 * for the memo, and a config change confined to such a group would not move
-	 * this token.
+	 * **Both screens are asked, and that is not thoroughness.**
+	 * `ACF_Location_Nav_Menu_Item::match()` requires `nav_menu_item` to be SET
+	 * before it delegates to `nav_menu`, so the menu screen alone matches no
+	 * item group at all. Measured on the reference site: the `nav_menu` screen
+	 * returns zero groups and the item screen returns the one that holds every
+	 * menu field. Asking only the first produced a token that never moved — a
+	 * version check that reads as working and versions nothing.
+	 *
+	 * The item screen costs no extra walk. `fieldGroupsMemoKey()` normalizes
+	 * `nav_menu_item` to a presence marker whenever sharing is safe, so the
+	 * placeholder id here lands on the same memo entry the per-item lookups
+	 * use.
+	 *
+	 * A site registering its own ACF location type that narrows groups to
+	 * specific items turns that normalization off; the placeholder id is then
+	 * its own memo entry, and a config change confined to such a group still
+	 * would not move this token.
 	 *
 	 * @param int $menu_id `nav_menu` term id.
 	 * @return string
@@ -2320,14 +2328,25 @@ class Helpers {
 			return 'none';
 		}
 
+		$screens = [
+			// Menu-level groups.
+			[ 'nav_menu' => $menu_id ],
+			// Item-level groups. `ACF_Location_Nav_Menu_Item::match()` requires
+			// this key to be SET before it delegates, so the menu screen alone
+			// matches none of them.
+			[ 'nav_menu_item' => 0, 'nav_menu' => $menu_id ],
+		];
+
 		$stamps = [];
-		foreach ( self::fieldGroupsForScreen( [ 'nav_menu' => $menu_id ] ) as $group ) {
-			$group = (array) $group;
-			$key   = (string) ( $group['key'] ?? '' );
-			if ( '' === $key ) {
-				continue;
+		foreach ( $screens as $screen ) {
+			foreach ( self::fieldGroupsForScreen( $screen ) as $group ) {
+				$group = (array) $group;
+				$key   = (string) ( $group['key'] ?? '' );
+				if ( '' === $key ) {
+					continue;
+				}
+				$stamps[ $key ] = (string) ( $group['modified'] ?? '' );
 			}
-			$stamps[ $key ] = (string) ( $group['modified'] ?? '' );
 		}
 
 		if ( [] === $stamps ) {
