@@ -529,6 +529,92 @@ class FieldFormatterTest extends HelpersTestCase {
 		$this->assertSame( '[wpforms id="200"]', $result );
 	}
 
+	public function test_deferred_embed_returns_the_shortcode_without_rendering(): void {
+		// The whole point: a context build must not spend the render, and must
+		// not let the form plugin discover a form on a page that has none.
+		$this->define_wp_post_if_needed();
+
+		$rendered = 0;
+		Functions\when( 'do_shortcode' )->alias(
+			function ( $shortcode ) use ( &$rendered ) {
+				++$rendered;
+				return '<div class="wpforms">' . $shortcode . '</div>';
+			}
+		);
+
+		$post = new \WP_Post( (object) [ 'ID' => 200, 'post_type' => 'wpforms' ] );
+
+		$result = Helpers::fieldFormatter(
+			[ 'type' => 'post_object', 'value' => $post ],
+			1,
+			false,
+			false
+		);
+
+		$this->assertSame( '[wpforms id="200"]', $result );
+		$this->assertSame( 0, $rendered, 'do_shortcode ran, so the plugin still discovered the form' );
+	}
+
+	public function test_deferring_the_embed_keeps_the_value_cacheable(): void {
+		// A rendered form carries a nonce, so fieldFormatter counts it dynamic
+		// and nothing may store it. Deferring is therefore not only cheaper --
+		// it is what lets the rest of an options page be storable at all.
+		$this->define_wp_post_if_needed();
+		Functions\when( 'do_shortcode' )->alias( static fn ( $s ) => '<form>' . $s . '</form>' );
+
+		$post  = new \WP_Post( (object) [ 'ID' => 200, 'post_type' => 'wpforms' ] );
+		$field = [ 'type' => 'post_object', 'value' => $post ];
+
+		$before = Helpers::dynamicFormatCount();
+		Helpers::fieldFormatter( $field, 1, false, true );
+		$rendered_moved = Helpers::dynamicFormatCount() - $before;
+
+		$before = Helpers::dynamicFormatCount();
+		Helpers::fieldFormatter( $field, 1, false, false );
+		$deferred_moved = Helpers::dynamicFormatCount() - $before;
+
+		$this->assertSame( 1, $rendered_moved, 'a rendered form must count as dynamic' );
+		$this->assertSame( 0, $deferred_moved, 'a deferred form is just a string and must not' );
+	}
+
+	public function test_a_cf7_embed_defers_the_same_way(): void {
+		$this->define_wp_post_if_needed();
+
+		$rendered = 0;
+		Functions\when( 'do_shortcode' )->alias(
+			function ( $s ) use ( &$rendered ) {
+				++$rendered;
+				return $s;
+			}
+		);
+
+		$post = new \WP_Post( (object) [ 'ID' => 42, 'post_type' => 'wpcf7_contact_form' ] );
+
+		$result = Helpers::fieldFormatter(
+			[ 'type' => 'post_object', 'value' => $post ],
+			1,
+			false,
+			false
+		);
+
+		$this->assertSame( '[contact-form-7 id="42" title=""]', $result );
+		$this->assertSame( 0, $rendered );
+	}
+
+	public function test_the_default_still_renders(): void {
+		// The parameter is opt-out. A caller that knows nothing about it keeps
+		// the behaviour it had.
+		$this->define_wp_post_if_needed();
+		Functions\when( 'do_shortcode' )->alias( static fn ( $s ) => '<form>' . $s . '</form>' );
+
+		$post = new \WP_Post( (object) [ 'ID' => 200, 'post_type' => 'wpforms' ] );
+
+		$this->assertStringContainsString(
+			'<form>',
+			Helpers::fieldFormatter( [ 'type' => 'post_object', 'value' => $post ], 1 )
+		);
+	}
+
 	private function define_wp_post_if_needed(): void {
 		if ( ! class_exists( '\WP_Post' ) ) {
 			eval( '

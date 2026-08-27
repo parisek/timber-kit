@@ -1733,6 +1733,7 @@ class StarterBase extends Site {
 			'is_safe'           => [ 'html' ],
 		] ) );
 		$twig->addFunction( new TwigFunction( 'merge_resizer', [ $this, 'twig_merge_resizer' ] ) );
+		$twig->addFilter( new TwigFilter( 'shortcode', [ $this, 'twig_shortcode' ], [ 'is_safe' => [ 'html' ] ] ) );
 		$twig->addFunction( new TwigFunction( 'gtm4wp_the_gtm_tag', [ $this, 'twig_gtm4wp_the_gtm_tag' ] ) );
 		$twig->addFunction( new TwigFunction( 'gtm_container', [ $this, 'twig_gtm_container' ] ) );
 		$twig->addFunction( new TwigFunction( 'gtm_container_noscript', [ $this, 'twig_gtm_container_noscript' ] ) );
@@ -1926,6 +1927,33 @@ class StarterBase extends Site {
 		} catch ( \Throwable $e ) {
 			return false;
 		}
+	}
+
+	/**
+	 * Expand shortcodes in a value, at the point a template prints it.
+	 *
+	 * The other half of `formatFields()`'s `$render_embeds` parameter. A
+	 * context build hands back `[wpforms id="12"]` rather than a rendered form,
+	 * because it cannot know whether the page will print it. The one template
+	 * that does print it says so:
+	 *
+	 * ```twig
+	 * {{ content.contact.form|shortcode }}
+	 * ```
+	 *
+	 * Rendering here rather than during the context build is also when the form
+	 * plugin discovers it. WPForms handles that case explicitly — assets it
+	 * missed in `wp_head` are enqueued again on `wp_footer`, at the cost of a
+	 * brief flash of unstyled content, which is the trade the deferral buys on
+	 * every page that has no form at all.
+	 *
+	 * Marked `is_safe`, because the point of the filter is to emit markup.
+	 *
+	 * @param mixed $value Value that may hold shortcodes.
+	 * @return mixed Value with shortcodes expanded; non-strings pass through.
+	 */
+	public function twig_shortcode( $value ) {
+		return is_string( $value ) ? do_shortcode( $value ) : $value;
 	}
 
 	/**
