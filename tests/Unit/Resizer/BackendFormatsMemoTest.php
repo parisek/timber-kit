@@ -7,6 +7,7 @@ namespace Tests\Unit\Resizer;
 use Brain\Monkey\Functions;
 use Parisek\TimberKit\Resizer;
 use Tests\Fixtures\CountingResizer;
+use Tests\Fixtures\JpegOnlyResizer;
 use Tests\Unit\ResizerTestCase;
 
 /**
@@ -69,5 +70,22 @@ class BackendFormatsMemoTest extends ResizerTestCase {
 		( new CountingResizer() )->canDecode( 'image/jpeg' );
 
 		$this->assertSame( 2, CountingResizer::$probes );
+	}
+
+	public function test_subclasses_do_not_answer_each_other(): void {
+		// The memo is keyed by concrete class. A subclass that stubs the probe
+		// must not fill the entry an ordinary Resizer or a sibling reads, or the
+		// first stub on a page would decide what every later one can decode.
+		$this->passThroughFilters();
+		CountingResizer::$probes = 0;
+		JpegOnlyResizer::$probes = 0;
+
+		$counting = new CountingResizer();
+		$jpegOnly = new JpegOnlyResizer();
+
+		$this->assertTrue( $counting->canDecode( 'image/png' ) );
+		$this->assertFalse( $jpegOnly->canDecode( 'image/png' ), 'PNG is not in the second stub.' );
+		$this->assertSame( 1, CountingResizer::$probes );
+		$this->assertSame( 1, JpegOnlyResizer::$probes );
 	}
 }

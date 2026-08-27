@@ -12,6 +12,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   two in-process memos below. A web request never needs either; WP-CLI
   commands, persistent workers and tests do, because a static outlives the unit
   of work that filled it.
+- `timber_kit_share_nav_menu_item_field_groups` — opt in to letting every item
+  of one menu share a field-group answer. **Off by default, and the default is
+  the safe one.** See below for the contract it asks you to accept.
 
 ### Changed
 
@@ -23,72 +26,72 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   format list. One `|resizer` call builds one Resizer, so a page that resizes
   320 images probed 320 times — for a list that is a property of the
   ImageMagick build and cannot change while the process runs. The memo moves to
-  a static; `Resizer::flushBackendFormats()` drops it.
+  a static, keyed by concrete class so a subclass that stubs the probe cannot
+  answer for the base class.
 
   `Helpers::getFieldObjectsByScreen()` called `acf_get_field_groups($screen)`
-  per nav menu item. ACF caches nothing here: every call walks each registered
+  once per screen. ACF caches nothing here: every call walks each registered
   field group and evaluates its location rules, measured at 8-10 ms against 96
   groups whether or not the screen repeats. Answers are now memoized per
-  screen, and `Helpers::flushFieldGroups()` drops them.
-
-  The key normalizes `nav_menu_item` to a presence marker, which is what makes
-  the memo hit at all. `ACF_Location_Nav_Menu_Item::match()` reads that key only
-  to confirm it is set and then hands the decision to the `nav_menu` location
-  type, so the item id cannot change which groups match — every item of one menu
-  shares an answer. The key also carries the blog id and the language, because
-  field groups are registered per site and ACFML translates a group's own
-  strings.
+  screen.
 
   Measured on the sloneek front page by patching the site and re-measuring, not
-  by scaling the profile. Median of eight requests, warm:
+  by scaling the profile. Fastest of twelve warm requests, two independent
+  rounds:
 
-| | before | after |
-  | --- | ---: | ---: |
-  | `Imagick::queryFormats()` calls | 320 | 1 |
-  | `acf_get_field_groups()` calls | 109 | 24 |
-  | page | 644 ms | 548 ms |
+| | probes | `acf_get_field_groups()` | page |
+  | --- | ---: | ---: | ---: |
+  | before | 320 | 109 | 652-668 ms |
+  | default | 1 | 96 | 603-609 ms |
+  | with the opt-in filter | 1 | 11 | 551-556 ms |
 
-  That is **96 ms, about 15 %**. The rendered HTML is byte-identical once the
-  random `uniqueId()` values are normalized — checked against a control pair of
-  runs of the unchanged code, because the page is not deterministic without one.
+  So **43-65 ms by default**, and **101-112 ms with the filter on** — roughly
+  7-10 % and 15-17 %. The saving scales with images and menu items, not with
+  the page. Rendered HTML is byte-identical once the random `uniqueId()` values
+  are normalized, checked against a control pair of runs of the unchanged code
+  because the page is not deterministic without one.
 
-  The saving scales with images and menu items, not with the page: the same
-  measurement on an archive with fewer images gave 6 %.
+### The nav-menu opt-in, and why it is not the default
 
-  A static memo is request-scoped for a web request and **not** for WP-CLI or a
-  persistent worker, where one process can register field groups and then read
-  them back. Both flush methods are public for those callers; `StarterBase`
-  wires `flushFieldGroups()` to `acf/update_field_group`.
+`formatFields()` asks ACF for field groups once per nav menu item, and on a
+90-item menu the answers are identical — ACF's own
+`ACF_Location_Nav_Menu_Item::match()` reads the item id only to confirm the key
+is set, then matches on `nav_menu`.
 
-### Fixed
+That is true of ACF's own matcher and **not guaranteed of anyone else's**.
+`acf_register_location_type()` is public API, ACF hands the whole screen to
+every registered location type and to the `acf/location/rule_match` filter, and
+a matcher that answers per item is a legitimate thing to write. Sharing one
+answer would then serve the first item's groups to all of them, with no error
+and no log. A screen whose `nav_menu_item` is literally `'*'` collides for the
+same reason.
 
-- `StarterBase::cleanup_cached_images()` deleted resizer derivatives that other
-  attachments were still using. The cache under `wp-content/cache/image` is
-  keyed by file, but one file routinely carries several attachment rows: WPML
-  writes one per language, and a duplicate upload can be pointed at a path that
-  already exists. Deleting any one of those rows wiped the shared derivatives,
-  and the site then regenerated them — or, where the encoder was broken, served
-  a damaged image.
+So the sharing is opt-in, and only for sites that know their own location
+rules:
 
-  Measured on a five-language site: 5542 files were shared by 25981 attachment
-  rows, so roughly four fifths of the media library could take a live image
-  down with it. The homepage hero lost its derivatives while five attachment
-  rows and the rendered page still referenced them.
+```php
+add_filter( 'timber_kit_share_nav_menu_item_field_groups', '__return_true' );
+```
 
-  The delete now runs only when no other attachment points at the same
-  `_wp_attached_file`. It fails closed: where that question cannot be answered
-  the files are kept, because a stale derivative is overwritten by the next
-  resize while one deleted in error vanishes from a page still serving it.
-  "Cannot be answered" covers a missing `$wpdb`, an empty `_wp_attached_file`
-  (a filter supplied the path, so siblings have no key to match on), and a
-  failed query — `get_var()` reports an error by returning null, which casts to
-  the same zero a genuine "no siblings" answer gives, so the null and
-  `last_error` are both checked rather than read as a count.
+Turn it on only if no custom location type and no location-match filter on the
+site reads the item id. The installed ACFML integration hooks
+`acf/location/rule_match` but reads `post_id`, `lang` and `page_parent`, so it
+does not block the opt-in.
 
-  Not fixed here, and tracked separately: two different files that share a
-  basename across upload-year folders still collide in the flat cache
-  namespace, so deleting one can remove the other's derivative. That needs a
-  cache-naming change, not a guard.
+### What the memo does not cover
+
+The memo freezes the first answer for a screen until something flushes it.
+`acf_get_field_groups()` is not a pure function of the screen: a group
+registered late through `acf_add_local_field_group()`, an `acf/load_field_groups`
+callback, or a location-match filter reading mutable state can all change the
+answer within one process. `StarterBase` flushes on `acf/update_field_group`,
+`acf/delete_field_group`, `acf/trash_field_group` and `acf/untrash_field_group`
+— ACF fires all four dynamically as `acf/{$verb}_{$hook_name}`, which is why a
+literal search for them finds nothing. Anything else that changes groups
+mid-process must call `Helpers::flushFieldGroups()` itself.
+
+A screen `wp_json_encode()` cannot encode is never memoized, because casting
+`false` to a string would collapse every such screen onto one key.
 
 ## [1.42.0] - 2026-08-26
 

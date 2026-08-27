@@ -252,16 +252,25 @@ The class is `final` with three public static methods: `render()`, `isInserterPr
 
 ### In-process memos
 
-Two capability probes are memoized on statics, because both answer a question that cannot change while the process runs.
+Two capability probes are memoized on statics, because both answer a question that is expensive to compute and cheap to store.
 
-`Resizer::probeBackendFormats()` asks the active ImageMagick or GD build which formats it can decode. The answer is a property of the build. It used to be probed once per Resizer instance and one `|resizer` call builds one instance, so a page resizing 320 images built 320 `Imagick` objects to ask the same question. `Resizer::flushBackendFormats()` drops the memo.
+`Resizer::probeBackendFormats()` asks the active ImageMagick or GD build which formats it can decode. The answer is a property of the build. It used to be probed once per Resizer instance and one `|resizer` call builds one instance, so a page resizing 320 images built 320 `Imagick` objects to ask the same question. The memo is keyed by concrete class, so a subclass that stubs the probe cannot answer for the base class. `Resizer::flushBackendFormats()` drops it.
 
-`Helpers::getFieldObjectsByScreen()` asks ACF which field groups match a screen. ACF caches nothing here — every call walks each registered field group and evaluates its location rules, 8-10 ms against 96 groups whether or not the screen repeats — and `formatFields()` asks once per nav menu item. Answers are memoized per screen; `Helpers::flushFieldGroups()` drops them, and `StarterBase` wires it to `acf/update_field_group`.
+`Helpers::getFieldObjectsByScreen()` asks ACF which field groups match a screen. ACF caches nothing here — every call walks each registered field group and evaluates its location rules, 8-10 ms against 96 groups whether or not the screen repeats. Answers are memoized per screen; `Helpers::flushFieldGroups()` drops them, and `StarterBase` wires it to `acf/update_field_group`, `acf/delete_field_group`, `acf/trash_field_group` and `acf/untrash_field_group`. ACF fires all four dynamically as `acf/{$verb}_{$hook_name}`, which is why a literal search for them finds nothing.
+
+**`formatFields()` asks once per nav menu item, and sharing those answers is opt-in:**
+
+```php
+add_filter( 'timber_kit_share_nav_menu_item_field_groups', '__return_true' );
+```
+
+On a 90-item menu it takes 96 lookups down to 11, worth about 9 % of the render. It is off by default because ACF's own `ACF_Location_Nav_Menu_Item::match()` reads the item id only to confirm the key is set — and nobody else's matcher has to. `acf_register_location_type()` is public API, ACF hands the whole screen to every registered location type and to the `acf/location/rule_match` filter, and a matcher that answers per item is a legitimate thing to write. Sharing would then serve the first item's groups to every item, with no error and no log. **Turn it on only if no custom location type and no location-match filter on the site reads the item id.**
 
 **A web request never needs either flush.** A long-running process does: WP-CLI commands and persistent workers run many units of work in one process, so a command that saves a field group and then formats fields would otherwise be handed the list read before the save. Call the flush from any such caller that does not boot `StarterBase`, and from tests — a static outlives the test that filled it.
 
-These are in-process memos, not a persistent cache. They remove repeated work inside one render; they do not remove the first call of each request. Moving either into the object cache is a separate decision, and its cost is invalidation rather than implementation: ACF field groups load from theme JSON files, and no hook fires when a deploy changes one.
+The memo freezes the first answer until something flushes it, and `acf_get_field_groups()` is not a pure function of the screen: a late `acf_add_local_field_group()`, an `acf/load_field_groups` callback, or a location-match filter reading mutable state can all change the answer mid-process. The four hooks above cover the admin edit; anything else must flush for itself. A screen `wp_json_encode()` cannot encode is never memoized, because casting `false` to a string would collapse every such screen onto one key.
 
+These are in-process memos, not a persistent cache. They remove repeated work inside one render; they do not remove the first call of each request. Moving either into the object cache is a separate decision, and its cost is invalidation rather than implementation: ACF field groups load from theme JSON files and no hook fires when a deploy changes one. A persistent cache would also still want a static in front of it, because `wp_cache_get()` is not free.
 
 ### Site Health board
 

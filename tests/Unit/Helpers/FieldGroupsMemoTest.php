@@ -13,22 +13,30 @@ use Tests\Unit\HelpersTestCase;
  *
  * ACF caches nothing here: every call walks each registered field group and
  * evaluates its location rules, measured at 8-10 ms against 96 groups whether
- * or not the screen repeats. `formatFields()` asks once per nav menu item, so a
- * 90-item menu paid for 90 identical answers.
+ * or not the screen repeats.
+ *
+ * The nav-menu-item half of it is opt-in, and these tests pin that the default
+ * is the safe one — ACF hands the whole screen to every registered location
+ * type, so a custom matcher may legitimately answer per item.
  */
 class FieldGroupsMemoTest extends HelpersTestCase {
 
 	/** @var array<int, array<string, mixed>> */
 	private array $seen = [];
 
+	private bool $shareMenuItems = false;
+
 	protected function setUp(): void {
 		parent::setUp();
-		$this->seen = [];
+		$this->seen           = [];
+		$this->shareMenuItems = false;
 
 		Functions\when( 'apply_filters' )->alias(
 			function ( $filter, $default = null, ...$args ) {
-				unset( $filter, $args );
-				return $default;
+				unset( $args );
+				return 'timber_kit_share_nav_menu_item_field_groups' === $filter
+					? $this->shareMenuItems
+					: $default;
 			}
 		);
 		Functions\when( 'get_locale' )->justReturn( 'cs_CZ' );
@@ -53,26 +61,42 @@ class FieldGroupsMemoTest extends HelpersTestCase {
 		return $method->invoke( null, $screen );
 	}
 
-	public function test_items_of_one_menu_share_an_answer(): void {
-		// ACF_Location_Nav_Menu_Item::match() reads `nav_menu_item` only to
-		// confirm it is set, then matches on `nav_menu` — so the item id cannot
-		// change which groups match.
+	private function optIn(): void {
+		$this->shareMenuItems = true;
+		Helpers::flushFieldGroups();
+	}
+
+	public function test_menu_items_are_asked_separately_by_default(): void {
+		// The default must stay safe: a custom location type may read the item id.
+		$this->lookup( [ 'nav_menu_item' => 101, 'nav_menu' => 75 ] );
+		$this->lookup( [ 'nav_menu_item' => 102, 'nav_menu' => 75 ] );
+
+		$this->assertCount( 2, $this->seen );
+	}
+
+	public function test_items_of_one_menu_share_an_answer_when_opted_in(): void {
+		$this->optIn();
+
 		$this->lookup( [ 'nav_menu_item' => 101, 'nav_menu' => 75 ] );
 		$this->lookup( [ 'nav_menu_item' => 102, 'nav_menu' => 75 ] );
 		$this->lookup( [ 'nav_menu_item' => 103, 'nav_menu' => 75 ] );
 
-		$this->assertCount( 1, $this->seen, 'Three items of one menu must ask ACF once.' );
+		$this->assertCount( 1, $this->seen );
 	}
 
-	public function test_the_first_item_id_still_reaches_acf(): void {
-		// The normalization is in the cache key only. ACF must still be asked
-		// with a real id, because its location type checks that the key is set.
+	public function test_the_real_item_id_still_reaches_acf_when_opted_in(): void {
+		// The normalization is in the cache key only. ACF's own location type
+		// checks that the key is set, so a placeholder would change the answer.
+		$this->optIn();
+
 		$this->lookup( [ 'nav_menu_item' => 101, 'nav_menu' => 75 ] );
 
 		$this->assertSame( 101, $this->seen[0]['nav_menu_item'] );
 	}
 
-	public function test_a_different_menu_is_asked_separately(): void {
+	public function test_a_different_menu_is_asked_separately_when_opted_in(): void {
+		$this->optIn();
+
 		$this->lookup( [ 'nav_menu_item' => 101, 'nav_menu' => 75 ] );
 		$this->lookup( [ 'nav_menu_item' => 102, 'nav_menu' => 76 ] );
 
@@ -80,6 +104,7 @@ class FieldGroupsMemoTest extends HelpersTestCase {
 	}
 
 	public function test_one_options_page_is_asked_once(): void {
+		// Not gated: the options-page screen carries no per-caller id.
 		$this->lookup( [ 'options_page' => 'site-settings' ] );
 		$this->lookup( [ 'options_page' => 'site-settings' ] );
 
@@ -87,10 +112,39 @@ class FieldGroupsMemoTest extends HelpersTestCase {
 	}
 
 	public function test_key_order_does_not_split_the_memo(): void {
-		$this->lookup( [ 'nav_menu' => 75, 'nav_menu_item' => 101 ] );
-		$this->lookup( [ 'nav_menu_item' => 102, 'nav_menu' => 75 ] );
+		$this->lookup( [ 'nav_menu' => 75, 'post_type' => 'page' ] );
+		$this->lookup( [ 'post_type' => 'page', 'nav_menu' => 75 ] );
 
 		$this->assertCount( 1, $this->seen );
+	}
+
+	public function test_another_blog_is_asked_separately(): void {
+		$this->lookup( [ 'options_page' => 'site-settings' ] );
+		Functions\when( 'get_current_blog_id' )->justReturn( 2 );
+		$this->lookup( [ 'options_page' => 'site-settings' ] );
+
+		$this->assertCount( 2, $this->seen );
+	}
+
+	public function test_another_language_is_asked_separately(): void {
+		$this->lookup( [ 'options_page' => 'site-settings' ] );
+		Functions\when( 'get_locale' )->justReturn( 'it_IT' );
+		$this->lookup( [ 'options_page' => 'site-settings' ] );
+
+		$this->assertCount( 2, $this->seen );
+	}
+
+	public function test_an_unencodable_screen_is_never_memoized(): void {
+		// `wp_json_encode()` answers false for invalid UTF-8. Casting that to a
+		// string would collapse every such screen onto one key, so the memo is
+		// skipped instead — twice the work, never the wrong answer.
+		Functions\when( 'wp_json_encode' )->justReturn( false );
+
+		$this->lookup( [ 'options_page' => "bad\xB1utf8" ] );
+		$this->lookup( [ 'options_page' => "bad\xB1utf8" ] );
+		$this->lookup( [ 'options_page' => 'another' ] );
+
+		$this->assertCount( 3, $this->seen );
 	}
 
 	public function test_flush_forces_a_fresh_read(): void {

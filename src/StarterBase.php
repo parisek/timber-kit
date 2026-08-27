@@ -1024,9 +1024,13 @@ class StarterBase extends Site {
 		add_filter( 'acf/json/save_file_name', array( $this, 'acf_json_save_file_name' ), 10, 3 );
 		add_filter( 'acf/update_value/type=wysiwyg', array( $this, 'sanitize_acf_editor_value' ), 10, 1 );
 		add_filter( 'acf/format_value/type=post_object', array( $this, 'fix_wrong_acf_orders_with_ids' ), 10, 3 );
-		// Field groups are memoized per screen for the render; a save in the same
-		// request must not be answered from the list read before it.
-		add_action( 'acf/update_field_group', array( Helpers::class, 'flushFieldGroups' ) );
+		// Field groups are memoized per screen for the render; a change in the same
+		// request must not be answered from the list read before it. ACF fires
+		// these four dynamically as "acf/{$verb}_{$hook_name}", which is why a
+		// literal grep for them finds nothing.
+		foreach ( array( 'update', 'delete', 'trash', 'untrash' ) as $verb ) {
+			add_action( 'acf/' . $verb . '_field_group', array( Helpers::class, 'flushFieldGroups' ) );
+		}
 		if ( $this->acf_json_keep_on_delete ) {
 			// acf/init runs after ACF constructs ACF_Local_JSON, so the
 			// listeners exist by the time the guard tries to remove them.

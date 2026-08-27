@@ -160,9 +160,14 @@ class Resizer {
 	 * once per resized image: 320 `new Imagick()` + `queryFormats()` pairs on the
 	 * sloneek front page, 52 ms of a 990 ms render.
 	 *
-	 * @var array<int, string>|null
+	 * Keyed by concrete class: a subclass that overrides
+	 * {@see probeBackendFormatsUncached()} must not fill the base class's
+	 * entry, or ordinary Resizer instances downstream of it would be answered
+	 * with its stubbed list. The test fixture does exactly that.
+	 *
+	 * @var array<string, array<int, string>>
 	 */
-	private static ?array $backend_formats_memo = null;
+	private static array $backend_formats_memo = [];
 
 	/**
 	 * Initialize resizer settings, each of which can be overridden via a WordPress filter.
@@ -505,7 +510,8 @@ class Resizer {
 	 * @return array<int, string>
 	 */
 	protected function probeBackendFormats(): array {
-		return self::$backend_formats_memo ??= $this->probeBackendFormatsUncached();
+		return self::$backend_formats_memo[ static::class ]
+			??= $this->probeBackendFormatsUncached();
 	}
 
 	/**
@@ -518,7 +524,7 @@ class Resizer {
 	 * @return void
 	 */
 	public static function flushBackendFormats(): void {
-		self::$backend_formats_memo = null;
+		self::$backend_formats_memo = [];
 	}
 
 	/**

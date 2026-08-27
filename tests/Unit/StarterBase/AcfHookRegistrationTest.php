@@ -32,14 +32,17 @@ class AcfHookRegistrationTest extends StarterBaseTestCase {
 
 		( new \ReflectionMethod( $base, 'registerAcfHooks' ) )->invoke( $base );
 
-		$this->assertArrayHasKey(
-			'acf/update_field_group',
-			$actions,
-			'The field-group memo has no other automatic invalidation.'
-		);
-		$this->assertSame(
-			[ Helpers::class, 'flushFieldGroups' ],
-			$actions['acf/update_field_group']
-		);
+		// ACF fires all four dynamically as "acf/{$verb}_{$hook_name}". Missing
+		// any one of them leaves the memo holding a list the admin has already
+		// changed.
+		foreach ( [ 'update', 'delete', 'trash', 'untrash' ] as $verb ) {
+			$hook = 'acf/' . $verb . '_field_group';
+			$this->assertArrayHasKey(
+				$hook,
+				$actions,
+				'The field-group memo has no other automatic invalidation.'
+			);
+			$this->assertSame( [ Helpers::class, 'flushFieldGroups' ], $actions[ $hook ] );
+		}
 	}
 }
