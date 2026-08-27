@@ -2124,6 +2124,61 @@ class Helpers {
 	}
 
 	/**
+	 * A token that changes when the field definitions a menu reads change.
+	 *
+	 * Field groups load from theme JSON, not from `wp_posts`. Deploying a file
+	 * that edits a `default_value` or a return format therefore moves neither
+	 * the `posts` nor the `terms` last-changed counter, and a value cache keyed
+	 * only on those keeps serving what the previous definition produced —
+	 * until the entry expires, which is a lifetime, not a correctness bound.
+	 *
+	 * ACF stamps each group with `modified`, and its local-JSON loader takes
+	 * that from the file. Hashing the groups a menu actually reads is therefore
+	 * exact in both directions: an edit in the admin moves it, and so does a
+	 * deploy. It costs no query — `fieldGroupsForScreen()` has already fetched
+	 * and memoized these for the walk that is about to use them.
+	 *
+	 * A group with no `modified` contributes its key, so a definition that
+	 * appears or disappears still moves the token.
+	 *
+	 * **It asks the `nav_menu` screen only, deliberately.** Item groups are
+	 * located by the same `nav_menu` rule — `ACF_Location_Nav_Menu_Item::match()`
+	 * confirms the key is set and hands the decision straight to `nav_menu` —
+	 * so one screen covers both, and asking a second would cost a real
+	 * `acf_get_field_groups()` walk rather than a memo hit. The exception is a
+	 * site that registers its own location type narrowing groups to specific
+	 * items; {@see sharesNavMenuItemFieldGroups()} already detects that shape
+	 * for the memo, and a config change confined to such a group would not move
+	 * this token.
+	 *
+	 * @param int $menu_id `nav_menu` term id.
+	 * @return string
+	 */
+	public static function menuFieldConfigVersion( int $menu_id ): string {
+		if ( ! function_exists( 'acf_get_field_groups' ) ) {
+			return 'none';
+		}
+
+		$stamps = [];
+		foreach ( self::fieldGroupsForScreen( [ 'nav_menu' => $menu_id ] ) as $group ) {
+			$group = (array) $group;
+			$key   = (string) ( $group['key'] ?? '' );
+			if ( '' === $key ) {
+				continue;
+			}
+			$stamps[ $key ] = (string) ( $group['modified'] ?? '' );
+		}
+
+		if ( [] === $stamps ) {
+			return 'nogroups';
+		}
+
+		ksort( $stamps );
+
+		return substr( md5( (string) wp_json_encode( $stamps ) ), 0, 12 );
+	}
+
+	/**
 	 * Whether any `field_formatter_{$type}` filter has a callback.
 	 *
 	 * A formatter callback may derive its result from the global post, the

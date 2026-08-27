@@ -324,6 +324,11 @@ final class MenuFieldsCache {
 	 * @return string
 	 */
 	private static function key( int $menu_id ): string {
-		return 'menu-fields:' . $menu_id . '|' . CacheSignature::shared();
+		// The field-config version rides in the key rather than being flushed on
+		// a hook, because the change that needs catching is a file deploy and no
+		// hook fires for one.
+		return 'menu-fields:' . $menu_id
+			. '|' . Helpers::menuFieldConfigVersion( $menu_id )
+			. '|' . CacheSignature::shared();
 	}
 }

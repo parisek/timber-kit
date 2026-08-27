@@ -384,4 +384,45 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		$this->assertFalse( Helpers::flushStoredMenuFields() );
 	}
 
+	public function test_an_edited_field_definition_does_not_read_the_old_entry(): void {
+		// Field groups load from theme JSON, so a deploy that edits a
+		// default_value or a return format moves neither the posts nor the
+		// terms last-changed counter. Without a config version in the key the
+		// old entry stays reachable until it expires, and a lifetime is not a
+		// correctness bound.
+		Functions\when( 'acf_get_field_groups' )->justReturn(
+			[ [ 'key' => 'group_menu', 'modified' => 1000 ] ]
+		);
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+		$first = array_keys( $this->store );
+		$this->assertNotSame( [], $first );
+
+		// The JSON file changes; ACF's local loader stamps the new mtime.
+		Helpers::flushFieldGroups();
+		Helpers::flushMenuFields();
+		Functions\when( 'acf_get_field_groups' )->justReturn(
+			[ [ 'key' => 'group_menu', 'modified' => 2000 ] ]
+		);
+		$this->itemWork = 0;
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertGreaterThan( 0, $this->itemWork, 'the old entry answered a changed definition' );
+		$this->assertNotSame( $first, array_keys( $this->store ) );
+	}
+
+	public function test_an_unchanged_field_definition_still_hits(): void {
+		// The mirror. A version that moved on its own would make every request
+		// a miss and the cache would look like it works while doing nothing.
+		Functions\when( 'acf_get_field_groups' )->justReturn(
+			[ [ 'key' => 'group_menu', 'modified' => 1000 ] ]
+		);
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+		Helpers::flushMenuFields();
+		$this->itemWork = 0;
+
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertSame( 0, $this->itemWork );
+	}
+
 }
