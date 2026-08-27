@@ -70,9 +70,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   resolve: a flat legacy derivative whose old (extension-less) name maps to more
   than one distinct source path is reported as ambiguous and left unmigrated —
   recovering which source it came from is exactly what the flat layout
-  destroyed — and is re-encoded correctly on first view instead. A site with
-  year/month folders switched off, and no such same-directory-extension
-  collision, gets byte-identical paths and needs no migration.
+  destroyed — and is re-encoded correctly on first view instead. A root upload
+  (no year/month directory) still needs migrating, because its target name now
+  carries the source's own extension too (`hero.avif` becomes `hero.png.avif`);
+  only a root upload whose source filename has no extension of its own
+  produces a byte-identical path, and needs no migration.
 
   With the flag on, `cleanup_cached_images()` addresses derivatives by path
   instead of matching basenames across the tree, so deleting an attachment can
