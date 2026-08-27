@@ -29,6 +29,18 @@ namespace Parisek\TimberKit;
 class ImageCacheMigrator {
 
 	/**
+	 * Basename (own extension included) of every root-upload (no directory)
+	 * source path in `$name_to_source_paths`, mapped back to its distinct
+	 * full source paths. A root upload's migrated derivative sits at the same
+	 * depth in the size directory as an unmigrated legacy one -- this index
+	 * is what lets `plan()` tell "already produced by the new layout" apart
+	 * from "still a legacy name to migrate" without relying on path depth.
+	 *
+	 * @var array<string, list<string>>
+	 */
+	private readonly array $root_target_index;
+
+	/**
 	 * @param string                      $cache_dir           Absolute path to
 	 *                                            the resizer cache root (holds
 	 *                                            the size directories directly).
@@ -47,6 +59,27 @@ class ImageCacheMigrator {
 		private readonly string $cache_dir,
 		private readonly array $name_to_source_paths
 	) {
+		$root_target_index = array();
+
+		foreach ( $this->name_to_source_paths as $source_paths ) {
+			foreach ( $source_paths as $source_path ) {
+				if ( '' !== $this->dirOf( $source_path ) ) {
+					continue;
+				}
+
+				$target_name = basename( $source_path );
+
+				if ( ! isset( $root_target_index[ $target_name ] ) ) {
+					$root_target_index[ $target_name ] = array();
+				}
+
+				if ( ! in_array( $source_path, $root_target_index[ $target_name ], true ) ) {
+					$root_target_index[ $target_name ][] = $source_path;
+				}
+			}
+		}
+
+		$this->root_target_index = $root_target_index;
 	}
 
 	/**
@@ -77,7 +110,25 @@ class ImageCacheMigrator {
 			// Dedup here too: two attachment rows can share one full source
 			// path (WPML files one row per language against the same file),
 			// and that must read as one identity, not an ambiguous pair.
-			$source_paths = array_values( array_unique( $this->name_to_source_paths[ $name ] ?? array() ) );
+			//
+			// The root-target index is merged in on purpose, not consulted
+			// separately: a root upload's own migrated derivative (e.g.
+			// `hero.png.avif`) sits at the very same depth in the size
+			// directory as an unmigrated legacy candidate, so `candidates()`
+			// cannot tell them apart by path shape alone. Folding both
+			// interpretations into one set before counting means a name that
+			// resolves the same way under both (the common case -- see
+			// `test_root_upload_with_extensionless_source_name_is_already_in_place`)
+			// still reads as unambiguous, while a name that resolves to two
+			// distinct identities (ADR 0007's aliasing case: `hero.png` the
+			// root upload vs. `hero.png.jpg` a legacy source -- both strip to
+			// `hero.png`) reads as ambiguous exactly as any other collision
+			// would. Recovering which one produced the file on disk is
+			// exactly what the flat layout destroyed.
+			$source_paths = array_values( array_unique( array_merge(
+				$this->root_target_index[ $name ] ?? array(),
+				$this->name_to_source_paths[ $name ] ?? array()
+			) ) );
 
 			if ( array() === $source_paths ) {
 				$orphaned[] = $relative;
@@ -197,8 +248,11 @@ class ImageCacheMigrator {
 
 	/**
 	 * Files sitting directly inside a size directory (`<cache>/<size>/<file>`).
-	 * Anything deeper already carries a source-relative-dir segment and is
-	 * therefore already migrated, so it is not a candidate.
+	 * Anything deeper already carries a source-relative-dir segment, so it is
+	 * not a candidate. A file at this depth is not necessarily unmigrated,
+	 * though: a root upload's own migrated derivative lands here too (its
+	 * source-relative-dir is empty), so `plan()` -- not this method -- is
+	 * what tells the two apart, via `$root_target_index`.
 	 *
 	 * @return array<string,string> Relative path (from `$cache_dir`) => absolute path.
 	 */

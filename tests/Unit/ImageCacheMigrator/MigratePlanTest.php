@@ -141,7 +141,65 @@ class MigratePlanTest extends TestCase {
 		$this->assertFileDoesNotExist( $src );
 		$this->assertFileExists( $this->dir . '/900x0-center/2026/08/hero.webp.avif' );
 
-		$this->assertSame( [], ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08/hero.webp' ] ] ) )->plan()['move'] );
+		$second_plan = ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08/hero.webp' ] ] ) )->plan();
+		$this->assertSame( [], $second_plan['move'] );
+		$this->assertSame( [], $second_plan['ambiguous'] );
+		$this->assertSame( [], $second_plan['orphaned'] );
+		$this->assertSame( [], $second_plan['conflict'] );
+	}
+
+	/**
+	 * A root upload's migrated derivative (`hero.png.avif`) sits at the same
+	 * depth in the size directory as an unmigrated legacy one -- path depth
+	 * alone cannot tell "already done" from "still to do". A second run must
+	 * recognise the migrated file as `already_in_place`, not misread it as an
+	 * orphan (its legacy stripped name `hero.png` isn't a key in the map,
+	 * which is keyed by the un-migrated legacy names).
+	 */
+	public function test_root_upload_with_extension_is_idempotent_on_a_second_run(): void {
+		$this->seed( '900x0-center/hero.avif' );
+		$name_to_source_paths = [ 'hero' => [ 'hero.png' ] ];
+		$migrator = new ImageCacheMigrator( $this->dir, $name_to_source_paths );
+
+		$first = $migrator->apply( $migrator->plan() );
+		$this->assertSame( 1, $first['moved'] );
+		$this->assertFileExists( $this->dir . '/900x0-center/hero.png.avif' );
+
+		$second_plan = ( new ImageCacheMigrator( $this->dir, $name_to_source_paths ) )->plan();
+		$this->assertSame( [], $second_plan['move'] );
+		$this->assertSame( [], $second_plan['ambiguous'] );
+		$this->assertSame( [], $second_plan['orphaned'] );
+		$this->assertSame( [], $second_plan['conflict'] );
+		$this->assertSame( [ '900x0-center/hero.png.avif' ], $second_plan['already_in_place'] );
+	}
+
+	/**
+	 * The genuine aliasing case ADR 0007 calls out: a new derivative for root
+	 * source `hero.png` has the same on-disk spelling as the OLD flat
+	 * derivative for a different root source, `hero.png.jpg` (whose legacy
+	 * name -- `pathinfo(..., PATHINFO_FILENAME)` strips only the last
+	 * extension -- is also `hero.png`). Recovering which one produced the
+	 * file on disk is exactly what the flat layout destroyed, so this must
+	 * be reported as ambiguous, never guessed.
+	 */
+	public function test_root_target_name_colliding_with_a_different_legacy_source_is_ambiguous(): void {
+		$this->seed( '900x0-center/hero.png.avif' );
+
+		// 'hero' => ['hero.png'] is the root source whose migrated derivative
+		// is the on-disk file. 'hero.png' => ['hero.png.jpg'] is an unrelated
+		// legacy source whose OWN stripped name (PATHINFO_FILENAME drops only
+		// the last extension) also happens to be 'hero.png'.
+		$plan = ( new ImageCacheMigrator(
+			$this->dir,
+			[ 'hero' => [ 'hero.png' ], 'hero.png' => [ 'hero.png.jpg' ] ]
+		) )->plan();
+
+		$this->assertSame( [], $plan['move'] );
+		$this->assertSame( [], $plan['already_in_place'] );
+		$this->assertSame(
+			[ 'hero.png', 'hero.png.jpg' ],
+			$plan['ambiguous']['900x0-center/hero.png.avif']
+		);
 	}
 
 	/**
