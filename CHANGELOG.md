@@ -6,8 +6,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-## [1.44.0] - 2026-08-27
-
 ### Added
 
 - `StarterBase::$acfml_skip_frontend_field_translation` — **on by default**.
@@ -49,6 +47,31 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   fixed in acfml 3.0-b.1: every file on the hot path is byte-identical to 2.2.4,
   and so is the bundled `wpml/fp`.
 
+
+### Changed
+
+- `StarterBase::$disable_404_permalink_guess` — **on by default, which reverses
+  WordPress core.** `redirect_guess_404_permalink()` matches the requested slug
+  as a *prefix* — `post_name LIKE 'about%'` — and redirects to whatever comes
+  back first.
+
+  A reader following a dead link is told the page moved and then shown
+  something else. That is worse than being told it is gone: a 404 is a fact, a
+  wrong 301 is an answer.
+
+  The query has a leading value and a trailing wildcard, so it cannot use the
+  `post_name` index, and it runs on every 404 that carries a name. That makes it
+  a scan any visitor can ask for as often as they like.
+
+  **Genuine canonical redirects are untouched.** The guess is the last thing
+  `redirect_canonical()` tries, after trailing-slash, `?p=ID`-to-slug and
+  category-base have each had their turn — those correct a request that names
+  the right post, and they keep working.
+
+  Set `false` to restore core on a site that renames slugs without leaving
+  redirects behind and relies on the guess to catch the fallout.
+
+## [1.44.0] - 2026-08-27
 
 ### Added
 

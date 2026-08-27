@@ -316,6 +316,33 @@ class StarterBase extends Site {
 	/** @var bool Block ?author=N URL enumeration that leaks usernames via canonical redirect. */
 	protected bool $block_author_enumeration = true;
 
+	/**
+	 * @var bool Stop WordPress guessing a destination for a 404 and redirecting
+	 * to it.
+	 *
+	 * On by default, which reverses core. `redirect_guess_404_permalink()`
+	 * matches the requested slug as a PREFIX — `post_name LIKE 'about%'` — and
+	 * redirects to whatever comes back first. A reader following a dead link is
+	 * told the page moved and then shown something else, which is worse than
+	 * being told it is gone: a 404 is a fact, and a wrong 301 is an answer.
+	 *
+	 * That `LIKE` has a leading value and a trailing wildcard, so it cannot use
+	 * the `post_name` index. It runs on every 404 carrying a name, which is a
+	 * cost any visitor can ask for as often as they like.
+	 *
+	 * Genuine canonical redirects are untouched. The guess is the last thing
+	 * `redirect_canonical()` tries, after trailing-slash, `?p=ID`-to-slug and
+	 * category-base have all had their turn — those correct a request that names
+	 * the right post, and they keep working.
+	 *
+	 * Set false to restore core's behaviour on a site that renames slugs without
+	 * leaving redirects behind and relies on the guess to catch the fallout.
+	 *
+	 * Named for the action rather than the setting, like every other flag in
+	 * this group: `true` means the kit does the thing.
+	 */
+	protected bool $disable_404_permalink_guess = true;
+
 	/** @var bool Define DISALLOW_FILE_EDIT so Theme/Plugin Editor is hidden from the admin. */
 	protected bool $disable_file_editing = true;
 
@@ -1245,6 +1272,9 @@ class StarterBase extends Site {
 		}
 		if ( $this->disable_application_passwords ) {
 			add_filter( 'wp_is_application_passwords_available', '__return_false' );
+		}
+		if ( $this->disable_404_permalink_guess ) {
+			add_filter( 'do_redirect_guess_404_permalink', '__return_false' );
 		}
 		if ( $this->block_author_enumeration ) {
 			// Priority 9 runs before redirect_canonical (priority 10), so the username-revealing redirect never fires.

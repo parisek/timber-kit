@@ -34,6 +34,7 @@ class RegisterSecurityHardeningHooksTest extends StarterBaseTestCase {
 			'restrict_rest_users',
 			'disable_application_passwords',
 			'block_author_enumeration',
+			'disable_404_permalink_guess',
 			'disable_file_editing',
 			'remove_wp_generator',
 			'disable_author_sitemap',
@@ -210,4 +211,27 @@ class RegisterSecurityHardeningHooksTest extends StarterBaseTestCase {
 		$this->assertContains( 'wp_headers', $filters );
 		$this->assertNotContains( 'site_status_tests', $filters );
 	}
+	public function test_disable_404_permalink_guess_registers_the_filter(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstanceWithAllFlagsOff();
+		$this->setProperty( $instance, 'disable_404_permalink_guess', true );
+
+		$this->invokeRegisterSecurityHardeningHooks( $instance );
+
+		$this->assertContains( 'do_redirect_guess_404_permalink', $filters );
+	}
+
+	public function test_the_404_guess_is_disabled_by_default(): void {
+		// This one reverses core, so the default is the whole change. A
+		// property defaulting the other way is a feature nobody switches on.
+		$property = new \ReflectionProperty( StarterBase::class, 'disable_404_permalink_guess' );
+
+		$this->assertTrue( $property->getDefaultValue() );
+	}
+
 }
