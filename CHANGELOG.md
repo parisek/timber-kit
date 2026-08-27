@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `Resizer::flushBackendFormats()` and `Helpers::flushFieldGroups()` drop the
+  two in-process memos below. A web request never needs either; WP-CLI
+  commands, persistent workers and tests do, because a static outlives the unit
+  of work that filled it.
+
 ### Changed
 
 - Two capability probes that ran once per object now run once per request.
