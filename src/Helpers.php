@@ -1226,6 +1226,76 @@ class Helpers {
 	}
 
 	/**
+	 * Memoized `acf_get_field_groups()` answers, keyed by screen.
+	 *
+	 * ACF does not cache this call. Every invocation walks each registered field
+	 * group and evaluates its location rules, so the cost is
+	 * `groups x screens` — measured at 8-10 ms per call against 96 groups,
+	 * whether or not the screen repeats.
+	 *
+	 * @var array<string, array<int, mixed>>
+	 */
+	private static array $field_groups_memo = [];
+
+	/**
+	 * Drop the memoized field-group answers.
+	 *
+	 * A web request never needs this: the process ends before a field group can
+	 * change. `StarterBase` wires it to `acf/update_field_group` for the admin
+	 * save, and it is public for WP-CLI commands, persistent workers and tests,
+	 * where one process registers groups and then reads them back.
+	 *
+	 * @return void
+	 */
+	public static function flushFieldGroups(): void {
+		self::$field_groups_memo = [];
+	}
+
+	/**
+	 * `acf_get_field_groups()` behind a per-screen memo.
+	 *
+	 * @param array<string, mixed> $screen Screen array passed to `acf_get_field_groups()`.
+	 * @return array<int, mixed> Matching field groups; empty when none match.
+	 */
+	private static function fieldGroupsForScreen( array $screen ): array {
+		$key = self::fieldGroupsMemoKey( $screen );
+		if ( ! array_key_exists( $key, self::$field_groups_memo ) ) {
+			$groups = acf_get_field_groups( $screen );
+			self::$field_groups_memo[ $key ] = is_array( $groups ) ? $groups : [];
+		}
+
+		return self::$field_groups_memo[ $key ];
+	}
+
+	/**
+	 * Cache key for one screen.
+	 *
+	 * Carries the blog id and the language because field groups are registered
+	 * per site and ACFML translates a group's own strings, so both change the
+	 * correct answer for an unchanged screen.
+	 *
+	 * `nav_menu_item` is normalized to a presence marker.
+	 * `ACF_Location_Nav_Menu_Item::match()` reads that key only to confirm it is
+	 * set and then hands the whole decision to the `nav_menu` location type, so
+	 * the item id cannot change which groups match — every item of one menu
+	 * shares an answer. Without the normalization the memo would key on an id
+	 * that never affects the result and never hit.
+	 *
+	 * @param array<string, mixed> $screen Screen array.
+	 * @return string
+	 */
+	private static function fieldGroupsMemoKey( array $screen ): string {
+		if ( isset( $screen['nav_menu_item'] ) ) {
+			$screen['nav_menu_item'] = '*';
+		}
+		ksort( $screen );
+
+		$blog_id = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+
+		return $blog_id . '|' . self::getLanguage() . '|' . (string) wp_json_encode( $screen );
+	}
+
+	/**
 	 * Resolve ACF field objects for an explicit location-rule screen.
 	 *
 	 * Walks `acf_get_field_groups($screen)` → `acf_get_fields($group)` and
@@ -1253,8 +1323,8 @@ class Helpers {
 			return false;
 		}
 
-		$groups = acf_get_field_groups( $screen );
-		if ( ! is_array( $groups ) || empty( $groups ) ) {
+		$groups = self::fieldGroupsForScreen( $screen );
+		if ( empty( $groups ) ) {
 			return false;
 		}
 
