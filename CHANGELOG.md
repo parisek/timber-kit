@@ -6,6 +6,53 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- Two capability probes that ran once per object now run once per request.
+  Both had a memo already; both stored it on the instance the caller throws
+  away, so it never answered anything.
+
+  `Resizer::probeBackendFormats()` built a `new Imagick()` and asked it for the
+  format list. One `|resizer` call builds one Resizer, so a page that resizes
+  320 images probed 320 times — for a list that is a property of the
+  ImageMagick build and cannot change while the process runs. The memo moves to
+  a static; `Resizer::flushBackendFormats()` drops it.
+
+  `Helpers::getFieldObjectsByScreen()` called `acf_get_field_groups($screen)`
+  per nav menu item. ACF caches nothing here: every call walks each registered
+  field group and evaluates its location rules, measured at 8-10 ms against 96
+  groups whether or not the screen repeats. Answers are now memoized per
+  screen, and `Helpers::flushFieldGroups()` drops them.
+
+  The key normalizes `nav_menu_item` to a presence marker, which is what makes
+  the memo hit at all. `ACF_Location_Nav_Menu_Item::match()` reads that key only
+  to confirm it is set and then hands the decision to the `nav_menu` location
+  type, so the item id cannot change which groups match — every item of one menu
+  shares an answer. The key also carries the blog id and the language, because
+  field groups are registered per site and ACFML translates a group's own
+  strings.
+
+  Measured on the sloneek front page by patching the site and re-measuring, not
+  by scaling the profile. Median of eight requests, warm:
+
+| | before | after |
+  | --- | ---: | ---: |
+  | `Imagick::queryFormats()` calls | 320 | 1 |
+  | `acf_get_field_groups()` calls | 109 | 24 |
+  | page | 644 ms | 548 ms |
+
+  That is **96 ms, about 15 %**. The rendered HTML is byte-identical once the
+  random `uniqueId()` values are normalized — checked against a control pair of
+  runs of the unchanged code, because the page is not deterministic without one.
+
+  The saving scales with images and menu items, not with the page: the same
+  measurement on an archive with fewer images gave 6 %.
+
+  A static memo is request-scoped for a web request and **not** for WP-CLI or a
+  persistent worker, where one process can register field groups and then read
+  them back. Both flush methods are public for those callers; `StarterBase`
+  wires `flushFieldGroups()` to `acf/update_field_group`.
+
 ### Fixed
 
 - `StarterBase::cleanup_cached_images()` deleted resizer derivatives that other

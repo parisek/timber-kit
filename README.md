@@ -250,6 +250,19 @@ The class is `final` with three public static methods: `render()`, `isInserterPr
 
 `BlockRenderer::flushPostBlockCache($post_id)` is the handler `StarterBase` wires to `acf/save_post` at priority 20. When ACF saves a post, the cache group `acf_block_{$post_id}` is flushed — invalidating exactly the cached blocks tied to that post without touching others. The handler guards against non-numeric ids (ACF options-page strings, opaque `block_*` ids) and against environments without `wp_cache_supports('flush_group')`.
 
+### In-process memos
+
+Two capability probes are memoized on statics, because both answer a question that cannot change while the process runs.
+
+`Resizer::probeBackendFormats()` asks the active ImageMagick or GD build which formats it can decode. The answer is a property of the build. It used to be probed once per Resizer instance and one `|resizer` call builds one instance, so a page resizing 320 images built 320 `Imagick` objects to ask the same question. `Resizer::flushBackendFormats()` drops the memo.
+
+`Helpers::getFieldObjectsByScreen()` asks ACF which field groups match a screen. ACF caches nothing here — every call walks each registered field group and evaluates its location rules, 8-10 ms against 96 groups whether or not the screen repeats — and `formatFields()` asks once per nav menu item. Answers are memoized per screen; `Helpers::flushFieldGroups()` drops them, and `StarterBase` wires it to `acf/update_field_group`.
+
+**A web request never needs either flush.** A long-running process does: WP-CLI commands and persistent workers run many units of work in one process, so a command that saves a field group and then formats fields would otherwise be handed the list read before the save. Call the flush from any such caller that does not boot `StarterBase`, and from tests — a static outlives the test that filled it.
+
+These are in-process memos, not a persistent cache. They remove repeated work inside one render; they do not remove the first call of each request. Moving either into the object cache is a separate decision, and its cost is invalidation rather than implementation: ACF field groups load from theme JSON files, and no hook fires when a deploy changes one.
+
+
 ### Site Health board
 
 Opt-in check-list of Porta recommended settings surfaced in Tools → Site Health
