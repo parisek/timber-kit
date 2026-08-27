@@ -484,4 +484,48 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		$this->assertNotSame( [], $this->store );
 	}
 
+	public function test_the_refusal_reason_is_reported_rather_than_discarded(): void {
+		// It was already computed and thrown away, which made "why is my menu
+		// not cached" a source-reading exercise on a shared package.
+		$GLOBALS['wp_filter']['field_formatter_text'] = [ 10 => [ 'cb' => [] ] ];
+
+		try {
+			Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+		} finally {
+			unset( $GLOBALS['wp_filter']['field_formatter_text'] );
+		}
+
+		$this->assertSame( [ 7 => 'formatter-filter' ], Helpers::menuCacheDecisions() );
+	}
+
+	public function test_a_cached_menu_reports_that_it_cached(): void {
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertSame( [ 7 => 'cache' ], Helpers::menuCacheDecisions() );
+	}
+
+	public function test_the_filter_receives_the_reason_not_just_the_verdict(): void {
+		// "That formatter is mine and it is pure" is a different claim from
+		// "cache this whatever you found", and only the first is one an author
+		// can honestly make.
+		$seen = null;
+		$GLOBALS['wp_filter']['field_formatter_text'] = [ 10 => [ 'cb' => [] ] ];
+		Filters\expectApplied( 'timber_kit_cache_menu_fields' )
+			->zeroOrMoreTimes()
+			->andReturnUsing(
+				function ( $default, $menu_id, $reason = null ) use ( &$seen ) {
+					$seen = $reason;
+					return $default;
+				}
+			);
+
+		try {
+			Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+		} finally {
+			unset( $GLOBALS['wp_filter']['field_formatter_text'] );
+		}
+
+		$this->assertSame( 'formatter-filter', $seen );
+	}
+
 }

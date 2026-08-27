@@ -84,6 +84,38 @@ request**. `/blog/` goes 907 ms to 836-857 ms. Rendered HTML is byte-identical
 once non-deterministic ids are normalized, with a valid control pair either
 side.
 
+### Three things the value check cannot see, and what happens instead
+
+The shortcode check reads the value ACF produced, which closes the surface it
+can see. Three others are closed differently, and each was found by review
+rather than by design:
+
+- **Field definitions change without touching content.** Groups load from theme
+  JSON, so a deploy editing a `default_value` moves neither last-changed
+  counter. The key now carries a hash of the `modified` stamps of the groups
+  the menu reads — exact in both directions, and free, because the memo
+  released in 1.43.0 has already fetched them.
+- **`acf/load_value` runs before the value exists.** A callback there reading
+  the current user leaves nothing behind to detect. Callbacks are judged by
+  where they are defined, not by presence: ACF's own plumbing is the mechanism
+  that makes `acf/load_value/type=…` fire at all, and ACFML sits there on every
+  WPML site, so refusing on presence would switch the cache off exactly where
+  it was measured. `timber_kit_trusted_value_load_roots` lets a project vouch
+  for its own. The variation tags are scanned too — the reference site has
+  fourteen live and none named `acf/load_value`.
+- **Nobody could tell why a menu was not cached.** The reason was computed and
+  discarded. `Helpers::menuCacheDecisions()` now returns it per menu, and
+  `timber_kit_cache_menu_fields` receives it as a third argument, so a project
+  can answer the specific objection rather than the verdict.
+
+### An entry can be deleted on demand
+
+`Helpers::flushStoredMenuFields()` empties the group. Ordinary staleness needs
+no flush — the key carries a content version — but an entry believed wrong had
+no lever short of `wp_cache_flush()`, which empties every group and, on shared
+infrastructure, every site. A backend without `flush_group` support returns
+false rather than looking successful.
+
 ### Lifetime and re-entrancy
 
 `wp_cache_set()` is given a lifetime (`timber_kit_menu_fields_ttl`, 12 h). The

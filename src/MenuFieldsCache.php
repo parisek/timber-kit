@@ -70,6 +70,30 @@ final class MenuFieldsCache {
 	private static array $active = [];
 
 	/**
+	 * What was decided for each menu this request, and why.
+	 *
+	 * The reason was already computed and thrown away, which made "why is my
+	 * menu not cached" a source-reading exercise. Keeping it costs one string
+	 * per menu and turns the question into a call.
+	 *
+	 * @var array<int, string>
+	 */
+	private static array $decisions = [];
+
+	/**
+	 * The cache decision per menu for this request, keyed by menu term id.
+	 *
+	 * Values: 'cache' when it was cached, 'filtered-off' when a project said
+	 * no, else the objection — 'no-object-cache', 'formatter-filter',
+	 * 'untrusted-value-load'.
+	 *
+	 * @return array<int, string>
+	 */
+	public static function decisions(): array {
+		return self::$decisions;
+	}
+
+	/**
 	 * Begin a walk of one menu, replaying a stored payload if there is one.
 	 *
 	 * Re-entrant on purpose. Formatting a field can reach code that asks for the
@@ -216,6 +240,7 @@ final class MenuFieldsCache {
 		self::$dirty      = [];
 		self::$unstorable = [];
 		self::$active     = [];
+		self::$decisions  = [];
 	}
 
 	/**
@@ -305,15 +330,53 @@ final class MenuFieldsCache {
 		// everything else, so a project that knows its own formatter is pure can
 		// say so — and a project that does not, does not have to know the rule
 		// exists.
-		$default = CacheSignature::isAvailable()
-			&& ! Helpers::hasFieldFormatterFilters()
-			// The value-load hooks are the surface the shortcode check cannot
-			// see: by the time a value exists, a callback on them has already
-			// run. Judged by where they are defined rather than by presence,
-			// because ACF's own plumbing and ACFML both sit there.
-			&& Helpers::valueLoadHooksAreTrusted();
+		$reason = self::refusalReason();
 
-		return (bool) apply_filters( 'timber_kit_cache_menu_fields', $default, $menu_id );
+		/**
+		 * Filters whether one menu's fields may be cached across requests.
+		 *
+		 * The reason is passed so a project can answer the specific objection
+		 * rather than the verdict — "that formatter is mine and it is pure" is
+		 * a different claim from "cache this whatever you found", and only the
+		 * first is one an author can honestly make.
+		 *
+		 * @param bool   $default Whether the kit would cache it.
+		 * @param int    $menu_id Menu term id.
+		 * @param string $reason  Why not: '' when the default is to cache, else
+		 *                        one of 'no-object-cache', 'formatter-filter',
+		 *                        'untrusted-value-load'.
+		 */
+		$allowed = (bool) apply_filters( 'timber_kit_cache_menu_fields', '' === $reason, $menu_id, $reason );
+
+		self::$decisions[ $menu_id ] = $allowed ? 'cache' : ( '' !== $reason ? $reason : 'filtered-off' );
+
+		return $allowed;
+	}
+
+	/**
+	 * Why this request would not cache, or '' when it would.
+	 *
+	 * Ordered cheapest first, and it stops at the first objection — a site
+	 * with no object cache is not asked to walk the filter registry.
+	 *
+	 * @return string
+	 */
+	private static function refusalReason(): string {
+		if ( ! CacheSignature::isAvailable() ) {
+			return 'no-object-cache';
+		}
+
+		if ( Helpers::hasFieldFormatterFilters() ) {
+			return 'formatter-filter';
+		}
+
+		// The surface the shortcode check cannot see: by the time a value
+		// exists, a callback on these has already run.
+		if ( ! Helpers::valueLoadHooksAreTrusted() ) {
+			return 'untrusted-value-load';
+		}
+
+		return '';
 	}
 
 	/**

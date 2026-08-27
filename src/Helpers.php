@@ -2393,6 +2393,19 @@ class Helpers {
 	}
 
 	/**
+	 * What the menu cache decided this request, and why, keyed by menu term id.
+	 *
+	 * Delegates to {@see MenuFieldsCache::decisions()}. A caller reaches the
+	 * menu through `Helpers`, and would not think to look elsewhere for the
+	 * answer to "why was it not cached".
+	 *
+	 * @return array<int, string>
+	 */
+	public static function menuCacheDecisions(): array {
+		return MenuFieldsCache::decisions();
+	}
+
+	/**
 	 * Delete every stored menu payload, now.
 	 *
 	 * The sibling of the reset above, for the case where an entry is believed
