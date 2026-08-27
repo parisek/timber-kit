@@ -13,6 +13,9 @@ namespace Parisek\TimberKit;
  * highlighted item right by construction rather than by a key that remembers to
  * carry the URL.
  *
+ * Why the proof is shaped this way, and the two designs that failed before it:
+ * `docs/adr/0007-prove-cache-purity-from-inputs.md`.
+ *
  * **It stores what it can prove is storable, and nothing else.** Formatting a
  * field can run `do_shortcode()` and any `field_formatter_{$type}` filter, so
  * the rendered result is not always a function of the stored value. It can also
