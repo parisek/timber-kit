@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Documentation
+
+- README — `Deriving a value from a post body`. `$post->content()` runs
+  `the_content`, which carries `do_blocks()` at priority 9, so deriving a cheap
+  value from it renders the whole article. Measured on a nine-teaser listing:
+  469-644 ms of an 897 ms page, 306 kB of HTML built and discarded to keep nine
+  integers; the raw `post_content` cost 0.8 ms for all nine.
+
+  Documented because two mechanisms hide it. Timber memoizes `content()` into
+  `___content`, so the repeated call a reader looks for is free and the real
+  cost is the first call, once per row. And the time lands under
+  `WP_Hook->apply_filters` in a profile, not under the code that asked.
+
+  The section also records that the rendered body is not automatically the more
+  correct input for a text measure: `the_content` rewrites `e-mail` to use a
+  non-breaking hyphen, which splits hyphenated words for a counter that admits
+  only the ASCII one.
+
+
 ## [1.45.0] - 2026-08-27
 
 ### Added

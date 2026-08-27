@@ -295,6 +295,20 @@ The memo freezes the first answer until something flushes it, and `acf_get_field
 
 These are in-process memos, not a persistent cache. They remove repeated work inside one render; they do not remove the first call of each request. Moving either into the object cache is a separate decision, and its cost is invalidation rather than implementation: ACF field groups load from theme JSON files and no hook fires when a deploy changes one. A persistent cache would also still want a static in front of it, because `wp_cache_get()` is not free.
 
+### Deriving a value from a post body
+
+`$post->content()` is not an accessor. It ends in `apply_filters( 'the_content' )`, and `do_blocks()` sits on that filter at priority 9 — so asking for it renders the whole article. Ask for it to derive a word count, a reading time, a length or a "does this have an image" flag, and each of those cheap answers costs one full render.
+
+Measured on a nine-teaser blog listing: **469-644 ms of an 897 ms page**, building 306 kB of HTML to keep nine integers. The same nine counted from the raw `post_content` cost **0.8 ms**, and the page went 0.868 s to 0.354 s with byte-identical output.
+
+**Timber hides this from the obvious check.** `content()` memoizes into `$this->___content`, so a second call on the same post object is free. Look for a repeated call, find none, and conclude the cost is elsewhere — but the cost is the first call, once per post, and a listing has one object per row. A profiler hides it a second way: the time lands under `WP_Hook->apply_filters`, not under the theme code that asked.
+
+The rule is the direction of the dependency. **Render when the render is what you display. Read `post_content` when you derive from the text.** Markup is not in the way of a text measure — a word counter strips it, and block delimiters are HTML comments that fall with the tags.
+
+The two inputs do not always agree, and the rendered one is not automatically the more correct. `the_content` rewrites `e-mail` to use a non-breaking hyphen (U+2011); a word-boundary pattern that admits an ASCII hyphen inside a word but not that one then counts every hyphenated word twice. Across 1583 published articles, 1579 counted the same either way; of the four that differed, two held 52 hyphenated words and two sat exactly on a rounding boundary. The raw field is what the author wrote.
+
+Where a rendered body genuinely is the product — an article page, an excerpt of formatted HTML — the render is not waste and the question becomes whether to cache it. That is a different decision with a different cost, and `Cross-request caches` above is the shape it takes.
+
 ### Site Health board
 
 Opt-in check-list of Porta recommended settings surfaced in Tools → Site Health
