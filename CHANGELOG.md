@@ -8,6 +8,39 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `StarterBase::$acfml_skip_frontend_field_translation` — opt-in, default off.
+  Skips ACFML's translation of ACF field **definitions** (labels, instructions,
+  placeholders, prepend/append, choices, message) on plain front-end views.
+
+  `ACFML\Strings\FieldHooks` implements `IWPML_Frontend_Action`, so it registers
+  on the front end with no `is_admin()` guard and hooks `acf/load_field`. Every
+  field then reaches an unmemoized linear scan over a static array, run through
+  WPML's functional library with a closure allocated per element. On a page view
+  none of those strings is rendered.
+
+  Measured on a site with 117 field groups and 972 top-level fields: loading
+  them costs 1.09 s with the translation and 0.29 s without. A PHP-FPM slowlog
+  over 3973 slow requests put 71 % of deepest-frame samples inside `wpml/fp` and
+  `wpml/collect`. Only the field level is expensive — the group level measured
+  1.04 s against 1.11 s.
+
+  **Off by default is a refusal, not timidity.** Switching it on is wrong for a
+  site that renders field definitions to visitors: a theme calling `acf_form()`,
+  or a template printing a `select`/`radio` choice *label* rather than its
+  value. Neither is detectable from the kit, so the consuming site asserts it.
+
+  Four contexts keep the translation, and naming all four is load-bearing:
+  admin, AJAX, REST and WP-CLI. Gutenberg loads field groups over REST and ACF
+  talks to admin-ajax from inside it, so an `is_admin()`-only guard switches the
+  translation off in the editor — where the labels are the entire point.
+
+  Retiring it is a one-line default flip once ACFML memoizes its lookup. Not
+  fixed in acfml 3.0-b.1: every file on the hot path is byte-identical to 2.2.4,
+  and so is the bundled `wpml/fp`.
+
+
+### Added
+
 - `CacheSignature` — the shared part of every cross-request cache key: site,
   language, the current user's roles, and a content version from
   `wp_cache_get_last_changed()` over `posts` and `terms`. WordPress bumps those

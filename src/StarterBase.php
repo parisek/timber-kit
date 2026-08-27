@@ -135,6 +135,38 @@ class StarterBase extends Site {
 	protected bool $site_icon_tags = false;
 
 	/**
+	 * @var bool Skip ACFML's translation of ACF field DEFINITIONS on plain
+	 * front-end views. Admin, REST, AJAX and WP-CLI keep it.
+	 *
+	 * ACFML translates labels, instructions, placeholders, prepend/append,
+	 * choices and message on every request that loads a field group.
+	 * `ACFML\Strings\FieldHooks` implements `IWPML_Frontend_Action`, so it
+	 * registers on the front end with no `is_admin()` guard and hooks
+	 * `acf/load_field`. Every field then reaches an unmemoized linear scan over
+	 * a static array, run through WPML's functional library, allocating a
+	 * closure per element. On a page view none of those strings is rendered, so
+	 * the whole walk is discarded.
+	 *
+	 * Measured on a site with 117 field groups and 972 top-level fields:
+	 * loading them costs 1.09 s with the translation and 0.29 s without. A
+	 * PHP-FPM slowlog over 3973 slow requests put 71 % of deepest-frame samples
+	 * inside `wpml/fp` and `wpml/collect`. Only the field level is expensive —
+	 * the group level measured 1.04 s against 1.11 s, so it is free.
+	 *
+	 * **Off by default, and that is a refusal rather than timidity.** Switching
+	 * it on is wrong for a site that renders field definitions to visitors: a
+	 * theme calling `acf_form()`, where placeholders, instructions and labels
+	 * become visitor-facing, or a template printing a `select`/`radio` choice
+	 * LABEL rather than its value. Neither is detectable from here, so the
+	 * consuming site asserts it.
+	 *
+	 * Retiring it is a one-line default flip once ACFML memoizes its lookup.
+	 * Not fixed in acfml 3.0-b.1: every file on the hot path is byte-identical
+	 * to 2.2.4, and so is the bundled `wpml/fp`.
+	 */
+	protected bool $acfml_skip_frontend_field_translation = false;
+
+	/**
 	 * @var bool Derive and store intrinsic width/height for SVG uploads that
 	 * arrive without them. Opt-in because it changes rendered output: an <img>
 	 * that carried no dimensions starts carrying them, which is the point — the
@@ -982,6 +1014,9 @@ class StarterBase extends Site {
 	private function registerAssetHooks(): void {
 		add_action( 'enqueue_block_assets', array( $this, 'assets' ) );
 		add_action( 'wp_preload_resources', array( $this, 'preload_resources' ) );
+		if ( $this->acfml_skip_frontend_field_translation ) {
+			add_filter( 'acfml_should_translate_acf_entity', array( $this, 'acfml_should_translate_acf_entity' ) );
+		}
 		add_action( 'send_headers', array( $this, 'send_preload_headers' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'admin_enqueue_scripts' ) );
 		add_action( 'enqueue_block_editor_assets', array( $this, 'enqueue_block_editor_assets' ) );
@@ -4068,6 +4103,35 @@ class StarterBase extends Site {
 		}
 
 		return $file;
+	}
+
+	/**
+	 * Keep ACFML's field-definition translation only where it can be seen.
+	 *
+	 * Four contexts are named rather than one `is_admin()` check, and each is
+	 * needed. Gutenberg loads field groups over REST. ACF talks to admin-ajax
+	 * from inside the editor. Migration and maintenance scripts run under
+	 * WP-CLI. None of the three is `is_admin()`, so an `is_admin()`-only guard
+	 * would switch the translation off in the editor — where the labels are the
+	 * entire point.
+	 *
+	 * The default direction is deliberate: anything this cannot classify keeps
+	 * the translation. The cost of guessing wrong that way is a slow request;
+	 * guessing wrong the other way shows an editor untranslated labels.
+	 *
+	 * @param mixed $translate Whether ACFML would translate the entity.
+	 * @return mixed False on a plain front-end view, the incoming value otherwise.
+	 */
+	public function acfml_should_translate_acf_entity( $translate ) {
+		if ( is_admin()
+			|| wp_doing_ajax()
+			|| ( defined( 'REST_REQUEST' ) && REST_REQUEST )
+			|| ( defined( 'WP_CLI' ) && WP_CLI )
+		) {
+			return $translate;
+		}
+
+		return false;
 	}
 
 	/**
