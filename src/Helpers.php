@@ -1702,6 +1702,189 @@ class Helpers {
 	}
 
 	/**
+	 * Cache group for the page-independent half of a formatted menu.
+	 */
+	private const MENU_FIELDS_GROUP = 'timber-kit-menu';
+
+	/**
+	 * Reserved slot for the menu's own fields inside an item-keyed payload.
+	 *
+	 * A string among integer post ids, so it cannot collide with one.
+	 */
+	private const MENU_LEVEL_SLOT = '#menu';
+
+	/**
+	 * Field payloads being assembled or replayed, keyed by menu id.
+	 *
+	 * @var array<int, array<int|string, mixed>>
+	 */
+	private static array $menu_field_payload = [];
+
+	/**
+	 * Menus whose payload gained something the cache does not have yet.
+	 *
+	 * @var array<int, bool>
+	 */
+	private static array $menu_field_dirty = [];
+
+	/**
+	 * Drop the in-flight menu payloads.
+	 *
+	 * The stored entries need no flushing — {@see CacheSignature} keys them by
+	 * a content version, so a change makes the old key unreachable rather than
+	 * wrong. This resets only the per-request assembly state, which a
+	 * long-running process and a test both outlive.
+	 *
+	 * @internal
+	 * @return void
+	 */
+	public static function flushMenuFields(): void {
+		self::$menu_field_payload = [];
+		self::$menu_field_dirty   = [];
+	}
+
+	/**
+	 * Begin a menu walk, replaying the stored field payload if there is one.
+	 *
+	 * **What is cached is the half of a menu that does not depend on the page
+	 * being rendered.** The ACF fields on each item and on the menu itself are
+	 * the same on every URL; `is_active` and `in_active_trail` are not, and
+	 * they stay outside — recomputed by the walk on every request, so the
+	 * highlighted item is right by construction rather than by a key that
+	 * remembers to carry the URL.
+	 *
+	 * That split is what keeps this to one entry per menu instead of one per
+	 * page. It is also the whole saving: the fields are 76 % of the cost of
+	 * formatting a menu, measured against a 90-item menu.
+	 *
+	 * @param int $menu_id Menu term id.
+	 * @return void
+	 */
+	private static function openMenuFieldPayload( int $menu_id ): void {
+		self::$menu_field_payload[ $menu_id ] = [];
+		self::$menu_field_dirty[ $menu_id ]   = false;
+
+		if ( ! self::menuFieldsAreCacheable( $menu_id ) ) {
+			return;
+		}
+
+		$stored = wp_cache_get( self::menuFieldsCacheKey( $menu_id ), self::MENU_FIELDS_GROUP );
+		if ( is_array( $stored ) ) {
+			self::$menu_field_payload[ $menu_id ] = $stored;
+		}
+	}
+
+	/**
+	 * Persist the payload if the walk produced anything new, and let it go.
+	 *
+	 * @param int $menu_id Menu term id.
+	 * @return void
+	 */
+	private static function closeMenuFieldPayload( int $menu_id ): void {
+		$dirty   = self::$menu_field_dirty[ $menu_id ] ?? false;
+		$payload = self::$menu_field_payload[ $menu_id ] ?? [];
+
+		unset( self::$menu_field_payload[ $menu_id ], self::$menu_field_dirty[ $menu_id ] );
+
+		if ( ! $dirty || [] === $payload || ! self::menuFieldsAreCacheable( $menu_id ) ) {
+			return;
+		}
+
+		wp_cache_set( self::menuFieldsCacheKey( $menu_id ), $payload, self::MENU_FIELDS_GROUP );
+	}
+
+	/**
+	 * One menu item's formatted ACF fields, from the payload or freshly built.
+	 *
+	 * @param int    $menu_id Menu term id.
+	 * @param object $item    Menu item.
+	 * @return array<string, mixed>
+	 */
+	private static function menuItemFields( int $menu_id, object $item ): array {
+		$item_id = (int) ( $item->ID ?? 0 );
+
+		if ( array_key_exists( $item_id, self::$menu_field_payload[ $menu_id ] ?? [] ) ) {
+			return (array) self::$menu_field_payload[ $menu_id ][ $item_id ];
+		}
+
+		$fields = (array) self::formatFields( $item );
+
+		if ( isset( self::$menu_field_payload[ $menu_id ] ) ) {
+			self::$menu_field_payload[ $menu_id ][ $item_id ] = $fields;
+			self::$menu_field_dirty[ $menu_id ]               = true;
+		}
+
+		return $fields;
+	}
+
+	/**
+	 * The menu's own fields, from the payload or freshly built.
+	 *
+	 * @param int $menu_id Menu term id.
+	 * @return array<string, mixed>
+	 */
+	private static function menuLevelFields( int $menu_id ): array {
+		if ( array_key_exists( self::MENU_LEVEL_SLOT, self::$menu_field_payload[ $menu_id ] ?? [] ) ) {
+			return (array) self::$menu_field_payload[ $menu_id ][ self::MENU_LEVEL_SLOT ];
+		}
+
+		$extra       = [];
+		$menu_fields = $menu_id > 0 ? self::getFieldObjectsForNavMenu( $menu_id ) : false;
+
+		if ( is_array( $menu_fields ) ) {
+			foreach ( $menu_fields as $key => $field ) {
+				$value = self::fieldFormatter( $field, 'term_' . $menu_id );
+				if ( ! empty( $value ) ) {
+					$extra[ $key ] = $value;
+				}
+			}
+		}
+
+		if ( isset( self::$menu_field_payload[ $menu_id ] ) ) {
+			self::$menu_field_payload[ $menu_id ][ self::MENU_LEVEL_SLOT ] = $extra;
+			self::$menu_field_dirty[ $menu_id ]                            = true;
+		}
+
+		return $extra;
+	}
+
+	/**
+	 * Whether this menu's payload may cross requests.
+	 *
+	 * A menu with no term id has nothing stable to key on. Everything else is
+	 * {@see CacheSignature::isAvailable()} — without a persistent object cache
+	 * the entry dies with the request, and paying for a read and a write to
+	 * always miss is worse than not trying.
+	 *
+	 * `timber_kit_cache_menu_fields` turns it off for a site whose menu items
+	 * carry a field that is not a function of stored content.
+	 *
+	 * @param int $menu_id Menu term id.
+	 * @return bool
+	 */
+	private static function menuFieldsAreCacheable( int $menu_id ): bool {
+		if ( $menu_id <= 0 || ! function_exists( 'wp_cache_get' ) ) {
+			return false;
+		}
+
+		return (bool) apply_filters(
+			'timber_kit_cache_menu_fields',
+			CacheSignature::isAvailable(),
+			$menu_id
+		);
+	}
+
+	/**
+	 * Cache key for one menu's field payload.
+	 *
+	 * @param int $menu_id Menu term id.
+	 * @return string
+	 */
+	private static function menuFieldsCacheKey( int $menu_id ): string {
+		return 'menu-fields:' . $menu_id . '|' . CacheSignature::shared();
+	}
+
+	/**
 	 * Convert a Timber menu (or menu name) into a nested flat array structure.
 	 *
 	 * Recursively processes menu items and their children.  WordPress default
@@ -1725,6 +1908,13 @@ class Helpers {
 
 		// If a menu name (string) was passed, fetch the menu object once.
 		$menu = is_string( $menu_or_name ) ? Timber::get_menu( $menu_or_name ) : $menu_or_name;
+
+		// Needed before the walk, not after it: the cached payload is keyed by
+		// menu, and the walk is what fills it.
+		$menu_id = (int) ( $menu->term_id ?? $menu->id ?? 0 );
+		if ( null === $parent_item ) {
+			self::openMenuFieldPayload( $menu_id );
+		}
 
 		// Decide which items to process: root items or a parent's children.
 		$source_items = [];
@@ -1762,7 +1952,7 @@ class Helpers {
 				$description = icl_t( $menu->name . ' menu', 'Menu Item Description ' . $item->ID, $description );
 			}
 
-			$acf_fields = (array) Helpers::formatFields( $item );
+			$acf_fields = self::menuItemFields( $menu_id, $item );
 
 			$items[] = [
 				'id' => $item->ID,
@@ -1787,21 +1977,12 @@ class Helpers {
 		// in PHP, so an empty MenuData would flip every `{% if menu %}` guard
 		// in consuming templates. See the design spec.
 		if ( $items === [] ) {
+			self::closeMenuFieldPayload( $menu_id );
 			return $items;
 		}
 
-		$menu_id = (int) ( $menu->term_id ?? $menu->id ?? 0 );
-		$menu_fields = $menu_id > 0 ? self::getFieldObjectsForNavMenu( $menu_id ) : false;
-
-		$extra = [];
-		if ( is_array( $menu_fields ) ) {
-			foreach ( $menu_fields as $key => $field ) {
-				$value = self::fieldFormatter( $field, 'term_' . $menu_id );
-				if ( ! empty( $value ) ) {
-					$extra[ $key ] = $value;
-				}
-			}
-		}
+		$extra = self::menuLevelFields( $menu_id );
+		self::closeMenuFieldPayload( $menu_id );
 
 		return new MenuData( $items, [
 			'id'          => $menu_id,

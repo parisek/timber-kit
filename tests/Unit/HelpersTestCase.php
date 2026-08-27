@@ -18,6 +18,12 @@ abstract class HelpersTestCase extends TestCase {
 		// need nav_menu_item dispatch don't have to mock it individually.
 		// Tests that need a specific return value override this in their body.
 		Functions\when( 'get_post_type' )->justReturn( 'post' );
+
+		// No persistent object cache in a unit test, so the cross-request menu
+		// payload is a no-op unless a test opts into it. Same reason as
+		// get_post_type above: the alternative is stubbing it in every test
+		// that formats a menu.
+		Functions\when( 'wp_using_ext_object_cache' )->justReturn( false );
 	}
 
 	protected function tearDown(): void {
