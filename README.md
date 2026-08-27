@@ -250,6 +250,26 @@ The class is `final` with three public static methods: `render()`, `isInserterPr
 
 `BlockRenderer::flushPostBlockCache($post_id)` is the handler `StarterBase` wires to `acf/save_post` at priority 20. When ACF saves a post, the cache group `acf_block_{$post_id}` is flushed — invalidating exactly the cached blocks tied to that post without touching others. The handler guards against non-numeric ids (ACF options-page strings, opaque `block_*` ids) and against environments without `wp_cache_supports('flush_group')`.
 
+### Cross-request caches
+
+`CacheSignature::shared()` composes the part of a cache key every cross-request cache needs: site, language, the current user's roles, and a content version. Callers append only what is specific to them.
+
+Roles rather than user id: role is the axis plugins gate menus on, and it keeps the stored variants to the number of roles instead of the number of accounts. The content version is `wp_cache_get_last_changed()` over `posts` and `terms` — WordPress bumps those itself, so a saved post or an edited term changes the key instead of needing a hook to notice. Nothing has to be flushed, and nothing can be forgotten.
+
+**It is deliberately not memoized.** `switch_to_blog()`, a user switch and a save inside a long-running process all move an input mid-request, and a memoized signature would key the second site's menu under the first site's name — found, silently, because term ids collide across sites.
+
+`CacheSignature::isAvailable()` is false without a persistent object cache, and callers skip both the read and the write rather than always miss.
+
+**`MenuFieldsCache` stores the half of a menu that does not depend on the page.** The ACF fields on each item and on the menu itself are the same on every URL and are cached; `is_active` and `in_active_trail` are not, and the walk recomputes them every request. Cache the whole menu instead and the highlighted item freezes on whatever page filled the entry — a wrong highlight on every page but one, which no status check can see. The split also keeps it to one entry per menu rather than one per page. Measured against a real Redis object cache on the sloneek front page — 90 items across five menus — the front page goes 402 ms to 344-350 ms and `/blog/` 907 ms to 836-857 ms, over two back-to-back runs. Rendered HTML is byte-identical once non-deterministic ids are normalized.
+
+It stores only what it can prove is storable, and **the proof runs before the work rather than after it**. Formatting expands shortcodes and runs a `field_formatter_{$type}` filter, either of which may read the global post or the current query, so the walk asks what the item stores rather than what one render produced. Watching the render is not a proof of purity: an unregistered `[foo]` comes back byte-identical, reads as static, and the literal is stored — until a plugin registers that shortcode and every page serves the frozen source text.
+
+Three surfaces, three answers. A menu item whose raw meta holds no `[` cannot reach `do_shortcode()`, so its fields are a function of what it stores; the test reads meta `wp_get_nav_menu_items()` has already primed. One registered `field_formatter_*` callback refuses every menu, because no static proof of its purity exists — a default, not a verdict, so a project that knows better says so through `timber_kit_cache_menu_fields`. A rendered Contact Form 7 or WPForms embed carries a nonce and is dynamic whatever is stored, so that one surface stays counted during the build. Objects, resources and closures are rejected outright. One unstorable slot condemns the whole menu, rather than storing a payload with a hole that would be replayed as complete.
+
+Entries carry a lifetime (`timber_kit_menu_fields_ttl`, 12 h by default). The key already versions content, so the lifetime is not about staleness — it bounds the generations each content change orphans, which nothing else deletes.
+
+`timber_kit_cache_menu_fields` turns the whole path off. `Helpers::flushMenuFields()` resets the in-flight assembly state for WP-CLI, workers and tests; stored entries need no flushing.
+
 `Helpers::flushResolvedPostIds()` is the same shape for a different cache. `Helpers::urlToPostId()` memoizes its answer on a static keyed by blog, language and URL, because under WPML the lookup is a `get_page_by_path()` query and the same menu and options-page links are resolved once per place they appear. `StarterBase` wires the flush to `clean_post_cache` — the hook that fires exactly when a permalink can have moved.
 
 A web request never needs to call it: the process ends before a permalink can change. **A long-running process does.** WP-CLI commands and persistent workers run many units of work in one process, so a command that renames a slug and then formats a link to it would otherwise be handed the id resolved before the rename. Call `Helpers::flushResolvedPostIds()` from any such caller that does not boot `StarterBase`, and from tests — a static outlives the test that filled it, so a test touching `urlToPostId()` must reset it or be answered by an earlier test's mocks.

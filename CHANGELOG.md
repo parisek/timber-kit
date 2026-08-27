@@ -6,6 +6,143 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `CacheSignature` — the shared part of every cross-request cache key: site,
+  language, the current user's roles, and a content version from
+  `wp_cache_get_last_changed()` over `posts` and `terms`. WordPress bumps those
+  counters itself, so a saved post changes the key rather than requiring a hook
+  to notice it.
+
+  **Nothing is memoized.** Three of the four inputs can move inside one request
+  — `switch_to_blog()`, a user switch, a save in a long-running process — and a
+  memo would key the second site's menu under the first site's name, silently.
+  Two independent reviews found that hole from different directions, which is
+  what the memo cost against what it saved.
+
+- `MenuFieldsCache` — the page-independent half of a formatted menu, across
+  requests. The ACF fields on each item and on the menu itself are the same on
+  every URL and are stored; `is_active` and `in_active_trail` are not, and the
+  walk recomputes them every request. That split keeps this to one entry per
+  menu instead of one per page, and keeps the highlighted item right by
+  construction rather than by a key that remembers to carry the URL.
+
+  Measured against a real Redis object cache on the sloneek front page, 90
+  items across five menus: **402 ms to 344-350 ms**, over two back-to-back
+  runs, with `/blog/` going 907 ms to 836-857 ms. Rendered HTML is
+  byte-identical once non-deterministic ids are normalized, with a valid
+  control pair either side.
+
+  An earlier draft of this entry quoted 61-104 ms of removed *work* instead,
+  because the measurement host had no persistent object cache and could not
+  produce a hit. It has one now, and the end-to-end number is the smaller
+  claim: the walk still rebuilds `is_active` and `in_active_trail` on a hit,
+  which is the point of the split.
+
+### It stores only what it can prove is storable
+
+Formatting a field is not always a function of the stored value.
+`fieldFormatter()` expands shortcodes and hands every field to a
+`field_formatter_{$type}` filter, and either can read the global post, the
+current query or the current user. Storing that output would freeze one page's
+rendered shortcode onto every other page — and it serializes perfectly, so no
+type check would catch it.
+
+**The proof runs before the work, not after it.** An earlier draft watched the
+render instead and asked whether formatting had changed anything. That is not a
+proof of purity, and the counterexample is ordinary: an unregistered `[foo]`
+comes back byte-identical, reads as static, and the literal `[foo]` is stored.
+The day a plugin registers that shortcode, every page serves the frozen source
+text instead of its output — with nothing to log and nothing to notice.
+
+So the three surfaces are decided from what is stored:
+
+- **Shortcodes.** `do_shortcode()` needs an opening bracket to do anything, so a
+  menu item whose every stored meta string has none formats to a function of
+  what it stores. The test reads raw meta, which `wp_get_nav_menu_items()` has
+  already primed, so it costs a memory read. It is deliberately blunt: a bracket
+  in a plain-text field is not a shortcode and the menu is refused anyway. A
+  false refusal costs one uncached menu; a false accept is wrong on every page.
+- **Formatter filters.** No static proof of a callback's purity is available, so
+  one registered `field_formatter_*` callback refuses every menu. That is the
+  default rather than the verdict — it goes through
+  `timber_kit_cache_menu_fields` with everything else, so a project that knows
+  its own formatter is pure can say so.
+- **Rendered forms.** The `post_object` branch that renders Contact Form 7 or
+  WPForms is dynamic whatever the stored value is: the markup carries a nonce.
+  No inspection of stored data predicts it, so this one surface stays counted
+  during the build.
+
+**Storability** is unchanged and still rejects objects, resources and closures;
+an object may serialize and return carrying state that was true when it was
+stored. One unstorable slot condemns the whole menu rather than storing a
+payload with a hole in it, which would be replayed as complete.
+
+Measured on the sloneek front page against a real Redis object cache: 402 ms
+before, 344-350 ms after, over two back-to-back runs — **~53 ms, 13 % of the
+request**. `/blog/` goes 907 ms to 836-857 ms. Rendered HTML is byte-identical
+once non-deterministic ids are normalized, with a valid control pair either
+side.
+
+### Three things the value check cannot see, and what happens instead
+
+The shortcode check reads the value ACF produced, which closes the surface it
+can see. Three others are closed differently, and each was found by review
+rather than by design:
+
+- **A bracket is not a shortcode.** The check asks core's own question instead
+  of approximating it: `do_shortcode()` returns its input untouched unless a
+  **registered** tag appears in it, so the same early exit decides this — same
+  order, same regex, cited at the call site. The registered tag set rides in the
+  key, because "does this hold a shortcode" is a property of the string *and*
+  the registry: answer it without the second and the literal `[foo]` is stored
+  while `foo` is unregistered, then served forever after a plugin registers it.
+  The earlier check refused any value holding `[`, so a menu label reading
+  "Ceník [2026]" was enough to cost a site its cache.
+
+- **Field definitions change without touching content.** Groups load from theme
+  JSON, so a deploy editing a `default_value` moves neither last-changed
+  counter. The key now carries a hash of the `modified` stamps of the groups
+  the menu reads — exact in both directions, and free, because the memo
+  released in 1.43.0 has already fetched them.
+- **`acf/load_value` runs before the value exists.** A callback there reading
+  the current user leaves nothing behind to detect. Callbacks are judged by
+  where they are defined, not by presence: ACF's own plumbing is the mechanism
+  that makes `acf/load_value/type=…` fire at all, and ACFML sits there on every
+  WPML site, so refusing on presence would switch the cache off exactly where
+  it was measured. `timber_kit_trusted_value_load_roots` lets a project vouch
+  for its own. The variation tags are scanned too — the reference site has
+  fourteen live and none named `acf/load_value`.
+- **Nobody could tell why a menu was not cached.** The reason was computed and
+  discarded. `Helpers::menuCacheDecisions()` now returns it per menu, and
+  `timber_kit_cache_menu_fields` receives it as a third argument, so a project
+  can answer the specific objection rather than the verdict.
+
+### An entry can be deleted on demand
+
+`Helpers::flushStoredMenuFields()` empties the group. Ordinary staleness needs
+no flush — the key carries a content version — but an entry believed wrong had
+no lever short of `wp_cache_flush()`, which empties every group and, on shared
+infrastructure, every site. A backend without `flush_group` support returns
+false rather than looking successful.
+
+### Lifetime and re-entrancy
+
+`wp_cache_set()` is given a lifetime (`timber_kit_menu_fields_ttl`, 12 h). The
+key already carries a content version, so an entry goes unreachable rather than
+stale; the lifetime bounds **accumulation**, because every content change
+orphans the previous generation and nothing deletes it.
+
+The walk is depth-counted and closed from a `finally`. An exception mid-walk
+stores nothing and leaves no state resident, and a re-entrant call for the same
+menu no longer discards what the outer walk recorded.
+
+Requires a persistent object cache; without one the path is skipped rather than
+paying for a read and a write that always miss.
+`timber_kit_cache_menu_fields` turns it off. `Helpers::flushMenuFields()` resets
+the in-flight assembly state for long-running processes and tests; stored
+entries need no flushing.
+
 ## [1.43.0] - 2026-08-27
 
 ### Added
