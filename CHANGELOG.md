@@ -6,6 +6,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `CacheSignature` — the shared part of every cross-request cache key: site,
+  language, the current user's roles, and a content version. Anything cached
+  across requests needs one answer to "when are two renders interchangeable?",
+  and two callers that answer it differently will disagree about who may be
+  served whose content.
+
+  The content version is `wp_cache_get_last_changed()` over `posts` and
+  `terms`. WordPress bumps those itself whenever anything in the group is
+  invalidated, so **a saved post changes the key rather than requiring a hook to
+  notice it**. The alternative is a list of actions to flush on, which is only
+  as complete as whoever last added a plugin remembered — and a stale menu is a
+  wrong link on every page, with no error and no log. The cost is one rebuild
+  per content change.
+
+- `Helpers::formatMenu()` stores the half of a formatted menu that does not
+  depend on the page being rendered: the ACF fields on each item and on the menu
+  itself. `is_active` and `in_active_trail` stay outside it and are recomputed
+  by the walk on every request, so the highlighted item is right by construction
+  rather than by a key that remembers to carry the URL. That split is what keeps
+  this to one entry per menu instead of one per page.
+
+  Measured on the sloneek front page: a 90-item menu spends **61-104 ms per
+  request** on those fields, out of 529-702 ms of PHP — about 12 %. That is the
+  cost of the work a cache hit removes, not a before/after page time: producing
+  a real hit needs a persistent object cache, and the measurement host has none.
+  Without the field-group memo released alongside it the same work costs
+  154-266 ms, so the two overlap and this is the residual.
+
+  Requires a persistent object cache; without one the whole path is skipped
+  rather than paying for a read and a write that always miss.
+  `timber_kit_cache_menu_fields` turns it off for a site whose menu items carry
+  a field that is not a function of stored content.
+  `Helpers::flushMenuFields()` resets the in-flight assembly state for
+  long-running processes and tests; the stored entries need no flushing, because
+  a content change makes the old key unreachable rather than wrong.
+
 ### Fixed
 
 - `StarterBase::cleanup_cached_images()` deleted resizer derivatives that other

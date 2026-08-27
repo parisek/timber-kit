@@ -250,6 +250,18 @@ The class is `final` with three public static methods: `render()`, `isInserterPr
 
 `BlockRenderer::flushPostBlockCache($post_id)` is the handler `StarterBase` wires to `acf/save_post` at priority 20. When ACF saves a post, the cache group `acf_block_{$post_id}` is flushed — invalidating exactly the cached blocks tied to that post without touching others. The handler guards against non-numeric ids (ACF options-page strings, opaque `block_*` ids) and against environments without `wp_cache_supports('flush_group')`.
 
+### Cross-request caches
+
+`CacheSignature::shared()` composes the part of a cache key every cross-request cache needs: site, language, the current user's roles, and a content version. Callers append only what is specific to them.
+
+Roles rather than user id: role is the axis plugins gate menus on, and it keeps the stored variants to the number of roles instead of the number of accounts. The content version is `wp_cache_get_last_changed()` over `posts` and `terms` — WordPress bumps those itself, so a saved post or an edited term changes the key instead of needing a hook to notice. Nothing has to be flushed, and nothing can be forgotten.
+
+`CacheSignature::isAvailable()` is false without a persistent object cache, and callers skip both the read and the write rather than always miss. `CacheSignature::flush()` drops the per-request memo for WP-CLI, workers and tests.
+
+**`Helpers::formatMenu()` stores the half of a menu that does not depend on the page.** The ACF fields on each item and on the menu itself are the same on every URL and are cached; `is_active` and `in_active_trail` are not, and the walk recomputes them every request. Cache the whole menu instead and the highlighted item freezes on whatever page filled the entry — a wrong highlight on every page but one, which no status check can see.
+
+That split also keeps it to one entry per menu rather than one per page. On a 90-item menu the cached half is 61-104 ms of a 529-702 ms render. `timber_kit_cache_menu_fields` turns it off; `Helpers::flushMenuFields()` resets the in-flight state.
+
 ### Site Health board
 
 Opt-in check-list of Porta recommended settings surfaced in Tools → Site Health
