@@ -44,12 +44,17 @@ final class RegisterSeoHooksTest extends StarterBaseTestCase {
 		return $added;
 	}
 
-	public function testTheFlagIsOffByDefault(): void {
+	/**
+	 * Approved exception to the fleet's default-off rule for new behaviour --
+	 * see the flag's own docblock on `StarterBase` and `AGENTS.md` § Feature
+	 * flags & breaking changes for why this one ships on.
+	 */
+	public function testTheFlagIsOnByDefault(): void {
 		$base = $this->createStarterBase();
 
 		$property = new \ReflectionProperty( $base, 'seo_canonical_pagination' );
 
-		$this->assertFalse( $property->getValue( $base ) );
+		$this->assertTrue( $property->getValue( $base ) );
 	}
 
 	public function testNothingIsRegisteredWhileTheFlagIsOff(): void {

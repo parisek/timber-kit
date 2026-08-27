@@ -854,13 +854,18 @@ class StarterBase extends Site {
 	/**
 	 * Emit a self-referencing canonical on paginated routes.
 	 *
-	 * Off by default because it changes a rendered tag. A site whose listings
-	 * are post-type archives already gets this from its SEO plugin and needs
-	 * nothing; the flag is for sites whose listings are blocks on ordinary
-	 * pages, where the plugin sees a singular post and emits page one's URL for
-	 * every page.
+	 * On by default -- a deliberate, approved exception to this file's own
+	 * default-off rule for new behaviour (see `AGENTS.md` § Feature flags &
+	 * breaking changes). It is safe on because `Pagination::append()` is
+	 * idempotent and reads the site's own pagination base: on a site whose
+	 * listings are real post-type archives, the plugin already emits the
+	 * correct canonical, and re-deriving it from that same canonical produces
+	 * the identical string -- the filter is a no-op there. It only changes
+	 * output on the case the flag exists for: a listing rendered by a block on
+	 * an ordinary page, where the plugin sees a singular post and emits page
+	 * one's URL for every page.
 	 */
-	protected bool $seo_canonical_pagination = false;
+	protected bool $seo_canonical_pagination = true;
 
 	/**
 	 * Slim orchestrator — resolves theme identity, delegates hook registration

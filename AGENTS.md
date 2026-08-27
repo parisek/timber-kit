@@ -68,6 +68,7 @@ New behavior that changes rendered output, admin behavior, or anything a consume
 - **Pattern.** Declare `protected bool $feature_name = false;` on `StarterBase` (grouped with related flags, docblock stating *what it changes* and *why it's opt-in*), then gate the wiring inside the relevant `registerXxxHooks()` method: `if ( $this->feature_name ) { add_action( … ); }`. Cover both branches (off → not wired, on → wired) in the matching `RegisterXxxHooksTest`. Examples: `$security_headers`, `$wpml_block_override`.
 - **Breaking changes are allowed — but only this way.** A breaking or behavior-changing change may land *provided* it's behind such a flag and defaults to off, so existing consumers are unaffected until they flip it. No silent behavior changes on upgrade.
 - **Opinionated defaults live downstream.** The `wordpress-base` project template enables these flags (`true`) in its own `Base` — that's where Porta Design's best-practice config is expressed, not in the library defaults.
+- **Approved exception:** `$seo_canonical_pagination` defaults `true`, not `false`. The owner reviewed it explicitly because `Pagination::append()` is idempotent and reads the site's own pagination base — on a site whose listings are real post-type archives the filter re-derives the identical canonical, so flipping the default changes nothing there. This is a named exception to the rule above, not a case of the rule being skipped.
 
 ## Architecture decisions (ADRs)
 

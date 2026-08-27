@@ -14,8 +14,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   so it resolves the canonical to `get_permalink()` and every page claims to
   be page one. Measured on one site: `/blog/page/2/` through `/blog/page/10/`
   all pointed at `/blog/`, as did the same routes on two further listings.
-  Behind `$seo_canonical_pagination`, default `false` — a site whose listings
-  are real post-type archives already gets this from its plugin.
+  Behind `$seo_canonical_pagination`, default `true` — see Changed below.
+  Reads the site's own `$wp_rewrite->pagination_base` rather than assuming
+  `page`, and leaves a manual canonical alone whenever it points somewhere
+  other than the current request.
+
+### Changed
+
+- `$seo_canonical_pagination` defaults `true`, not `false` — an approved
+  exception to this package's default-off rule for new behaviour (see
+  `AGENTS.md` § Feature flags & breaking changes). Safe on: the filter is
+  idempotent and a no-op on a site whose listings are real post-type
+  archives, since re-deriving the canonical from itself reproduces the
+  identical string.
 
 ## [1.43.0] - 2026-08-27
 

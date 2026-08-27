@@ -359,15 +359,27 @@ A listing rendered by a block on an ordinary page is singular as far as an SEO
 plugin is concerned — it sees one post, not an archive — so the plugin
 resolves the canonical to `get_permalink()` and every page of the listing
 claims to be page one. `Canonical::register()` fixes this by putting the
-`/page/N/` segment back onto the canonical it hands to whichever plugin is
-active.
+pagination segment back onto the canonical it hands to whichever plugin is
+active, reading the segment itself (`page`, or a site's own
+`$wp_rewrite->pagination_base`) rather than assuming it.
+
+A manual canonical — Yoast's and AIOSEO's editors both offer the field — is
+left alone whenever it points somewhere other than the current request:
+pagination is only appended when the canonical, with any existing pagination
+stripped, still describes the page being served. An editor canonicalising
+`/blog/` to `/campaign/` keeps every page of the listing pointing at
+`/campaign/`, unpaginated.
 
 Gated by `$seo_canonical_pagination` on `Base extends StarterBase`, default
-`false`. A site whose listings are real post-type archives already gets a
-correct canonical from its plugin and needs nothing:
+`true` — a deliberate, approved exception to this package's own default-off
+rule for new behaviour (`AGENTS.md` § Feature flags & breaking changes). It is
+safe on: a site whose listings are real post-type archives already gets a
+correct canonical from its plugin, and re-deriving it from that same canonical
+is idempotent, so the filter is a no-op there. Turn it off only for a site
+that needs the old, unfiltered behaviour:
 
 ```php
-protected bool $seo_canonical_pagination = true;
+protected bool $seo_canonical_pagination = false;
 ```
 
 ### WpmlBlockOverride
