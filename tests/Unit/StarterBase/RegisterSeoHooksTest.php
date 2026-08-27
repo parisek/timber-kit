@@ -57,11 +57,23 @@ final class RegisterSeoHooksTest extends StarterBaseTestCase {
 	}
 
 	/**
-	 * With the flag on, exactly one filter is added -- never both. Two SEO
-	 * plugins would mean two canonical tags, and `Plugin::detect()` exists to
-	 * make sure only one adapter is ever wired.
+	 * With the flag on, at most one filter is added -- zero also passes this
+	 * assertion, and that is deliberate, not an oversight.
+	 *
+	 * A stronger assertion (naming the one expected hook, or requiring
+	 * `count( $added ) === 1`) would depend on which plugin `Plugin::active()`
+	 * reports at this point in the run. Brain\Monkey defines real global
+	 * functions that outlive the test that defined them, so an earlier test's
+	 * stub can still be in effect here, making the result a function of suite
+	 * ordering rather than of this test alone. A weak assertion that always
+	 * holds beats a strong one that only holds by accident of run order.
+	 *
+	 * The "never both" guarantee itself is not tested here: it is structural,
+	 * enforced by the `match` in `Canonical::register()` having no fallthrough
+	 * arm, so at most one adapter can ever be reached. This test corroborates
+	 * that outcome; it does not enforce it.
 	 */
-	public function testExactlyOneFilterIsRegisteredWhileTheFlagIsOn(): void {
+	public function testAtMostOneFilterIsRegisteredWhileTheFlagIsOn(): void {
 		$added = $this->canonicalFiltersAddedWith( true );
 
 		$this->assertLessThanOrEqual( 1, count( $added ) );
