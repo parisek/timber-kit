@@ -1328,7 +1328,7 @@ class StarterBase extends Site {
 
 	/**
 	 * Register the self-referencing canonical (gated by
-	 * $seo_canonical_pagination, default off).
+	 * $seo_canonical_pagination, default on).
 	 *
 	 * @return void
 	 */
