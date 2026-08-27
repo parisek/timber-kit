@@ -17,6 +17,10 @@ final class UrlToPostIdTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+		// The post-id memo keys by blog, so every test that reaches
+		// urlToPostId() needs this defined.
+		Functions\when( 'get_current_blog_id' )->justReturn( 1 );
+		Helpers::flushResolvedPostIds();
 		Functions\when( 'home_url' )->alias(
 			static fn( string $path = '' ): string => 'https://example.test' . $path
 		);

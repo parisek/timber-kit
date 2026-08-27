@@ -6,8 +6,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `Resizer::flushBackendFormats()` and `Helpers::flushFieldGroups()` drop the
+  two in-process memos below. A web request never needs either; WP-CLI
+  commands, persistent workers and tests do, because a static outlives the unit
+  of work that filled it.
+- `timber_kit_share_nav_menu_item_field_groups` — override the automatic
+  verdict described below, in either direction. Nothing to set for it to work.
+
 ### Changed
 
+- `Helpers::formatLink()` resolves each link URL once per blog and language
+  instead of once per call site. The resolution runs `url_to_postid()`, which
+  WPML filters through `SitePress::url_to_postid` and `AbsoluteLinks` into a
+  `get_page_by_path()` query — and a miss costs a second lookup, because the
+  slug fallback calls `url_to_postid()` again.
+
+  Measured end to end on a five-language front page, by patching the site and
+  re-profiling rather than by extrapolating:
+
+| | before | after |
+  | --- | ---: | ---: |
+  | `url_to_postid` calls | 310 | 47 |
+  | time in the filter chain | 134.1 ms | 96.7 ms |
+Behaviour is unchanged for every caller. `get_permalink()` returning `false`
+  is now treated as an unresolved URL instead of being concatenated onto.
 - `acf_get_fields()` is memoized per field group for the request. ACF caches
   nothing here either, and the answer is the same for every screen a group
   matches — so `getFieldObjectsByScreen()` asked it **348 times for 21 distinct
@@ -29,16 +53,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
   `Helpers::flushFieldGroups()` drops it alongside the screen memo.
 
-### Added
-
-- `Resizer::flushBackendFormats()` and `Helpers::flushFieldGroups()` drop the
-  two in-process memos below. A web request never needs either; WP-CLI
-  commands, persistent workers and tests do, because a static outlives the unit
-  of work that filled it.
-- `timber_kit_share_nav_menu_item_field_groups` — override the automatic
-  verdict described below, in either direction. Nothing to set for it to work.
-
-### Changed
 
 - Two capability probes that ran once per object now run once per request.
   Both had a memo already; both stored it on the instance the caller throws
@@ -117,8 +131,26 @@ A screen `wp_json_encode()` cannot encode is never memoized, because casting
 
 ## [1.42.0] - 2026-08-26
 
-### Added
+  310 calls covered **33 distinct URLs** — the same menu and options-page links
+  formatted once per place they appear. The 47 remaining are those 33 plus a
+  slug-fallback second lookup for the 14 that resolve to nothing.
 
+The saving is **~37 ms of a 3.1 s render**, about 1.2 %. An earlier draft of
+  this entry claimed ~122 ms by scaling the per-call cost; measurement showed
+  the eliminated calls were the cheap ones, because WordPress and WPML already
+  cache parts of the path internally. The expensive work is the distinct
+  resolutions, which remain.
+
+  The cache key carries the blog id and the current language. `url_to_postid()`,
+  `get_permalink()` and `wpml_object_id` all answer for the current blog and the
+  current language, so `switch_to_blog()` or a WPML language switch changes the
+  correct answer for an unchanged URL.
+
+  The cache is in-process. For a web request that equals request-scoped, because
+  the process ends before a permalink can change. Under WP-CLI or a persistent
+  worker it does not, so `StarterBase` flushes the memo on `clean_post_cache`,
+  and `Helpers::flushTranslatedLinkUrls()` is public for long-running callers
+  that do not boot StarterBase.
 - `$breeze_warmup_tail` — keep warming the URLs the cap excluded, a batch at a
   time, in score order, pausing whenever Breeze is draining its own preload
   queue. Batch size is `$breeze_warmup_tail_batch` (default 100 per five-minute
@@ -237,6 +269,9 @@ A screen `wp_json_encode()` cannot encode is never memoized, because casting
 
 ### Fixed
 
+- `Helpers::formatLink()` no longer concatenates a query string or fragment onto
+  `get_permalink()`'s `false` return. An id that failed to resolve produced a URL
+  like `?a=1`; the link is now left as stored.
 - `Helpers::formatLink()` no longer replaces a valid link with an empty string.
   `get_permalink()` answers `false` for a trashed post or a stale WPML
   translation id, and the concatenations after it coerced that to `''` — so a

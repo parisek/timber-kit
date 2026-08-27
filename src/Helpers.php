@@ -1773,6 +1773,19 @@ class Helpers {
 		return $field['value'];
 	}
 
+	/** @var array<string, int> Memoized URL-to-post-id answers, keyed by "<blog>|<language>|<url>". */
+	private static array $resolvedPostIds = [];
+
+	/**
+	 * Memoized link translations, keyed by "<blog>|<language>|<url>".
+	 *
+	 * A null entry is a real answer — "this URL resolves to no post" — and is
+	 * cached like any other, so a miss is not re-resolved on every call.
+	 *
+	 * @var array<string, string|null>
+	 */
+	private static array $translatedLinkUrls = [];
+
 	/**
 	 * Normalise an ACF link field value and optionally translate it via WPML.
 	 *
@@ -1831,44 +1844,127 @@ class Helpers {
 		}
 
 		if ( isset( $value['url'] ) ) {
+			$translated_url = self::translateLinkUrl( $value['url'] );
 
-			$parsed_url = parse_url( $value['url'] );
-			// The prefix fallback and the wpml_object_id translation both live
-			// in urlToPostId() now — this is where they were written, and
-			// its other callers in this package need the same two steps.
-			$post_id = self::urlToPostId( $value['url'] );
-
-			if ( $post_id > 0 ) {
-
-				$translated_url = get_permalink( $post_id );
-
-				// get_permalink() answers false for a trashed post, and for a
-				// WPML translation id that no longer resolves. Without this the
-				// concatenations below coerce false to '' and a previously
-				// valid link becomes an empty string or a bare `?query` —
-				// silently, replacing something that worked. CuratedUrls::resolve()
-				// guards the same call the same way; this is that guard, in the
-				// place the pattern was taken from.
-				if ( ! is_string( $translated_url ) || '' === $translated_url ) {
-					return $value;
-				}
-
-				// Add query if it's there
-				if ( isset( $parsed_url['query'] ) ) {
-					$translated_url .= '?' . $parsed_url['query'];
-				}
-
-				// Add fragment if it's there
-				if ( isset( $parsed_url['fragment'] ) ) {
-					$translated_url .= '#' . $parsed_url['fragment'];
-				}
-
-				// replace with translated url
+			if ( $translated_url !== null ) {
 				$value['url'] = $translated_url;
 			}
 		}
 
 		return $value;
+	}
+
+	/**
+	 * Resolve one link URL to its translation, memoized for the request.
+	 *
+	 * The resolution is pure with respect to (URL, current language): the same
+	 * URL asked for twice in one language cannot legitimately produce two
+	 * answers. It is also expensive — `url_to_postid()` is filtered by WPML,
+	 * which runs `SitePress::url_to_postid` and the whole `AbsoluteLinks`
+	 * machinery, and that ends in a `get_page_by_path()` database lookup per
+	 * call. A miss costs a second lookup, because the slug fallback below calls
+	 * `url_to_postid()` again.
+	 *
+	 * Measured on a five-language site: one front-page request called this 310
+	 * times for **33 distinct URLs**, so 277 of the calls repeated an answer the
+	 * request already had. The same menu and options-page links are formatted
+	 * once per place they appear. Memoizing removed ~122 ms of a 3.1 s render.
+	 *
+	 * The cache key carries the current language because the answer depends on
+	 * it: `wpml_object_id` maps to the translated post and `get_permalink()`
+	 * then renders that language's URL. WPML switches language mid-request (a
+	 * language switcher renders every language in turn), so a key of URL alone
+	 * would hand the switcher one language's permalinks for every entry.
+	 *
+	 * The cache is in-process, not persistent. For a web request that is the
+	 * same thing, because the process ends before a permalink can change. It is
+	 * NOT the same thing under WP-CLI or a persistent worker, where one process
+	 * runs many units of work and can outlive the data it cached — a migration
+	 * that renames a slug and then formats a link would otherwise be handed the
+	 * old permalink. {@see \Parisek\TimberKit\StarterBase} therefore flushes
+	 * this on `clean_post_cache`, and {@see flushTranslatedLinkUrls()} is public
+	 * so a long-running caller that does not boot StarterBase can do the same.
+	 *
+	 * The key carries the blog id as well. `url_to_postid()`, `get_permalink()`
+	 * and `wpml_object_id` all answer for the *current* blog, so on multisite a
+	 * `switch_to_blog()` between two calls changes the correct answer for an
+	 * unchanged URL.
+	 *
+	 * @param string $url The stored link URL, in the source language.
+	 * @return string|null The translated URL, or null when the URL resolves to
+	 *                     no post and the caller should keep what it has.
+	 */
+	private static function translateLinkUrl( string $url ): ?string {
+		$lang = apply_filters( 'wpml_current_language', null );
+		$blog = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$key  = $blog . '|' . ( is_string( $lang ) ? $lang : '' ) . '|' . $url;
+
+		if ( array_key_exists( $key, self::$translatedLinkUrls ) ) {
+			return self::$translatedLinkUrls[ $key ];
+		}
+
+		self::$translatedLinkUrls[ $key ] = self::resolveLinkUrl( $url );
+
+		return self::$translatedLinkUrls[ $key ];
+	}
+
+	/**
+	 * The uncached body of {@see translateLinkUrl()}.
+	 *
+	 * @param string $url The stored link URL, in the source language.
+	 * @return string|null The translated URL, or null when nothing resolves.
+	 */
+	private static function resolveLinkUrl( string $url ): ?string {
+		$parsed_url = parse_url( $url );
+
+		// Resolution is urlToPostId()'s job, not a second copy of it. This
+		// method used to inline the same three steps -- raw url_to_postid(),
+		// the slug fallback, a two-argument wpml_object_id -- which is what
+		// they looked like before they were extracted. Keeping that copy
+		// through this rebase would have quietly reverted three fixes the
+		// extracted version has since gained: the same-host gate on the slug
+		// fallback, so a foreign URL cannot borrow a local path; the
+		// translation targeting the language the URL names rather than the
+		// current one; and the language-host check that only trusts a host
+		// when the hosts tell the languages apart.
+		$post_id = self::urlToPostId( $url );
+
+		if ( $post_id <= 0 ) {
+			return null;
+		}
+
+		$translated_url = get_permalink( $post_id );
+
+		// get_permalink() returns false for an id it cannot resolve. Treat that
+		// like an unresolved URL rather than concatenating onto a boolean.
+		if ( ! is_string( $translated_url ) ) {
+			return null;
+		}
+
+		// Add query if it's there
+		if ( isset( $parsed_url['query'] ) ) {
+			$translated_url .= '?' . $parsed_url['query'];
+		}
+
+		// Add fragment if it's there
+		if ( isset( $parsed_url['fragment'] ) ) {
+			$translated_url .= '#' . $parsed_url['fragment'];
+		}
+
+		return $translated_url;
+	}
+
+	/**
+	 * Drop the memoized link URLs.
+	 *
+	 * A web request never needs this — it ends before a permalink can change.
+	 * A long-running process does: WP-CLI and persistent workers run many units
+	 * of work in one process, so the cache can outlive the data it describes.
+	 * StarterBase wires this to `clean_post_cache`; call it directly from any
+	 * long-running caller that does not boot StarterBase, and from tests.
+	 */
+	public static function flushTranslatedLinkUrls(): void {
+		self::$translatedLinkUrls = [];
 	}
 
 	/**
@@ -2204,6 +2300,59 @@ class Helpers {
 	}
 
 	/**
+	 * URL to post ID, memoized for the request.
+	 *
+	 * Expensive and repetitive: under WPML `url_to_postid()` is filtered
+	 * through `SitePress::url_to_postid` and `AbsoluteLinks` into a
+	 * `get_page_by_path()` query, so every call is a database lookup and a miss
+	 * costs a second one through the slug fallback. Profiling a five-language
+	 * front page found 310 calls covering 33 distinct URLs -- the same menu and
+	 * options-page links resolved once per place they appear.
+	 *
+	 * The key carries the blog id and the current language. The blog because
+	 * `switch_to_blog()` changes the correct answer for an unchanged URL. The
+	 * language is more conservative than it now needs to be: since the
+	 * translation targets the language the URL names rather than the ambient
+	 * one, the final answer should no longer vary with the current language.
+	 * The intermediate `url_to_postid()` lookup still does, though, and that
+	 * the two cancel out is a reasoning chain, not a measurement -- so the key
+	 * keeps the language until someone measures it. Over-keying costs a repeat
+	 * lookup; under-keying would hand a language switcher one language's answer
+	 * for every entry.
+	 *
+	 * @param string $url Absolute or relative URL to resolve.
+	 * @return int Post ID, or 0 when nothing resolves.
+	 */
+	public static function urlToPostId( string $url ): int {
+		$lang = function_exists( 'apply_filters' ) ? apply_filters( 'wpml_current_language', null ) : null;
+		$blog = function_exists( 'get_current_blog_id' ) ? (int) get_current_blog_id() : 0;
+		$key  = $blog . '|' . ( is_string( $lang ) ? $lang : '' ) . '|' . $url;
+
+		if ( array_key_exists( $key, self::$resolvedPostIds ) ) {
+			return self::$resolvedPostIds[ $key ];
+		}
+
+		return self::$resolvedPostIds[ $key ] = self::resolveUrlToPostId( $url );
+	}
+
+	/**
+	 * Drop the memoized URL-to-post-id answers.
+	 *
+	 * A web request never needs this: it ends before a permalink can change.
+	 * A long-running process does. WP-CLI and persistent workers run many units
+	 * of work in one process, so a command that renames a slug and then formats
+	 * a link to it would otherwise be handed the id resolved before the rename.
+	 * {@see \Parisek\TimberKit\StarterBase} wires this to `clean_post_cache`;
+	 * call it directly from any long-running caller that does not boot
+	 * StarterBase, and from tests.
+	 */
+	public static function flushResolvedPostIds(): void {
+		self::$resolvedPostIds = [];
+	}
+
+	/**
+	 * The uncached body of {@see urlToPostId()}.
+	 *
 	 * Resolve a URL to the post it names, in the current language.
 	 *
 	 * `url_to_postid()` alone is not enough on a WPML site with language URL
@@ -2226,7 +2375,7 @@ class Helpers {
 	 * @param string $url Absolute URL, or a path.
 	 * @return int Post ID, or 0 when the URL names nothing on this site.
 	 */
-	public static function urlToPostId( string $url ): int {
+	private static function resolveUrlToPostId( string $url ): int {
 		if ( '' === trim( $url ) || ! function_exists( 'url_to_postid' ) ) {
 			return 0;
 		}
