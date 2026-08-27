@@ -11,7 +11,9 @@ So the cache namespace is flatter than the namespace it caches — flatter twice
 over, because the derivative is named for the source *without its extension*, so
 `11.png` and `11.jpg` land on one path as surely as two `11.png` in different
 months do. Measured on a five-language production site: **496 names map to more
-than one source file**.
+than one source file, and 152 of those collide inside a single directory** —
+same name, different extension. The two axes are independent, and a fix that
+addresses only one leaves the other exactly as it was.
 
 ```
 900x0-center/11.avif   <-  2022/03/11.png
@@ -38,12 +40,22 @@ trading one silent collision for a subtler one.
 
 ## Decision
 
-Insert the source file's own directory — its path below the uploads root, with
-no leading or trailing separator — between the size directory and the filename:
+Key the derivative by the source's **whole identity** — its directory below the
+uploads root, and its full filename including the source's own extension:
 
 ```
-<W>x<H>-<style>[-q<N>]/<source-relative-dir>/<name>.<fmt>
+<W>x<H>-<style>[-q<N>]/<source-relative-dir>/<source-filename>.<fmt>
 ```
+
+So `uploads/2026/08/hero.webp` at 900px wide becomes
+`900x0-center/2026/08/hero.webp.avif`.
+
+Both halves are load-bearing and neither substitutes for the other. The
+directory separates `2022/03/11.png` from `2022/10/11.png`; the retained source
+extension separates `hero.jpg` from `hero.png` in one directory. Dropping either
+half leaves one of the two collision axes untouched — and the 152 same-directory
+collisions measured above are the half that is easy to forget, because adding a
+directory *feels* like it has separated everything.
 
 It is derived from `$source_path`, which `resize()` already computes; no new
 input and no filename parsing. `Resizer` maps a URL to a path only through the
@@ -78,6 +90,13 @@ discoverable by scanning, which lets `cleanup_cached_images()` address the files
 it means to delete instead of matching names. The sibling-attachment guard stays:
 one file can carry several attachment rows under WPML, and that is independent
 of how the path is spelled.
+
+A note on how this decision was reached, because it is the point of the
+practice rather than a detail of it: the first version of this ADR added only
+the directory, and seven review rounds passed it. The same-directory half was
+found by an independent reviewer on a different model, reading the branch
+without sight of those rounds — the one thing the repo's own two-reviewer rule
+asks for and the one thing that run had skipped.
 
 The migration cannot place a derivative whose name maps to more than one
 source — recovering that association is exactly what the old layout destroyed.
