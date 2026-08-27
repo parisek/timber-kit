@@ -6,6 +6,48 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `StarterBase::$acfml_skip_frontend_field_translation` — **on by default**.
+  Skips ACFML's translation of ACF field **definitions** (labels, instructions,
+  placeholders, prepend/append, choices, message) on plain front-end views.
+
+  `ACFML\Strings\FieldHooks` implements `IWPML_Frontend_Action`, so it registers
+  on the front end with no `is_admin()` guard and hooks `acf/load_field`. Every
+  field then reaches an unmemoized linear scan over a static array, run through
+  WPML's functional library with a closure allocated per element. On a page view
+  none of those strings is rendered.
+
+  Measured on a site with 117 field groups and 972 top-level fields: loading
+  them costs 1.09 s with the translation and 0.29 s without. A PHP-FPM slowlog
+  over 3973 slow requests put 71 % of deepest-frame samples inside `wpml/fp` and
+  `wpml/collect`. Only the field level is expensive — the group level measured
+  1.04 s against 1.11 s.
+
+  **On by default**, because two shapes make it wrong and only one of them is
+  invisible. A theme calling `acf_form()` puts labels, instructions and
+  placeholders in front of a visitor — and that shape **detects itself**:
+  `acf_form_head()` reaches `ACF_Assets::add_actions()`, which records itself,
+  so the guard steps aside on any front-end request that has set a form up. It
+  is read with `acf_raw_setting()` and never with `acf_has_done()`, which writes
+  the flag it reads and would make ACF skip registering the form's own assets.
+
+  A template printing a `select`/`radio`/`checkbox` choice *label* rather than
+  its value is not detectable from here. That is what the property is for. The
+  failure if a site needs it and does not set it is one label rendered in the
+  source language — quiet, and worth checking rather than assuming when moving
+  a large existing site onto this version.
+
+  Four contexts keep the translation, and naming all four is load-bearing:
+  admin, AJAX, REST and WP-CLI. Gutenberg loads field groups over REST and ACF
+  talks to admin-ajax from inside it, so an `is_admin()`-only guard switches the
+  translation off in the editor — where the labels are the entire point.
+
+  Retiring it is a one-line default flip once ACFML memoizes its lookup. Not
+  fixed in acfml 3.0-b.1: every file on the hot path is byte-identical to 2.2.4,
+  and so is the bundled `wpml/fp`.
+
+
 ### Changed
 
 - `StarterBase::$disable_404_permalink_guess` — **on by default, which reverses
@@ -29,6 +71,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Set `false` to restore core on a site that renames slugs without leaving
   redirects behind and relies on the guess to catch the fallout.
 
+## [1.44.0] - 2026-08-27
 
 ### Added
 
