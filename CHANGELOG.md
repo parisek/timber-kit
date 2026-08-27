@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.45.0] - 2026-08-27
+
 ### Added
 
 - `StarterBase::$acfml_skip_frontend_field_translation` — **on by default**.
