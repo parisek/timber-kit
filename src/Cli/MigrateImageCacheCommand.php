@@ -11,10 +11,11 @@ use Parisek\TimberKit\ImageCacheMigrator;
  * derivatives into the source-path layout ahead of enabling
  * `StarterBase::$resizer_source_path_in_cache_key`.
  *
- * Thin adapter over {@see ImageCacheMigrator}: it builds the name-to-source-dir
- * map from `_wp_attached_file` and delegates every decision (unambiguous move,
- * ambiguous collision, orphan, conflict) to the migrator, which is
- * unit-tested. The WP_CLI I/O here is intentionally not unit-tested.
+ * Thin adapter over {@see ImageCacheMigrator}: it builds the
+ * name-to-source-paths map from `_wp_attached_file` and delegates every
+ * decision (unambiguous move, ambiguous collision, orphan, conflict) to the
+ * migrator, which is unit-tested. The WP_CLI I/O here is intentionally not
+ * unit-tested.
  */
 class MigrateImageCacheCommand {
 
@@ -28,7 +29,7 @@ class MigrateImageCacheCommand {
 	 *   it would do.
 	 *
 	 * [--verbose]
-	 * : List the ambiguous names with their candidate source directories.
+	 * : List the ambiguous names with their candidate source paths.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -46,7 +47,7 @@ class MigrateImageCacheCommand {
 
 		$cache_dir = untrailingslashit( trailingslashit( WP_CONTENT_DIR ) . 'cache/image' );
 
-		$migrator = new ImageCacheMigrator( $cache_dir, $this->buildNameToDirs() );
+		$migrator = new ImageCacheMigrator( $cache_dir, $this->buildNameToSourcePaths() );
 		$plan     = $migrator->plan();
 
 		$scanned = count( $plan['move'] ) + count( $plan['ambiguous'] ) + count( $plan['orphaned'] )
@@ -73,61 +74,78 @@ class MigrateImageCacheCommand {
 
 		$result = $migrator->apply( $plan );
 
-		\WP_CLI::success( sprintf( 'Moved %d derivatives (%d failed).', $result['moved'], count( $result['failed'] ) ) );
-
+		// Warnings, then the exit-code-bearing call, in that order: a script
+		// harness reads only the exit code, and WP_CLI::success() reports 0
+		// regardless of what ran before it. Calling it while $result['failed']
+		// is non-empty would report success on a run that left files
+		// unmoved -- WP_CLI::error() exits non-zero instead.
 		foreach ( $result['failed'] as $source ) {
 			\WP_CLI::warning( sprintf( 'Failed to move %s.', $source ) );
 		}
+
+		if ( array() !== $result['failed'] ) {
+			\WP_CLI::error( sprintf( 'Moved %d derivatives (%d failed).', $result['moved'], count( $result['failed'] ) ) );
+			return;
+		}
+
+		\WP_CLI::success( sprintf( 'Moved %d derivatives (0 failed).', $result['moved'] ) );
 	}
 
 	/**
-	 * Build the cache-name => source-directories map from `_wp_attached_file`.
+	 * Build the cache-name => full-source-paths map from `_wp_attached_file`.
 	 *
-	 * Every directory goes through {@see guardSourceDir()} first. A directory
-	 * it rejects contributes '' to the name's candidate list -- the same
-	 * value a genuine root upload contributes -- rather than being dropped.
-	 * Both cases mean the same thing to the flag-enabled `Resizer`
-	 * (`Resizer::sourcePathSegment()`): the derivative stays at the flat
-	 * cache key. Dropping a rejected attachment instead would erase it from
-	 * the map entirely, so a real collision at that flat key -- another
-	 * attachment sharing the basename -- would look unambiguous and move a
-	 * derivative that in fact belongs to the dropped attachment.
+	 * The value is a full source identity -- directory and the source's own
+	 * filename, extension included -- not just a directory: the target
+	 * filename the migrator builds needs the source's extension too (ADR
+	 * 0007's amendment), so a bare directory can no longer carry enough
+	 * information on its own.
+	 *
+	 * The directory half still goes through {@see guardSourceDir()} first. A
+	 * directory it rejects contributes just the bare (sanitized) filename,
+	 * no directory prefix -- the same shape a genuine root upload
+	 * contributes -- rather than being dropped. Both cases mean the same
+	 * thing to the flag-enabled `Resizer` (`Resizer::sourcePathSegment()`):
+	 * the derivative stays at the flat cache key. Dropping a rejected
+	 * attachment instead would erase it from the map entirely, so a real
+	 * collision at that flat key -- another attachment sharing the basename
+	 * -- would look unambiguous and move a derivative that in fact belongs
+	 * to the dropped attachment.
+	 *
+	 * Deduped on the full source path, not the directory: two attachment
+	 * rows can point at one identical file (WPML files one row per
+	 * language), and that must collapse to one candidate, not read as an
+	 * ambiguous pair.
 	 *
 	 * @return array<string, list<string>>
 	 */
-	private function buildNameToDirs(): array {
+	private function buildNameToSourcePaths(): array {
 		global $wpdb;
 
 		$rows = $wpdb->get_col( "SELECT meta_value FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file'" );
 
-		$name_to_dirs = array();
+		$name_to_source_paths = array();
 
 		foreach ( $rows as $row ) {
 			if ( ! is_string( $row ) || '' === $row ) {
 				continue;
 			}
 
-			$name        = sanitize_file_name( pathinfo( basename( $row ), PATHINFO_FILENAME ) );
-			$source_dir  = dirname( $row );
-			$guarded_dir = self::guardSourceDir( $source_dir );
+			$filename            = basename( $row );
+			$name                = sanitize_file_name( pathinfo( $filename, PATHINFO_FILENAME ) );
+			$guarded_dir         = self::guardSourceDir( dirname( $row ) );
+			$sanitized_filename  = sanitize_file_name( $filename );
+			$source_path         = '' === $guarded_dir ? $sanitized_filename : $guarded_dir . '/' . $sanitized_filename;
 
-			// guardSourceDir() returns '' both for a genuine root upload
-			// (dirname() === '.') and for a directory it rejects. Both cases
-			// contribute '' here rather than one of them being dropped: the
-			// property this map exists to detect is "does the runtime keep
-			// this derivative at the flat key", and a rejected directory has
-			// that property exactly as much as a root upload does.
-
-			if ( ! isset( $name_to_dirs[ $name ] ) ) {
-				$name_to_dirs[ $name ] = array();
+			if ( ! isset( $name_to_source_paths[ $name ] ) ) {
+				$name_to_source_paths[ $name ] = array();
 			}
 
-			if ( ! in_array( $guarded_dir, $name_to_dirs[ $name ], true ) ) {
-				$name_to_dirs[ $name ][] = $guarded_dir;
+			if ( ! in_array( $source_path, $name_to_source_paths[ $name ], true ) ) {
+				$name_to_source_paths[ $name ][] = $source_path;
 			}
 		}
 
-		return $name_to_dirs;
+		return $name_to_source_paths;
 	}
 
 	/**

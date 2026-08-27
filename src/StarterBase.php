@@ -4138,7 +4138,12 @@ class StarterBase extends Site {
 		// glob() as a live pattern instead of a literal filename — matching
 		// whatever else happens to sit in that character class or wildcard.
 		// A name that sanitizes to nothing can't be resolved either way.
-		$name = sanitize_file_name( pathinfo( $relative_path, PATHINFO_FILENAME ) );
+		//
+		// The full basename, extension included: ADR 0007 keys the derivative
+		// on the source's whole identity, because two sources sharing a
+		// directory and a stem but not an extension (hero.jpg / hero.png)
+		// would otherwise resolve to the same derivative name here too.
+		$name = sanitize_file_name( basename( $relative_path ) );
 
 		if ( '' === $name ) {
 			return [];

@@ -1405,8 +1405,14 @@ class Resizer {
 		$basedir = $upload_dir['basedir'];
 		$baseurl = $upload_dir['baseurl'];
 
-		// Sanitize filename to prevent path traversal attacks
-		$filename = sanitize_file_name( pathinfo( basename( $default_image['src'] ), PATHINFO_FILENAME ) );
+		// Sanitize filename to prevent path traversal attacks.
+		//
+		// Stripped of its extension by default — flag on keeps it (ADR 0007):
+		// the derivative name must carry the source's own extension too, or
+		// hero.jpg and hero.png in one directory collide on one derivative.
+		$filename = $this->source_path_in_cache_key
+			? sanitize_file_name( basename( $default_image['src'] ) )
+			: sanitize_file_name( pathinfo( basename( $default_image['src'] ), PATHINFO_FILENAME ) );
 
 		// Get actual source file path by converting URL to filesystem path
 		$source_path = str_replace( $baseurl, $basedir, $default_image['src'] );

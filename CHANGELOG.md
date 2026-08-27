@@ -51,25 +51,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   one admin screen and in the weekly cron, so a cache would buy milliseconds
   and owe a staleness bug.
 
-- `StarterBase::$resizer_source_path_in_cache_key` (default `false`) puts the
-  source image's upload directory in the resizer cache key, so two uploads that
-  share a name stop sharing one cached derivative. Without it the derivative is
-  named for the source alone, so `2022/03/11.png` and `2022/10/11.png` — and
-  `11.png` and `11.jpg`, because the extension is dropped too — occupy one path,
-  and whichever renders first decides what the others show. Measured on a
-  five-language production site: 496 names map to more than one source file.
+- `StarterBase::$resizer_source_path_in_cache_key` (default `false`) keys the
+  resizer cache on the source's whole identity — its upload directory *and* its
+  own filename, extension included — so two uploads that share a name stop
+  sharing one cached derivative. Without it the derivative is named for the
+  source's directory-less, extension-less stem alone, so `2022/03/11.png` and
+  `2022/10/11.png` collide on directory, and `hero.jpg` and `hero.png` in one
+  directory collide on extension. Measured on a five-language production site:
+  496 names map to more than one source file, and 152 of those collide inside a
+  single directory (same name, different extension).
 
   Enabling it relocates every derivative whose source is below a year/month
-  directory; `wp timber-kit migrate-image-cache` (dry-run by default) moves the
-  existing cache into the new shape rather than re-encoding it. Derivatives whose
-  name maps to more than one source cannot be placed — recovering that
-  association is exactly what the flat layout destroyed — so they are reported
-  and left alone, and re-encoded on first view. A site with year/month folders
-  switched off gets byte-identical paths and needs no migration.
+  directory, or whose source shares a directory and stem with another upload of
+  a different extension; `wp timber-kit migrate-image-cache` (dry-run by
+  default) moves the existing cache into the new shape rather than re-encoding
+  it. What it resolves: directory collisions and same-directory
+  different-extension collisions, both under the flag. What it does not
+  resolve: a flat legacy derivative whose old (extension-less) name maps to more
+  than one distinct source path is reported as ambiguous and left unmigrated —
+  recovering which source it came from is exactly what the flat layout
+  destroyed — and is re-encoded correctly on first view instead. A site with
+  year/month folders switched off, and no such same-directory-extension
+  collision, gets byte-identical paths and needs no migration.
 
   With the flag on, `cleanup_cached_images()` addresses derivatives by path
   instead of matching basenames across the tree, so deleting an attachment can
-  no longer reach another upload's images.
+  no longer reach another upload's images — including one differing only by
+  extension in the same directory.
 
   Decision and alternatives: `docs/adr/0007-resizer-source-path-cache-key.md`.
 
@@ -91,6 +99,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   non-breaking hyphen, which splits hyphenated words for a counter that admits
   only the ASCII one.
 
+### Fixed
+
+- `wp timber-kit migrate-image-cache --apply` could silently overwrite a
+  derivative: it checked the target didn't exist, then `rename()`d into it, and
+  a target created in the gap between those two steps — a second invocation, a
+  file dropped by hand — was replaced without warning by POSIX `rename()`. It
+  now moves via `link()` then `unlink()`: `link()` fails atomically when the
+  target exists, so a race there is reported as a failed move with both files
+  left untouched, never a silent overwrite.
+
+- `wp timber-kit migrate-image-cache --apply` reported success even when some
+  moves failed — `WP_CLI::success()` ran unconditionally, before the loop that
+  warns about failures, so a script harness reading only the exit code saw 0 on
+  a run that left files unmoved. It now warns about every failure first, then
+  exits non-zero via `WP_CLI::error()` when any move failed, and calls
+  `WP_CLI::success()` only when none did.
 
 ## [1.45.0] - 2026-08-27
 

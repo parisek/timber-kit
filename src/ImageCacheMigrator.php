@@ -7,36 +7,45 @@ namespace Parisek\TimberKit;
 /**
  * Moves existing resizer cache derivatives from the flat layout
  * (`<size>/<name>.<fmt>`) into the source-path layout
- * (`<size>/<source-relative-dir>/<name>.<fmt>`) — see
+ * (`<size>/<source-relative-dir>/<source-filename>.<fmt>`) — see
  * `docs/adr/0007-resizer-source-path-cache-key.md`.
  *
- * The cache filename drops the source's own extension: a derivative is named
- * `pathinfo( basename( $src ), PATHINFO_FILENAME )` plus the *target* format,
- * so `hero.avif` in the cache is keyed by `hero`, not `hero.avif`. That is why
- * `11.png` and `11.jpg` collide as surely as two `11.png` in different months
- * do, and why the lookup map passed to the constructor is built the same way.
+ * The flat derivative is named `pathinfo( basename( $src ), PATHINFO_FILENAME )`
+ * plus the *target* format, so `hero.avif` in the cache is keyed by `hero`, not
+ * `hero.avif`. That is why `11.png` and `11.jpg` collide as surely as two
+ * `11.png` in different months do, and why the lookup map passed to the
+ * constructor is keyed the same (extension-stripped) way.
  *
- * A candidate name can map to more than one source directory (the collision
- * this ADR exists to fix). Recovering which source a flat derivative actually
- * came from is exactly what the old layout destroyed, so an ambiguous name is
- * reported, never guessed.
+ * The new layout keys on the source's whole identity, extension included, so
+ * the map's *values* must be full source paths (`_wp_attached_file`, e.g.
+ * `2026/08/hero.webp`) rather than bare directories — the target filename
+ * needs the source's own extension, not just its directory. A candidate name
+ * can still map to more than one distinct source path: two files sharing a
+ * directory and stem but not an extension (`hero.jpg` / `hero.png`) are two
+ * identities that collided under the old flat name. Recovering which one a
+ * flat derivative actually came from is exactly what the old layout
+ * destroyed, so an ambiguous name is reported, never guessed.
  */
 class ImageCacheMigrator {
 
 	/**
-	 * @param string                $cache_dir    Absolute path to the resizer
-	 *                                            cache root (holds the size
-	 *                                            directories directly).
-	 * @param array<string, list<string>> $name_to_dirs Cache name (source
+	 * @param string                      $cache_dir           Absolute path to
+	 *                                            the resizer cache root (holds
+	 *                                            the size directories directly).
+	 * @param array<string, list<string>> $name_to_source_paths Cache name (source
 	 *                                            basename without extension,
 	 *                                            run through
 	 *                                            `sanitize_file_name()`)
-	 *                                            mapped to its distinct
-	 *                                            source directories.
+	 *                                            mapped to its distinct full
+	 *                                            source paths (source-relative
+	 *                                            directory plus the source's
+	 *                                            own sanitized filename,
+	 *                                            extension included; '' directory
+	 *                                            means a root upload).
 	 */
 	public function __construct(
 		private readonly string $cache_dir,
-		private readonly array $name_to_dirs
+		private readonly array $name_to_source_paths
 	) {
 	}
 
@@ -60,36 +69,43 @@ class ImageCacheMigrator {
 		$already_in_place = array();
 
 		foreach ( $this->candidates() as $relative => $absolute ) {
-			$size_dir = dirname( $relative );
-			$filename = basename( $relative );
-			$name     = pathinfo( $filename, PATHINFO_FILENAME );
+			$size_dir      = dirname( $relative );
+			$filename      = basename( $relative );
+			$name          = pathinfo( $filename, PATHINFO_FILENAME );
+			$target_format = pathinfo( $filename, PATHINFO_EXTENSION );
 
-			$dirs = $this->name_to_dirs[ $name ] ?? array();
+			// Dedup here too: two attachment rows can share one full source
+			// path (WPML files one row per language against the same file),
+			// and that must read as one identity, not an ambiguous pair.
+			$source_paths = array_values( array_unique( $this->name_to_source_paths[ $name ] ?? array() ) );
 
-			if ( array() === $dirs ) {
+			if ( array() === $source_paths ) {
 				$orphaned[] = $relative;
 				continue;
 			}
 
-			if ( count( $dirs ) > 1 ) {
-				$ambiguous[ $relative ] = $dirs;
+			if ( count( $source_paths ) > 1 ) {
+				$ambiguous[ $relative ] = $source_paths;
 				continue;
 			}
 
-			// dirs[0] === '' means the source is a genuine root upload (no
-			// year/month directory, or the whole site has them switched
-			// off), so the flat path this candidate already sits at IS its
-			// final location — there is nothing to move. Building $target
-			// anyway would join in an empty path segment: the double slash
-			// collapses and $target resolves to $absolute itself, so
-			// is_file() on it is always true and would otherwise misreport
-			// every such file as a conflict with itself.
-			if ( '' === $dirs[0] ) {
+			$source_path = $source_paths[0];
+			$source_dir  = $this->dirOf( $source_path );
+			$source_name = basename( $source_path );
+
+			$target_filename = $source_name . '.' . $target_format;
+			$target          = '' === $source_dir
+				? $this->cache_dir . '/' . $size_dir . '/' . $target_filename
+				: $this->cache_dir . '/' . $size_dir . '/' . $source_dir . '/' . $target_filename;
+
+			// A root upload whose source has no extension of its own
+			// resolves to the exact path the candidate already sits at
+			// (the sole case the target filename equals the flat filename)
+			// -- there is nothing to move.
+			if ( $target === $absolute ) {
 				$already_in_place[] = $relative;
 				continue;
 			}
-
-			$target = $this->cache_dir . '/' . $size_dir . '/' . $dirs[0] . '/' . $filename;
 
 			if ( is_file( $target ) ) {
 				$conflict[] = $relative;
@@ -110,9 +126,17 @@ class ImageCacheMigrator {
 
 	/**
 	 * Execute a plan produced by {@see plan()}. Never deletes, never
-	 * overwrites — the target directory is created and the file is `rename()`d
-	 * within the same filesystem, so the move is atomic and an interrupted run
-	 * leaves no partial file.
+	 * overwrites.
+	 *
+	 * Moves via `link()` then `unlink()`, not `rename()`: POSIX `rename()`
+	 * silently replaces an existing destination, and a target can appear in
+	 * the gap between this method's own `is_file()` check and the syscall
+	 * that acts on it -- the exact TOCTOU window a plain existence check
+	 * cannot close. `link()` is atomic against that race: the filesystem
+	 * itself refuses to create a second name over an existing one, so it
+	 * either creates the new name or leaves everything untouched, never a
+	 * partial link. Only once the new name exists do we `unlink()` the old
+	 * one -- a failure there could leave the file linked twice, never zero.
 	 *
 	 * @param array{move: array<string,string>, ambiguous: array<string, list<string>>, orphaned: list<string>, conflict: list<string>, already_in_place: list<string>} $plan
 	 * @return array{moved: int, failed: list<string>}
@@ -122,17 +146,6 @@ class ImageCacheMigrator {
 		$failed = array();
 
 		foreach ( $plan['move'] as $source => $target ) {
-			// plan() only snapshots the filesystem; by the time this loop
-			// reaches an entry, another process (a second invocation, a file
-			// dropped by hand) may have created the target since. rename()
-			// silently replaces an existing destination on POSIX, so the
-			// "never overwrites" rule needs this re-check right here, not
-			// just in plan().
-			if ( is_file( $target ) ) {
-				$failed[] = $source;
-				continue;
-			}
-
 			$target_dir = dirname( $target );
 
 			if ( ! is_dir( $target_dir ) && ! mkdir( $target_dir, 0777, true ) && ! is_dir( $target_dir ) ) {
@@ -140,9 +153,24 @@ class ImageCacheMigrator {
 				continue;
 			}
 
-			if ( rename( $source, $target ) ) {
+			// link() fails outright (returns false, raises no fatal) when
+			// $target already exists -- the plan()-time snapshot is stale by
+			// then, another invocation or a hand-placed file got there
+			// first. That failure leaves both $source and $target exactly
+			// as they were, so there is nothing to unwind: no fallback
+			// rename(), which would reopen the very race this replaces.
+			if ( ! @link( $source, $target ) ) {
+				$failed[] = $source;
+				continue;
+			}
+
+			if ( unlink( $source ) ) {
 				++$moved;
 			} else {
+				// The new name exists and the old one didn't go away: not a
+				// data-loss case (both copies are intact), but not a clean
+				// move either, so it is reported rather than silently
+				// counted as done.
 				$failed[] = $source;
 			}
 		}
@@ -151,6 +179,20 @@ class ImageCacheMigrator {
 			'moved'  => $moved,
 			'failed' => $failed,
 		);
+	}
+
+	/**
+	 * `dirname()` of a relative path, normalized so "no directory" is '' —
+	 * `dirname()` itself returns '.' for a bare filename, which would
+	 * otherwise be joined into the target path as a literal segment.
+	 *
+	 * @param string $relative_path e.g. `2026/08/hero.webp` or `hero.webp`.
+	 * @return string
+	 */
+	private function dirOf( string $relative_path ): string {
+		$dir = dirname( $relative_path );
+
+		return '.' === $dir ? '' : $dir;
 	}
 
 	/**

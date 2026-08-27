@@ -254,18 +254,42 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		mkdir( $this->cache_dir . '/900x0-center/2022/10', 0777, true );
 		$this->created[] = $this->cache_dir . '/900x0-center/2022/03';
 		$this->created[] = $this->cache_dir . '/900x0-center/2022/10';
-		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/11.avif' );
-		$this->seedFile( $this->cache_dir . '/900x0-center/2022/10/11.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/11.png.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/2022/10/11.png.avif' );
 
 		$this->stubAttachment( 4711, '2022/03/11.png', siblings: 0 );
 		$this->enableSourcePathCacheKey();
 
 		$this->base->cleanup_cached_images( 4711 );
 
-		$this->assertFileDoesNotExist( $this->cache_dir . '/900x0-center/2022/03/11.avif' );
+		$this->assertFileDoesNotExist( $this->cache_dir . '/900x0-center/2022/03/11.png.avif' );
 		$this->assertFileExists(
-			$this->cache_dir . '/900x0-center/2022/10/11.avif',
+			$this->cache_dir . '/900x0-center/2022/10/11.png.avif',
 			'a different upload that happens to share a name must survive'
+		);
+	}
+
+	/**
+	 * ADR 0007's amendment: the extension is now part of the derivative
+	 * name too, so `11.jpg` and `11.png` sharing one directory no longer
+	 * collide on one derivative, and deleting one leaves the other's
+	 * derivative on disk untouched.
+	 */
+	public function test_with_the_flag_on_same_directory_different_extension_are_not_conflated(): void {
+		mkdir( $this->cache_dir . '/900x0-center/2026/08', 0777, true );
+		$this->created[] = $this->cache_dir . '/900x0-center/2026/08';
+		$this->seedFile( $this->cache_dir . '/900x0-center/2026/08/hero.jpg.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/2026/08/hero.png.avif' );
+
+		$this->stubAttachment( 4711, '2026/08/hero.jpg', siblings: 0 );
+		$this->enableSourcePathCacheKey();
+
+		$this->base->cleanup_cached_images( 4711 );
+
+		$this->assertFileDoesNotExist( $this->cache_dir . '/900x0-center/2026/08/hero.jpg.avif' );
+		$this->assertFileExists(
+			$this->cache_dir . '/900x0-center/2026/08/hero.png.avif',
+			'a sibling upload differing only by extension must survive'
 		);
 	}
 
@@ -284,8 +308,8 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 	public function test_with_the_flag_on_a_glob_metacharacter_in_the_name_does_not_reach_an_unrelated_derivative(): void {
 		mkdir( $this->cache_dir . '/900x0-center/2022/03', 0777, true );
 		$this->created[] = $this->cache_dir . '/900x0-center/2022/03';
-		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/img0-9.avif' );
-		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/img5.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/img0-9.png.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/img5.png.avif' );
 
 		$this->stubAttachment( 4711, '2022/03/img[0-9].png', siblings: 0 );
 		$this->enableSourcePathCacheKey();
@@ -293,11 +317,11 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		$this->base->cleanup_cached_images( 4711 );
 
 		$this->assertFileDoesNotExist(
-			$this->cache_dir . '/900x0-center/2022/03/img0-9.avif',
+			$this->cache_dir . '/900x0-center/2022/03/img0-9.png.avif',
 			'the target attachment\'s own (sanitized) derivative must still be found and deleted'
 		);
 		$this->assertFileExists(
-			$this->cache_dir . '/900x0-center/2022/03/img5.avif',
+			$this->cache_dir . '/900x0-center/2022/03/img5.png.avif',
 			'an unrelated upload must not be swept up by an unsanitized glob pattern'
 		);
 	}
@@ -313,7 +337,7 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 	 */
 	public function test_with_the_flag_on_a_traversal_segment_in_the_directory_is_treated_as_the_flat_root(): void {
 		// The target's real derivative, at the flat root the guard falls back to.
-		$this->seedFile( $this->cache_dir . '/900x0-center/11.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/11.png.avif' );
 
 		// A file well outside the cache tree — a `..` component joined onto
 		// a size directory and walked by the filesystem can reach anything
@@ -322,7 +346,7 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		// enumerating `$cache_dir`'s own subdirectories either.
 		$outside_dir = dirname( $this->cache_dir ) . '/decoy';
 		$this->makeDir( $outside_dir );
-		$this->seedFile( $outside_dir . '/11.avif' );
+		$this->seedFile( $outside_dir . '/11.png.avif' );
 
 		$this->stubAttachment( 4711, '../decoy/11.png', siblings: 0 );
 		$this->enableSourcePathCacheKey();
@@ -330,11 +354,11 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		$this->base->cleanup_cached_images( 4711 );
 
 		$this->assertFileExists(
-			$outside_dir . '/11.avif',
+			$outside_dir . '/11.png.avif',
 			'a traversal segment must never let the delete walk outside the cache tree'
 		);
 		$this->assertFileDoesNotExist(
-			$this->cache_dir . '/900x0-center/11.avif',
+			$this->cache_dir . '/900x0-center/11.png.avif',
 			'the guard collapses the whole invalid directory to the flat root, matching the writer\'s own fallback'
 		);
 	}

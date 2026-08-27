@@ -38,10 +38,10 @@ class MigratePlanTest extends TestCase {
 
 	public function test_unambiguous_name_is_planned_for_a_move(): void {
 		$src = $this->seed( '900x0-center/hero.avif' );
-		$plan = ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08' ] ] ) )->plan();
+		$plan = ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08/hero.webp' ] ] ) )->plan();
 
 		$this->assertSame(
-			[ $src => $this->dir . '/900x0-center/2026/08/hero.avif' ],
+			[ $src => $this->dir . '/900x0-center/2026/08/hero.webp.avif' ],
 			$plan['move']
 		);
 		$this->assertSame( [], $plan['ambiguous'] );
@@ -49,10 +49,10 @@ class MigratePlanTest extends TestCase {
 
 	public function test_ambiguous_name_is_reported_with_its_candidates(): void {
 		$this->seed( '900x0-center/11.avif' );
-		$plan = ( new ImageCacheMigrator( $this->dir, [ '11' => [ '2022/03', '2022/10' ] ] ) )->plan();
+		$plan = ( new ImageCacheMigrator( $this->dir, [ '11' => [ '2022/03/11.png', '2022/10/11.png' ] ] ) )->plan();
 
 		$this->assertSame( [], $plan['move'] );
-		$this->assertSame( [ '2022/03', '2022/10' ], $plan['ambiguous']['900x0-center/11.avif'] );
+		$this->assertSame( [ '2022/03/11.png', '2022/10/11.png' ], $plan['ambiguous']['900x0-center/11.avif'] );
 	}
 
 	public function test_name_absent_from_the_database_is_reported_as_orphaned(): void {
@@ -65,33 +65,30 @@ class MigratePlanTest extends TestCase {
 
 	public function test_existing_target_is_reported_as_a_conflict_not_overwritten(): void {
 		$this->seed( '900x0-center/hero.avif' );
-		$this->seed( '900x0-center/2026/08/hero.avif' );
-		$plan = ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08' ] ] ) )->plan();
+		$this->seed( '900x0-center/2026/08/hero.webp.avif' );
+		$plan = ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08/hero.webp' ] ] ) )->plan();
 
 		$this->assertSame( [], $plan['move'] );
 		$this->assertSame( [ '900x0-center/hero.avif' ], $plan['conflict'] );
 	}
 
-	/** A file already in the new layout is not a candidate. */
+	/** A file already in the new layout is not a candidate -- it isn't sitting flat at the size-directory root. */
 	public function test_already_migrated_file_is_left_alone(): void {
-		$this->seed( '900x0-center/2026/08/hero.avif' );
-		$plan = ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08' ] ] ) )->plan();
+		$this->seed( '900x0-center/2026/08/hero.webp.avif' );
+		$plan = ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08/hero.webp' ] ] ) )->plan();
 
 		$this->assertSame( [], $plan['move'] );
 		$this->assertSame( [], $plan['orphaned'] );
 	}
 
 	/**
-	 * dirs[0] === '' means a genuine root upload -- the flat cache path IS
-	 * the final location already (no year/month directory, or the flag-off
-	 * byte-identical case from the ADR). `<cache>/<size>//<filename>`
-	 * collapses to the source file itself, so a naive is_file() check would
-	 * call every such file its own conflict. It must instead be recognised
-	 * as already in place: not moved, not reported as a conflict.
+	 * A root upload whose own filename happens to carry no extension is the
+	 * one case where the new target filename equals the flat candidate's
+	 * filename byte-for-byte -- there is genuinely nothing to move.
 	 */
-	public function test_root_upload_flat_derivative_is_already_in_place_not_a_conflict(): void {
+	public function test_root_upload_with_extensionless_source_name_is_already_in_place(): void {
 		$this->seed( '900x0-center/hero.avif' );
-		$plan = ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '' ] ] ) )->plan();
+		$plan = ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ 'hero' ] ] ) )->plan();
 
 		$this->assertSame( [], $plan['move'] );
 		$this->assertSame( [], $plan['conflict'] );
@@ -100,33 +97,66 @@ class MigratePlanTest extends TestCase {
 		$this->assertSame( [ '900x0-center/hero.avif' ], $plan['already_in_place'] );
 	}
 
+	/**
+	 * A genuine root upload (no year/month directory) still gets its source
+	 * extension folded into the target name -- the flag adds the extension
+	 * unconditionally, independent of whether a directory segment applies.
+	 */
+	public function test_root_upload_with_extension_is_still_planned_for_a_move(): void {
+		$src = $this->seed( '900x0-center/hero.avif' );
+		$plan = ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ 'hero.png' ] ] ) )->plan();
+
+		$this->assertSame(
+			[ $src => $this->dir . '/900x0-center/hero.png.avif' ],
+			$plan['move']
+		);
+	}
+
+	/**
+	 * ADR 0007's worked example: two sources sharing a directory and a stem
+	 * but not an extension collided under the old flat name, and recovering
+	 * which one `hero.avif` came from is exactly what that layout destroyed.
+	 * The migrator must report the ambiguity and move nothing, rather than
+	 * guess.
+	 */
+	public function test_same_directory_different_extension_is_ambiguous_and_left_unmigrated(): void {
+		$this->seed( '900x0-center/hero.avif' );
+		$plan = ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08/hero.jpg', '2026/08/hero.png' ] ] ) )->plan();
+
+		$this->assertSame( [], $plan['move'] );
+		$this->assertSame(
+			[ '2026/08/hero.jpg', '2026/08/hero.png' ],
+			$plan['ambiguous']['900x0-center/hero.avif']
+		);
+	}
+
 	public function test_apply_moves_the_file_and_a_second_run_finds_nothing(): void {
 		$src = $this->seed( '900x0-center/hero.avif' );
-		$migrator = new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08' ] ] );
+		$migrator = new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08/hero.webp' ] ] );
 
 		$result = $migrator->apply( $migrator->plan() );
 
 		$this->assertSame( 1, $result['moved'] );
 		$this->assertSame( [], $result['failed'] );
 		$this->assertFileDoesNotExist( $src );
-		$this->assertFileExists( $this->dir . '/900x0-center/2026/08/hero.avif' );
+		$this->assertFileExists( $this->dir . '/900x0-center/2026/08/hero.webp.avif' );
 
-		$this->assertSame( [], ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08' ] ] ) )->plan()['move'] );
+		$this->assertSame( [], ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08/hero.webp' ] ] ) )->plan()['move'] );
 	}
 
 	/**
 	 * A target can appear between `plan()` snapshotting the filesystem and
-	 * `apply()` reaching that entry — another invocation, a manually placed
-	 * file, anything. `rename()` silently replaces an existing destination on
-	 * POSIX, so `apply()` must re-check immediately before calling it, not
-	 * trust the snapshot `plan()` took.
+	 * `apply()` reaching that entry -- another invocation, a manually placed
+	 * file, anything. `link()` fails outright when the target already
+	 * exists, so `apply()` is safe against this race without a separate
+	 * pre-check, and the source file must be left completely untouched.
 	 */
 	public function test_apply_does_not_overwrite_a_target_that_appeared_after_planning(): void {
 		$src = $this->seed( '900x0-center/hero.avif' );
-		$migrator = new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08' ] ] );
+		$migrator = new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08/hero.webp' ] ] );
 
 		$plan = $migrator->plan();
-		$target = $this->seed( '900x0-center/2026/08/hero.avif' );
+		$target = $this->seed( '900x0-center/2026/08/hero.webp.avif' );
 		file_put_contents( $target, 'pre-existing' );
 
 		$result = $migrator->apply( $plan );
@@ -134,6 +164,7 @@ class MigratePlanTest extends TestCase {
 		$this->assertSame( 0, $result['moved'] );
 		$this->assertSame( [ $src ], $result['failed'] );
 		$this->assertFileExists( $src );
+		$this->assertSame( 'x', file_get_contents( $src ) );
 		$this->assertSame( 'pre-existing', file_get_contents( $target ) );
 	}
 }
