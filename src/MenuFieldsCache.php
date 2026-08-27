@@ -401,6 +401,12 @@ final class MenuFieldsCache {
 		// hook fires for one.
 		return 'menu-fields:' . $menu_id
 			. '|' . Helpers::menuFieldConfigVersion( $menu_id )
+			// Not decoration. The shortcode check answers "can do_shortcode()
+			// change this", which is a question about the value AND the
+			// registry. Store the answer without the registry and activating a
+			// plugin turns a stored literal into a permanently wrong render,
+			// with no content change to make the entry unreachable.
+			. '|s' . Helpers::shortcodeTagsVersion()
 			. '|' . CacheSignature::shared();
 	}
 }

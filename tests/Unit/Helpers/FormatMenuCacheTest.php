@@ -40,6 +40,9 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		$this->itemWork = 0;
 		$this->lastTtl  = -1;
 		$this->meta     = [];
+		// A global outlives the test that filled it, and a stray registered tag
+		// would make the next test's plain text read as a shortcode.
+		$GLOBALS['shortcode_tags'] = [];
 		Helpers::flushMenuFields();
 
 		// The gate reads raw meta before it stores anything formatted from it.
@@ -236,6 +239,7 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		// field: a callback may read the global post or the current query. It
 		// serializes perfectly, which is exactly why an object check would miss
 		// it.
+		$GLOBALS['shortcode_tags']['sc'] = '__return_empty_string';
 		$this->menuItemsCarryField( [ 'key' => 'f', 'name' => 'body', 'type' => 'wysiwyg' ], '<p>x [sc]</p>' );
 		Functions\when( 'do_shortcode' )->alias(
 			static fn ( $v ) => str_replace( '[sc]', '<b>rendered</b>', (string) $v )
@@ -246,19 +250,42 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		$this->assertSame( [], $this->store );
 	}
 
-	public function test_an_unregistered_shortcode_is_refused_although_nothing_changed(): void {
-		// The case that decided the gate's direction. `[sc]` is not registered,
-		// so do_shortcode() hands it straight back and the render is a fixed
-		// point — a gate that watched the output would call this static and
-		// store the literal `[sc]`. Then a plugin registers the shortcode and
-		// every page serves the frozen source text instead of its output, with
-		// nothing to log and nothing to notice.
+	public function test_registering_a_shortcode_makes_the_stored_literal_unreachable(): void {
+		// This replaces a test that asserted the opposite, and the reversal is
+		// the point. `[sc]` is not registered, so core's own do_shortcode()
+		// returns the string untouched — it is genuinely static and there is no
+		// reason to refuse it.
+		//
+		// What made the earlier version refuse was that the answer is not a
+		// property of the string alone. Register `sc` later and the same string
+		// stops being static. So the registry rides in the key, and the entry
+		// written while `sc` was unknown is simply unreachable afterwards.
 		$this->menuItemsCarryField( [ 'key' => 'f', 'name' => 'body', 'type' => 'wysiwyg' ], '<p>x [sc]</p>' );
 		Functions\when( 'do_shortcode' )->alias( static fn ( $v ) => $v );
 
 		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+		$stored = array_keys( $this->store );
+		$this->assertNotSame( [], $stored, 'an unregistered shortcode is static and should cache' );
 
-		$this->assertSame( [], $this->store );
+		// A plugin is activated.
+		$GLOBALS['shortcode_tags']['sc'] = '__return_empty_string';
+		Helpers::flushMenuFields();
+		$this->itemWork = 0;
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertGreaterThan( 0, $this->itemWork, 'the stale literal answered a now-registered shortcode' );
+	}
+
+	public function test_a_bracket_in_prose_does_not_cost_the_cache(): void {
+		// The blunt check refused any value holding `[`, so a menu label reading
+		// "Ceník [2026]" was enough to make a site pay full price on every
+		// request. Core does not consider that a shortcode and neither does this.
+		$this->menuItemsCarryField( [ 'key' => 'f', 'name' => 'body', 'type' => 'wysiwyg' ], 'Ceník [2026]' );
+		Functions\when( 'do_shortcode' )->alias( static fn ( $v ) => $v );
+
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertNotSame( [], $this->store );
 	}
 
 	public function test_a_shortcode_acf_supplies_but_no_meta_row_holds_is_refused(): void {
@@ -272,6 +299,7 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		//
 		// Meta is left EMPTY on purpose. That is the whole point of the test.
 		$this->meta[11] = [];
+		$GLOBALS['shortcode_tags']['contextual'] = '__return_empty_string';
 		$this->menuItemsCarryField( [ 'key' => 'f', 'name' => 'body', 'type' => 'wysiwyg' ], '[contextual]' );
 		Functions\when( 'do_shortcode' )->alias( static fn ( $v ) => 'Buy now' );
 

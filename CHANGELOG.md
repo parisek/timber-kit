@@ -90,6 +90,16 @@ The shortcode check reads the value ACF produced, which closes the surface it
 can see. Three others are closed differently, and each was found by review
 rather than by design:
 
+- **A bracket is not a shortcode.** The check asks core's own question instead
+  of approximating it: `do_shortcode()` returns its input untouched unless a
+  **registered** tag appears in it, so the same early exit decides this — same
+  order, same regex, cited at the call site. The registered tag set rides in the
+  key, because "does this hold a shortcode" is a property of the string *and*
+  the registry: answer it without the second and the literal `[foo]` is stored
+  while `foo` is unregistered, then served forever after a plugin registers it.
+  The earlier check refused any value holding `[`, so a menu label reading
+  "Ceník [2026]" was enough to cost a site its cache.
+
 - **Field definitions change without touching content.** Groups load from theme
   JSON, so a deploy editing a `default_value` moves neither last-changed
   counter. The key now carries a hash of the `modified` stamps of the groups

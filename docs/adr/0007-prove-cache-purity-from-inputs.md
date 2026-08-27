@@ -52,7 +52,7 @@ Concretely, for each surface that can be dynamic:
 
 | Surface | Where the claim is decided |
 | --- | --- |
-| `do_shortcode()` on editor content | the value handed to it, checked for `[` at the call site |
+| `do_shortcode()` on editor content | the value handed to it, asked core's own question at the call site |
 | `field_formatter_{$type}` filters | any callback registered — refuse |
 | ACF `acf/load_value` / `acf/pre_load_value`, including variation tags | the file each callback is defined in, against a trusted-root list |
 | CF7 / WPForms embeds | counted during the build; the markup carries a nonce, and no input predicts it |
@@ -74,9 +74,32 @@ judged by the directory they are defined in, the same test
 `navMenuItemSharingIsSafe()` already applies to ACF location types, and
 `timber_kit_trusted_value_load_roots` extends the list.
 
-**Checks are blunt on purpose.** A `[` in a plain-text field is not a shortcode
-and the menu is refused anyway. A false refusal costs one uncached menu; a false
-accept is wrong on every page.
+**A check may be as precise as its source of truth, provided every input that
+precision depends on is in the key.** The first version of the shortcode check
+refused any value holding `[`, on the reasoning that a blunt check cannot be
+argued into being wrong. It can be argued into being useless: a menu label
+reading "Ceník [2026]" cost a site its cache for nothing.
+
+Core answers the same question exactly, and cheaply, before doing any work —
+`do_shortcode()` returns its input untouched unless a **registered** tag appears
+in it. Mirroring that early exit is not the narrowing this ADR warns against,
+because it does not add a claim about behaviour; it adopts the behaviour's own
+definition.
+
+What makes it sound is the second half. "Does this string hold a shortcode" is
+not a property of the string — it is a property of the string *and* the
+registry. Answer it and store the answer without carrying the registry, and the
+literal `[foo]` is stored while `foo` is unregistered, then served forever after
+a plugin registers it. So `$shortcode_tags` rides in the cache key, and the
+entry written under the old registry is unreachable under the new one.
+
+The narrowing that remains forbidden is the one that cannot be discharged this
+way: deciding a registered shortcode is *harmless*, or that a formatter callback
+looks pure. Those are claims only a render could support, and a render cannot
+support them either.
+
+Where no such source of truth exists, blunt still wins. A false refusal costs
+one uncached menu; a false accept is wrong on every page.
 
 ## Consequences
 
@@ -85,10 +108,11 @@ and every refusal is a menu rebuilt at full cost. That is the price, and it is
 the right way round: the failure it avoids is silent, and the failure it causes
 is a page that is merely as slow as before.
 
-**A blunt check must stay blunt.** The temptation is to narrow it — parse the
-bracket, confirm the shortcode is registered, decide it is harmless. Every such
-narrowing reintroduces a claim about behaviour that only a render could support,
-which is the rule this ADR exists to state.
+**Every precision has a key axis, and they are written together or not at all.**
+Three inputs already ride in the key because a check depends on them: the field
+definitions, the registered shortcodes, and the language and roles. Adding a
+sharper check without its axis is the same defect as caching the wrong thing —
+it just takes a plugin activation rather than a page load to show.
 
 **Absence of a hook is not proof; presence of a value is not proof either.** Both
 were tried. A new dynamic surface must be added to the table above with its own

@@ -2107,20 +2107,114 @@ class Helpers {
 	 * shortcode through this call. Verified against
 	 * `acf-value-functions.php::acf_get_value()`.
 	 *
-	 * This sees the value ACF actually produced, whatever produced it.
+	 * This sees the value ACF actually produced, whatever produced it, and asks
+	 * core's own question about it — see {@see holdsRegisteredShortcode()}.
 	 *
 	 * @param mixed $value Field value as ACF resolved it.
 	 * @return mixed Value with shortcodes expanded.
 	 */
 	private static function expandShortcodes( mixed $value ): mixed {
-		if ( is_string( $value ) && str_contains( $value, '[' ) ) {
-			// A bracket is not a shortcode, and this counts it as one anyway. A
-			// false positive costs one uncached menu; a false negative is wrong
-			// on every page.
+		if ( is_string( $value ) && self::holdsRegisteredShortcode( $value ) ) {
 			++self::$dynamic_format_count;
 		}
 
 		return do_shortcode( $value );
+	}
+
+	/**
+	 * Whether `do_shortcode()` can change this string at all.
+	 *
+	 * Core answers this itself before it does any work, and the answer is
+	 * exact: `do_shortcode()` returns its input untouched unless a **registered**
+	 * tag name appears in it. So this mirrors that early exit rather than
+	 * approximating it — same order, same regex, cited so the two can be
+	 * compared:
+	 *
+	 * ```php
+	 * // wp-includes/shortcodes.php, do_shortcode()
+	 * if ( ! str_contains( $content, '[' ) ) { return $content; }
+	 * if ( empty( $shortcode_tags ) || ! is_array( $shortcode_tags ) ) { return $content; }
+	 * preg_match_all( '@\[([^<>&/\[\]\x00-\x20=]++)@', $content, $matches );
+	 * $tagnames = array_intersect( array_keys( $shortcode_tags ), $matches[1] );
+	 * if ( empty( $tagnames ) ) { return $content; }
+	 * ```
+	 *
+	 * A bracket in prose is therefore no longer treated as a shortcode, which
+	 * an earlier and blunter version of this check did — it refused any value
+	 * holding `[`, and a menu label reading "Ceník [2026]" was enough to cost a
+	 * site its cache.
+	 *
+	 * **The precision is only sound because the registered tag set is in the
+	 * cache key.** Whether a string holds a shortcode is not a property of the
+	 * string; it is a property of the string *and* what is registered. Answer
+	 * it without carrying that second input and the literal `[foo]` gets stored
+	 * while `foo` is unregistered, then served forever after a plugin registers
+	 * it. See {@see shortcodeTagsVersion()}.
+	 *
+	 * @param string $value Value about to be handed to `do_shortcode()`.
+	 * @return bool
+	 */
+	private static function holdsRegisteredShortcode( string $value ): bool {
+		if ( ! str_contains( $value, '[' ) ) {
+			return false;
+		}
+
+		$tags = self::registeredShortcodeTags();
+
+		if ( [] === $tags ) {
+			return false;
+		}
+
+		if ( ! preg_match_all( '@\[([^<>&/\[\]\x00-\x20=]++)@', $value, $matches ) ) {
+			return false;
+		}
+
+		return [] !== array_intersect( $tags, $matches[1] );
+	}
+
+	/**
+	 * Registered shortcode tag names.
+	 *
+	 * @return array<int, string>
+	 */
+	private static function registeredShortcodeTags(): array {
+		global $shortcode_tags;
+
+		if ( empty( $shortcode_tags ) || ! is_array( $shortcode_tags ) ) {
+			return [];
+		}
+
+		return array_map( 'strval', array_keys( $shortcode_tags ) );
+	}
+
+	/**
+	 * A token that changes when the set of registered shortcodes changes.
+	 *
+	 * The second half of the check above, and not optional. "This value holds
+	 * no shortcode" is an answer about the value *and* the registry, so a cache
+	 * that stores the first must carry the second — otherwise activating a
+	 * plugin turns every stored literal into a permanently wrong render, with
+	 * no content change to make the entry unreachable.
+	 *
+	 * Only the names matter. A callback swapped behind an unchanged name does
+	 * not change whether the value was expandable, and the values here are
+	 * closures that do not hash.
+	 *
+	 * Not memoized: a shortcode registered late in a request must not be
+	 * invisible to the menu formatted after it.
+	 *
+	 * @return string
+	 */
+	public static function shortcodeTagsVersion(): string {
+		$tags = self::registeredShortcodeTags();
+
+		if ( [] === $tags ) {
+			return 'none';
+		}
+
+		sort( $tags );
+
+		return substr( md5( implode( ',', $tags ) ), 0, 8 );
 	}
 
 	/**
