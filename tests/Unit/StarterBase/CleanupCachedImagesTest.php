@@ -66,8 +66,21 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		$this->created = array_merge( $this->created, array_reverse( $missing ) );
 	}
 
+	/**
+	 * Create $path, and fail the test if it is already there.
+	 *
+	 * Ownership is then creation-based, not path-based: a fixture this run did
+	 * not make is never adopted, and so never removed by this run's teardown.
+	 * `x` decides that atomically, which `file_exists()` followed by a write
+	 * cannot -- a concurrent run can create the file between the two.
+	 */
 	private function seedFile( string $path ): void {
-		file_put_contents( $path, 'x' );
+		$handle = @fopen( $path, 'x' );
+		if ( false === $handle ) {
+			self::fail( "Fixture path already exists, so this run does not own it: {$path}" );
+		}
+		fwrite( $handle, 'x' );
+		fclose( $handle );
 		$this->created[] = $path;
 	}
 
@@ -152,11 +165,6 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 	}
 
 	/**
-	 * Without a database the sibling question cannot be answered. Skipping the
-	 * delete leaves a stale file that the next resize overwrites; guessing wrong
-	 * in the other direction destroys an image that is still on the page.
-	 */
-	/**
 	 * A failed query answers nothing. `get_var()` returns null on error, and the
 	 * naive `(int) null > 0` reading of that is indistinguishable from a real
 	 * zero — which would delete the files on any transient database error.
@@ -203,6 +211,21 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		$wpdb = $GLOBALS['wpdb'];
 		$this->assertStringContainsString( "meta_key = '_wp_attached_file'", $wpdb->prepared_query );
 		$this->assertStringContainsString( 'post_id != %d', $wpdb->prepared_query );
+		$this->assertMatchesRegularExpression(
+			'/\bFROM\s+%i\b/i',
+			$wpdb->prepared_query,
+			'the table must be the %i placeholder, not a literal name the args then contradict'
+		);
+		// The stub hands the query back verbatim rather than substituting, so an
+		// argument list alone proves nothing about where each value lands. Pin the
+		// placeholders in order: `FROM wrong_table` would drop the `%i` and shift
+		// every remaining argument onto the wrong one.
+		preg_match_all( '/%[isd]/', $wpdb->prepared_query, $placeholders );
+		$this->assertSame(
+			[ '%i', '%s', '%d' ],
+			$placeholders[0],
+			'table, then shared path, then excluded row -- in that order'
+		);
 		$this->assertSame(
 			[ 'wp_postmeta', '2026/08/homepage-hero-desktop.webp', 59741 ],
 			$wpdb->prepare_args,
@@ -210,6 +233,11 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		);
 	}
 
+	/**
+	 * Without a database the sibling question cannot be answered. Skipping the
+	 * delete leaves a stale file that the next resize overwrites; guessing wrong
+	 * in the other direction destroys an image that is still on the page.
+	 */
 	public function test_keeps_derivatives_when_the_sibling_count_is_unavailable(): void {
 		$this->seedDerivatives();
 		Functions\when( 'get_attached_file' )->justReturn( '/var/www/wp-content/uploads/2026/08/homepage-hero-desktop.webp' );
