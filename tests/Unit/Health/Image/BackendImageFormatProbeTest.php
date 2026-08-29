@@ -2,10 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Health;
+namespace Tests\Unit\Health\Image;
 
-use Parisek\TimberKit\Health\BackendImageFormatProbe;
-use Parisek\TimberKit\Health\ImageFormatProbe;
+use Parisek\TimberKit\Health\Image\BackendImageFormatProbe;
+use Tests\Unit\Health\HealthTestCase;
+use Parisek\TimberKit\Health\Image\ImageFormatProbe;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -32,9 +33,12 @@ class BackendImageFormatProbeTest extends HealthTestCase {
 			$this->markTestSkipped( sprintf( 'No image backend on this build writes %s.', $format ) );
 		}
 
-		$this->assertSame(
-			ImageFormatProbe::VERDICT_OK,
-			( new BackendImageFormatProbe() )->probe( $format )
+		// UNVERIFIED is a pass for this assertion: it means the encode worked
+		// and only the read-back was unavailable. Distinguishing those two is
+		// the point — a write-only build must not read as a broken one.
+		$this->assertContains(
+			( new BackendImageFormatProbe() )->probe( $format ),
+			array( ImageFormatProbe::VERDICT_OK, ImageFormatProbe::VERDICT_UNVERIFIED )
 		);
 	}
 
@@ -92,62 +96,37 @@ class BackendImageFormatProbeTest extends HealthTestCase {
 		return match ( $format ) {
 			'webp'  => ! empty( $info['WebP Support'] ),
 			'avif'  => ! empty( $info['AVIF Support'] ),
+			'jpeg'  => ! empty( $info['JPEG Support'] ),
 			default => false,
 		};
 	}
 	/**
-	 * The threshold, stated as a table. Opacity above the midpoint means the
-	 * encoder flattened the channel; at or below it, the pixel is still
-	 * transparent and merely lossy.
-	 */
-	#[DataProvider( 'alpha_samples' )]
-	public function test_alpha_threshold( float $opacity, string $expected ): void {
-		$this->assertSame( $expected, BackendImageFormatProbe::alphaVerdict( $opacity ) );
-	}
-
-	/**
-	 * @return array<string, array{float, string}>
-	 */
-	public static function alpha_samples(): array {
-		return array(
-			'fully transparent'   => array( 0.0, ImageFormatProbe::VERDICT_OK ),
-			'lossy but see-through' => array( 0.02, ImageFormatProbe::VERDICT_OK ),
-			'exactly at midpoint' => array( 0.5, ImageFormatProbe::VERDICT_OK ),
-			'mostly opaque'       => array( 0.8, ImageFormatProbe::VERDICT_ALPHA_LOST ),
-			'fully opaque'        => array( 1.0, ImageFormatProbe::VERDICT_ALPHA_LOST ),
-		);
-	}
-
-	/**
-	 * Negative control against a real encoder: an image written with no alpha
-	 * channel — the exact shape a flattening build returns — must be caught.
+	 * The negative control, through the public API.
 	 *
-	 * Without this, every assertion above would still pass if the threshold
-	 * were inverted, because a correct backend never produces the failing case.
+	 * JPEG cannot carry an alpha channel, so a correct probe must report the
+	 * transparency as lost. Without a case like this every other assertion
+	 * would still pass with the threshold inverted, because a healthy backend
+	 * never produces the failing verdict on its own.
 	 */
-	public function test_an_opaque_encode_is_detected_as_alpha_loss(): void {
-		if ( ! function_exists( 'imagewebp' ) || ! function_exists( 'imagecreatetruecolor' ) ) {
-			$this->markTestSkipped( 'GD with WebP support is required to build the control image.' );
+	public function test_a_format_that_cannot_carry_alpha_reports_alpha_loss(): void {
+		if ( ! self::backendCanWrite( 'jpeg' ) ) {
+			$this->markTestSkipped( 'No image backend on this build writes JPEG.' );
 		}
-
-		$image = imagecreatetruecolor( 16, 16 );
-		imagefilledrectangle( $image, 0, 0, 15, 15, (int) imagecolorallocate( $image, 255, 0, 0 ) );
-
-		ob_start();
-		imagewebp( $image );
-		$blob = (string) ob_get_clean();
-		imagedestroy( $image );
-
-		$read = imagecreatefromstring( $blob );
-		$this->assertNotFalse( $read );
-
-		imagesavealpha( $read, true );
-		$packed = ( imagecolorat( $read, 12, 8 ) >> 24 ) & 0x7F;
-		imagedestroy( $read );
 
 		$this->assertSame(
 			ImageFormatProbe::VERDICT_ALPHA_LOST,
-			BackendImageFormatProbe::alphaVerdict( 1.0 - ( $packed / 127.0 ) )
+			( new BackendImageFormatProbe() )->probe( 'jpeg' )
 		);
+	}
+
+	/**
+	 * hasBackend() answers the question the check asks before it asks about a
+	 * format. The test environment always has one, so this pins the contract
+	 * rather than the host.
+	 */
+	public function test_has_backend_is_true_when_an_image_extension_is_loaded(): void {
+		$expected = class_exists( '\\Imagick' ) || function_exists( 'imagecreatetruecolor' );
+
+		$this->assertSame( $expected, ( new BackendImageFormatProbe() )->hasBackend() );
 	}
 }

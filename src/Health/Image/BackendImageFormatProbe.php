@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace Parisek\TimberKit\Health;
+namespace Parisek\TimberKit\Health\Image;
 
 /**
  * Encodes a half-transparent 16x16 test image in the target format and reads
@@ -29,6 +29,19 @@ final class BackendImageFormatProbe implements ImageFormatProbe {
 	 */
 	private const int SAMPLE_X = 12;
 	private const int SAMPLE_Y = 8;
+
+	/**
+	 * Opacity above this counts as a flattened alpha channel.
+	 *
+	 * A midpoint rather than equality with 0: lossy encoders never land exactly
+	 * on transparent, so the question is "is this pixel still see-through",
+	 * not "is it bit-identical".
+	 */
+	private const float ALPHA_OPAQUE_THRESHOLD = 0.5;
+
+	public function hasBackend(): bool {
+		return class_exists( '\Imagick' ) || function_exists( 'imagecreatetruecolor' );
+	}
 
 	public function probe( string $format ): string {
 		if ( class_exists( '\Imagick' ) ) {
@@ -77,7 +90,17 @@ final class BackendImageFormatProbe implements ImageFormatProbe {
 			if ( '' === $blob ) {
 				return self::VERDICT_WRITE_FAILED;
 			}
+		} catch ( \Throwable $e ) {
+			return self::VERDICT_WRITE_FAILED;
+		} finally {
+			if ( $source instanceof \Imagick ) {
+				$source->clear();
+			}
+		}
 
+		// The encode succeeded. Everything below only verifies transparency, so
+		// a failure here is "could not check", never "cannot write".
+		try {
 			$read = new \Imagick();
 			$read->readImageBlob( $blob );
 
@@ -87,13 +110,10 @@ final class BackendImageFormatProbe implements ImageFormatProbe {
 			// An absent key means no alpha channel survived at all.
 			return self::alphaVerdict( isset( $colour['a'] ) ? (float) $colour['a'] : 1.0 );
 		} catch ( \Throwable $e ) {
-			return self::VERDICT_WRITE_FAILED;
+			return self::VERDICT_UNVERIFIED;
 		} finally {
 			// Imagick holds native memory the GC does not reclaim on its own;
-			// clear both handles on every path, including the throws above.
-			if ( $source instanceof \Imagick ) {
-				$source->clear();
-			}
+			// clear the handle on every path, including the throw above.
 			if ( $read instanceof \Imagick ) {
 				$read->clear();
 			}
@@ -104,20 +124,46 @@ final class BackendImageFormatProbe implements ImageFormatProbe {
 	 * @return self::VERDICT_*
 	 */
 	private function probeGd( string $format ): string {
-		// Never `'image' . $format`: the format arrives from a public filter,
-		// and a concatenated variable function would let any value pick an
-		// arbitrary `image*()` function to call.
+		// One match, returning the call itself. Never `'image' . $format`: the
+		// format arrives from a public filter, and a concatenated variable
+		// function would let any value pick an arbitrary `image*()` function.
+		// Closures rather than function names so the name is decided and
+		// invoked in the same place — holding a name here and dispatching on it
+		// elsewhere let the two lists drift, and a format present in one and
+		// missing from the other silently read as a failed encode.
 		$writer = match ( $format ) {
-			'avif'  => 'imageavif',
-			'webp'  => 'imagewebp',
+			'avif' => function_exists( 'imageavif' )
+				? static fn ( \GdImage $image ): bool => imageavif( $image )
+				: null,
+			'webp' => function_exists( 'imagewebp' )
+				? static fn ( \GdImage $image ): bool => imagewebp( $image )
+				: null,
+			// JPEG cannot carry an alpha channel, so probing it always yields
+			// VERDICT_ALPHA_LOST. The check never asks for it — JPEG
+			// short-circuits as delegate-free long before the probe runs — but
+			// the tests do, as the one negative control a working backend can
+			// actually produce.
+			'jpeg' => function_exists( 'imagejpeg' )
+				? static fn ( \GdImage $image ): bool => imagejpeg( $image )
+				: null,
 			default => null,
 		};
 
-		if ( null === $writer || ! function_exists( $writer ) ) {
+		if ( null === $writer ) {
 			return self::VERDICT_MISSING_DELEGATE;
 		}
 
 		$source = imagecreatetruecolor( 16, 16 );
+
+		// Guarded, not assumed: under memory pressure GD returns false, and
+		// every call below is typed for GdImage. Without this the first one
+		// throws a TypeError, the finally block's imagedestroy( false ) throws
+		// a second one on the way out, and that escapes probe() and fatals the
+		// Site Health screen — a health check taking down the page that shows
+		// health.
+		if ( false === $source ) {
+			return self::VERDICT_NO_BACKEND;
+		}
 
 		try {
 			imagealphablending( $source, false );
@@ -137,9 +183,12 @@ final class BackendImageFormatProbe implements ImageFormatProbe {
 				return self::VERDICT_WRITE_FAILED;
 			}
 
+			// The encode succeeded. Reading it back is a separate capability,
+			// so a failure from here on is "could not check transparency",
+			// never "cannot write".
 			$read = @imagecreatefromstring( $blob );
 			if ( false === $read ) {
-				return self::VERDICT_WRITE_FAILED;
+				return self::VERDICT_UNVERIFIED;
 			}
 
 			try {
@@ -167,16 +216,13 @@ final class BackendImageFormatProbe implements ImageFormatProbe {
 	 * Isolated because an unbalanced ob_start() does not fail loudly — it
 	 * swallows whatever wp-admin prints next. Null signals the writer failed.
 	 */
-	private function captureGdOutput( string $writer, \GdImage $image ): ?string {
+	/**
+	 * @param \Closure(\GdImage): bool $writer
+	 */
+	private function captureGdOutput( \Closure $writer, \GdImage $image ): ?string {
 		ob_start();
 		try {
-			// Literal calls, not `$writer( … )`: a variable invocation hides
-			// from static analysis which function actually runs.
-			$written = match ( $writer ) {
-				'imageavif' => imageavif( $image ),
-				'imagewebp' => imagewebp( $image ),
-				default     => false,
-			};
+			$written = $writer( $image );
 		} catch ( \Throwable $e ) {
 			ob_end_clean();
 
@@ -189,20 +235,10 @@ final class BackendImageFormatProbe implements ImageFormatProbe {
 	/**
 	 * Judge one sampled pixel taken from the half that was drawn transparent.
 	 *
-	 * Public and static because it is the one piece of this class that is pure,
-	 * and it carries the threshold the whole check rests on: a wrong threshold
-	 * would pass a host that flattens alpha, which is precisely the failure the
-	 * check exists to catch. Not part of the ImageFormatProbe contract — only
-	 * this implementation and its test use it.
-	 *
-	 * Lossy encoders never land exactly on 0, so the comparison is a midpoint
-	 * rather than equality: above it the channel was flattened, below it merely
-	 * compressed.
-	 *
 	 * @param float $opacity 0.0 fully transparent, 1.0 fully opaque.
 	 * @return self::VERDICT_ALPHA_LOST|self::VERDICT_OK
 	 */
-	public static function alphaVerdict( float $opacity ): string {
-		return $opacity > 0.5 ? self::VERDICT_ALPHA_LOST : self::VERDICT_OK;
+	private static function alphaVerdict( float $opacity ): string {
+		return $opacity > self::ALPHA_OPAQUE_THRESHOLD ? self::VERDICT_ALPHA_LOST : self::VERDICT_OK;
 	}
 }

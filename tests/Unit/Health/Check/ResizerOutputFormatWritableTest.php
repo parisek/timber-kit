@@ -8,7 +8,7 @@ use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
 use Parisek\TimberKit\Health\Check\ResizerOutputFormatWritable;
 use Parisek\TimberKit\Health\HealthCheck;
-use Parisek\TimberKit\Health\ImageFormatProbe;
+use Parisek\TimberKit\Health\Image\ImageFormatProbe;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Unit\Health\HealthTestCase;
 
@@ -21,7 +21,14 @@ final class FakeImageFormatProbe implements ImageFormatProbe {
 	public ?string $seen = null;
 	public int $calls     = 0;
 
-	public function __construct( private readonly string $verdict = ImageFormatProbe::VERDICT_OK ) {
+	public function __construct(
+		private readonly string $verdict = ImageFormatProbe::VERDICT_OK,
+		private readonly bool $has_backend = true,
+	) {
+	}
+
+	public function hasBackend(): bool {
+		return $this->has_backend;
 	}
 
 	public function probe( string $format ): string {
@@ -154,5 +161,29 @@ class ResizerOutputFormatWritableTest extends HealthTestCase {
 			'resizer_output_format_writable',
 			( new ResizerOutputFormatWritable() )->id()
 		);
+	}
+	/**
+	 * A host with no image backend must never read as healthy, not even for a
+	 * format that needs no delegate — nothing resizes there at all.
+	 */
+	public function test_missing_backend_outranks_a_delegate_free_format(): void {
+		Filters\expectApplied( 'timber_kit_resizer_target_format' )->once()->andReturn( 'png' );
+
+		$probe  = new FakeImageFormatProbe( ImageFormatProbe::VERDICT_OK, false );
+		$result = ( new ResizerOutputFormatWritable( $probe ) )->run();
+
+		$this->assertSame( 'critical', $result->status() );
+		$this->assertSame( 0, $probe->calls, 'The format question is moot without a backend.' );
+	}
+
+	/**
+	 * An unreadable encode is not a broken encode: the resizer still produces
+	 * files, so the row must not shout `critical`.
+	 */
+	public function test_unverified_is_reported_but_not_as_critical(): void {
+		$result = ( new ResizerOutputFormatWritable( new FakeImageFormatProbe( ImageFormatProbe::VERDICT_UNVERIFIED ) ) )->run();
+
+		$this->assertSame( 'recommended', $result->status() );
+		$this->assertNotSame( '', $result->actions() );
 	}
 }

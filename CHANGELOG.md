@@ -29,6 +29,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   told about WebP. Delegate-free formats (JPEG/PNG/GIF) short-circuit without
   an encode.
 
+  Encoding and decoding are judged separately. A build that writes the format
+  but cannot read its own output back reports `unverified` (recommended), not a
+  failure — the resizer still produces valid files there, and calling that
+  broken would be a false alarm. GitHub's runners hit exactly this case.
+
+  "No backend at all" is asked before the format question, so a project that
+  filtered the output to PNG cannot get a green row on a host where nothing
+  resizes.
+
+  The format is probed exactly as the filter returns it. `Resizer` normalises
+  only per-variant formats, so a filtered `AVIF` reaches the encoder uppercase
+  — probing a lowercased copy would test a format production never uses.
+
   Nothing is cached: the probe costs ~6 ms, and Site Health direct tests run on
   one admin screen and in the weekly cron, so a cache would buy milliseconds
   and owe a staleness bug.

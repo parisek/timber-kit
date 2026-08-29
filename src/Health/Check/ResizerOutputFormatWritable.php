@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Parisek\TimberKit\Health\Check;
 
-use Parisek\TimberKit\Health\BackendImageFormatProbe;
 use Parisek\TimberKit\Health\HealthCheck;
-use Parisek\TimberKit\Health\ImageFormatProbe;
+use Parisek\TimberKit\Health\Image\BackendImageFormatProbe;
+use Parisek\TimberKit\Health\Image\ImageFormatProbe;
 use Parisek\TimberKit\Health\Result;
 
 /**
@@ -23,6 +23,12 @@ use Parisek\TimberKit\Health\Result;
  * encoder throw, error_log()s it and returns null, so the variant drops out of
  * `<picture>` with no fallback and no admin-visible signal. This check is that
  * signal.
+ *
+ * Scope: the request-wide output format only. A call site can override the
+ * format per variant (`[ 'format' => 'webp' ]`), and those are not probed —
+ * enumerating every format a template might ask for is not something a health
+ * check can do. The request-wide format is the one every image uses by
+ * default, so it is the one worth a row on the board.
  *
  * Three failure verdicts stay distinct on purpose. "No delegate", "read-only
  * delegate" and "drops alpha" send an admin to three different fixes, and the
@@ -47,7 +53,9 @@ final class ResizerOutputFormatWritable implements HealthCheck {
 	}
 
 	public function label(): string {
-		return __( 'Image resizer can write its output format', 'timber-kit' );
+		// Names the axis, because the sibling timber_kit_resizer_formats test
+		// badges Performance too and reads as the same subject at a glance.
+		return __( 'Image resizer output format is writable', 'timber-kit' );
 	}
 
 	public function category(): string {
@@ -64,9 +72,26 @@ final class ResizerOutputFormatWritable implements HealthCheck {
 		 * constant behind it: a project that switched the output to WebP must
 		 * be told about WebP, and a project on the default about AVIF.
 		 */
-		$format = strtolower( (string) apply_filters( 'timber_kit_resizer_target_format', 'avif' ) );
+		/**
+		 * Kept verbatim, not lowercased. Resizer::normalizeFormat() only
+		 * normalises a per-variant format; the request-wide one from this
+		 * filter reaches the encoder exactly as written (src/Resizer.php:184,
+		 * :699). Probing a tidied copy would test a format production never
+		 * uses — `AVIF` passes as `avif` here while Spatie's GD driver rejects
+		 * the uppercase spelling at render time.
+		 */
+		$format = (string) apply_filters( 'timber_kit_resizer_target_format', 'avif' );
 
-		if ( in_array( $format, self::DELEGATE_FREE, true ) ) {
+		// Asked before the format question: with no backend nothing resizes at
+		// all, and a delegate-free format would otherwise short-circuit to a
+		// clean bill of health for a backend that does not exist.
+		if ( ! $this->probe->hasBackend() ) {
+			return $this->verdictToResult( ImageFormatProbe::VERDICT_NO_BACKEND, $format );
+		}
+
+		// Case-insensitive only for deciding whether a delegate can be missing;
+		// the probe still receives the format as written.
+		if ( in_array( strtolower( $format ), self::DELEGATE_FREE, true ) ) {
 			return Result::good(
 				sprintf(
 					/* translators: %s: image format, e.g. "png". */
@@ -120,6 +145,16 @@ final class ResizerOutputFormatWritable implements HealthCheck {
 						$format
 					),
 					'<p>' . esc_html__( 'A read-only delegate usually means the encoder library is missing while the decoder is present. Ask the host to install the encoder (libaom for AVIF), or switch the resizer to another format via the timber_kit_resizer_target_format filter.', 'timber-kit' ) . '</p>'
+				);
+
+			case ImageFormatProbe::VERDICT_UNVERIFIED:
+				return Result::recommended(
+					sprintf(
+						/* translators: %s: image format, e.g. "avif". */
+						__( 'The image backend writes %s but cannot read it back, so transparency could not be verified. Resized images are still produced.', 'timber-kit' ),
+						$format
+					),
+					'<p>' . esc_html__( 'Encoding and decoding are separate capabilities. Nothing is broken by this on its own; check a resized transparent image by eye if the site uses cut-out logos.', 'timber-kit' ) . '</p>'
 				);
 
 			case ImageFormatProbe::VERDICT_ALPHA_LOST:
