@@ -8,7 +8,7 @@ use Brain\Monkey\Functions;
 use Tests\Unit\ResizerTestCase;
 
 /**
- * ADR 0007's amendment: the flag must also retain the source's own
+ * ADR 0008's amendment: the flag must also retain the source's own
  * extension in the derivative filename, not just its directory --
  * `hero.jpg` and `hero.png` sharing a directory collided on one derivative
  * name (`hero.avif`) even after the directory segment was added.
@@ -81,7 +81,7 @@ class SourceExtensionCacheKeyTest extends ResizerTestCase {
 		$this->assertNotSame( $jpg[0]['src'], $png[0]['src'] );
 	}
 
-	/** ADR 0007's worked example. */
+	/** ADR 0008's worked example. */
 	public function test_flag_on_matches_the_adr_worked_example(): void {
 		$resizer = $this->createResizerWithSourcePathFlag( true );
 

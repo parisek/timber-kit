@@ -4139,7 +4139,7 @@ class StarterBase extends Site {
 		// whatever else happens to sit in that character class or wildcard.
 		// A name that sanitizes to nothing can't be resolved either way.
 		//
-		// The full basename, extension included: ADR 0007 keys the derivative
+		// The full basename, extension included: ADR 0008 keys the derivative
 		// on the source's whole identity, because two sources sharing a
 		// directory and a stem but not an extension (hero.jpg / hero.png)
 		// would otherwise resolve to the same derivative name here too.

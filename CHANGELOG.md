@@ -81,7 +81,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   no longer reach another upload's images — including one differing only by
   extension in the same directory.
 
-  Decision and alternatives: `docs/adr/0007-resizer-source-path-cache-key.md`.
+  Decision and alternatives: `docs/adr/0008-resizer-source-path-cache-key.md`.
 
 ### Documentation
 

@@ -8,7 +8,7 @@ namespace Parisek\TimberKit;
  * Moves existing resizer cache derivatives from the flat layout
  * (`<size>/<name>.<fmt>`) into the source-path layout
  * (`<size>/<source-relative-dir>/<source-filename>.<fmt>`) — see
- * `docs/adr/0007-resizer-source-path-cache-key.md`.
+ * `docs/adr/0008-resizer-source-path-cache-key.md`.
  *
  * The flat derivative is named `pathinfo( basename( $src ), PATHINFO_FILENAME )`
  * plus the *target* format, so `hero.avif` in the cache is keyed by `hero`, not
@@ -120,7 +120,7 @@ class ImageCacheMigrator {
 			// resolves the same way under both (the common case -- see
 			// `test_root_upload_with_extensionless_source_name_is_already_in_place`)
 			// still reads as unambiguous, while a name that resolves to two
-			// distinct identities (ADR 0007's aliasing case: `hero.png` the
+			// distinct identities (ADR 0008's aliasing case: `hero.png` the
 			// root upload vs. `hero.png.jpg` a legacy source -- both strip to
 			// `hero.png`) reads as ambiguous exactly as any other collision
 			// would. Recovering which one produced the file on disk is

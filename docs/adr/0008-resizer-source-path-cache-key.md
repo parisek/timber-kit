@@ -1,4 +1,4 @@
-# 0007. Scope the resizer cache key by the source's upload path
+# 0008. Scope the resizer cache key by the source's upload path
 
 ## Context
 

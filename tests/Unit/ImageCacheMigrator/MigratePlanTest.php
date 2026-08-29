@@ -113,7 +113,7 @@ class MigratePlanTest extends TestCase {
 	}
 
 	/**
-	 * ADR 0007's worked example: two sources sharing a directory and a stem
+	 * ADR 0008's worked example: two sources sharing a directory and a stem
 	 * but not an extension collided under the old flat name, and recovering
 	 * which one `hero.avif` came from is exactly what that layout destroyed.
 	 * The migrator must report the ambiguity and move nothing, rather than
@@ -174,7 +174,7 @@ class MigratePlanTest extends TestCase {
 	}
 
 	/**
-	 * The genuine aliasing case ADR 0007 calls out: a new derivative for root
+	 * The genuine aliasing case ADR 0008 calls out: a new derivative for root
 	 * source `hero.png` has the same on-disk spelling as the OLD flat
 	 * derivative for a different root source, `hero.png.jpg` (whose legacy
 	 * name -- `pathinfo(..., PATHINFO_FILENAME)` strips only the last

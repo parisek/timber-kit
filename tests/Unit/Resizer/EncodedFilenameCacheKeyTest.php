@@ -8,7 +8,7 @@ use Brain\Monkey\Functions;
 use Tests\Unit\ResizerTestCase;
 
 /**
- * ADR 0007's derivative name must agree with the name
+ * ADR 0008's derivative name must agree with the name
  * `StarterBase::cached_derivative_paths_by_source_path()` and
  * `MigrateImageCacheCommand`'s map builder compute from the decoded
  * `_wp_attached_file` value -- otherwise the writer and the deleter/migrator

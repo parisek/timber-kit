@@ -1407,7 +1407,7 @@ class Resizer {
 
 		// Sanitize filename to prevent path traversal attacks.
 		//
-		// Stripped of its extension by default — flag on keeps it (ADR 0007):
+		// Stripped of its extension by default — flag on keeps it (ADR 0008):
 		// the derivative name must carry the source's own extension too, or
 		// hero.jpg and hero.png in one directory collide on one derivative.
 		//

@@ -16,7 +16,7 @@ use PHPUnit\Framework\TestCase;
  * `__invoke()` (WP_CLI I/O, deliberately not unit-tested per the class
  * docblock).
  *
- * ADR 0007's amendment: the map's values are full source paths (directory
+ * ADR 0008's amendment: the map's values are full source paths (directory
  * *and* the source's own filename, extension included), not bare
  * directories -- the target filename needs the source's extension, and two
  * sources sharing a directory and stem but differing only by extension
@@ -90,7 +90,7 @@ class MigrateImageCacheCommandBuildNameToSourcePathsTest extends TestCase {
 
 	/**
 	 * Two sources in the same clean directory, same stem, different
-	 * extension: ADR 0007's own worked example of the same-directory
+	 * extension: ADR 0008's own worked example of the same-directory
 	 * collision. Both must be recorded under the flat name, not
 	 * collapsed into one.
 	 */
@@ -129,7 +129,7 @@ class MigrateImageCacheCommandBuildNameToSourcePathsTest extends TestCase {
 	}
 
 	/**
-	 * Same directory, same stem, distinct source extensions -- ADR 0007's
+	 * Same directory, same stem, distinct source extensions -- ADR 0008's
 	 * worked example. Since recovering which source the flat `hero.avif`
 	 * actually came from is impossible, the migrator must leave it alone
 	 * rather than guess.

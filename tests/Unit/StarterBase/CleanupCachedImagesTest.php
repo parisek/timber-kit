@@ -270,7 +270,7 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 	}
 
 	/**
-	 * ADR 0007's amendment: the extension is now part of the derivative
+	 * ADR 0008's amendment: the extension is now part of the derivative
 	 * name too, so `11.jpg` and `11.png` sharing one directory no longer
 	 * collide on one derivative, and deleting one leaves the other's
 	 * derivative on disk untouched.
