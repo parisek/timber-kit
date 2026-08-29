@@ -434,6 +434,36 @@ mid-process must call `Helpers::flushFieldGroups()` itself.
 A screen `wp_json_encode()` cannot encode is never memoized, because casting
 `false` to a string would collapse every such screen onto one key.
 
+### Fixed
+
+- `StarterBase::cleanup_cached_images()` deleted resizer derivatives that other
+  attachments were still using. The cache under `wp-content/cache/image` is
+  keyed by file, but one file routinely carries several attachment rows: WPML
+  writes one per language, and a duplicate upload can be pointed at a path that
+  already exists. Deleting any one of those rows wiped the shared derivatives,
+  and the site then regenerated them — or, where the encoder was broken, served
+  a damaged image.
+
+  Measured on a five-language site: 5542 files were shared by 25981 attachment
+  rows, so roughly four fifths of the media library could take a live image
+  down with it. The homepage hero lost its derivatives while five attachment
+  rows and the rendered page still referenced them.
+
+  The delete now runs only when no other attachment points at the same
+  `_wp_attached_file`. It fails closed: where that question cannot be answered
+  the files are kept, because a stale derivative is overwritten by the next
+  resize while one deleted in error vanishes from a page still serving it.
+  "Cannot be answered" covers a missing `$wpdb`, an empty `_wp_attached_file`
+  (a filter supplied the path, so siblings have no key to match on), and a
+  failed query — `get_var()` reports an error by returning null, which casts to
+  the same zero a genuine "no siblings" answer gives, so the null and
+  `last_error` are both checked rather than read as a count.
+
+  Not fixed here, and tracked separately: two different files that share a
+  basename across upload-year folders still collide in the flat cache
+  namespace, so deleting one can remove the other's derivative. That needs a
+  cache-naming change, not a guard.
+
 ## [1.42.0] - 2026-08-26
 
   310 calls covered **33 distinct URLs** — the same menu and options-page links
