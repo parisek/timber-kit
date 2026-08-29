@@ -6,6 +6,33 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- Site Health — `resizer_output_format_writable`. The existing
+  `timber_kit_resizer_formats` test asks which formats the backend can
+  *decode*; nothing asked whether it can **write** the format the resizer
+  targets, and that is the one every image passes through. When the encode
+  fails, `Resizer::resizeImage()` logs and returns null, so the variant drops
+  out of `<picture>` with no fallback and nothing visible in wp-admin.
+
+  The check encodes a half-transparent 16x16 image in the configured format and
+  reads a pixel back, because a capability list cannot see the failure that
+  prompted it: Cloudways' ImageMagick 6.9.11 listed AVIF and wrote AVIF, and
+  flattened the alpha channel while doing so. Four verdicts stay distinct — no
+  backend, missing delegate, read-only delegate, dropped alpha — because they
+  send an admin to four different fixes.
+
+  Backend selection mirrors `Spatie\Image` and `Resizer::probeBackendFormats()`
+  exactly (Imagick when the class exists, GD otherwise), so the probe cannot
+  report a failure production never hits. The format is read through
+  `timber_kit_resizer_target_format`, so a project that switched to WebP is
+  told about WebP. Delegate-free formats (JPEG/PNG/GIF) short-circuit without
+  an encode.
+
+  Nothing is cached: the probe costs ~6 ms, and Site Health direct tests run on
+  one admin screen and in the weekly cron, so a cache would buy milliseconds
+  and owe a staleness bug.
+
 ### Documentation
 
 - README — `Deriving a value from a post body`. `$post->content()` runs
