@@ -29,6 +29,7 @@ use Parisek\TimberKit\Breeze\WarmupSitemap;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
 use Parisek\TimberKit\Health\Check\FileEditingDisabled;
 use Parisek\TimberKit\Health\Check\GtmContainerNotDuplicated;
+use Parisek\TimberKit\Health\Check\ResizerOutputFormatWritable;
 use Parisek\TimberKit\Health\Check\RestUsersRestricted;
 use Parisek\TimberKit\Health\Check\Utf8mb4Tables;
 use Parisek\TimberKit\Health\Check\WpVersionHidden;
@@ -1448,6 +1449,7 @@ class StarterBase extends Site {
 			new FileEditingDisabled(),
 			new RestUsersRestricted(),
 			new Utf8mb4Tables(),
+			new ResizerOutputFormatWritable(),
 			new GtmContainerNotDuplicated( array() !== $this->gtm_containers && GtmContainer::enabled() ),
 			new PreloadChainHealthy(),
 		);

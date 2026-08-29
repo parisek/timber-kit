@@ -6,6 +6,51 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- Site Health — `resizer_output_format_writable`. The existing
+  `timber_kit_resizer_formats` test asks which formats the backend can
+  *decode*; nothing asked whether it can **write** the format the resizer
+  targets, and that is the one every image passes through. When the encode
+  fails, `Resizer::resizeImage()` logs and returns null, so the variant drops
+  out of `<picture>` with no fallback and nothing visible in wp-admin.
+
+  The check encodes a half-transparent 16x16 image in the configured format and
+  reads a pixel back, because a capability list cannot see the failure that
+  prompted it: Cloudways' ImageMagick 6.9.11 listed AVIF and wrote AVIF, and
+  flattened the alpha channel while doing so. Four verdicts stay distinct — no
+  backend, missing delegate, read-only delegate, dropped alpha — because they
+  send an admin to four different fixes.
+
+  Backend selection mirrors `Spatie\Image` and `Resizer::probeBackendFormats()`
+  exactly (Imagick when the class exists, GD otherwise), so the probe cannot
+  report a failure production never hits. The format is read through
+  `timber_kit_resizer_target_format`, so a project that switched to WebP is
+  told about WebP. Delegate-free formats (JPEG/PNG/GIF) short-circuit without
+  an encode.
+
+  The verdict is measured on a real build, so a host that reports AVIF support
+  and cannot encode it is caught. GitHub's runners are exactly that host:
+  `gd_info()['AVIF Support']` is true there while `imageavif()` fails, because
+  libavif ships with a decoder and no encoder.
+
+  Encoding and decoding are judged separately. A build that writes the format
+  but cannot read its own output back reports `unverified` (recommended), not a
+  failure — the resizer still produces valid files there, and calling that
+  broken would be a false alarm. GitHub's runners hit exactly this case.
+
+  "No backend at all" is asked before the format question, so a project that
+  filtered the output to PNG cannot get a green row on a host where nothing
+  resizes.
+
+  The format is probed exactly as the filter returns it. `Resizer` normalises
+  only per-variant formats, so a filtered `AVIF` reaches the encoder uppercase
+  — probing a lowercased copy would test a format production never uses.
+
+  Nothing is cached: the probe costs ~6 ms, and Site Health direct tests run on
+  one admin screen and in the weekly cron, so a cache would buy milliseconds
+  and owe a staleness bug.
+
 ### Documentation
 
 - README — `Deriving a value from a post body`. `$post->content()` runs

@@ -961,6 +961,55 @@ can't reach the site, the queue simply stops advancing and nothing anywhere
 reports it. The check flags a queue that hasn't made progress in the last
 minute.
 
+### Image resizer output format
+
+The Site Health check `resizer_output_format_writable` (category `performance`,
+needs `$site_health`, registered unconditionally) asks whether this server can
+**write** the format the resizer targets — `avif` by default, or whatever
+`timber_kit_resizer_target_format` returns — and whether transparency survives
+the write.
+
+It is the encode-side counterpart to the `$resizer_format_health` test above,
+which asks which formats the backend can **decode**. Both badge Performance;
+they are different axes and neither replaces the other. The output format is
+the one every image on the site passes through, so a missing delegate there
+takes down every variant rather than one editor's upload — and it does so
+silently, because `Resizer` logs the encoder failure and returns `null`, which
+simply removes that size from `<picture>`.
+
+The check encodes a half-transparent 16x16 image and reads a pixel back rather
+than reading a capability list, because the failure that prompted it is
+invisible to a list: ImageMagick 6.9.11 reported AVIF and wrote AVIF, and
+flattened the alpha channel while doing it.
+
+| Verdict | Status | Meaning |
+| --- | --- | --- |
+| no backend | critical | Neither Imagick nor GD — nothing resizes at all |
+| missing delegate | critical | Format absent from the build |
+| write failed | critical | Listed, but the encoder refuses it |
+| alpha lost | critical | Encodes, but transparency comes back opaque |
+| unverified | recommended | Encoded, but the backend cannot read its own output back, so transparency is unchecked |
+
+Delegate-free formats (`jpeg`, `png`, `gif`) short-circuit without an encode.
+Only the request-wide format is probed; a per-variant `'format' => …` override
+is not.
+
+The probe is reusable outside wp-admin:
+
+```php
+use Parisek\TimberKit\Health\Image\BackendImageFormatProbe;
+use Parisek\TimberKit\Health\Image\ImageFormatProbe;
+
+$probe = new BackendImageFormatProbe();
+
+if ( $probe->hasBackend() && ImageFormatProbe::VERDICT_OK !== $probe->probe( 'avif' ) ) {
+    // This server cannot produce transparent AVIF.
+}
+```
+
+Inject an `ImageFormatProbe` into the check to stub the backend in tests:
+`new ResizerOutputFormatWritable( $probe )`.
+
 ---
 
 ## Usage
