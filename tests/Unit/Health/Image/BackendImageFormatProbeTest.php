@@ -79,28 +79,6 @@ class BackendImageFormatProbeTest extends HealthTestCase {
 	}
 
 	/**
-	 * Whether the active backend — chosen by the same rule the probe uses —
-	 * can write this format at all.
-	 */
-	private static function backendCanWrite( string $format ): bool {
-		if ( class_exists( '\Imagick' ) ) {
-			return in_array(
-				strtoupper( $format ),
-				array_map( 'strtoupper', ( new \Imagick() )->queryFormats() ),
-				true
-			);
-		}
-
-		$info = function_exists( 'gd_info' ) ? gd_info() : array();
-
-		return match ( $format ) {
-			'webp'  => ! empty( $info['WebP Support'] ),
-			'avif'  => ! empty( $info['AVIF Support'] ),
-			'jpeg'  => ! empty( $info['JPEG Support'] ),
-			default => false,
-		};
-	}
-	/**
 	 * The negative control, through the public API.
 	 *
 	 * JPEG cannot carry an alpha channel, so a correct probe must report the
@@ -125,8 +103,62 @@ class BackendImageFormatProbeTest extends HealthTestCase {
 	 * rather than the host.
 	 */
 	public function test_has_backend_is_true_when_an_image_extension_is_loaded(): void {
-		$expected = class_exists( '\\Imagick' ) || function_exists( 'imagecreatetruecolor' );
+		$expected = class_exists( '\Imagick' ) || function_exists( 'imagecreatetruecolor' );
 
 		$this->assertSame( $expected, ( new BackendImageFormatProbe() )->hasBackend() );
+	}
+
+	/**
+	 * Whether the active backend can write this format — decided by trying,
+	 * not by asking.
+	 *
+	 * `gd_info()['AVIF Support']` was the obvious guard and it is wrong: it is
+	 * true on GitHub's runners, where libavif ships a decoder and no encoder,
+	 * so `imageavif()` fails and the probe correctly returns `write_failed`.
+	 * Reading a capability flag to predict an encode is the exact mistake the
+	 * class under test exists to catch, so the test must not make it either.
+	 */
+	private static function backendCanWrite( string $format ): bool {
+		if ( class_exists( '\Imagick' ) ) {
+			try {
+				$image = new \Imagick();
+				$image->newImage( 16, 16, new \ImagickPixel( 'red' ) );
+				$image->setImageFormat( $format );
+				$written = '' !== $image->getImageBlob();
+				$image->clear();
+
+				return $written;
+			} catch ( \Throwable $e ) {
+				return false;
+			}
+		}
+
+		if ( ! function_exists( 'imagecreatetruecolor' ) ) {
+			return false;
+		}
+
+		$image = imagecreatetruecolor( 16, 16 );
+		if ( false === $image ) {
+			return false;
+		}
+
+		try {
+			ob_start();
+			$written = match ( $format ) {
+				'avif'  => function_exists( 'imageavif' ) && imageavif( $image ),
+				'webp'  => function_exists( 'imagewebp' ) && imagewebp( $image ),
+				'jpeg'  => function_exists( 'imagejpeg' ) && imagejpeg( $image ),
+				default => false,
+			};
+			$blob = (string) ob_get_clean();
+
+			return $written && '' !== $blob;
+		} catch ( \Throwable $e ) {
+			ob_end_clean();
+
+			return false;
+		} finally {
+			imagedestroy( $image );
+		}
 	}
 }

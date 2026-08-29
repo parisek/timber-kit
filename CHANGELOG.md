@@ -29,6 +29,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   told about WebP. Delegate-free formats (JPEG/PNG/GIF) short-circuit without
   an encode.
 
+  The verdict is measured on a real build, so a host that reports AVIF support
+  and cannot encode it is caught. GitHub's runners are exactly that host:
+  `gd_info()['AVIF Support']` is true there while `imageavif()` fails, because
+  libavif ships with a decoder and no encoder.
+
   Encoding and decoding are judged separately. A build that writes the format
   but cannot read its own output back reports `unverified` (recommended), not a
   failure — the resizer still produces valid files there, and calling that
