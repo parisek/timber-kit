@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.46.0] - 2026-08-31
+
 ### Added
 
 - Site Health — `resizer_output_format_writable`. The existing
