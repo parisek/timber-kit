@@ -294,21 +294,21 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 	}
 
 	/**
-	 * A raw (unsanitized) name used directly as a glob pattern turns a bracket
-	 * expression into a live character class. `img[0-9]` is a legitimate
-	 * (if odd) filename component that survives to `_wp_attached_file`
-	 * unsanitized in scenarios the upload sanitizer never saw — a migration
-	 * script, an offloaded-media plugin writing meta directly. Sanitizing it
-	 * the way the writer (`Resizer.php`) does collapses it to `img0-9`, the
-	 * literal name the real derivative was written under; skipping that step
-	 * makes the delete pattern `img[0-9].*`, which glob reads as "img" plus
-	 * exactly one digit — matching an unrelated upload's `img5.avif` and
-	 * missing the target's own `img0-9.avif` entirely.
+	 * `img[0-9].png` is a legitimate (if odd) filename that reaches
+	 * `_wp_attached_file` unsanitized in scenarios the upload sanitizer never
+	 * saw -- a migration script, an offloaded-media plugin writing meta
+	 * directly. The writer names its derivative `img[0-9].png.avif`, verbatim.
+	 *
+	 * Handing that name to `glob()` would read the brackets as a character
+	 * class: it would match an unrelated `img5.png.avif` and miss the target's
+	 * own file entirely. The delete reads the directory and compares instead,
+	 * so a metacharacter is just a character. The name is no longer rewritten,
+	 * which is why the two files below are the ones actually on disk.
 	 */
-	public function test_with_the_flag_on_a_glob_metacharacter_in_the_name_does_not_reach_an_unrelated_derivative(): void {
+	public function test_with_the_flag_on_a_glob_metacharacter_in_the_name_is_matched_literally(): void {
 		mkdir( $this->cache_dir . '/900x0-center/2022/03', 0777, true );
 		$this->created[] = $this->cache_dir . '/900x0-center/2022/03';
-		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/img0-9.png.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/img[0-9].png.avif' );
 		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/img5.png.avif' );
 
 		$this->stubAttachment( 4711, '2022/03/img[0-9].png', siblings: 0 );
@@ -317,12 +317,12 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		$this->base->cleanup_cached_images( 4711 );
 
 		$this->assertFileDoesNotExist(
-			$this->cache_dir . '/900x0-center/2022/03/img0-9.png.avif',
-			'the target attachment\'s own (sanitized) derivative must still be found and deleted'
+			$this->cache_dir . '/900x0-center/2022/03/img[0-9].png.avif',
+			'the attachment\'s own derivative, named verbatim, must be found and deleted'
 		);
 		$this->assertFileExists(
 			$this->cache_dir . '/900x0-center/2022/03/img5.png.avif',
-			'an unrelated upload must not be swept up by an unsanitized glob pattern'
+			'a bracket expression must never be read as a pattern that reaches another upload'
 		);
 	}
 

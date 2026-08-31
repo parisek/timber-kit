@@ -130,11 +130,27 @@ class MigrateImageCacheCommand {
 				continue;
 			}
 
-			$filename            = basename( $row );
-			$name                = sanitize_file_name( pathinfo( $filename, PATHINFO_FILENAME ) );
-			$guarded_dir         = self::guardSourceDir( dirname( $row ) );
-			$sanitized_filename  = sanitize_file_name( $filename );
-			$source_path         = '' === $guarded_dir ? $sanitized_filename : $guarded_dir . '/' . $sanitized_filename;
+			$filename = basename( $row );
+
+			// Two different spellings, deliberately.
+			//
+			// $name reproduces the LEGACY key: the flat files being migrated
+			// were written by the old writer, which sanitized. Reading a
+			// historical artefact means spelling it the historical way.
+			//
+			// $source_path is the NEW identity: the stored name verbatim
+			// (ADR 0008). Sanitizing here would merge two distinct uploads --
+			// `usp_1.webp` and `usp-1.webp` under a deployment that maps `_`
+			// to `-` -- into a single candidate, and an ambiguity merged is an
+			// ambiguity the planner then resolves confidently and wrongly.
+			$name        = sanitize_file_name( pathinfo( $filename, PATHINFO_FILENAME ) );
+			$guarded_dir = self::guardSourceDir( dirname( $row ) );
+
+			if ( ! self::safePathComponent( $filename ) ) {
+				continue;
+			}
+
+			$source_path = '' === $guarded_dir ? $filename : $guarded_dir . '/' . $filename;
 
 			if ( ! isset( $name_to_source_paths[ $name ] ) ) {
 				$name_to_source_paths[ $name ] = array();
@@ -165,6 +181,25 @@ class MigrateImageCacheCommand {
 	 * @param string $dir Relative directory, e.g. from `dirname( $attached_file )`.
 	 * @return string The same directory, or '' when any component fails the guard.
 	 */
+	/**
+	 * Whether a stored path component can be used verbatim.
+	 *
+	 * Mirrors `Resizer::safePathComponent()` and
+	 * `StarterBase::safe_path_component()`. Refuses; never rewrites -- see
+	 * ADR 0008 on why the rewrite was removed.
+	 *
+	 * @param string $component One stored path component.
+	 * @return bool
+	 */
+	public static function safePathComponent( string $component ): bool {
+		return '' !== $component
+			&& '.' !== $component
+			&& '..' !== $component
+			&& false === strpos( $component, '/' )
+			&& false === strpos( $component, '\\' )
+			&& false === strpos( $component, "\0" );
+	}
+
 	public static function guardSourceDir( string $dir ): string {
 		if ( '' === $dir || '.' === $dir ) {
 			return '';
@@ -181,12 +216,11 @@ class MigrateImageCacheCommand {
 				return '';
 			}
 
-			$clean = sanitize_file_name( $part );
-			if ( '' === $clean || $clean !== $part ) {
+			if ( ! self::safePathComponent( $part ) ) {
 				return '';
 			}
 
-			$parts[] = $clean;
+			$parts[] = $part;
 		}
 
 		return implode( '/', $parts );

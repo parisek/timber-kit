@@ -46,7 +46,8 @@ class MigrateImageCacheCommandGuardTest extends TestCase {
 			'traversal component' => [ '2026/../evil', '' ],
 			'dot component' => [ '2026/./08', '' ],
 			'empty component from a double slash' => [ '2026//08', '' ],
-			'component sanitize_file_name() would alter' => [ '2026/aug ust', '' ],
+			'component with a space is legitimate and kept'   => [ '2026/aug ust', '2026/aug ust' ],
+			'component that could escape the directory'      => [ "2026/au\0g", '' ],
 		];
 	}
 

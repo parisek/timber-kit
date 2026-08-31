@@ -104,15 +104,63 @@ it means to delete instead of matching names. The sibling-attachment guard stays
 one file can carry several attachment rows under WPML, and that is independent
 of how the path is spelled.
 
-The key is built from `sanitize_file_name()`'s output, which is the *sanitized*
-identity of a source, not a guarantee of a unique one: two names differing only
-in characters that function strips (`hero[1].jpg` and `hero1.jpg`, in
-principle) would collide on one cache key. This is not engineered around — no
-hash, no second key component — because it does not occur in measured data:
-zero occurrences of `[` or `]` in `_wp_attached_file` on the production site
-surveyed for this ADR, and WordPress itself runs uploads through
-`sanitize_file_name()` at the point of upload, so a stored value is normally
-already sanitized before this code ever sees it.
+### Amendment: the key is the stored name, not a sanitized rewrite of it
+
+The first version of this decision built the key from `sanitize_file_name()`'s
+output and argued the resulting collisions were theoretical: zero occurrences
+of `[` or `]` in `_wp_attached_file` on the site surveyed, and WordPress
+sanitizes at upload anyway, so a stored value is already a fixpoint.
+
+Both halves of that argument are wrong, and a deployment showed it.
+
+`sanitize_file_name()` is **filterable**. The ADR never said so. A plugin on
+the site this was tested against lowercases the name and maps `_` to `-`, and
+under that filter the function is neither *stable over time* nor *injective*:
+
+- Not stable. A derivative written before the filter existed is addressed
+  afterwards under a different spelling. Every future lookup — including the
+  delete — points away from what is on disk.
+- Not injective. `usp_1.webp` and `usp-1.webp` sanitize to one name, as do
+  `Ebook.svg` and `ebook.svg`. **Eight such pairs** were measured on that
+  site, each a genuinely different pair of files.
+
+The second failure is the worse one, because it does not merely leave a
+collision unfixed. `MigrateImageCacheCommand` deduped its candidate list by
+the sanitized path, so a collapsing pair became *one* candidate: the name then
+looked unambiguous and the planner moved a derivative into a path two
+different uploads claim — a confident wrong placement in the one bucket this
+design promises never to guess in.
+
+The premise underneath all of it was never examined: **a name is sanitized at
+upload; there is no reason to sanitize it again at generation.** The stored
+value is already what WordPress decided to call the file. Re-deriving a
+spelling from it, with today's filter stack, discards information the database
+had and invents an identity nothing else shares.
+
+So the key is now the stored name **verbatim** — decoded, since the writer
+reads a URL and the deleter reads the database, but never rewritten. The guard
+becomes a refusal rather than a repair: a component is used exactly as stored
+unless it could leave the directory it is written into (empty, `.`, `..`, or
+carrying a separator or a NUL). That rule is the same for the directory half
+and the filename half, where previously only the directory half had it.
+
+One thing had to change for this to be possible. The delete looked its files
+up with `glob( "$name.*" )`, and `glob()` has no way to quote a
+metacharacter — which is the *actual* reason the name was being rewritten. It
+now reads the directory and compares the name as a string, so `img[0-9].png`
+is matched literally. Removing the pattern removed the only argument for the
+rewrite.
+
+Two costs, accepted knowingly. The derivative's public URL must now
+percent-encode each path segment, because a stored name may legitimately carry
+a space, `#` or `%`. And on a **case-insensitive filesystem** `Ebook.svg.avif`
+and `ebook.svg.avif` are still one file — that is the filesystem, not the key,
+and no spelling rule inside this package can change it.
+
+The migration keeps *both* spellings on purpose: the legacy flat names it
+reads were written by the old writer, so it reproduces the sanitized spelling
+to find them, while recording the new identity verbatim. Reading a historical
+artefact means spelling it the historical way.
 
 A note on how this decision was reached, because it is the point of the
 practice rather than a detail of it: the first version of this ADR added only
@@ -131,9 +179,9 @@ lands at the same depth in the size directory as an unmigrated legacy one, and
 so is told apart from it by matching against the source's own full name rather
 than by where it sits in the tree.
 
-The added segment is derived from a URL, so it inherits the path-traversal
-duty that `sanitize_file_name()` already discharges for the filename. That
-protection has to widen to cover it.
+The added segment is derived from a URL, so it carries a path-traversal duty.
+Both halves of the key now discharge it the same way — by refusing a component
+that could escape its directory, never by repairing one.
 
 `Helpers::resizeImage()` — the legacy path predating `Resizer` — keeps the flat
 layout. It is not migrated and not flagged.

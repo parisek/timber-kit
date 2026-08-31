@@ -895,6 +895,38 @@ class Resizer {
 	 * @return string Relative directory, no leading or trailing slash; '' when the
 	 *                source is at the uploads root or not below it at all.
 	 */
+	/**
+	 * Whether a decoded path component can be written verbatim.
+	 *
+	 * Refuses; never rewrites. Rewriting is what let two different sources
+	 * share one derivative: `sanitize_file_name()` is filterable, so its
+	 * output is neither stable across time nor unique across inputs, and a
+	 * deployment that maps `_` to `-` collapses `usp_1.webp` and
+	 * `usp-1.webp` onto one cached file. A component is dangerous only if it
+	 * can leave the directory it is written into, so that is the whole test.
+	 *
+	 * @param string $component One already-decoded path component.
+	 * @return bool
+	 */
+	/**
+	 * Percent-encode each component of a relative path, keeping the separators.
+	 *
+	 * @param string $path Relative path.
+	 * @return string
+	 */
+	private static function encodePathSegments( string $path ): string {
+		return implode( '/', array_map( 'rawurlencode', explode( '/', $path ) ) );
+	}
+
+	private static function safePathComponent( string $component ): bool {
+		return '' !== $component
+			&& '.' !== $component
+			&& '..' !== $component
+			&& false === strpos( $component, '/' )
+			&& false === strpos( $component, '\\' )
+			&& false === strpos( $component, "\0" );
+	}
+
 	private function sourcePathSegment( string $src, string $baseurl ): string {
 		$src = (string) strtok( $src, '?' );
 		$baseurl = rtrim( $baseurl, '/' );
@@ -914,19 +946,14 @@ class Resizer {
 		foreach ( explode( '/', $dir ) as $part ) {
 			$decoded = rawurldecode( $part );
 
-			// Explicit, not inferred from sanitize_file_name(): WordPress does not
-			// count '.' among its special characters, so a guard resting on that
-			// function altering the string would be resting on trimming behaviour
-			// that is not promised. This segment is appended to a filesystem path.
-			if ( $decoded === '' || $decoded === '.' || $decoded === '..' ) {
+			// The component is used as stored, not as sanitize_file_name() would
+			// spell it. It is appended to a filesystem path, so the only question
+			// is whether it can escape that path -- see safePathComponent().
+			if ( ! self::safePathComponent( $decoded ) ) {
 				return '';
 			}
 
-			$clean = sanitize_file_name( $decoded );
-			if ( $clean === '' || $clean !== $decoded ) {
-				return '';
-			}
-			$parts[] = $clean;
+			$parts[] = $decoded;
 		}
 
 		return implode( '/', $parts );
@@ -952,7 +979,14 @@ class Resizer {
 			$relative_cache_dir = substr( $relative_cache_dir, strlen( WP_CONTENT_DIR ) );
 		}
 		$relative_cache_dir = ltrim( (string) $relative_cache_dir, '/\\' );
-		$target_url = content_url( $relative_cache_dir . '/' . $target_dirname . '/' . $filename . '.' . $target_format );
+		// The filename is now the source's own, so it can carry a space, '#',
+		// '?' or '%' -- all legal on disk, all meaning something else in a URL.
+		// content_url() concatenates without encoding, so encode per segment
+		// here (never the whole path: '/' must survive as a separator).
+		$target_url = content_url(
+			$relative_cache_dir . '/' . self::encodePathSegments( $target_dirname )
+				. '/' . rawurlencode( $filename . '.' . $target_format )
+		);
 
 		// Skip processing if target file already exists (unless force regenerate is enabled)
 		if ( ! file_exists( $target_path ) || $this->force_regenerate ) {
@@ -1405,24 +1439,33 @@ class Resizer {
 		$basedir = $upload_dir['basedir'];
 		$baseurl = $upload_dir['baseurl'];
 
-		// Sanitize filename to prevent path traversal attacks.
+		// Flag off: the historical name -- extension stripped, then sanitized.
+		// Byte-for-byte unchanged on purpose. Every existing cache on every
+		// consumer is addressed by these names, so rewriting them would orphan
+		// all of it.
 		//
-		// Stripped of its extension by default — flag on keeps it (ADR 0008):
-		// the derivative name must carry the source's own extension too, or
-		// hero.jpg and hero.png in one directory collide on one derivative.
-		//
-		// Flag on decodes the URL basename first, mirroring sourcePathSegment()'s
-		// handling of the directory half: $default_image['src'] is a URL, so a
-		// space or accented character is percent-encoded there but not in
-		// `_wp_attached_file`. StarterBase::cached_derivative_paths_by_source_path()
-		// and MigrateImageCacheCommand's map builder both name the source from
-		// the decoded DB value -- without decoding here too, the writer and the
-		// deleter/migrator name the same source differently and never agree.
-		// The flag-off branch is untouched: it must stay byte-for-byte identical
-		// to the previous behaviour.
+		// Flag on (ADR 0008): the source's own decoded basename, extension
+		// included, used verbatim. Extension included because hero.jpg and
+		// hero.png in one directory would otherwise collide on one derivative.
+		// Verbatim because sanitize_file_name() is filterable, so it is neither
+		// stable over time nor unique across inputs: a deployment that maps `_`
+		// to `-` collapses usp_1.webp and usp-1.webp onto one cached file, and
+		// one that gains such a filter after files exist re-points every future
+		// lookup away from what is already on disk. The name is decoded first
+		// because `src` is a URL while `_wp_attached_file` -- what the deleter
+		// and the migrator read -- is not; without that the two sides name the
+		// same source differently and never agree.
 		$filename = $this->source_path_in_cache_key
-			? sanitize_file_name( rawurldecode( basename( (string) strtok( $default_image['src'], '?' ) ) ) )
+			? rawurldecode( basename( (string) strtok( $default_image['src'], '?' ) ) )
 			: sanitize_file_name( pathinfo( basename( $default_image['src'] ), PATHINFO_FILENAME ) );
+
+		// A name that could escape its directory is not written under a
+		// repaired spelling -- repairing is what this branch just stopped
+		// doing. The source is served unresized instead, which is what an
+		// undecodable source already does.
+		if ( $this->source_path_in_cache_key && ! self::safePathComponent( $filename ) ) {
+			return [ $default_image ];
+		}
 
 		// Get actual source file path by converting URL to filesystem path
 		$source_path = str_replace( $baseurl, $basedir, $default_image['src'] );

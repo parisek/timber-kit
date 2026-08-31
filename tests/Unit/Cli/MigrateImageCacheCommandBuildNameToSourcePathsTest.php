@@ -30,7 +30,8 @@ class MigrateImageCacheCommandBuildNameToSourcePathsTest extends TestCase {
 		Monkey\setUp();
 
 		// Same stub shape as guardSourceDir's own test: keep A-Za-z0-9._-,
-		// strip the rest, so `'aug ust'` (a space) fails the guard.
+		// A traversal component fails the guard; a space no longer does, because
+		// the guard refuses only what can leave the directory (ADR 0008).
 		Functions\when( 'sanitize_file_name' )->alias( function ( $name ) {
 			return preg_replace( '/[^A-Za-z0-9._-]/', '', (string) $name );
 		} );
@@ -68,11 +69,11 @@ class MigrateImageCacheCommandBuildNameToSourcePathsTest extends TestCase {
 	}
 
 	public function test_rejected_directory_still_contributes_the_flat_key(): void {
-		// A: rejected directory ('aug ust' contains a space) -- the runtime
+		// A: refused directory ('..' can escape the cache tree) -- the runtime
 		// keeps its derivative at the flat cache key, so it contributes just
 		// the bare (sanitized) filename, no directory prefix.
 		// B: clean directory, same basename, different extension.
-		$this->stubWpdb( [ '2026/aug ust/hero.png', '2026/08/hero.jpg' ] );
+		$this->stubWpdb( [ '2026/../hero.png', '2026/08/hero.jpg' ] );
 
 		$name_to_source_paths = $this->buildNameToSourcePaths();
 
@@ -108,7 +109,7 @@ class MigrateImageCacheCommandBuildNameToSourcePathsTest extends TestCase {
 	 * silently moved into the clean upload's directory.
 	 */
 	public function test_flat_derivative_shared_with_a_rejected_directory_is_ambiguous_not_moved(): void {
-		$this->stubWpdb( [ '2026/aug ust/hero.png', '2026/08/hero.jpg' ] );
+		$this->stubWpdb( [ '2026/../hero.png', '2026/08/hero.jpg' ] );
 
 		$name_to_source_paths = $this->buildNameToSourcePaths();
 
@@ -154,4 +155,33 @@ class MigrateImageCacheCommandBuildNameToSourcePathsTest extends TestCase {
 			rmdir( $cache_dir );
 		}
 	}
+	/**
+	 * The regression this change exists for.
+	 *
+	 * A deployment whose `sanitize_file_name()` filter lowercases and maps `_`
+	 * to `-` makes `usp_1.webp` and `usp-1.webp` sanitize to one spelling. The
+	 * map used to store that sanitized spelling, so the two uploads deduped
+	 * into a single candidate: the name looked unambiguous, and the planner
+	 * moved one upload's derivative into a path the other one also claims.
+	 *
+	 * Storing the stored name verbatim keeps them two identities, so the flat
+	 * derivative they share is reported ambiguous and left alone. Eight such
+	 * pairs were measured on one production site.
+	 */
+	public function test_two_sources_that_sanitize_alike_stay_two_candidates(): void {
+		Functions\when( 'sanitize_file_name' )->alias( function ( $name ) {
+			return strtolower( str_replace( '_', '-', (string) $name ) );
+		} );
+
+		$this->stubWpdb( [ '2025/05/usp_1.webp', '2025/05/usp-1.webp' ] );
+
+		$map = $this->buildNameToSourcePaths();
+
+		$this->assertSame(
+			[ '2025/05/usp_1.webp', '2025/05/usp-1.webp' ],
+			$map['usp-1'],
+			'two distinct uploads must stay two candidates, however alike they sanitize'
+		);
+	}
+
 }

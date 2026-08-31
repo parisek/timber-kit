@@ -896,10 +896,12 @@ class StarterBase extends Site {
 	 * without this, and whichever renders first decides what the other one
 	 * shows. Set **true** to separate them.
 	 *
-	 * Switching it on relocates every derivative whose source is not at the
-	 * uploads root: the old files orphan and the public URLs change. Run
+	 * Switching it on relocates **every** derivative, including a source at
+	 * the uploads root: the name now carries the source's own extension, so
+	 * `hero.avif` becomes `hero.png.avif` even where no directory is added.
+	 * The old files orphan and the public URLs change. Run
 	 * `wp timber-kit migrate-image-cache` to move them instead of re-encoding
-	 * them. A site with year/month folders switched off sees no change at all.
+	 * them — a site with year/month folders switched off needs it too.
 	 *
 	 * @var bool
 	 */
@@ -1399,7 +1401,7 @@ class StarterBase extends Site {
 		}
 		if ( $this->resizer_source_path_in_cache_key ) {
 			// Default is false (the historic flat paths). Opting in relocates
-			// every derivative whose source is below a year/month directory.
+			// every derivative, a source at the uploads root included.
 			add_filter( 'timber_kit_resizer_source_path_in_cache_key', '__return_true' );
 		}
 		if ( ! $this->resizer_skip_animated ) {
@@ -4143,9 +4145,15 @@ class StarterBase extends Site {
 		// on the source's whole identity, because two sources sharing a
 		// directory and a stem but not an extension (hero.jpg / hero.png)
 		// would otherwise resolve to the same derivative name here too.
-		$name = sanitize_file_name( basename( $relative_path ) );
+		// The source's own basename, extension included, used verbatim -- the
+		// spelling the writer put on disk. Not sanitize_file_name()'d: that
+		// function is filterable, so it is neither stable over time nor unique
+		// across inputs, and running it here would look for a name the writer
+		// never wrote (and, where two sources sanitize alike, would find a
+		// different upload's derivative). See ADR 0008.
+		$name = basename( $relative_path );
 
-		if ( '' === $name ) {
+		if ( ! self::safe_path_component( $name ) ) {
 			return [];
 		}
 
@@ -4160,13 +4168,37 @@ class StarterBase extends Site {
 
 		$files_to_delete = [];
 
+		// Read the directory and compare, rather than handing the name to
+		// glob() as a pattern. glob() has no way to quote a metacharacter, so
+		// a source called `img[0-9].png` would otherwise delete `img5.avif`
+		// and miss its own file. Sanitizing the name used to paper over that;
+		// not building a pattern at all removes the hazard instead, and with
+		// it the only reason the name had to be rewritten.
+		$prefix = $name . '.';
+
 		foreach ( glob( $cache_dir . '/*', GLOB_ONLYDIR ) ?: [] as $size_dir ) {
 			$source_path = '' === $source_dir ? $size_dir : $size_dir . '/' . $source_dir;
-			$matches = glob( $source_path . '/' . $name . '.*' );
 
-			foreach ( $matches ?: [] as $match ) {
-				// A stray directory (e.g. a leftover `.bak` folder) can match
-				// the glob too; deleting it needs a recursive flag this loop
+			$entries = @scandir( $source_path );
+			if ( false === $entries ) {
+				continue;
+			}
+
+			foreach ( $entries as $entry ) {
+				if ( '.' === $entry || '..' === $entry ) {
+					continue;
+				}
+
+				// One derivative per output format, so match the source's whole
+				// name plus a dot and let the format be whatever follows.
+				if ( 0 !== strpos( $entry, $prefix ) ) {
+					continue;
+				}
+
+				$match = $source_path . '/' . $entry;
+
+				// A stray directory (e.g. a leftover `.bak` folder) can carry
+				// the same prefix; deleting it needs a recursive flag this loop
 				// doesn't have, so skip it rather than hand it to delete().
 				if ( is_file( $match ) ) {
 					$files_to_delete[] = $match;
@@ -4178,10 +4210,32 @@ class StarterBase extends Site {
 	}
 
 	/**
+	 * Whether a stored path component can be used verbatim.
+	 *
+	 * Mirrors `Resizer::safePathComponent()` (not reused — StarterBase and the
+	 * Resizer stay decoupled). Refuses; never rewrites. The component is
+	 * appended to a filesystem path, so the only question is whether it can
+	 * leave that path. See ADR 0008 on why rewriting was removed.
+	 *
+	 * @param string $component One stored path component.
+	 * @return bool
+	 */
+	private static function safe_path_component( $component ) {
+		return is_string( $component )
+			&& '' !== $component
+			&& '.' !== $component
+			&& '..' !== $component
+			&& false === strpos( $component, '/' )
+			&& false === strpos( $component, '\\' )
+			&& false === strpos( $component, "\0" );
+	}
+
+	/**
 	 * Per-component guard for a source-upload directory, mirroring
 	 * `MigrateImageCacheCommand::guardSourceDir()` (itself a mirror of
-	 * `Resizer::sourcePathSegment()`): every component must survive
-	 * `sanitize_file_name()` unchanged and be neither empty nor `.`/`..`.
+	 * `Resizer::sourcePathSegment()`): a component is used exactly as
+	 * stored, and refused only when it could leave the directory it is
+	 * written into — empty, `.`, `..`, or carrying a separator or NUL.
 	 * One failing component collapses the whole directory to the flat root
 	 * rather than being silently dropped or repaired — dropping just that
 	 * component would point the delete at a different directory than the one
@@ -4206,13 +4260,11 @@ class StarterBase extends Site {
 				return '';
 			}
 
-			$clean = sanitize_file_name( $part );
-
-			if ( '' === $clean || $clean !== $part ) {
+			if ( ! self::safe_path_component( $part ) ) {
 				return '';
 			}
 
-			$parts[] = $clean;
+			$parts[] = $part;
 		}
 
 		return implode( '/', $parts );

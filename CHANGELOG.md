@@ -61,12 +61,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   496 names map to more than one source file, and 152 of those collide inside a
   single directory (same name, different extension).
 
-  Enabling it relocates every derivative whose source is below a year/month
-  directory, or whose source shares a directory and stem with another upload of
-  a different extension; `wp timber-kit migrate-image-cache` (dry-run by
-  default) moves the existing cache into the new shape rather than re-encoding
-  it. What it resolves: directory collisions and same-directory
-  different-extension collisions, both under the flag. What it does not
+  The name is the source's stored name, used **verbatim** rather than passed
+  through `sanitize_file_name()` again. That function is filterable, so its
+  output is neither stable over time nor unique across inputs: on the site this
+  was measured against, a filter maps `_` to `-` and collapses `usp_1.webp`
+  and `usp-1.webp` onto one derivative — eight such pairs, each a different
+  pair of files. A name is now refused, never repaired: a path component is
+  used as stored unless it could leave the directory it is written into. The
+  delete reads its directory and compares instead of calling `glob()`, which
+  is what previously forced the rewrite. Consequence: a derivative's public
+  URL percent-encodes each path segment, since a stored name may carry a
+  space, `#` or `%`.
+
+  Enabling it relocates every derivative, a source at the uploads root
+  included, because the name now carries the source's own extension.
+  `wp timber-kit migrate-image-cache` (dry-run by default) moves the existing
+  cache into the new shape rather than re-encoding it. What it resolves:
+  directory collisions and same-directory different-extension collisions. What it does not
   resolve: a flat legacy derivative whose old (extension-less) name maps to more
   than one distinct source path is reported as ambiguous and left unmigrated —
   recovering which source it came from is exactly what the flat layout

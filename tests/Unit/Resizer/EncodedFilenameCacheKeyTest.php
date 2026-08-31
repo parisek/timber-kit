@@ -52,11 +52,17 @@ class EncodedFilenameCacheKeyTest extends ResizerTestCase {
 
 	/**
 	 * The measured production shape: 230 `_wp_attached_file` values contain a
-	 * space. The writer must name the derivative from the decoded name
-	 * (`My Photo.JPG`), matching what the deleter/migrator compute from the
-	 * DB value -- not from the still-encoded URL basename (`My%20Photo.JPG`).
+	 * space. The writer names the derivative from the decoded name
+	 * (`My Photo.JPG`), matching what the deleter and the migrator compute
+	 * from the DB value.
+	 *
+	 * The assertion is on the URL, which is the only surface `resizer()`
+	 * returns, so the decoded name comes back percent-encoded once. Single
+	 * encoding is the whole point: taking the still-encoded URL basename
+	 * verbatim would encode it a second time and yield `My%2520Photo`, so
+	 * `%25` -- an encoded `%` -- is what distinguishes the two.
 	 */
-	public function test_percent_encoded_space_decodes_before_sanitizing(): void {
+	public function test_percent_encoded_space_names_the_file_from_the_decoded_name(): void {
 		$resizer = $this->createResizerWithSourcePathFlag( true );
 
 		$result = $resizer->resizer(
@@ -64,12 +70,12 @@ class EncodedFilenameCacheKeyTest extends ResizerTestCase {
 			[ [ '900', '0', '', 'center' ] ]
 		);
 
-		$this->assertStringContainsString( '900x0-center/2026/08/My Photo.JPG.avif', $result[0]['src'] );
-		$this->assertStringNotContainsString( 'My%20Photo.JPG', $result[0]['src'] );
+		$this->assertStringContainsString( '900x0-center/2026/08/My%20Photo.JPG.avif', $result[0]['src'] );
+		$this->assertStringNotContainsString( '%25', $result[0]['src'] );
 	}
 
 	/** UTF-8 percent-encoding (e.g. an accented character) must decode the same way. */
-	public function test_percent_encoded_utf8_decodes_before_sanitizing(): void {
+	public function test_percent_encoded_utf8_names_the_file_from_the_decoded_name(): void {
 		$resizer = $this->createResizerWithSourcePathFlag( true );
 
 		$result = $resizer->resizer(
@@ -77,7 +83,8 @@ class EncodedFilenameCacheKeyTest extends ResizerTestCase {
 			[ [ '900', '0', '', 'center' ] ]
 		);
 
-		$this->assertStringNotContainsString( '%C3%A9', $result[0]['src'] );
+		$this->assertStringContainsString( 'caf%C3%A9.jpg.avif', $result[0]['src'] );
+		$this->assertStringNotContainsString( '%25', $result[0]['src'] );
 	}
 
 	/** A query string on the URL must not leak into the derivative's filename. */
