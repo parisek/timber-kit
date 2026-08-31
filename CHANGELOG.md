@@ -65,8 +65,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   through `sanitize_file_name()` again. That function is filterable, so its
   output is neither stable over time nor unique across inputs: on the site this
   was measured against, a filter maps `_` to `-` and collapses `usp_1.webp`
-  and `usp-1.webp` onto one derivative — eight such pairs, each a different
-  pair of files. A name is now refused, never repaired: a path component is
+  and `usp-1.webp` onto one derivative — eight such pairs measured, six of
+  them visibly different images. A name is now refused, never repaired: a path component is
   used as stored unless it could leave the directory it is written into. The
   delete reads its directory and compares instead of calling `glob()`, which
   is what previously forced the rewrite. Consequence: a derivative's public

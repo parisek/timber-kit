@@ -122,7 +122,9 @@ under that filter the function is neither *stable over time* nor *injective*:
   delete — points away from what is on disk.
 - Not injective. `usp_1.webp` and `usp-1.webp` sanitize to one name, as do
   `Ebook.svg` and `ebook.svg`. **Eight such pairs** were measured on that
-  site, each a genuinely different pair of files.
+  site; six of the eight are visibly different images, two are duplicate
+  uploads. Six is the number that matters — those are the ones where the
+  reader is shown the wrong picture.
 
 The second failure is the worse one, because it does not merely leave a
 collision unfixed. `MigrateImageCacheCommand` deduped its candidate list by
