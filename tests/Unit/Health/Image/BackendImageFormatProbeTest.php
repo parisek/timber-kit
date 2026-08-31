@@ -158,7 +158,6 @@ class BackendImageFormatProbeTest extends HealthTestCase {
 
 			return false;
 		} finally {
-			imagedestroy( $image );
 		}
 	}
 }

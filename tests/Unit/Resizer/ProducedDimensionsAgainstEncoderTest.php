@@ -63,7 +63,6 @@ class ProducedDimensionsAgainstEncoderTest extends TestCase {
 		$image = imagecreatetruecolor( $width, $height );
 		imagefilledrectangle( $image, 0, 0, $width, $height, imagecolorallocate( $image, 120, 90, 60 ) );
 		imagejpeg( $image, $path, 90 );
-		imagedestroy( $image );
 
 		return $path;
 	}

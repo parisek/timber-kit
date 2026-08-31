@@ -156,11 +156,9 @@ final class BackendImageFormatProbe implements ImageFormatProbe {
 		$source = imagecreatetruecolor( 16, 16 );
 
 		// Guarded, not assumed: under memory pressure GD returns false, and
-		// every call below is typed for GdImage. Without this the first one
-		// throws a TypeError, the finally block's imagedestroy( false ) throws
-		// a second one on the way out, and that escapes probe() and fatals the
-		// Site Health screen — a health check taking down the page that shows
-		// health.
+		// every call below is typed for GdImage, so the first one would throw
+		// a TypeError that escapes probe() and fatals the Site Health screen —
+		// a health check taking down the page that shows health.
 		if ( false === $source ) {
 			return self::VERDICT_NO_BACKEND;
 		}
@@ -191,22 +189,16 @@ final class BackendImageFormatProbe implements ImageFormatProbe {
 				return self::VERDICT_UNVERIFIED;
 			}
 
-			try {
-				imagesavealpha( $read, true );
+			imagesavealpha( $read, true );
 
-				// GD packs alpha into bits 24-30 on an inverted scale: 0 is
-				// opaque, 127 fully transparent. Normalise to opacity so both
-				// backends are judged by one threshold.
-				$packed = ( imagecolorat( $read, self::SAMPLE_X, self::SAMPLE_Y ) >> 24 ) & 0x7F;
+			// GD packs alpha into bits 24-30 on an inverted scale: 0 is
+			// opaque, 127 fully transparent. Normalise to opacity so both
+			// backends are judged by one threshold.
+			$packed = ( imagecolorat( $read, self::SAMPLE_X, self::SAMPLE_Y ) >> 24 ) & 0x7F;
 
-				return self::alphaVerdict( 1.0 - ( $packed / 127.0 ) );
-			} finally {
-				imagedestroy( $read );
-			}
+			return self::alphaVerdict( 1.0 - ( $packed / 127.0 ) );
 		} catch ( \Throwable $e ) {
 			return self::VERDICT_WRITE_FAILED;
-		} finally {
-			imagedestroy( $source );
 		}
 	}
 

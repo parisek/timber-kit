@@ -67,7 +67,6 @@ class GetCopyFieldsIndexTest extends WpmlBlockOverrideTestCase {
 
 		// Confirm memo starts null (setUp already reset it).
 		$ref = new \ReflectionProperty( \Parisek\TimberKit\WpmlBlockOverride::class, 'copyFieldsIndex' );
-		$ref->setAccessible( true );
 		$this->assertNull( $ref->getValue(), 'memo starts null' );
 
 		// First call — should hit ACF functions and populate memo.
@@ -160,7 +159,6 @@ class GetCopyFieldsIndexTest extends WpmlBlockOverrideTestCase {
 
 		// Per-request memo SHOULD still be populated (avoids re-walk within one request).
 		$ref = new \ReflectionProperty( \Parisek\TimberKit\WpmlBlockOverride::class, 'copyFieldsIndex' );
-		$ref->setAccessible( true );
 		$this->assertIsArray( $ref->getValue(), 'per-request memo still populates under WP_DEBUG' );
 		$this->assertIsArray( $result );
 	}
