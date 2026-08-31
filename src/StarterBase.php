@@ -889,6 +889,25 @@ class StarterBase extends Site {
 	protected bool $resizer_quality_in_cache_key = false;
 
 	/**
+	 * Put the source image's upload directory in the resizer cache key.
+	 *
+	 * Off by default. Two uploads that share a name -- the same name in two
+	 * months, or the same name with two extensions -- occupy one cache path
+	 * without this, and whichever renders first decides what the other one
+	 * shows. Set **true** to separate them.
+	 *
+	 * Switching it on relocates **every** derivative, including a source at
+	 * the uploads root: the name now carries the source's own extension, so
+	 * `hero.avif` becomes `hero.png.avif` even where no directory is added.
+	 * The old files orphan and the public URLs change. Run
+	 * `wp timber-kit migrate-image-cache` to move them instead of re-encoding
+	 * them — a site with year/month folders switched off needs it too.
+	 *
+	 * @var bool
+	 */
+	protected bool $resizer_source_path_in_cache_key = false;
+
+	/**
 	 * Which field holds each post type's social preview image.
 	 *
 	 * `[ 'project' => 'hero_image' ]`, or a list to try in order:
@@ -1012,6 +1031,7 @@ class StarterBase extends Site {
 		\WP_CLI::add_command( 'timber-kit acfml-sync-preferences', \Parisek\TimberKit\Cli\AcfmlSyncPreferencesCommand::class );
 		\WP_CLI::add_command( 'timber-kit wpml-cleanup-theme-domain', \Parisek\TimberKit\Cli\WpmlCleanupThemeDomainCommand::class );
 		\WP_CLI::add_command( 'timber-kit outage-screen', \Parisek\TimberKit\Cli\OutageScreenCommand::class );
+		\WP_CLI::add_command( 'timber-kit migrate-image-cache', \Parisek\TimberKit\Cli\MigrateImageCacheCommand::class );
 		// Registered regardless of $svg_dimensions: a sweep a human runs on purpose
 		// is opt-in by being typed, and the existing backlog needs fixing on
 		// projects that have not flipped the upload flag.
@@ -1378,6 +1398,11 @@ class StarterBase extends Site {
 			// Default is false (quality absent from the key, the historic paths).
 			// Opting in relocates every non-default-quality variant.
 			add_filter( 'timber_kit_resizer_quality_in_cache_key', '__return_true' );
+		}
+		if ( $this->resizer_source_path_in_cache_key ) {
+			// Default is false (the historic flat paths). Opting in relocates
+			// every derivative, a source at the uploads root included.
+			add_filter( 'timber_kit_resizer_source_path_in_cache_key', '__return_true' );
 		}
 		if ( ! $this->resizer_skip_animated ) {
 			// Default is true (animated sources pass through untouched). Opting out
@@ -4022,7 +4047,42 @@ class StarterBase extends Site {
 			return;
 		}
 
-		// Scan cache directory for matching files (including nested directories)
+		if ( $this->resizer_source_path_in_cache_key ) {
+			// Layout is <size>/<source-upload-dir>/<name>.<fmt>. That source
+			// directory and name are the same segments `_wp_attached_file`
+			// carries, so the derivative paths are derivable directly — no
+			// scan, and no risk of matching a different upload's basename.
+			$files_to_delete = $this->cached_derivative_paths_by_source_path( $cache_dir, $attachment_id );
+		} else {
+			$files_to_delete = $this->cached_derivative_paths_by_basename_scan( $cache_dir, $basename );
+		}
+
+		if ( ! empty( $files_to_delete ) ) {
+			// Initialize the WordPress filesystem
+			if ( ! function_exists( 'WP_Filesystem' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/file.php';
+			}
+			global $wp_filesystem;
+			\WP_Filesystem();
+
+			// Delete the matched files
+			foreach ( $files_to_delete as $file_to_delete ) {
+				if ( $wp_filesystem->exists( $file_to_delete ) ) {
+					$wp_filesystem->delete( $file_to_delete );
+				}
+			}
+		}
+	}
+
+	/**
+	 * Locate cached derivatives by scanning the whole cache tree for a matching
+	 * basename — the flag-off layout, where the source path isn't in the key.
+	 *
+	 * @param string $cache_dir Absolute path to `wp-content/cache/image`.
+	 * @param string $basename  Attachment filename without its extension.
+	 * @return list<string> Absolute paths of derivatives to delete.
+	 */
+	private function cached_derivative_paths_by_basename_scan( $cache_dir, $basename ) {
 		$files_to_delete = [];
 
 		$directory_iterator = new \RecursiveIteratorIterator(
@@ -4049,21 +4109,170 @@ class StarterBase extends Site {
 			}
 		}
 
-		if ( ! empty( $files_to_delete ) ) {
-			// Initialize the WordPress filesystem
-			if ( ! function_exists( 'WP_Filesystem' ) ) {
-				require_once ABSPATH . 'wp-admin/includes/file.php';
-			}
-			global $wp_filesystem;
-			\WP_Filesystem();
+		return $files_to_delete;
+	}
 
-			// Delete the matched files
-			foreach ( $files_to_delete as $file_to_delete ) {
-				if ( $wp_filesystem->exists( $file_to_delete ) ) {
-					$wp_filesystem->delete( $file_to_delete );
+	/**
+	 * Locate cached derivatives directly — the flag-on layout, where the cache
+	 * key is `<size>/<source-upload-dir>/<name>.<fmt>`. `<source-upload-dir>/
+	 * <name>` is `_wp_attached_file` used verbatim, its extension included, so
+	 * every derivative lives at a predictable path under each size directory.
+	 * The output format is the only unknown, so each size directory is read
+	 * once and its entries compared — no pattern, and no risk of touching a
+	 * different upload's derivatives.
+	 *
+	 * Never deletes the size directory or the source subdirectory themselves,
+	 * even once emptied — another attachment's derivative may land there next.
+	 *
+	 * @param string $cache_dir     Absolute path to `wp-content/cache/image`.
+	 * @param int    $attachment_id The attachment being deleted.
+	 * @return list<string> Absolute paths of derivatives to delete.
+	 */
+	private function cached_derivative_paths_by_source_path( $cache_dir, $attachment_id ) {
+		$relative_path = get_post_meta( (int) $attachment_id, '_wp_attached_file', true );
+
+		if ( ! is_string( $relative_path ) || '' === $relative_path ) {
+			return [];
+		}
+
+		// The full basename, extension included: ADR 0008 keys the derivative
+		// on the source's whole identity, because two sources sharing a
+		// directory and a stem but not an extension (hero.jpg / hero.png)
+		// would otherwise resolve to the same derivative name here too.
+		// The source's own basename, extension included, used verbatim -- the
+		// spelling the writer put on disk. Not sanitize_file_name()'d: that
+		// function is filterable, so it is neither stable over time nor unique
+		// across inputs, and running it here would look for a name the writer
+		// never wrote (and, where two sources sanitize alike, would find a
+		// different upload's derivative). See ADR 0008.
+		$name = basename( $relative_path );
+
+		if ( ! self::safe_path_component( $name ) ) {
+			return [];
+		}
+
+		// Mirrors (does not call — StarterBase and MigrateImageCacheCommand
+		// stay decoupled) MigrateImageCacheCommand::guardSourceDir(), which
+		// itself mirrors Resizer::sourcePathSegment(): a directory is only
+		// used whole, component-by-component sanitized and never `.`/`..`.
+		// The writer falls back to the flat root when its own guard rejects
+		// a component, so collapsing to the flat root here — rather than
+		// giving up — reaches the same file the writer actually created.
+		$source_dir = $this->guarded_cached_derivative_source_dir( dirname( $relative_path ) );
+
+		$files_to_delete = [];
+
+		// Read the directory and compare, rather than handing the name to
+		// glob() as a pattern. glob() has no way to quote a metacharacter, so
+		// a source called `img[0-9].png` would otherwise delete `img5.avif`
+		// and miss its own file. Sanitizing the name used to paper over that;
+		// not building a pattern at all removes the hazard instead, and with
+		// it the only reason the name had to be rewritten.
+		$prefix = $name . '.';
+
+		foreach ( glob( $cache_dir . '/*', GLOB_ONLYDIR ) ?: [] as $size_dir ) {
+			$source_path = '' === $source_dir ? $size_dir : $size_dir . '/' . $source_dir;
+
+			$entries = @scandir( $source_path );
+			if ( false === $entries ) {
+				continue;
+			}
+
+			foreach ( $entries as $entry ) {
+				if ( '.' === $entry || '..' === $entry ) {
+					continue;
+				}
+
+				// One derivative per output format: the source's whole name, a
+				// dot, then a bare extension. The remainder after the prefix
+				// must therefore carry no dot of its own -- a plain prefix test
+				// would match `hero.png.old.avif`, which belongs to the
+				// unrelated source `hero.png.old`, and delete another
+				// attachment's derivative. That is the over-match the old
+				// glob() had, in a different spelling.
+				if ( 0 !== strpos( $entry, $prefix ) ) {
+					continue;
+				}
+
+				$format = substr( $entry, strlen( $prefix ) );
+
+				if ( '' === $format || false !== strpos( $format, '.' ) ) {
+					continue;
+				}
+
+				$match = $source_path . '/' . $entry;
+
+				// A stray directory (e.g. a leftover `.bak` folder) can carry
+				// the same prefix; deleting it needs a recursive flag this loop
+				// doesn't have, so skip it rather than hand it to delete().
+				if ( is_file( $match ) ) {
+					$files_to_delete[] = $match;
 				}
 			}
 		}
+
+		return $files_to_delete;
+	}
+
+	/**
+	 * Whether a stored path component can be used verbatim.
+	 *
+	 * Mirrors `Resizer::safePathComponent()` (not reused — StarterBase and the
+	 * Resizer stay decoupled). Refuses; never rewrites. The component is
+	 * appended to a filesystem path, so the only question is whether it can
+	 * leave that path. See ADR 0008 on why rewriting was removed.
+	 *
+	 * @param string $component One stored path component.
+	 * @return bool
+	 */
+	private static function safe_path_component( $component ) {
+		return is_string( $component )
+			&& '' !== $component
+			&& '.' !== $component
+			&& '..' !== $component
+			&& false === strpos( $component, '/' )
+			&& false === strpos( $component, '\\' )
+			&& false === strpos( $component, "\0" );
+	}
+
+	/**
+	 * Per-component guard for a source-upload directory, mirroring
+	 * `MigrateImageCacheCommand::guardSourceDir()` (itself a mirror of
+	 * `Resizer::sourcePathSegment()`): a component is used exactly as
+	 * stored, and refused only when it could leave the directory it is
+	 * written into — empty, `.`, `..`, or carrying a separator or NUL.
+	 * One failing component collapses the whole directory to the flat root
+	 * rather than being silently dropped or repaired — dropping just that
+	 * component would point the delete at a different directory than the one
+	 * the upload is actually in.
+	 *
+	 * @param string $dir Relative directory, e.g. from `dirname( $relative_path )`.
+	 * @return string The same directory, or '' (the flat root) when any component fails the guard.
+	 */
+	private function guarded_cached_derivative_source_dir( $dir ) {
+		if ( '' === $dir || '.' === $dir ) {
+			return '';
+		}
+
+		// No backslash normalization here, unlike Resizer::sourcePathSegment()
+		// (which reads a URL): this reads dirname() of `_wp_attached_file`,
+		// a database value WordPress always stores with forward slashes, so
+		// a backslash cannot occur in this input domain.
+		$parts = [];
+
+		foreach ( explode( '/', $dir ) as $part ) {
+			if ( '' === $part || '.' === $part || '..' === $part ) {
+				return '';
+			}
+
+			if ( ! self::safe_path_component( $part ) ) {
+				return '';
+			}
+
+			$parts[] = $part;
+		}
+
+		return implode( '/', $parts );
 	}
 
 	/**

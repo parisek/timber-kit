@@ -251,6 +251,43 @@ class RegisterPerformanceHooksTest extends StarterBaseTestCase {
 		$this->assertContains( 'timber_kit_resizer_quality_in_cache_key', $filters );
 	}
 
+	public function test_resizer_source_path_in_cache_key_no_override_by_default(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'speculation_rules', null );
+		$this->setProperty( $instance, 'warn_speculation_rules_plugin_redundant', false );
+		$this->setProperty( $instance, 'resizer_format_health', false );
+		$this->setProperty( $instance, 'resizer_source_path_in_cache_key', false );
+
+		$this->invokeRegisterPerformanceHooks( $instance );
+
+		// Default off → historic flat paths, so nothing is wired.
+		$this->assertNotContains( 'timber_kit_resizer_source_path_in_cache_key', $filters );
+	}
+
+	public function test_resizer_source_path_in_cache_key_override_registered_when_enabled(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'speculation_rules', null );
+		$this->setProperty( $instance, 'warn_speculation_rules_plugin_redundant', false );
+		$this->setProperty( $instance, 'resizer_format_health', false );
+		$this->setProperty( $instance, 'resizer_source_path_in_cache_key', true );
+
+		$this->invokeRegisterPerformanceHooks( $instance );
+
+		// Opted in → the source path joins the cache key, relocating derivatives
+		// whose source is below a year/month directory.
+		$this->assertContains( 'timber_kit_resizer_source_path_in_cache_key', $filters );
+	}
+
 	public function test_site_health_register_resizer_formats_test_adds_direct_entry(): void {
 		$instance = $this->bareInstance();
 		Functions\when( '__' )->returnArg( 1 );

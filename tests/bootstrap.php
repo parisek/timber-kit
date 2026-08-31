@@ -140,3 +140,48 @@ if ( ! class_exists( 'WP_User' ) ) {
 		}
 	}
 }
+
+// Minimal WP_CLI stub recording every call instead of touching a real
+// terminal. `error()` throws, mirroring real WP_CLI: it halts the command
+// and (outside tests) exits non-zero, so code calling it must never expect
+// control to return -- exactly the ordering bug MigrateImageCacheCommand's
+// success/error fix depends on.
+if ( ! class_exists( 'WP_CLI' ) ) {
+	class WP_CLI {
+		/** @var list<string> */
+		public static array $logs = [];
+
+		/** @var list<string> */
+		public static array $warnings = [];
+
+		/** @var list<string> */
+		public static array $successes = [];
+
+		/** @var list<string> */
+		public static array $errors = [];
+
+		public static function reset(): void {
+			self::$logs      = [];
+			self::$warnings  = [];
+			self::$successes = [];
+			self::$errors    = [];
+		}
+
+		public static function log( $message ): void {
+			self::$logs[] = (string) $message;
+		}
+
+		public static function warning( $message ): void {
+			self::$warnings[] = (string) $message;
+		}
+
+		public static function success( $message ): void {
+			self::$successes[] = (string) $message;
+		}
+
+		public static function error( $message ): void {
+			self::$errors[] = (string) $message;
+			throw new \RuntimeException( (string) $message );
+		}
+	}
+}

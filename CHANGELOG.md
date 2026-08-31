@@ -51,6 +51,76 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   one admin screen and in the weekly cron, so a cache would buy milliseconds
   and owe a staleness bug.
 
+- `StarterBase::$resizer_source_path_in_cache_key` (default `false`) keys the
+  resizer cache on the source's whole identity — its upload directory *and* its
+  own filename, extension included — so two uploads that share a name stop
+  sharing one cached derivative. Without it the derivative is named for the
+  source's directory-less, extension-less stem alone, so `2022/03/11.png` and
+  `2022/10/11.png` collide on directory, and `hero.jpg` and `hero.png` in one
+  directory collide on extension. Measured on a five-language production site:
+  496 names map to more than one source file, and 152 of those collide inside a
+  single directory (same name, different extension).
+
+  The name is the source's stored name, used **verbatim** rather than passed
+  through `sanitize_file_name()` again. That function is filterable, and this
+  package filters it: `StarterBase::clean_uploaded_filename()`, on by default,
+  lowercases and maps underscores to hyphens. Right at upload, wrong as a cache
+  key — `usp_1.webp` and `usp-1.webp` collapse onto one derivative. Eight such
+  pairs measured on one site, six of them visibly different images, and the
+  same default applies to every consumer that has not turned
+  `$clean_image_filenames` off. A name is now refused, never repaired: a path component is
+  used as stored unless it could leave the directory it is written into. The
+  delete reads its directory and compares instead of calling `glob()`, which
+  is what previously forced the rewrite. Consequence: a derivative's public
+  URL percent-encodes each path segment, since a stored name may carry a
+  space, `#` or `%`.
+
+  Set the flag the same on every host that shares a cache: DevMediaProxy has
+  a local site fetch derivative paths from a production origin, so a
+  disagreement makes every one of those a 404 until both sides match.
+
+  Three things to check before enabling on a live site. Any rule that matches
+  the cache path — CDN, nginx, `.htaccess` — now sees a deeper path with
+  percent-encoded segments, and any script that greps or rsyncs the cache tree
+  meets filenames carrying spaces and brackets. On a **case-insensitive**
+  filesystem `Ebook.svg.avif` and `ebook.svg.avif` are still one file, so a
+  macOS dev box and a Linux server disagree about that pair. And run the
+  migration *before* adding or removing a `sanitize_file_name` filter: it
+  reproduces the legacy spelling with today's filter stack, so a derivative
+  written under a different one is reported orphaned (safe, but re-encoded).
+
+  `wp timber-kit migrate-image-cache` is registered whether or not the flag is
+  on, so a plan can be read before deciding — but it refuses `--apply` while
+  the flag is off, because the layout it would move files into is exactly what
+  a flag-off site does not read.
+
+  It also skips sources the resizer could
+  never decode — an SVG or PDF sharing a stem with a real image used to make
+  that image's derivative look contested. 30 of 329 ambiguous entries on the
+  site measured. The set is the static format list widened by
+  `timber_kit_resizer_allowed_types`, never narrowed by the live backend.
+
+  Enabling it relocates every derivative, a source at the uploads root
+  included, because the name now carries the source's own extension.
+  `wp timber-kit migrate-image-cache` (dry-run by default) moves the existing
+  cache into the new shape rather than re-encoding it. What it resolves:
+  directory collisions and same-directory different-extension collisions. What it does not
+  resolve: a flat legacy derivative whose old (extension-less) name maps to more
+  than one distinct source path is reported as ambiguous and left unmigrated —
+  recovering which source it came from is exactly what the flat layout
+  destroyed — and is re-encoded correctly on first view instead. A root upload
+  (no year/month directory) still needs migrating, because its target name now
+  carries the source's own extension too (`hero.avif` becomes `hero.png.avif`);
+  only a root upload whose source filename has no extension of its own
+  produces a byte-identical path, and needs no migration.
+
+  With the flag on, `cleanup_cached_images()` addresses derivatives by path
+  instead of matching basenames across the tree, so deleting an attachment can
+  no longer reach another upload's images — including one differing only by
+  extension in the same directory.
+
+  Decision and alternatives: `docs/adr/0008-resizer-source-path-cache-key.md`.
+
 ### Documentation
 
 - README — `Deriving a value from a post body`. `$post->content()` runs
@@ -69,6 +139,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   non-breaking hyphen, which splits hyphenated words for a counter that admits
   only the ASCII one.
 
+### Fixed
+
+- `wp timber-kit migrate-image-cache --apply` could silently overwrite a
+  derivative: it checked the target didn't exist, then `rename()`d into it, and
+  a target created in the gap between those two steps — a second invocation, a
+  file dropped by hand — was replaced without warning by POSIX `rename()`. It
+  now moves via `link()` then `unlink()`: `link()` fails atomically when the
+  target exists, so a race there is reported as a failed move with both files
+  left untouched, never a silent overwrite.
+
+- `wp timber-kit migrate-image-cache --apply` reported success even when some
+  moves failed — `WP_CLI::success()` ran unconditionally, before the loop that
+  warns about failures, so a script harness reading only the exit code saw 0 on
+  a run that left files unmoved. It now warns about every failure first, then
+  exits non-zero via `WP_CLI::error()` when any move failed, and calls
+  `WP_CLI::success()` only when none did.
 
 ## [1.45.0] - 2026-08-27
 

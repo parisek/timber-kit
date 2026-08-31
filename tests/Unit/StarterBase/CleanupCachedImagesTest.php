@@ -40,6 +40,15 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		$this->makeDir( $this->cache_dir . '/1439x0-center' );
 
 		$this->stubFilesystem();
+
+		// Same stub shape as guardSourceDir()'s own test and Resizer's
+		// SourcePathSegmentTest: keep A-Za-z0-9._-, strip the rest. This is
+		// the function the writer (Resizer.php) sanitizes names through, so
+		// stubbing it here lets the flag-on tests exercise the same
+		// name-collapsing rule the real cache key was written with.
+		Functions\when( 'sanitize_file_name' )->alias( function ( $name ) {
+			return preg_replace( '/[^A-Za-z0-9._-]/', '', (string) $name );
+		} );
 	}
 
 	protected function tearDown(): void {
@@ -233,6 +242,127 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		);
 	}
 
+	/** Same override the flag's own registration test uses. */
+	private function enableSourcePathCacheKey(): void {
+		( new \ReflectionClass( \Parisek\TimberKit\StarterBase::class ) )
+			->getProperty( 'resizer_source_path_in_cache_key' )
+			->setValue( $this->base, true );
+	}
+
+	public function test_with_the_flag_on_only_the_matching_source_directory_is_deleted(): void {
+		mkdir( $this->cache_dir . '/900x0-center/2022/03', 0777, true );
+		mkdir( $this->cache_dir . '/900x0-center/2022/10', 0777, true );
+		$this->created[] = $this->cache_dir . '/900x0-center/2022/03';
+		$this->created[] = $this->cache_dir . '/900x0-center/2022/10';
+		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/11.png.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/2022/10/11.png.avif' );
+
+		$this->stubAttachment( 4711, '2022/03/11.png', siblings: 0 );
+		$this->enableSourcePathCacheKey();
+
+		$this->base->cleanup_cached_images( 4711 );
+
+		$this->assertFileDoesNotExist( $this->cache_dir . '/900x0-center/2022/03/11.png.avif' );
+		$this->assertFileExists(
+			$this->cache_dir . '/900x0-center/2022/10/11.png.avif',
+			'a different upload that happens to share a name must survive'
+		);
+	}
+
+	/**
+	 * ADR 0008's amendment: the extension is now part of the derivative
+	 * name too, so `11.jpg` and `11.png` sharing one directory no longer
+	 * collide on one derivative, and deleting one leaves the other's
+	 * derivative on disk untouched.
+	 */
+	public function test_with_the_flag_on_same_directory_different_extension_are_not_conflated(): void {
+		mkdir( $this->cache_dir . '/900x0-center/2026/08', 0777, true );
+		$this->created[] = $this->cache_dir . '/900x0-center/2026/08';
+		$this->seedFile( $this->cache_dir . '/900x0-center/2026/08/hero.jpg.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/2026/08/hero.png.avif' );
+
+		$this->stubAttachment( 4711, '2026/08/hero.jpg', siblings: 0 );
+		$this->enableSourcePathCacheKey();
+
+		$this->base->cleanup_cached_images( 4711 );
+
+		$this->assertFileDoesNotExist( $this->cache_dir . '/900x0-center/2026/08/hero.jpg.avif' );
+		$this->assertFileExists(
+			$this->cache_dir . '/900x0-center/2026/08/hero.png.avif',
+			'a sibling upload differing only by extension must survive'
+		);
+	}
+
+	/**
+	 * `img[0-9].png` is a legitimate (if odd) filename that reaches
+	 * `_wp_attached_file` unsanitized in scenarios the upload sanitizer never
+	 * saw -- a migration script, an offloaded-media plugin writing meta
+	 * directly. The writer names its derivative `img[0-9].png.avif`, verbatim.
+	 *
+	 * Handing that name to `glob()` would read the brackets as a character
+	 * class: it would match an unrelated `img5.png.avif` and miss the target's
+	 * own file entirely. The delete reads the directory and compares instead,
+	 * so a metacharacter is just a character. The name is no longer rewritten,
+	 * which is why the two files below are the ones actually on disk.
+	 */
+	public function test_with_the_flag_on_a_glob_metacharacter_in_the_name_is_matched_literally(): void {
+		mkdir( $this->cache_dir . '/900x0-center/2022/03', 0777, true );
+		$this->created[] = $this->cache_dir . '/900x0-center/2022/03';
+		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/img[0-9].png.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/2022/03/img5.png.avif' );
+
+		$this->stubAttachment( 4711, '2022/03/img[0-9].png', siblings: 0 );
+		$this->enableSourcePathCacheKey();
+
+		$this->base->cleanup_cached_images( 4711 );
+
+		$this->assertFileDoesNotExist(
+			$this->cache_dir . '/900x0-center/2022/03/img[0-9].png.avif',
+			'the attachment\'s own derivative, named verbatim, must be found and deleted'
+		);
+		$this->assertFileExists(
+			$this->cache_dir . '/900x0-center/2022/03/img5.png.avif',
+			'a bracket expression must never be read as a pattern that reaches another upload'
+		);
+	}
+
+	/**
+	 * `_wp_attached_file` is database content. A corrupted or plugin-written
+	 * value can carry a `..` segment; unguarded, that walks the glob outside
+	 * both the source directory and the cache root. Mirrors
+	 * `MigrateImageCacheCommand::guardSourceDir()`, which collapses any
+	 * invalid directory (including one with a traversal component) to the
+	 * flat root — matching the writer, which does the same when its own
+	 * mirrored guard (`Resizer::sourcePathSegment()`) rejects a component.
+	 */
+	public function test_with_the_flag_on_a_traversal_segment_in_the_directory_is_treated_as_the_flat_root(): void {
+		// The target's real derivative, at the flat root the guard falls back to.
+		$this->seedFile( $this->cache_dir . '/900x0-center/11.png.avif' );
+
+		// A file well outside the cache tree — a `..` component joined onto
+		// a size directory and walked by the filesystem can reach anything
+		// under WP_CONTENT_DIR, not just a sibling inside the cache. Placed
+		// outside `$cache_dir` on purpose, so it can never be reached by
+		// enumerating `$cache_dir`'s own subdirectories either.
+		$outside_dir = dirname( $this->cache_dir ) . '/decoy';
+		$this->makeDir( $outside_dir );
+		$this->seedFile( $outside_dir . '/11.png.avif' );
+
+		$this->stubAttachment( 4711, '../decoy/11.png', siblings: 0 );
+		$this->enableSourcePathCacheKey();
+
+		$this->base->cleanup_cached_images( 4711 );
+
+		$this->assertFileExists(
+			$outside_dir . '/11.png.avif',
+			'a traversal segment must never let the delete walk outside the cache tree'
+		);
+		$this->assertFileDoesNotExist(
+			$this->cache_dir . '/900x0-center/11.png.avif',
+			'the guard collapses the whole invalid directory to the flat root, matching the writer\'s own fallback'
+		);
+	}
+
 	/**
 	 * Without a database the sibling question cannot be answered. Skipping the
 	 * delete leaves a stale file that the next resize overwrites; guessing wrong
@@ -248,4 +378,31 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 
 		$this->assertFileExists( $this->cache_dir . '/900x0-center/homepage-hero-desktop.avif' );
 	}
+	/**
+	 * One stored name can be a prefix of another: `hero.png` and
+	 * `hero.png.old` are both legal filenames, and their derivatives sit side
+	 * by side as `hero.png.avif` and `hero.png.old.avif`.
+	 *
+	 * A plain prefix test matches both when `hero.png` is deleted, which is
+	 * the same over-match the old `glob()` had, in a different spelling. The
+	 * remainder after the name must be a bare extension, carrying no dot.
+	 */
+	public function test_with_the_flag_on_a_name_that_prefixes_another_does_not_delete_it(): void {
+		mkdir( $this->cache_dir . '/900x0-center/2026/08', 0777, true );
+		$this->created[] = $this->cache_dir . '/900x0-center/2026/08';
+		$this->seedFile( $this->cache_dir . '/900x0-center/2026/08/hero.png.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/2026/08/hero.png.old.avif' );
+
+		$this->stubAttachment( 4711, '2026/08/hero.png', siblings: 0 );
+		$this->enableSourcePathCacheKey();
+
+		$this->base->cleanup_cached_images( 4711 );
+
+		$this->assertFileDoesNotExist( $this->cache_dir . '/900x0-center/2026/08/hero.png.avif' );
+		$this->assertFileExists(
+			$this->cache_dir . '/900x0-center/2026/08/hero.png.old.avif',
+			'a longer stored name that merely starts the same belongs to another upload'
+		);
+	}
+
 }

@@ -140,6 +140,16 @@ class Resizer {
 	private bool $quality_in_cache_key;
 
 	/**
+	 * Whether the source's upload directory is part of its cache key.
+	 *
+	 * Off by default: two uploads sharing a filename but sitting in different
+	 * upload directories would otherwise collide at the same cache path.
+	 *
+	 * @var bool
+	 */
+	private bool $source_path_in_cache_key;
+
+	/**
 	 * Memoized allow-list of decodable input MIME types, per instance.
 	 *
 	 * Per instance, not per request: the theme builds one Resizer per `|resizer`
@@ -179,6 +189,8 @@ class Resizer {
 	 *   - `timber_kit_resizer_force_regenerate` — skip cache and always regenerate
 	 *   - `timber_kit_resizer_skip_animated`   — pass animated sources through untouched (default: true)
 	 *   - `timber_kit_resizer_quality_in_cache_key` — put a variant's quality in its cache key (default: false)
+	 *   - `timber_kit_resizer_source_path_in_cache_key` — put the source's upload
+	 *     directory in its cache key (default: false)
 	 */
 	public function __construct() {
 		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );
@@ -187,6 +199,7 @@ class Resizer {
 		$this->force_regenerate = (bool) apply_filters( 'timber_kit_resizer_force_regenerate', self::FORCE_REGENERATE );
 		$this->skip_animated = (bool) apply_filters( 'timber_kit_resizer_skip_animated', true );
 		$this->quality_in_cache_key = (bool) apply_filters( 'timber_kit_resizer_quality_in_cache_key', false );
+		$this->source_path_in_cache_key = (bool) apply_filters( 'timber_kit_resizer_source_path_in_cache_key', false );
 	}
 
 	/**
@@ -206,6 +219,24 @@ class Resizer {
 			$matrix[ $mime ] = in_array( $mime, $decodable, true );
 		}
 		return $matrix;
+	}
+
+	/**
+	 * Every input MIME type this class will ever accept, before any runtime
+	 * narrowing.
+	 *
+	 * The static superset, deliberately: `canDecode()` narrows it by what the
+	 * active backend reports and by `timber_kit_resizer_allowed_types`, both
+	 * of which can change after a derivative was written. A caller reasoning
+	 * about files already on disk -- the cache migration -- must ask whether a
+	 * source could *ever* have produced one, not whether it could today. A
+	 * site that resized TIFFs under Imagick and has since moved to GD would
+	 * otherwise look as though those derivatives had no source.
+	 *
+	 * @return array<int, string> MIME types.
+	 */
+	public static function inputFormatMimes(): array {
+		return array_keys( self::DESIRED_INPUT_FORMATS );
 	}
 
 	/**
@@ -846,7 +877,9 @@ class Resizer {
 	 * could otherwise walk out of the cache directory with it.
 	 *
 	 * @param array<string, mixed> $variant Normalized variant.
-	 * @return string Directory segment, e.g. `1200x630-center-q82`.
+	 * @return string Directory segment, e.g. `1200x630-center-q82`. `resize()` may
+	 *                append the source's upload directory to the stored
+	 *                `cache_key`, making that value a path rather than one name.
 	 */
 	private function variantDirname( array $variant ): string {
 		$style = preg_replace( '/[^A-Za-z0-9_-]/', '', (string) $variant['image_style'] );
@@ -859,6 +892,88 @@ class Resizer {
 		}
 
 		return $dirname;
+	}
+
+	/**
+	 * Percent-encode each component of a relative path, keeping the separators.
+	 *
+	 * @param string $path Relative path.
+	 * @return string
+	 */
+	private static function encodePathSegments( string $path ): string {
+		return implode( '/', array_map( 'rawurlencode', explode( '/', $path ) ) );
+	}
+
+	/**
+	 * Whether a decoded path component can be written verbatim.
+	 *
+	 * Refuses; never rewrites. Rewriting is what let two different sources
+	 * share one derivative: `sanitize_file_name()` is filterable, so its
+	 * output is neither stable across time nor unique across inputs, and a
+	 * deployment that maps `_` to `-` collapses `usp_1.webp` and
+	 * `usp-1.webp` onto one cached file. A component is dangerous only if it
+	 * can leave the directory it is written into, so that is the whole test.
+	 *
+	 * @param string $component One already-decoded path component.
+	 * @return bool
+	 */
+	private static function safePathComponent( string $component ): bool {
+		return '' !== $component
+			&& '.' !== $component
+			&& '..' !== $component
+			&& false === strpos( $component, '/' )
+			&& false === strpos( $component, '\\' )
+			&& false === strpos( $component, "\0" );
+	}
+
+	/**
+	 * The source file's own directory, below the uploads root.
+	 *
+	 * Derived from the URL rather than the resolved filesystem path on purpose:
+	 * `resize()` needs this value before it knows whether the file exists
+	 * locally, because a missing source is handed to DevMediaProxy, which
+	 * addresses the very same cache path on another host.
+	 *
+	 * Each component is used exactly as stored, the way the filename is. The
+	 * segment is appended to a filesystem path, so a component that could
+	 * escape it — empty, `.`, `..`, or carrying a separator or a NUL — voids
+	 * the whole result rather than being repaired: a repaired component would
+	 * point at a different directory than the one the upload is in.
+	 *
+	 * @param string $src     Source image URL.
+	 * @param string $baseurl Uploads base URL.
+	 * @return string The directory below the uploads root, or '' when unusable.
+	 */
+	private function sourcePathSegment( string $src, string $baseurl ): string {
+		$src = (string) strtok( $src, '?' );
+		$baseurl = rtrim( $baseurl, '/' );
+
+		if ( $baseurl === '' || strpos( $src, $baseurl . '/' ) !== 0 ) {
+			return '';
+		}
+
+		$relative = substr( $src, strlen( $baseurl ) + 1 );
+		$dir = trim( str_replace( '\\', '/', dirname( $relative ) ), '/' );
+
+		if ( $dir === '' || $dir === '.' ) {
+			return '';
+		}
+
+		$parts = [];
+		foreach ( explode( '/', $dir ) as $part ) {
+			$decoded = rawurldecode( $part );
+
+			// The component is used as stored, not as sanitize_file_name() would
+			// spell it. It is appended to a filesystem path, so the only question
+			// is whether it can escape that path -- see safePathComponent().
+			if ( ! self::safePathComponent( $decoded ) ) {
+				return '';
+			}
+
+			$parts[] = $decoded;
+		}
+
+		return implode( '/', $parts );
 	}
 
 	/**
@@ -881,7 +996,21 @@ class Resizer {
 			$relative_cache_dir = substr( $relative_cache_dir, strlen( WP_CONTENT_DIR ) );
 		}
 		$relative_cache_dir = ltrim( (string) $relative_cache_dir, '/\\' );
-		$target_url = content_url( $relative_cache_dir . '/' . $target_dirname . '/' . $filename . '.' . $target_format );
+		// Flag on, the filename is the source's own, so it can carry a space,
+		// '#', '?' or '%' -- all legal on disk, all meaning something else in
+		// a URL. content_url() concatenates without encoding, so encode per
+		// segment (never the whole path: '/' must survive as a separator).
+		//
+		// Gated on the flag, not applied unconditionally. sanitize_file_name()
+		// is filterable, so a flag-off site whose filter leaves a space or a
+		// '+' in the name would see its URLs change bytes on a mere version
+		// bump. Flag off has to stay byte-identical, and that includes the URL.
+		$target_url = $this->source_path_in_cache_key
+			? content_url(
+				$relative_cache_dir . '/' . self::encodePathSegments( $target_dirname )
+					. '/' . rawurlencode( $filename . '.' . $target_format )
+			)
+			: content_url( $relative_cache_dir . '/' . $target_dirname . '/' . $filename . '.' . $target_format );
 
 		// Skip processing if target file already exists (unless force regenerate is enabled)
 		if ( ! file_exists( $target_path ) || $this->force_regenerate ) {
@@ -1329,11 +1458,48 @@ class Resizer {
 		$basedir = $upload_dir['basedir'];
 		$baseurl = $upload_dir['baseurl'];
 
-		// Sanitize filename to prevent path traversal attacks
-		$filename = sanitize_file_name( pathinfo( basename( $default_image['src'] ), PATHINFO_FILENAME ) );
+		// Flag off: the historical name -- extension stripped, then sanitized.
+		// Byte-for-byte unchanged on purpose. Every existing cache on every
+		// consumer is addressed by these names, so rewriting them would orphan
+		// all of it.
+		//
+		// Flag on (ADR 0008): the source's own decoded basename, extension
+		// included, used verbatim. Extension included because hero.jpg and
+		// hero.png in one directory would otherwise collide on one derivative.
+		// Verbatim because sanitize_file_name() is filterable, so it is neither
+		// stable over time nor unique across inputs: a deployment that maps `_`
+		// to `-` collapses usp_1.webp and usp-1.webp onto one cached file, and
+		// one that gains such a filter after files exist re-points every future
+		// lookup away from what is already on disk. The name is decoded first
+		// because `src` is a URL while `_wp_attached_file` -- what the deleter
+		// and the migrator read -- is not; without that the two sides name the
+		// same source differently and never agree.
+		$filename = $this->source_path_in_cache_key
+			? rawurldecode( basename( (string) strtok( $default_image['src'], '?' ) ) )
+			: sanitize_file_name( pathinfo( basename( $default_image['src'] ), PATHINFO_FILENAME ) );
+
+		// A name that could escape its directory is not written under a
+		// repaired spelling -- repairing is what this branch just stopped
+		// doing. The source is served unresized instead, which is what an
+		// undecodable source already does.
+		if ( $this->source_path_in_cache_key && ! self::safePathComponent( $filename ) ) {
+			return [ $default_image ];
+		}
 
 		// Get actual source file path by converting URL to filesystem path
 		$source_path = str_replace( $baseurl, $basedir, $default_image['src'] );
+
+		// Before the file_exists() branch on purpose: a missing source is served
+		// by the missing-source filter (DevMediaProxy), which addresses this same
+		// cache path on another host and therefore needs the same key.
+		if ( $this->source_path_in_cache_key ) {
+			$segment = $this->sourcePathSegment( $default_image['src'], $baseurl );
+			if ( $segment !== '' ) {
+				foreach ( $normalized_variants as $i => $variant ) {
+					$normalized_variants[ $i ]['cache_key'] = $variant['cache_key'] . '/' . $segment;
+				}
+			}
+		}
 
 		if ( ! file_exists( $source_path ) ) {
 			$images = apply_filters(
