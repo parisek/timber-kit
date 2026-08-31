@@ -77,6 +77,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   a local site fetch derivative paths from a production origin, so a
   disagreement makes every one of those a 404 until both sides match.
 
+  Three things to check before enabling on a live site. Any rule that matches
+  the cache path — CDN, nginx, `.htaccess` — now sees a deeper path with
+  percent-encoded segments, and any script that greps or rsyncs the cache tree
+  meets filenames carrying spaces and brackets. On a **case-insensitive**
+  filesystem `Ebook.svg.avif` and `ebook.svg.avif` are still one file, so a
+  macOS dev box and a Linux server disagree about that pair. And run the
+  migration *before* adding or removing a `sanitize_file_name` filter: it
+  reproduces the legacy spelling with today's filter stack, so a derivative
+  written under a different one is reported orphaned (safe, but re-encoded).
+
+  `wp timber-kit migrate-image-cache` also skips sources the resizer could
+  never decode — an SVG or PDF sharing a stem with a real image used to make
+  that image's derivative look contested. 30 of 329 ambiguous entries on the
+  site measured. The set is the static format list widened by
+  `timber_kit_resizer_allowed_types`, never narrowed by the live backend.
+
   Enabling it relocates every derivative, a source at the uploads root
   included, because the name now carries the source's own extension.
   `wp timber-kit migrate-image-cache` (dry-run by default) moves the existing

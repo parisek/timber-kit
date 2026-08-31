@@ -895,24 +895,15 @@ class Resizer {
 	}
 
 	/**
-	 * The source file's own directory, below the uploads root.
+	 * Percent-encode each component of a relative path, keeping the separators.
 	 *
-	 * Derived from the URL rather than the resolved filesystem path on purpose:
-	 * `resize()` needs this value before it knows whether the file exists
-	 * locally, because a missing source is handed to DevMediaProxy, which
-	 * addresses the very same cache path on another host.
-	 *
-	 * Each segment is sanitized the way the filename already is. The segment is
-	 * appended to a filesystem path, so a `..` reaching the cache root would
-	 * escape it; any segment that does not survive sanitation unchanged voids
-	 * the whole result rather than being silently repaired into a different
-	 * directory.
-	 *
-	 * @param string $src     Absolute source URL.
-	 * @param string $baseurl Uploads base URL.
-	 * @return string Relative directory, no leading or trailing slash; '' when the
-	 *                source is at the uploads root or not below it at all.
+	 * @param string $path Relative path.
+	 * @return string
 	 */
+	private static function encodePathSegments( string $path ): string {
+		return implode( '/', array_map( 'rawurlencode', explode( '/', $path ) ) );
+	}
+
 	/**
 	 * Whether a decoded path component can be written verbatim.
 	 *
@@ -926,16 +917,6 @@ class Resizer {
 	 * @param string $component One already-decoded path component.
 	 * @return bool
 	 */
-	/**
-	 * Percent-encode each component of a relative path, keeping the separators.
-	 *
-	 * @param string $path Relative path.
-	 * @return string
-	 */
-	private static function encodePathSegments( string $path ): string {
-		return implode( '/', array_map( 'rawurlencode', explode( '/', $path ) ) );
-	}
-
 	private static function safePathComponent( string $component ): bool {
 		return '' !== $component
 			&& '.' !== $component
@@ -945,6 +926,24 @@ class Resizer {
 			&& false === strpos( $component, "\0" );
 	}
 
+	/**
+	 * The source file's own directory, below the uploads root.
+	 *
+	 * Derived from the URL rather than the resolved filesystem path on purpose:
+	 * `resize()` needs this value before it knows whether the file exists
+	 * locally, because a missing source is handed to DevMediaProxy, which
+	 * addresses the very same cache path on another host.
+	 *
+	 * Each component is used exactly as stored, the way the filename is. The
+	 * segment is appended to a filesystem path, so a component that could
+	 * escape it — empty, `.`, `..`, or carrying a separator or a NUL — voids
+	 * the whole result rather than being repaired: a repaired component would
+	 * point at a different directory than the one the upload is in.
+	 *
+	 * @param string $src     Source image URL.
+	 * @param string $baseurl Uploads base URL.
+	 * @return string The directory below the uploads root, or '' when unusable.
+	 */
 	private function sourcePathSegment( string $src, string $baseurl ): string {
 		$src = (string) strtok( $src, '?' );
 		$baseurl = rtrim( $baseurl, '/' );
@@ -997,14 +996,21 @@ class Resizer {
 			$relative_cache_dir = substr( $relative_cache_dir, strlen( WP_CONTENT_DIR ) );
 		}
 		$relative_cache_dir = ltrim( (string) $relative_cache_dir, '/\\' );
-		// The filename is now the source's own, so it can carry a space, '#',
-		// '?' or '%' -- all legal on disk, all meaning something else in a URL.
-		// content_url() concatenates without encoding, so encode per segment
-		// here (never the whole path: '/' must survive as a separator).
-		$target_url = content_url(
-			$relative_cache_dir . '/' . self::encodePathSegments( $target_dirname )
-				. '/' . rawurlencode( $filename . '.' . $target_format )
-		);
+		// Flag on, the filename is the source's own, so it can carry a space,
+		// '#', '?' or '%' -- all legal on disk, all meaning something else in
+		// a URL. content_url() concatenates without encoding, so encode per
+		// segment (never the whole path: '/' must survive as a separator).
+		//
+		// Gated on the flag, not applied unconditionally. sanitize_file_name()
+		// is filterable, so a flag-off site whose filter leaves a space or a
+		// '+' in the name would see its URLs change bytes on a mere version
+		// bump. Flag off has to stay byte-identical, and that includes the URL.
+		$target_url = $this->source_path_in_cache_key
+			? content_url(
+				$relative_cache_dir . '/' . self::encodePathSegments( $target_dirname )
+					. '/' . rawurlencode( $filename . '.' . $target_format )
+			)
+			: content_url( $relative_cache_dir . '/' . $target_dirname . '/' . $filename . '.' . $target_format );
 
 		// Skip processing if target file already exists (unless force regenerate is enabled)
 		if ( ! file_exists( $target_path ) || $this->force_regenerate ) {

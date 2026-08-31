@@ -245,4 +245,52 @@ class MigrateImageCacheCommandBuildNameToSourcePathsTest extends TestCase {
 		);
 	}
 
+	/**
+	 * `timber_kit_resizer_allowed_types` runs *after* the capability
+	 * intersection, so it can force a format **on**. A project that added SVG
+	 * has derivatives the static superset alone does not explain; excluding
+	 * that source would make a sibling look unique and move its derivative
+	 * into another attachment's path.
+	 */
+	public function test_a_format_the_site_forced_on_is_still_a_candidate(): void {
+		Functions\when( 'apply_filters' )->alias( function ( $filter, $value, ...$args ) {
+			unset( $args );
+			if ( 'timber_kit_resizer_allowed_types' === $filter ) {
+				return array_merge( (array) $value, [ 'image/svg+xml' ] );
+			}
+			return $value;
+		} );
+
+		$this->stubWpdb( [ '2022/01/badge.svg', '2022/01/badge.webp' ] );
+
+		$map = $this->buildNameToSourcePaths();
+
+		$this->assertSame(
+			[ '2022/01/badge.svg', '2022/01/badge.webp' ],
+			$map['badge'],
+			'a format the site forced on could have written a derivative, so it stays a candidate'
+		);
+	}
+
+	/**
+	 * A filename that could escape its directory must still count as a
+	 * candidate. Dropping it is a guess by omission: the sibling sharing its
+	 * legacy name would look unique, and the planner would move that
+	 * sibling's derivative into a path it does not own.
+	 *
+	 * Symmetric with a refused *directory*, which already contributes a flat
+	 * candidate rather than vanishing.
+	 */
+	public function test_a_filename_that_fails_the_guard_still_counts_as_a_candidate(): void {
+		$this->stubWpdb( [ '2026/08/hero.png', '2026/08/he\\ro.png' ] );
+
+		$map = $this->buildNameToSourcePaths();
+
+		$this->assertCount(
+			2,
+			$map['hero'] ?? [],
+			'the unsafe sibling must keep the name contested rather than disappear'
+		);
+	}
+
 }

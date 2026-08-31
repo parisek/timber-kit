@@ -144,6 +144,20 @@ class ImageCacheMigrator {
 			$source_dir  = $this->dirOf( $source_path );
 			$source_name = basename( $source_path );
 
+			// One candidate, but its name could leave the directory it would
+			// be written into. The writer refuses such a name too, so no
+			// derivative of it can be placed; report it for a human rather
+			// than build a path out of it.
+			if ( '' === $source_name
+				|| '.' === $source_name
+				|| '..' === $source_name
+				|| false !== strpos( $source_name, '/' )
+				|| false !== strpos( $source_name, '\\' )
+				|| false !== strpos( $source_name, "\0" ) ) {
+				$ambiguous[ $relative ] = $source_paths;
+				continue;
+			}
+
 			$target_filename = $source_name . '.' . $target_format;
 			$target          = '' === $source_dir
 				? $this->cache_dir . '/' . $size_dir . '/' . $target_filename

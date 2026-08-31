@@ -64,10 +64,12 @@ missing source is served by a filter that addresses the same cache path on
 another host), and the filename half must agree with what
 `StarterBase::cached_derivative_paths_by_source_path()` and the migration
 command compute from `_wp_attached_file`. Both halves parse the URL the same
-way: strip the query string, decode each `%`-encoded component, then run it
-through `sanitize_file_name()` — a URL is encoded where the database value is
-not, so skipping the decode step would make the writer and the deleter/migrator
-name the same source differently. `Resizer` maps a URL to a path only through
+way: strip the query string and decode each `%`-encoded component — a URL is
+encoded where the database value is not, so skipping the decode step would make
+the writer and the deleter/migrator name the same source differently. The
+decoded component is then used exactly as it stands. (This paragraph originally
+said the decoded component is passed through `sanitize_file_name()`. The
+amendment below retracts that; the amendment is what binds.) `Resizer` maps a URL to a path only through
 the uploads base pair, so every source it caches lies below the uploads root
 and the directory segment is always well defined — possibly empty, never
 absent. A theme-directory image does not resolve and never reaches the cache.
@@ -170,6 +172,15 @@ the directory, and seven review rounds passed it. The same-directory half was
 found by an independent reviewer on a different model, reading the branch
 without sight of those rounds — the one thing the repo's own two-reviewer rule
 asks for and the one thing that run had skipped.
+
+The migration ignores a source the resizer could never have decoded. An SVG or
+a PDF sharing a stem with a real image made that image's derivative look
+contested and left it unmigrated — 30 of 329 ambiguous entries on the site
+measured. The set it tests against is the static format list *widened* by
+`timber_kit_resizer_allowed_types` and never narrowed by the live backend:
+narrowing would drop a source that was decodable when the file was written,
+make a surviving candidate look unique, and move another attachment's
+derivative into it.
 
 The migration cannot place a derivative whose name maps to more than one
 source — recovering that association is exactly what the old layout destroyed.

@@ -4115,9 +4115,11 @@ class StarterBase extends Site {
 	/**
 	 * Locate cached derivatives directly — the flag-on layout, where the cache
 	 * key is `<size>/<source-upload-dir>/<name>.<fmt>`. `<source-upload-dir>/
-	 * <name>` is `_wp_attached_file` without its extension, so every derivative
-	 * lives at a predictable path under each size directory. No scan, and no
-	 * risk of touching a different upload's derivatives.
+	 * <name>` is `_wp_attached_file` used verbatim, its extension included, so
+	 * every derivative lives at a predictable path under each size directory.
+	 * The output format is the only unknown, so each size directory is read
+	 * once and its entries compared — no pattern, and no risk of touching a
+	 * different upload's derivatives.
 	 *
 	 * Never deletes the size directory or the source subdirectory themselves,
 	 * even once emptied — another attachment's derivative may land there next.
@@ -4133,14 +4135,6 @@ class StarterBase extends Site {
 			return [];
 		}
 
-		// The writer (Resizer.php) sanitizes the name before it ever reaches
-		// disk. Using the raw value here would both miss the writer's own
-		// sanitized file (an accent or space stripped at write time never
-		// matches back) and, worse, hand a bracket or asterisk straight to
-		// glob() as a live pattern instead of a literal filename — matching
-		// whatever else happens to sit in that character class or wildcard.
-		// A name that sanitizes to nothing can't be resolved either way.
-		//
 		// The full basename, extension included: ADR 0008 keys the derivative
 		// on the source's whole identity, because two sources sharing a
 		// directory and a stem but not an extension (hero.jpg / hero.png)
@@ -4189,9 +4183,20 @@ class StarterBase extends Site {
 					continue;
 				}
 
-				// One derivative per output format, so match the source's whole
-				// name plus a dot and let the format be whatever follows.
+				// One derivative per output format: the source's whole name, a
+				// dot, then a bare extension. The remainder after the prefix
+				// must therefore carry no dot of its own -- a plain prefix test
+				// would match `hero.png.old.avif`, which belongs to the
+				// unrelated source `hero.png.old`, and delete another
+				// attachment's derivative. That is the over-match the old
+				// glob() had, in a different spelling.
 				if ( 0 !== strpos( $entry, $prefix ) ) {
+					continue;
+				}
+
+				$format = substr( $entry, strlen( $prefix ) );
+
+				if ( '' === $format || false !== strpos( $format, '.' ) ) {
 					continue;
 				}
 

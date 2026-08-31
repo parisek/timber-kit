@@ -99,4 +99,26 @@ class EncodedFilenameCacheKeyTest extends ResizerTestCase {
 		$this->assertStringContainsString( '900x0-center/2026/08/hero.jpg.avif', $result[0]['src'] );
 		$this->assertStringNotContainsString( 'ver=123', $result[0]['src'] );
 	}
+	/**
+	 * Flag off has to stay byte-identical, and that includes the URL.
+	 *
+	 * `sanitize_file_name()` is filterable — the premise this whole change
+	 * rests on — so a site whose filter leaves a space or a `+` in the name
+	 * would see its flag-off URLs change bytes on a mere version bump if the
+	 * encoding were applied unconditionally.
+	 */
+	public function test_flag_off_does_not_encode_the_url(): void {
+		Functions\when( 'sanitize_file_name' )->alias( fn( $n ) => (string) $n );
+
+		$resizer = $this->createResizerWithSourcePathFlag( false );
+
+		$result = $resizer->resizer(
+			[ 'src' => 'https://example.com/wp-content/uploads/2026/08/My Photo.JPG', 'width' => 100, 'height' => 100, 'alt' => '' ],
+			[ [ '900', '0', '', 'center' ] ]
+		);
+
+		$this->assertStringContainsString( '900x0-center/My Photo.avif', $result[0]['src'] );
+		$this->assertStringNotContainsString( '%20', $result[0]['src'] );
+	}
+
 }

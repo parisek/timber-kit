@@ -378,4 +378,31 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 
 		$this->assertFileExists( $this->cache_dir . '/900x0-center/homepage-hero-desktop.avif' );
 	}
+	/**
+	 * One stored name can be a prefix of another: `hero.png` and
+	 * `hero.png.old` are both legal filenames, and their derivatives sit side
+	 * by side as `hero.png.avif` and `hero.png.old.avif`.
+	 *
+	 * A plain prefix test matches both when `hero.png` is deleted, which is
+	 * the same over-match the old `glob()` had, in a different spelling. The
+	 * remainder after the name must be a bare extension, carrying no dot.
+	 */
+	public function test_with_the_flag_on_a_name_that_prefixes_another_does_not_delete_it(): void {
+		mkdir( $this->cache_dir . '/900x0-center/2026/08', 0777, true );
+		$this->created[] = $this->cache_dir . '/900x0-center/2026/08';
+		$this->seedFile( $this->cache_dir . '/900x0-center/2026/08/hero.png.avif' );
+		$this->seedFile( $this->cache_dir . '/900x0-center/2026/08/hero.png.old.avif' );
+
+		$this->stubAttachment( 4711, '2026/08/hero.png', siblings: 0 );
+		$this->enableSourcePathCacheKey();
+
+		$this->base->cleanup_cached_images( 4711 );
+
+		$this->assertFileDoesNotExist( $this->cache_dir . '/900x0-center/2026/08/hero.png.avif' );
+		$this->assertFileExists(
+			$this->cache_dir . '/900x0-center/2026/08/hero.png.old.avif',
+			'a longer stored name that merely starts the same belongs to another upload'
+		);
+	}
+
 }

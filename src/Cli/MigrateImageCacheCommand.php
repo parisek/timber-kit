@@ -179,7 +179,7 @@ class MigrateImageCacheCommand {
 			// the wrong-placement class this whole change exists to remove.
 			$mime = wp_check_filetype( $filename )['type'] ?? '';
 
-			if ( ! in_array( $mime, Resizer::inputFormatMimes(), true ) ) {
+			if ( ! in_array( $mime, self::everWritableInputMimes(), true ) ) {
 				continue;
 			}
 
@@ -197,10 +197,14 @@ class MigrateImageCacheCommand {
 			$name        = sanitize_file_name( pathinfo( $filename, PATHINFO_FILENAME ) );
 			$guarded_dir = self::guardSourceDir( dirname( $row ) );
 
-			if ( ! self::safePathComponent( $filename ) ) {
-				continue;
-			}
-
+			// A filename that could escape its directory still counts as a
+			// candidate. Dropping it would be a guess by omission: a sibling
+			// sharing its legacy name would then look unique, and the planner
+			// would move that sibling's derivative -- the confident wrong
+			// placement this whole change exists to remove. It is kept here
+			// and refused at the point of use, in ImageCacheMigrator::plan(),
+			// which is symmetric with a refused *directory* (that one already
+			// contributes a flat candidate rather than vanishing).
 			$source_path = '' === $guarded_dir ? $filename : $guarded_dir . '/' . $filename;
 
 			if ( ! isset( $name_to_source_paths[ $name ] ) ) {
@@ -216,22 +220,32 @@ class MigrateImageCacheCommand {
 	}
 
 	/**
-	 * Mirror (not reuse — `Resizer::sourcePathSegment()` is private and takes
-	 * a URL, not a relative path) the per-component guard the runtime applies
-	 * before it will place a derivative under a source directory: every
-	 * component must survive `sanitize_file_name()` unchanged and be neither
-	 * empty nor `.`/`..`. One failing component voids the whole directory
-	 * rather than being silently dropped or repaired — dropping just that
-	 * component would quietly point the migration at a different directory
-	 * than the one the upload is actually in.
+	 * Every MIME type that could ever have produced a derivative on this site.
 	 *
-	 * Public and static because, unlike the rest of this class, it is a pure
-	 * function of its input — see the class docblock on why the rest isn't
-	 * unit-tested.
+	 * A union of two sets, and it has to be a union rather than either alone.
+	 * `Resizer::inputFormatMimes()` is the static superset, immune to a
+	 * backend that changed since the file was written: narrowing by today's
+	 * `canDecode()` would drop a source that was decodable then, make a
+	 * surviving candidate look unique, and move another attachment's
+	 * derivative into it. But `timber_kit_resizer_allowed_types` runs *after*
+	 * the capability intersection and can force a format **on**, so a project
+	 * that added one has derivatives the static list alone does not explain.
 	 *
-	 * @param string $dir Relative directory, e.g. from `dirname( $attached_file )`.
-	 * @return string The same directory, or '' when any component fails the guard.
+	 * Asking the filter with the static list as its input and keeping both
+	 * fails closed in each direction: nothing the static list knows is lost,
+	 * and anything the site added is kept.
+	 *
+	 * @return array<int, string> MIME types.
 	 */
+	private static function everWritableInputMimes(): array {
+		$static = Resizer::inputFormatMimes();
+
+		/** @var array<int, string> $filtered */
+		$filtered = apply_filters( 'timber_kit_resizer_allowed_types', $static, array() );
+
+		return array_values( array_unique( array_merge( $static, $filtered ) ) );
+	}
+
 	/**
 	 * Whether a stored path component can be used verbatim.
 	 *
@@ -251,6 +265,23 @@ class MigrateImageCacheCommand {
 			&& false === strpos( $component, "\0" );
 	}
 
+	/**
+	 * Mirror (not reuse — `Resizer::sourcePathSegment()` is private and takes
+	 * a URL, not a relative path) the per-component guard the runtime applies
+	 * before it will place a derivative under a source directory: every
+	 * component must survive `sanitize_file_name()` unchanged and be neither
+	 * empty nor `.`/`..`. One failing component voids the whole directory
+	 * rather than being silently dropped or repaired — dropping just that
+	 * component would quietly point the migration at a different directory
+	 * than the one the upload is actually in.
+	 *
+	 * Public and static because, unlike the rest of this class, it is a pure
+	 * function of its input — see the class docblock on why the rest isn't
+	 * unit-tested.
+	 *
+	 * @param string $dir Relative directory, e.g. from `dirname( $attached_file )`.
+	 * @return string The same directory, or '' when any component fails the guard.
+	 */
 	public static function guardSourceDir( string $dir ): string {
 		if ( '' === $dir || '.' === $dir ) {
 			return '';
