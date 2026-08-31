@@ -89,7 +89,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   reproduces the legacy spelling with today's filter stack, so a derivative
   written under a different one is reported orphaned (safe, but re-encoded).
 
-  `wp timber-kit migrate-image-cache` also skips sources the resizer could
+  `wp timber-kit migrate-image-cache` is registered whether or not the flag is
+  on, so a plan can be read before deciding — but it refuses `--apply` while
+  the flag is off, because the layout it would move files into is exactly what
+  a flag-off site does not read.
+
+  It also skips sources the resizer could
   never decode — an SVG or PDF sharing a stem with a real image used to make
   that image's derivative look contested. 30 of 329 ambiguous entries on the
   site measured. The set is the static format list widened by

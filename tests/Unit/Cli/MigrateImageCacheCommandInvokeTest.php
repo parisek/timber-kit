@@ -118,9 +118,21 @@ class MigrateImageCacheCommandInvokeTest extends TestCase {
 		};
 	}
 
+	/**
+	 * `--apply` refuses to run while the flag is off, so a test that exercises
+	 * the moving path has to turn it on.
+	 */
+	private function enableSourcePathCacheKey(): void {
+		Functions\when( 'apply_filters' )->alias( function ( $filter, $value, ...$args ) {
+			unset( $args );
+			return 'timber_kit_resizer_source_path_in_cache_key' === $filter ? true : $value;
+		} );
+	}
+
 	public function test_success_is_called_when_nothing_failed(): void {
 		$this->seedFile( $this->cache_dir . '/900x0-center/hero.avif' );
 		$this->stubWpdb( [ '2099/07/hero.webp' ] );
+		$this->enableSourcePathCacheKey();
 
 		( new MigrateImageCacheCommand() )( [], [ 'apply' => true ] );
 
@@ -146,6 +158,7 @@ class MigrateImageCacheCommandInvokeTest extends TestCase {
 		// already ran), apply() reports it as failed, and __invoke() must
 		// reflect that in its exit path instead of reporting success.
 		$this->makeDir( $this->cache_dir . '/900x0-center/2099/07' );
+		$this->enableSourcePathCacheKey();
 		chmod( $this->cache_dir . '/900x0-center/2099/07', 0555 );
 
 		$this->stubWpdb( [ '2099/07/hero.webp' ] );
@@ -162,4 +175,39 @@ class MigrateImageCacheCommandInvokeTest extends TestCase {
 		$this->assertNotSame( [], \WP_CLI::$errors );
 		$this->assertSame( [], \WP_CLI::$successes, 'success must never fire alongside a failed move' );
 	}
+	/**
+	 * The command is registered whether or not the flag is on, so that a plan
+	 * can be read before deciding. Moving files is a different matter: the
+	 * layout it moves them into is exactly what a flag-off site does not read,
+	 * so every derivative would be orphaned and re-encoded on first view.
+	 */
+	public function test_apply_is_refused_while_the_flag_is_off(): void {
+		$this->seedFile( $this->cache_dir . '/900x0-center/hero.avif' );
+		$this->stubWpdb( [ '2099/07/hero.webp' ] );
+
+		try {
+			( new MigrateImageCacheCommand() )( [], [ 'apply' => true ] );
+			$this->fail( 'applying with the flag off must not proceed' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertStringContainsString( 'resizer_source_path_in_cache_key', $e->getMessage() );
+		}
+
+		$this->assertNotSame( [], \WP_CLI::$errors, 'applying with the flag off must be an error' );
+		$this->assertFileExists(
+			$this->cache_dir . '/900x0-center/hero.avif',
+			'and it must refuse before moving anything'
+		);
+	}
+
+	/** Reporting stays available with the flag off; only --apply is gated. */
+	public function test_a_dry_run_still_reports_while_the_flag_is_off(): void {
+		$this->seedFile( $this->cache_dir . '/900x0-center/hero.avif' );
+		$this->stubWpdb( [ '2099/07/hero.webp' ] );
+
+		( new MigrateImageCacheCommand() )( [], [] );
+
+		$this->assertSame( [], \WP_CLI::$errors );
+		$this->assertNotSame( [], \WP_CLI::$warnings, 'the preview must say the flag is off' );
+	}
+
 }

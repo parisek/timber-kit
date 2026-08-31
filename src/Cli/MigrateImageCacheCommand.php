@@ -46,6 +46,27 @@ class MigrateImageCacheCommand {
 		$apply   = isset( $assoc_args['apply'] );
 		$verbose = isset( $assoc_args['verbose'] );
 
+		// The command is registered unconditionally, like `svg-dimensions`: a
+		// sweep a human runs on purpose is opt-in by being typed, and reading
+		// the plan before deciding to enable the flag is a legitimate thing to
+		// want. Moving files while the flag is off is not: the new layout is
+		// exactly what a flag-off site does not read, so every derivative
+		// would be orphaned and re-encoded on first view. Reporting stays
+		// available either way; only --apply requires the flag.
+		$flag_on = (bool) apply_filters( 'timber_kit_resizer_source_path_in_cache_key', false );
+
+		if ( $apply && ! $flag_on ) {
+			\WP_CLI::error(
+				'$resizer_source_path_in_cache_key is off, so nothing reads the layout this would move files into. '
+				. 'Enable it first, or drop --apply to see the plan.'
+			);
+			return;
+		}
+
+		if ( ! $flag_on ) {
+			\WP_CLI::warning( '$resizer_source_path_in_cache_key is off -- this is a preview of what enabling it would move.' );
+		}
+
 		$cache_dir = untrailingslashit( trailingslashit( WP_CONTENT_DIR ) . 'cache/image' );
 
 		$migrator = new ImageCacheMigrator( $cache_dir, $this->buildNameToSourcePaths() );
