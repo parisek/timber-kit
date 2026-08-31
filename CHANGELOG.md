@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- `setup_breadcrumb_labels()` docblock now shows a **string literal** as the
+  `_x()` context and domain, and explains why. The previous example used
+  `$this->theme_name`, which resolves correctly at runtime but makes the
+  strings invisible to `wp i18n make-pot` — a variable cannot be resolved in
+  the context position, so those calls are skipped and the catalogue is written
+  without them. Nothing errors; the strings just never become translatable.
+  Measured on one theme: 11 strings extracted with the property form, 16 with
+  literals. Docblock only, no behaviour change. Reported in #165.
+
 ## [1.46.0] - 2026-08-31
 
 ### Added

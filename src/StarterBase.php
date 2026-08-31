@@ -1603,13 +1603,34 @@ class StarterBase extends Site {
 	 *
 	 *     public function setup_breadcrumb_labels() {
 	 *         $this->breadcrumb_labels = array(
-	 *             'home'       => _x( 'Home', $this->theme_name, $this->theme_name ),
-	 *             '404'        => _x( 'Page not found', $this->theme_name, $this->theme_name ),
-	 *             'search'     => _x( 'Search: %s', $this->theme_name, $this->theme_name ),
-	 *             'pagination' => _x( 'Page %d', $this->theme_name, $this->theme_name ),
-	 *             'author'     => _x( 'Author: %s', $this->theme_name, $this->theme_name ),
+	 *             'home'       => _x( 'Home', 'my_theme', 'my_theme' ),
+	 *             '404'        => _x( 'Page not found', 'my_theme', 'my_theme' ),
+	 *             'search'     => _x( 'Search: %s', 'my_theme', 'my_theme' ),
+	 *             'pagination' => _x( 'Page %d', 'my_theme', 'my_theme' ),
+	 *             'author'     => _x( 'Author: %s', 'my_theme', 'my_theme' ),
 	 *         );
 	 *     }
+	 *
+	 * **Use a string literal, not `$this->theme_name`.** The property holds the
+	 * right value and resolves correctly at runtime, so the property form looks
+	 * equivalent and survives a theme rename without edits. It is not
+	 * equivalent: `wp i18n make-pot` cannot resolve a variable in the context
+	 * or domain position, so it skips those calls entirely and writes a
+	 * catalogue without them. Nothing fails — the strings simply never become
+	 * translatable, and each renders as its English source with a 200 response.
+	 *
+	 * Measured on one theme, same command, only the argument form differing:
+	 * 11 strings extracted with the property, 16 with literals, the five
+	 * missing ones being exactly this set. An explicit `--domain` does not
+	 * help; the context argument is the blocker.
+	 *
+	 * The costs are asymmetric. A literal costs a few mechanical, greppable
+	 * edits once, when a theme is renamed. The property costs hand-maintenance
+	 * of the catalogue for every string added afterwards, permanently. Prefer
+	 * the property only in a project that does not extract PHP strings at all.
+	 *
+	 * WPCS flags a non-literal here (`WordPress.WP.I18n.NonSingularStringLiteral*`),
+	 * which is the same rule pointing at the same problem from the lint side.
 	 *
 	 * Hooked to `init` (priority 1).
 	 *
