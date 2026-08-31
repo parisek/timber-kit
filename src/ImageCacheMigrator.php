@@ -92,7 +92,7 @@ class ImageCacheMigrator {
 	 * reads better than a long absolute one — nothing downstream needs to
 	 * `rename()` those.
 	 *
-	 * @return array{move: array<string,string>, ambiguous: array<string, list<string>>, orphaned: list<string>, conflict: list<string>, already_in_place: list<string>}
+	 * @return array{move: array<string,string>, ambiguous: array<string, list<string>>, orphaned: list<string>, conflict: array<string, string>, already_in_place: list<string>}
 	 */
 	public function plan(): array {
 		$move             = array();
@@ -159,7 +159,11 @@ class ImageCacheMigrator {
 			}
 
 			if ( is_file( $target ) ) {
-				$conflict[] = $relative;
+				// Keyed by source, valued by the target it collides with: a
+				// count alone tells an operator that something is in the way
+				// but not what, and "delete the stale flat copy" cannot be
+				// acted on without both halves.
+				$conflict[ $relative ] = $target;
 				continue;
 			}
 
@@ -189,7 +193,7 @@ class ImageCacheMigrator {
 	 * partial link. Only once the new name exists do we `unlink()` the old
 	 * one -- a failure there could leave the file linked twice, never zero.
 	 *
-	 * @param array{move: array<string,string>, ambiguous: array<string, list<string>>, orphaned: list<string>, conflict: list<string>, already_in_place: list<string>} $plan
+	 * @param array{move: array<string,string>, ambiguous: array<string, list<string>>, orphaned: list<string>, conflict: array<string, string>, already_in_place: list<string>} $plan
 	 * @return array{moved: int, failed: list<string>}
 	 */
 	public function apply( array $plan ): array {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Parisek\TimberKit\Cli;
 
 use Parisek\TimberKit\ImageCacheMigrator;
+use Parisek\TimberKit\Resizer;
 
 /**
  * `wp timber-kit migrate-image-cache` — move existing resizer cache
@@ -60,10 +61,41 @@ class MigrateImageCacheCommand {
 		\WP_CLI::log( sprintf( 'conflicts        : %d', count( $plan['conflict'] ) ) );
 		\WP_CLI::log( sprintf( 'already in place : %d  -> root uploads, nothing to move', count( $plan['already_in_place'] ) ) );
 
-		if ( $verbose && array() !== $plan['ambiguous'] ) {
-			\WP_CLI::log( '' );
-			foreach ( $plan['ambiguous'] as $relative => $dirs ) {
-				\WP_CLI::log( sprintf( '  %s: %s', $relative, implode( ', ', $dirs ) ) );
+		// Every bucket that leaves a file behind lists its files under
+		// --verbose. A count says something is stuck; only a path says what,
+		// and each of these buckets exists precisely because a human has to
+		// decide what happens next.
+		if ( $verbose ) {
+			if ( array() !== $plan['ambiguous'] ) {
+				\WP_CLI::log( '' );
+				\WP_CLI::log( 'ambiguous (name maps to more than one source -- left in place):' );
+				foreach ( $plan['ambiguous'] as $relative => $sources ) {
+					\WP_CLI::log( sprintf( '  %s: %s', $relative, implode( ', ', $sources ) ) );
+				}
+			}
+
+			if ( array() !== $plan['conflict'] ) {
+				\WP_CLI::log( '' );
+				\WP_CLI::log( 'conflicts (target already exists -- nothing overwritten):' );
+				foreach ( $plan['conflict'] as $relative => $target ) {
+					\WP_CLI::log( sprintf( '  %s -> %s', $relative, $target ) );
+				}
+			}
+
+			if ( array() !== $plan['orphaned'] ) {
+				\WP_CLI::log( '' );
+				\WP_CLI::log( 'orphaned (no source in the database answers to this name):' );
+				foreach ( $plan['orphaned'] as $relative ) {
+					\WP_CLI::log( sprintf( '  %s', $relative ) );
+				}
+			}
+
+			if ( array() !== $plan['move'] ) {
+				\WP_CLI::log( '' );
+				\WP_CLI::log( sprintf( 'planned moves (%d):', count( $plan['move'] ) ) );
+				foreach ( $plan['move'] as $from => $to ) {
+					\WP_CLI::log( sprintf( '  %s -> %s', $from, $to ) );
+				}
 			}
 		}
 
@@ -131,6 +163,25 @@ class MigrateImageCacheCommand {
 			}
 
 			$filename = basename( $row );
+
+			// A source the resizer can never decode never produced a
+			// derivative, so counting it as a candidate manufactures ambiguity:
+			// an SVG or a PDF sharing a stem with a real image made that
+			// image's derivative look contested and left it unmigrated. 30 of
+			// 329 ambiguous entries on the surveyed site were exactly this.
+			//
+			// Tested against the static superset, never against canDecode():
+			// that narrows by the live backend and by
+			// `timber_kit_resizer_allowed_types`, both of which can have
+			// changed since the file was written. Excluding a source that was
+			// decodable *then* but not *now* would make a surviving candidate
+			// look unique and move another attachment's derivative into it --
+			// the wrong-placement class this whole change exists to remove.
+			$mime = wp_check_filetype( $filename )['type'] ?? '';
+
+			if ( ! in_array( $mime, Resizer::inputFormatMimes(), true ) ) {
+				continue;
+			}
 
 			// Two different spellings, deliberately.
 			//

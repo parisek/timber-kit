@@ -32,6 +32,28 @@ class MigrateImageCacheCommandInvokeTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
+
+		// Extension -> MIME, the same way wp_check_filetype() derives it. SVG
+		// and PDF resolve to types the Resizer's static superset excludes,
+		// which is what the map builder filters on.
+		Functions\when( 'wp_check_filetype' )->alias( function ( $filename ) {
+			$map = [
+				'jpg'  => 'image/jpeg',
+				'jpeg' => 'image/jpeg',
+				'png'  => 'image/png',
+				'gif'  => 'image/gif',
+				'webp' => 'image/webp',
+				'avif' => 'image/avif',
+				'tif'  => 'image/tiff',
+				'tiff' => 'image/tiff',
+				'svg'  => 'image/svg+xml',
+				'pdf'  => 'application/pdf',
+			];
+			$ext = strtolower( (string) pathinfo( (string) $filename, PATHINFO_EXTENSION ) );
+
+			return [ 'ext' => $ext, 'type' => $map[ $ext ] ?? false ];
+		} );
+
 		\WP_CLI::reset();
 
 		Functions\when( 'sanitize_file_name' )->alias( function ( $name ) {

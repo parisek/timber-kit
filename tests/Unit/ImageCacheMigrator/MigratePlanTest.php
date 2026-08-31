@@ -69,7 +69,11 @@ class MigratePlanTest extends TestCase {
 		$plan = ( new ImageCacheMigrator( $this->dir, [ 'hero' => [ '2026/08/hero.webp' ] ] ) )->plan();
 
 		$this->assertSame( [], $plan['move'] );
-		$this->assertSame( [ '900x0-center/hero.avif' ], $plan['conflict'] );
+		$this->assertSame(
+			[ '900x0-center/hero.avif' => $this->dir . '/900x0-center/2026/08/hero.webp.avif' ],
+			$plan['conflict'],
+			'a conflict must name the target it collides with, not just the source'
+		);
 	}
 
 	/** A file already in the new layout is not a candidate -- it isn't sitting flat at the size-directory root. */

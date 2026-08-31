@@ -222,6 +222,24 @@ class Resizer {
 	}
 
 	/**
+	 * Every input MIME type this class will ever accept, before any runtime
+	 * narrowing.
+	 *
+	 * The static superset, deliberately: `canDecode()` narrows it by what the
+	 * active backend reports and by `timber_kit_resizer_allowed_types`, both
+	 * of which can change after a derivative was written. A caller reasoning
+	 * about files already on disk -- the cache migration -- must ask whether a
+	 * source could *ever* have produced one, not whether it could today. A
+	 * site that resized TIFFs under Imagick and has since moved to GD would
+	 * otherwise look as though those derivatives had no source.
+	 *
+	 * @return array<int, string> MIME types.
+	 */
+	public static function inputFormatMimes(): array {
+		return array_keys( self::DESIRED_INPUT_FORMATS );
+	}
+
+	/**
 	 * Whether the active image backend can decode the given image MIME type.
 	 *
 	 * @param string $mime Image MIME type, e.g. `image/avif`.

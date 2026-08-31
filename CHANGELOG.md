@@ -73,6 +73,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   URL percent-encodes each path segment, since a stored name may carry a
   space, `#` or `%`.
 
+  Set the flag the same on every host that shares a cache: DevMediaProxy has
+  a local site fetch derivative paths from a production origin, so a
+  disagreement makes every one of those a 404 until both sides match.
+
   Enabling it relocates every derivative, a source at the uploads root
   included, because the name now carries the source's own extension.
   `wp timber-kit migrate-image-cache` (dry-run by default) moves the existing

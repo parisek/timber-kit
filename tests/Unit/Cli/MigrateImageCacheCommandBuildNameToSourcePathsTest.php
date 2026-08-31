@@ -29,6 +29,28 @@ class MigrateImageCacheCommandBuildNameToSourcePathsTest extends TestCase {
 		parent::setUp();
 		Monkey\setUp();
 
+		// Extension -> MIME, the same way wp_check_filetype() derives it. SVG
+		// and PDF resolve to types the Resizer's static superset excludes,
+		// which is what the map builder filters on.
+		Functions\when( 'wp_check_filetype' )->alias( function ( $filename ) {
+			$map = [
+				'jpg'  => 'image/jpeg',
+				'jpeg' => 'image/jpeg',
+				'png'  => 'image/png',
+				'gif'  => 'image/gif',
+				'webp' => 'image/webp',
+				'avif' => 'image/avif',
+				'tif'  => 'image/tiff',
+				'tiff' => 'image/tiff',
+				'svg'  => 'image/svg+xml',
+				'pdf'  => 'application/pdf',
+			];
+			$ext = strtolower( (string) pathinfo( (string) $filename, PATHINFO_EXTENSION ) );
+
+			return [ 'ext' => $ext, 'type' => $map[ $ext ] ?? false ];
+		} );
+
+
 		// Same stub shape as guardSourceDir's own test: keep A-Za-z0-9._-,
 		// A traversal component fails the guard; a space no longer does, because
 		// the guard refuses only what can leave the directory (ADR 0008).
@@ -181,6 +203,45 @@ class MigrateImageCacheCommandBuildNameToSourcePathsTest extends TestCase {
 			[ '2025/05/usp_1.webp', '2025/05/usp-1.webp' ],
 			$map['usp-1'],
 			'two distinct uploads must stay two candidates, however alike they sanitize'
+		);
+	}
+
+	/**
+	 * The resizer refuses SVG and PDF before it computes a cache key, so
+	 * neither can ever have written a derivative. Counting them as candidates
+	 * made a real image's derivative look contested and left it unmigrated:
+	 * 30 of 329 ambiguous entries on the surveyed site were exactly this.
+	 */
+	public function test_a_source_the_resizer_cannot_decode_is_not_a_candidate(): void {
+		$this->stubWpdb( [ '2022/01/badge.svg', '2022/01/badge.webp', '2025/04/guide.pdf' ] );
+
+		$map = $this->buildNameToSourcePaths();
+
+		$this->assertSame(
+			[ '2022/01/badge.webp' ],
+			$map['badge'],
+			'the SVG must not make the webp look contested'
+		);
+		$this->assertArrayNotHasKey( 'guide', $map, 'a PDF contributes no candidate at all' );
+	}
+
+	/**
+	 * The exclusion reads the static format superset, never the live
+	 * `canDecode()`. A site that resized TIFFs under Imagick and has since
+	 * moved to a GD build still has those derivatives on disk; dropping the
+	 * source because *today's* backend cannot read it would leave the
+	 * surviving candidate looking unique, and move another attachment's
+	 * derivative into it.
+	 */
+	public function test_a_format_the_current_backend_cannot_read_is_still_a_candidate(): void {
+		$this->stubWpdb( [ '2022/01/scan.tif', '2022/01/scan.png' ] );
+
+		$map = $this->buildNameToSourcePaths();
+
+		$this->assertSame(
+			[ '2022/01/scan.tif', '2022/01/scan.png' ],
+			$map['scan'],
+			'a statically supported format stays a candidate whatever the backend reports now'
 		);
 	}
 
