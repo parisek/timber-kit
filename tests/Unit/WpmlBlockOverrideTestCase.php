@@ -26,13 +26,11 @@ abstract class WpmlBlockOverrideTestCase extends TestCase {
 
 	private function resetMemo( string $property, mixed $value ): void {
 		$ref = new \ReflectionProperty( \Parisek\TimberKit\WpmlBlockOverride::class, $property );
-		$ref->setAccessible( true );
 		$ref->setValue( null, $value );
 	}
 
 	protected static function callPrivate( string $method, array $args ): mixed {
 		$ref = new \ReflectionMethod( \Parisek\TimberKit\WpmlBlockOverride::class, $method );
-		$ref->setAccessible( true );
 		return $ref->invoke( null, ...$args );
 	}
 }

@@ -37,7 +37,6 @@ final class CuratedRecordsTest extends TestCase {
 	 */
 	private function append( array $records, array $manual ): array {
 		$method = new \ReflectionMethod( WarmupSitemap::class, 'appendMissingManual' );
-		$method->setAccessible( true );
 		return $method->invoke( null, $records, $manual );
 	}
 

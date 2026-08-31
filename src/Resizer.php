@@ -915,10 +915,6 @@ class Resizer {
 						// Use grid algorithm by default (better results)
 						$cropRect = $this->getEntropyCropByGridding( $edgeImage, $variant['width'], $variant['height'] );
 
-						// Clean up GD resources
-						imagedestroy( $edgeImage );
-						imagedestroy( $gdImage );
-
 						// Apply crop using Imagick with calculated coordinates
 						$imagick = new \Imagick( $source_path );
 						// Preserve transparency for PNG/GIF sources
@@ -933,7 +929,6 @@ class Resizer {
 						$imagick->destroy();
 					} else {
 						// Image is smaller than target, just resize without cropping
-						imagedestroy( $gdImage );
 						$imageGenerator->format( $target_format );
 						$imageGenerator->quality( $variant['quality'] );
 						$imageGenerator->save( $target_path );

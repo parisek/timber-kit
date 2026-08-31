@@ -101,7 +101,6 @@ class FilterScenariosTest extends WpmlBlockOverrideTestCase {
 	/** Seed the copy-fields index so getCopyFields() resolves without ACF. */
 	private static function seedCopyFields( array $index ): void {
 		$r = new \ReflectionProperty( WpmlBlockOverride::class, 'copyFieldsIndex' );
-		$r->setAccessible( true );
 		$r->setValue( null, $index );
 	}
 

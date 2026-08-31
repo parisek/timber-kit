@@ -18,7 +18,6 @@ class VideoCodecsHelperTest extends HelpersTestCase {
 	 */
 	private function appendVideoSources( array $row ): array {
 		$method = new \ReflectionMethod( Helpers::class, 'appendVideoSources' );
-		$method->setAccessible( true );
 
 		return $method->invoke( null, $row );
 	}
