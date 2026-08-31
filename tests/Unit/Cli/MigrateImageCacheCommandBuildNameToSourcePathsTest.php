@@ -85,7 +85,6 @@ class MigrateImageCacheCommandBuildNameToSourcePathsTest extends TestCase {
 	private function buildNameToSourcePaths(): array {
 		$command = new MigrateImageCacheCommand();
 		$method  = new \ReflectionMethod( $command, 'buildNameToSourcePaths' );
-		$method->setAccessible( true );
 
 		return $method->invoke( $command );
 	}
