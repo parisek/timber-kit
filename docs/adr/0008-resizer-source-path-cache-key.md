@@ -115,18 +115,31 @@ sanitizes at upload anyway, so a stored value is already a fixpoint.
 
 Both halves of that argument are wrong, and a deployment showed it.
 
-`sanitize_file_name()` is **filterable**. The ADR never said so. A plugin on
-the site this was tested against lowercases the name and maps `_` to `-`, and
-under that filter the function is neither *stable over time* nor *injective*:
+`sanitize_file_name()` is **filterable**, and this package is one of the things
+filtering it. `StarterBase::clean_uploaded_filename()` — registered whenever
+`$clean_image_filenames` is true, which is the **default** — removes accents,
+lowercases, maps whitespace and underscores to hyphens, and strips everything
+that is not alphanumeric or a hyphen.
+
+That is correct behaviour at *upload*, where it is a deliberate normalisation.
+Reusing it at *generation* made the key neither *stable over time* nor
+*injective*:
 
 - Not stable. A derivative written before the filter existed is addressed
   afterwards under a different spelling. Every future lookup — including the
   delete — points away from what is on disk.
 - Not injective. `usp_1.webp` and `usp-1.webp` sanitize to one name, as do
-  `Ebook.svg` and `ebook.svg`. **Eight such pairs** were measured on that
-  site; six of the eight are visibly different images, two are duplicate
-  uploads. Six is the number that matters — those are the ones where the
-  reader is shown the wrong picture.
+  `Ebook.svg` and `ebook.svg`. **Eight such pairs** were measured on one site;
+  six are visibly different images, two are duplicate uploads. Six is the
+  number that matters — those are the ones where the reader is shown the wrong
+  picture.
+
+So this is not one site's quirk. Any consumer leaving `$clean_image_filenames`
+at its default — the whole fleet the package was written for — keys its cache
+through a deliberately lossy normalisation. The first version of this ADR
+argued the collisions were theoretical because it was looking for a *third
+party* doing something unusual; the collapsing function ships in this
+repository.
 
 The second failure is the worse one, because it does not merely leave a
 collision unfixed. `MigrateImageCacheCommand` deduped its candidate list by

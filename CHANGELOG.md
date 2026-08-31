@@ -62,11 +62,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   single directory (same name, different extension).
 
   The name is the source's stored name, used **verbatim** rather than passed
-  through `sanitize_file_name()` again. That function is filterable, so its
-  output is neither stable over time nor unique across inputs: on the site this
-  was measured against, a filter maps `_` to `-` and collapses `usp_1.webp`
-  and `usp-1.webp` onto one derivative — eight such pairs measured, six of
-  them visibly different images. A name is now refused, never repaired: a path component is
+  through `sanitize_file_name()` again. That function is filterable, and this
+  package filters it: `StarterBase::clean_uploaded_filename()`, on by default,
+  lowercases and maps underscores to hyphens. Right at upload, wrong as a cache
+  key — `usp_1.webp` and `usp-1.webp` collapse onto one derivative. Eight such
+  pairs measured on one site, six of them visibly different images, and the
+  same default applies to every consumer that has not turned
+  `$clean_image_filenames` off. A name is now refused, never repaired: a path component is
   used as stored unless it could leave the directory it is written into. The
   delete reads its directory and compares instead of calling `glob()`, which
   is what previously forced the rewrite. Consequence: a derivative's public
