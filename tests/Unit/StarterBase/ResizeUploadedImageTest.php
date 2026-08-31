@@ -223,7 +223,6 @@ class ResizeUploadedImageTest extends StarterBaseTestCase {
 		}
 
 		if ( PHP_VERSION_ID < 80500 ) {
-			imagedestroy( $image );
 		} else {
 			unset( $image );
 		}

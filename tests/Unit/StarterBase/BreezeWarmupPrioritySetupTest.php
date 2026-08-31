@@ -101,7 +101,6 @@ class BreezeWarmupPrioritySetupTest extends TestCase {
 
 		$reflection      = new \ReflectionClass( WarmupSitemap::class );
 		$registeredHash  = $reflection->getProperty( 'weights_hash' );
-		$registeredHash->setAccessible( true );
 
 		$writeWouldStore = \Parisek\TimberKit\Breeze\Scorer::weightsHash( WarmupSitemap::weights() );
 
