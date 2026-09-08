@@ -422,10 +422,8 @@ class CleanupMethodsTest extends StarterBaseTestCase {
 		$this->assertCount( 2, $removed );
 		$this->assertSame( [ 'wp_enqueue_scripts', 'wp_enqueue_global_styles', 10 ], $removed[0] );
 
-		// The priority is the whole point: remove_action() matches on the
-		// (hook, callback, priority) triple, so omitting it defaults to 10 and
-		// silently misses the callback registered at 1. Asserting the literal 1
-		// is what stops that regression coming back.
+		// Do not relax the literal 1 — it is the assertion that keeps the bug
+		// from returning.
 		$this->assertSame( [ 'wp_footer', 'wp_enqueue_global_styles', 1 ], $removed[1] );
 	}
 

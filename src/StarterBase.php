@@ -4056,20 +4056,9 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	public function remove_global_styles_and_svg_filters() {
-		// Remove Global Styles enqueued by Full Site Editing (WordPress 5.9+).
-		//
-		// WordPress registers the callback TWICE, and has since 6.x —
-		// `wp-includes/default-filters.php` carries both
-		// `add_action( 'wp_enqueue_scripts', 'wp_enqueue_global_styles' )` and
-		// `add_action( 'wp_footer', 'wp_enqueue_global_styles', 1 )`. Removing
-		// either one alone leaves `global-styles-inline-css` in the page, so
-		// both registrations have to go.
-		//
-		// The priority is load-bearing on the second one: `remove_action()`
-		// matches on the (hook, callback, priority) triple, so omitting it
-		// defaults to 10 and silently misses a callback registered at 1.
-		// That is what this method used to do — it reported success and
-		// removed nothing.
+		// WordPress registers this callback twice, on both hooks, so removing
+		// one leaves the stylesheet in the page. The literal 1 is required:
+		// `remove_action()` matches on priority, and the default 10 misses it.
 		remove_action( 'wp_enqueue_scripts', 'wp_enqueue_global_styles' );
 		remove_action( 'wp_footer', 'wp_enqueue_global_styles', 1 );
 

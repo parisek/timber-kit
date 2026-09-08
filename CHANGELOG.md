@@ -31,24 +31,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   The fix makes the removal work, and working is a behaviour change, so it is
   opt-in rather than a silent flip on every consumer.
 
-  The stylesheet is ~10 kB of `--wp--preset--*` custom properties plus the
-  `.has-*-color` / `.has-*-font-size` classes Gutenberg writes into content. A
-  Tailwind theme needs none of the stock palette, gradients, shadows or
-  spacing — but the same stylesheet is what makes an editor's colour and
-  font-size picks render. Measured on one project: an
-  `<h6 class="has-small-font-size">` on a published privacy page renders 13px
-  with the stylesheet and **24px** without it, silently.
-
-  Across 105 fleet projects with a committed database dump, **55 carried
-  content this would change** (worst: 8458 occurrences). So the default cannot
-  be `true`. Check a project's own content before switching it on:
-
-  ```
-  wp db query "SELECT COUNT(*) FROM wp_posts \
-    WHERE post_content REGEXP 'has-[a-z0-9-]+-(color|font-size)|is-layout-constrained'"
-  ```
-
-  Zero means the stylesheet is inert there and this is ~10 kB off every page.
+  Off is not a placeholder default. The stylesheet also carries the
+  `.has-*-color` / `.has-*-font-size` classes Gutenberg writes into content,
+  so removing it changes rendered output on any site whose editors have used
+  those pickers — measured across the fleet, more than half of them have. The
+  property's own docblock carries the numbers and the one-line query that
+  tells a project which side it is on.
 
 ### Changed
 
