@@ -363,6 +363,36 @@ class StarterBase extends Site {
 	 * Media processing — replaces clean-image-filenames + imsanity plugins
 	 */
 
+	/**
+	 * @var bool Remove WordPress's global-styles stylesheet (the ~10 kB inline
+	 * `global-styles-inline-css` block: `--wp--preset--*` custom properties plus
+	 * the `.has-*-color` / `.has-*-font-size` utility classes Gutenberg writes
+	 * into content).
+	 *
+	 * **Default FALSE, deliberately.** A Tailwind theme styles its own content
+	 * and has no use for WP's stock palette, gradients, shadows or spacing —
+	 * but the same stylesheet is what makes an editor's colour and font-size
+	 * picks render. Turning this on drops those silently: measured on one
+	 * project, an `<h6 class="has-small-font-size">` on a published privacy
+	 * page went from 13px to 24px, with no error anywhere.
+	 *
+	 * Across 105 fleet projects with a committed database dump, **55 carried
+	 * content that this would change.** So it is a per-project decision that
+	 * has to be taken against that project's own content, never a default.
+	 *
+	 * Check before switching it on:
+	 *
+	 * ```
+	 * wp db query "SELECT COUNT(*) FROM wp_posts \
+	 *   WHERE post_content REGEXP 'has-[a-z0-9-]+-(color|font-size)|is-layout-constrained'"
+	 * ```
+	 *
+	 * Zero means the stylesheet is inert on that site and this is a free
+	 * ~10 kB per page. Anything else means editors have used those pickers;
+	 * rewrite that content first, or leave this off.
+	 */
+	protected bool $remove_global_styles = false;
+
 	/** @var bool Sanitize uploaded filenames (remove diacritics, lowercase, normalize). */
 	protected bool $clean_image_filenames = true;
 
@@ -1195,7 +1225,9 @@ class StarterBase extends Site {
 		add_filter( 'wp_get_attachment_image_attributes', array( $this, 'wp_get_attachment_image_attributes' ), 10, 2 );
 		add_filter( 'jpeg_quality', array( $this, 'jpeg_quality' ) );
 		add_filter( 'wp_editor_set_quality', array( $this, 'wp_editor_set_quality' ) );
-		add_action( 'init', array( $this, 'remove_global_styles_and_svg_filters' ) );
+		if ( $this->remove_global_styles ) {
+			add_action( 'init', array( $this, 'remove_global_styles_and_svg_filters' ) );
+		}
 		add_action( 'delete_attachment', array( $this, 'cleanup_cached_images' ) );
 		add_filter( 'wp_handle_upload_prefilter', array( $this, 'prevent_duplicate_filename_uploads' ), 10, 1 );
 		// Media processing (replaces clean-image-filenames + imsanity plugins)
@@ -4024,10 +4056,29 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	public function remove_global_styles_and_svg_filters() {
-		// Remove Global Styles enqueued by Full Site Editing (WordPress 5.9+)
-		// In WP 6.9+ global styles moved from wp_enqueue_scripts to wp_footer
-		// SVG filters (wp_global_styles_render_svg_filters) deprecated in WP 6.3 — now handled per-block
-		remove_action( 'wp_footer', 'wp_enqueue_global_styles' );
+		// Remove Global Styles enqueued by Full Site Editing (WordPress 5.9+).
+		//
+		// WordPress registers the callback TWICE, and has since 6.x —
+		// `wp-includes/default-filters.php` carries both
+		// `add_action( 'wp_enqueue_scripts', 'wp_enqueue_global_styles' )` and
+		// `add_action( 'wp_footer', 'wp_enqueue_global_styles', 1 )`. Removing
+		// either one alone leaves `global-styles-inline-css` in the page, so
+		// both registrations have to go.
+		//
+		// The priority is load-bearing on the second one: `remove_action()`
+		// matches on the (hook, callback, priority) triple, so omitting it
+		// defaults to 10 and silently misses a callback registered at 1.
+		// That is what this method used to do — it reported success and
+		// removed nothing.
+		remove_action( 'wp_enqueue_scripts', 'wp_enqueue_global_styles' );
+		remove_action( 'wp_footer', 'wp_enqueue_global_styles', 1 );
+
+		// The method name still says `_and_svg_filters`, and deliberately does
+		// nothing about them: `wp_global_styles_render_svg_filters` was
+		// deprecated in WP 6.3 and is registered on no hook at all on current
+		// WordPress (verified on 7.0.4 — `has_action()` returns false for
+		// wp_body_open, wp_footer and wp_head). Renaming a public method is a
+		// breaking change and does not belong in this fix.
 	}
 
 	/**

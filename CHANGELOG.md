@@ -6,6 +6,50 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `remove_global_styles_and_svg_filters()` never removed anything. WordPress
+  registers `wp_enqueue_global_styles` **twice** — `default-filters.php` has it
+  on both `wp_enqueue_scripts` and on `wp_footer` at **priority 1** — and this
+  method removed only the `wp_footer` one, without a priority. `remove_action()`
+  matches on the (hook, callback, priority) triple, so against a callback
+  registered at 1 the default 10 silently misses. Proven with WordPress's own
+  hook API on a throwaway hook: the removal returns `false` and
+  `has_action()` still reports priority 1. Every theme calling this shipped
+  `global-styles-inline-css` while believing it had removed it.
+
+  Scope is deliberately just that. The method name says `_and_svg_filters`
+  and this changes nothing about them —
+  `wp_global_styles_render_svg_filters` was deprecated in WP 6.3 and is
+  registered on no hook on current WordPress (verified on 7.0.4), so a
+  removal for it would be dead code, and it is a separate concern from the
+  stylesheet in any case.
+
+### Added
+
+- `$remove_global_styles` (bool, **default `false`**) gates the method above.
+  The fix makes the removal work, and working is a behaviour change, so it is
+  opt-in rather than a silent flip on every consumer.
+
+  The stylesheet is ~10 kB of `--wp--preset--*` custom properties plus the
+  `.has-*-color` / `.has-*-font-size` classes Gutenberg writes into content. A
+  Tailwind theme needs none of the stock palette, gradients, shadows or
+  spacing — but the same stylesheet is what makes an editor's colour and
+  font-size picks render. Measured on one project: an
+  `<h6 class="has-small-font-size">` on a published privacy page renders 13px
+  with the stylesheet and **24px** without it, silently.
+
+  Across 105 fleet projects with a committed database dump, **55 carried
+  content this would change** (worst: 8458 occurrences). So the default cannot
+  be `true`. Check a project's own content before switching it on:
+
+  ```
+  wp db query "SELECT COUNT(*) FROM wp_posts \
+    WHERE post_content REGEXP 'has-[a-z0-9-]+-(color|font-size)|is-layout-constrained'"
+  ```
+
+  Zero means the stylesheet is inert there and this is ~10 kB off every page.
+
 ### Changed
 
 - `setup_breadcrumb_labels()` docblock now shows a **string literal** as the
