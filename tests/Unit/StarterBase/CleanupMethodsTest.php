@@ -410,15 +410,37 @@ class CleanupMethodsTest extends StarterBaseTestCase {
 
 	public function test_remove_global_styles(): void {
 		$removed = [];
-		Functions\when( 'remove_action' )->alias( function ( $hook, $callback ) use ( &$removed ) {
-			$removed[] = [ $hook, $callback ];
+		Functions\when( 'remove_action' )->alias( function ( $hook, $callback, $priority = 10 ) use ( &$removed ) {
+			$removed[] = [ $hook, $callback, $priority ];
 		} );
 
 		$this->base->remove_global_styles_and_svg_filters();
 
-		$this->assertCount( 1, $removed );
-		$this->assertSame( 'wp_footer', $removed[0][0] );
-		$this->assertSame( 'wp_enqueue_global_styles', $removed[0][1] );
+		// WordPress registers wp_enqueue_global_styles on BOTH hooks
+		// (default-filters.php: wp_enqueue_scripts at 10, wp_footer at 1), so
+		// removing one leaves the stylesheet in the page.
+		$this->assertCount( 2, $removed );
+		$this->assertSame( [ 'wp_enqueue_scripts', 'wp_enqueue_global_styles', 10 ], $removed[0] );
+
+		// The priority is the whole point: remove_action() matches on the
+		// (hook, callback, priority) triple, so omitting it defaults to 10 and
+		// silently misses the callback registered at 1. Asserting the literal 1
+		// is what stops that regression coming back.
+		$this->assertSame( [ 'wp_footer', 'wp_enqueue_global_styles', 1 ], $removed[1] );
+	}
+
+	public function test_remove_global_styles_leaves_svg_filters_alone(): void {
+		$removed = [];
+		Functions\when( 'remove_action' )->alias( function ( $hook, $callback, $priority = 10 ) use ( &$removed ) {
+			$removed[] = $callback;
+		} );
+
+		$this->base->remove_global_styles_and_svg_filters();
+
+		// Despite the method name: wp_global_styles_render_svg_filters was
+		// deprecated in WP 6.3 and is registered on no hook on current
+		// WordPress, so removing it would be dead code.
+		$this->assertNotContains( 'wp_global_styles_render_svg_filters', $removed );
 	}
 
 	// cleanup_dashboard_widgets
