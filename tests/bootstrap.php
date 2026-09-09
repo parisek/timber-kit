@@ -74,9 +74,25 @@ if ( ! class_exists( 'WP_Error' ) ) {
 if ( ! class_exists( 'WP_Query' ) ) {
 	class WP_Query {
 		public bool $is_404 = false;
+		public bool $is_search = false;
+		public array $query_vars = [];
+		public array $query = [];
+		private bool $is_main_query_result = true;
 
 		public function set_404(): void {
 			$this->is_404 = true;
+		}
+
+		public function is_main_query(): bool {
+			return $this->is_main_query_result;
+		}
+
+		/**
+		 * Test-only helper: WP core derives `is_main_query()` from a global
+		 * comparison; this stub has no globals, so tests set it directly.
+		 */
+		public function set_is_main_query( bool $is_main_query ): void {
+			$this->is_main_query_result = $is_main_query;
 		}
 	}
 }

@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `disable_search()` decided whether to act by asking the global `is_search()`
+  instead of the `$query` object it was about to mutate, and never checked
+  `is_main_query()`. `parse_query` fires for every `WP_Query`, not only the
+  main one, so during a real search request a secondary query built by a
+  template, a block, or another `parse_query` registrant (WPML registers one
+  on this hook) got its `is_search` cleared, its `s` blanked, and `is_404`
+  set, even though it was never a search. The guard now reads
+  `$query->is_search` and `$query->is_main_query()`, matching the sibling
+  `search_post_type_filter()`, which already reads the object it was handed.
+
 ## [1.47.0] - 2026-09-09
 
 ### Fixed
