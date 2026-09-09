@@ -492,17 +492,25 @@ class RenderTest extends BlockRendererTestCase {
 		Functions\when( 'wp_cache_supports' )->justReturn( true );
 		Functions\when( 'wp_cache_get' )->justReturn( false );
 
-		// Capture whatever the renderer hooks onto do_shortcode_tag.
-		$probes = [];
+		// Capture what the renderer hooks onto pre_do_shortcode_tag, and what it
+		// later unhooks. The unhooking is asserted below: without it the probe
+		// outlives the render and flips the verdict for every later block.
+		$probes  = [];
+		$removed = [];
 		Functions\when( 'add_filter' )->alias(
-			static function ( string $tag, callable $cb ) use ( &$probes ): bool {
-				if ( $tag === 'do_shortcode_tag' ) {
-					$probes[] = $cb;
+			static function ( string $tag, callable $cb, int $priority = 10 ) use ( &$probes ): bool {
+				if ( $tag === 'pre_do_shortcode_tag' ) {
+					$probes[] = [ $cb, $priority ];
 				}
 				return true;
 			}
 		);
-		Functions\when( 'remove_filter' )->justReturn( true );
+		Functions\when( 'remove_filter' )->alias(
+			static function ( string $tag, callable $cb, int $priority = 10 ) use ( &$removed ): bool {
+				$removed[] = [ $tag, $cb, $priority ];
+				return true;
+			}
+		);
 
 		// Identity: the value ACF handed over holds no bracket any more, so
 		// do_shortcode() is a no-op here and the counter cannot move.
@@ -512,8 +520,10 @@ class RenderTest extends BlockRendererTestCase {
 		// do_shortcode_tag while expanding it. The counter never moves here.
 		Functions\when( 'get_field_objects' )->alias(
 			static function () use ( &$probes ): array {
-				foreach ( $probes as $probe ) {
-					$probe( '<div class="wpforms-container">…</div>', 'wpforms', [], [] );
+				foreach ( $probes as [ $probe, $priority ] ) {
+					// Core's own call shape: the first argument is the
+					// short-circuit value, which the probe must hand back.
+					self::assertFalse( $probe( false, 'wpforms', [], [] ) );
 				}
 				return [
 					'body' => [
@@ -549,8 +559,18 @@ class RenderTest extends BlockRendererTestCase {
 		// Guard the test itself, and prove the counter really stayed flat — if
 		// it had moved, this test would pass for the wrong reason.
 		$this->assertStringContainsString( 'wpforms-container', $output );
-		$this->assertNotEmpty( $probes, 'The renderer must register a do_shortcode_tag probe.' );
+		$this->assertNotEmpty( $probes, 'The renderer must register a pre_do_shortcode_tag probe.' );
 		$this->assertSame( [], $cached, 'A block whose fields expanded a shortcode must not be cached.' );
+
+		// The probe must not outlive the render: same closure instance, same
+		// hook, same priority. WordPress identifies a closure by spl_object_id
+		// (wp-includes/plugin.php), so removal only works for this instance.
+		[ $registered, $priority ] = $probes[0];
+		$this->assertContains(
+			[ 'pre_do_shortcode_tag', $registered, $priority ],
+			$removed,
+			'The renderer must unhook the probe it registered.'
+		);
 	}
 
 	public function test_has_side_effects_filter_restores_caching(): void {

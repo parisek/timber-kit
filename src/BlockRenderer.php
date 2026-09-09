@@ -133,42 +133,56 @@ final class BlockRenderer {
 		$styles_before  = function_exists( 'wp_styles' ) ? wp_styles()->queue : [];
 		$dynamic_before = Helpers::dynamicFormatCount();
 
-		// Core runs this filter for every shortcode it actually executes
+		// Core runs this filter for every shortcode tag it is about to execute
 		// (wp-includes/shortcodes.php, do_shortcode_tag()). It catches the
 		// expansions Helpers never sees — above all ACF's own, which runs inside
-		// get_field_objects() before any value reaches us. See writeToCache().
+		// get_field_objects() before any value reaches us.
+		//
+		// `pre_do_shortcode_tag` and not `do_shortcode_tag`: core fires this one
+		// first and unconditionally, then returns early when a plugin answers it
+		// with anything but false. A shortcode-caching plugin answering there
+		// would keep `do_shortcode_tag` from ever running, and the expansion would
+		// pass unseen. The probe must return $return untouched — any other value
+		// short-circuits that shortcode for the whole site.
 		$shortcode_expanded = false;
-		$shortcode_probe    = static function ( $output ) use ( &$shortcode_expanded ) {
+		$shortcode_probe    = static function ( $return ) use ( &$shortcode_expanded ) {
 			$shortcode_expanded = true;
 
-			return $output;
+			return $return;
 		};
 
 		if ( function_exists( 'add_filter' ) ) {
-			add_filter( 'do_shortcode_tag', $shortcode_probe, PHP_INT_MAX );
+			add_filter( 'pre_do_shortcode_tag', $shortcode_probe, PHP_INT_MAX );
 		}
 
-		[ $content_data, $is_inserter_preview ] = self::buildContent( $post_id, $is_preview, $attributes );
+		// try/finally, because the probe outlives this method if a template throws.
+		// Twig exceptions propagate — compile() has no catch, and neither does
+		// core's render_block() nor ACF's block renderer — so a leaked closure
+		// would sit on the global hook for the rest of the request and flip the
+		// verdict for every later render.
+		try {
+			[ $content_data, $is_inserter_preview ] = self::buildContent( $post_id, $is_preview, $attributes );
 
-		if ( ! $is_inserter_preview ) {
-			$content_data = apply_filters( $filter_base . self::FILTER_SUFFIX_CONTENT, $content_data );
-		}
-		$template_path = apply_filters( $filter_base . self::FILTER_SUFFIX_TEMPLATE, "@component/{$slug}/{$slug}.twig", $content_data );
+			if ( ! $is_inserter_preview ) {
+				$content_data = apply_filters( $filter_base . self::FILTER_SUFFIX_CONTENT, $content_data );
+			}
+			$template_path = apply_filters( $filter_base . self::FILTER_SUFFIX_TEMPLATE, "@component/{$slug}/{$slug}.twig", $content_data );
 
-		$template_output = self::compile( $template_path, $content_data, $block_name, $is_preview );
+			$template_output = self::compile( $template_path, $content_data, $block_name, $is_preview );
 
-		$rendered_empty_alert = false;
-		if ( '' === trim( $template_output ) && function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
-			$template_output      = self::renderEmptyAlert( $block_name, $attributes );
-			$rendered_empty_alert = true;
-		}
+			$rendered_empty_alert = false;
+			if ( '' === trim( $template_output ) && function_exists( 'is_user_logged_in' ) && is_user_logged_in() ) {
+				$template_output      = self::renderEmptyAlert( $block_name, $attributes );
+				$rendered_empty_alert = true;
+			}
 
-		if ( $is_inserter_preview && '' !== $template_output ) {
-			$template_output = '<div style="aspect-ratio: 16/9; overflow: hidden;">' . $template_output . '</div>';
-		}
-
-		if ( function_exists( 'remove_filter' ) ) {
-			remove_filter( 'do_shortcode_tag', $shortcode_probe, PHP_INT_MAX );
+			if ( $is_inserter_preview && '' !== $template_output ) {
+				$template_output = '<div style="aspect-ratio: 16/9; overflow: hidden;">' . $template_output . '</div>';
+			}
+		} finally {
+			if ( function_exists( 'remove_filter' ) ) {
+				remove_filter( 'pre_do_shortcode_tag', $shortcode_probe, PHP_INT_MAX );
+			}
 		}
 
 		$enqueued_during_render = function_exists( 'wp_scripts' ) && function_exists( 'wp_styles' )
@@ -177,7 +191,7 @@ final class BlockRenderer {
 		// A render that expanded a shortcode is not a pure function of its inputs,
 		// even when it enqueued nothing. Two probes, because neither sees
 		// everything: the counter reads the INPUT Helpers was handed, the filter
-		// observes what core actually executed. See writeToCache().
+		// observes what core was about to execute. See writeToCache().
 		$formatted_dynamically = Helpers::dynamicFormatCount() !== $dynamic_before || $shortcode_expanded;
 
 		$has_side_effects = $enqueued_during_render || $formatted_dynamically;
@@ -391,8 +405,8 @@ final class BlockRenderer {
 	 *        those enqueues on the next request and break the form.
 	 *     2. `Helpers::dynamicFormatCount()` moved, so a field value Helpers was
 	 *        handed still held a registered shortcode when it expanded it.
-	 *     3. Core ran `do_shortcode_tag` during the render, so a shortcode was
-	 *        executed somewhere Helpers never saw it.
+	 *     3. Core reached `pre_do_shortcode_tag` during the render, so it was
+	 *        about to execute a shortcode somewhere Helpers never saw it.
 	 *
 	 *     Test 1 alone was the original guard, and it cannot see WPForms at all.
 	 *     WPForms enqueues nothing while it renders: `WPForms_Frontend::output()`
@@ -418,17 +432,23 @@ final class BlockRenderer {
 	 *     (`class-acf-field-wysiwyg.php`). A `[wpforms id="…"]` an editor typed
 	 *     into a WYSIWYG field is therefore already expanded before any value
 	 *     reaches `expandShortcodes()`: no bracket is left, the counter never
-	 *     moves, and the block was cached. Core's own `do_shortcode_tag` filter
-	 *     fires for every shortcode it actually executes, so it sees that
-	 *     expansion and every other one — Twig-side `do_shortcode()`, a
-	 *     `field_formatter_<type>` callback — without naming a single plugin.
+	 *     moves, and the block was cached. Core's own `pre_do_shortcode_tag`
+	 *     filter fires for every shortcode tag it is about to execute, so it sees
+	 *     that expansion and every other one — Twig-side `do_shortcode()`, a
+	 *     `field_formatter_<type>` callback — without naming a single plugin. It
+	 *     is the earlier of core's two shortcode hooks on purpose: a plugin that
+	 *     answers `pre_do_shortcode_tag` keeps `do_shortcode_tag` from running at
+	 *     all, so probing the later one would miss exactly the shortcodes another
+	 *     cache is already handling.
 	 *
-	 *     Cost of tests 2 and 3: a block holding any registered shortcode stops
-	 *     being cached, harmless ones (`[caption]`, `[embed]`) included. That is
-	 *     the safe direction, and skipping a cache write is cheaper than serving
-	 *     a dead form. A project that knows a given block is safe overrides the
-	 *     verdict through `timber_kit/block_renderer/has_side_effects`;
-	 *     `use_cache` cannot do it, because the write needs both.
+	 *     Cost of tests 2 and 3: a block whose render executed any registered
+	 *     shortcode stops being cached — its own, or another post's, since a
+	 *     listing block that renders a listed post's `[caption]` is impure by the
+	 *     same argument. Harmless shortcodes count. That is the safe direction,
+	 *     and skipping a cache write is cheaper than serving a dead form. A
+	 *     project that knows a given block is safe overrides the verdict through
+	 *     `timber_kit/block_renderer/has_side_effects`; `use_cache` cannot do it,
+	 *     because the write needs both.
 	 *   - rendered_empty_alert: the alert is logged-in-only enrichment; caching
 	 *     it would poison the shared cache for anonymous visitors
 	 *   - use_cache: combines has_filter() detection, wp_using_ext_object_cache,
