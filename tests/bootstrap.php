@@ -75,12 +75,49 @@ if ( ! class_exists( 'WP_Query' ) ) {
 	class WP_Query {
 		public bool $is_404 = false;
 		public bool $is_search = false;
+		public bool $is_archive = false;
+		public bool $is_home = false;
+		public bool $is_post_type_archive = false;
+		public bool $is_feed = false;
 		public array $query_vars = [];
 		public array $query = [];
 		private bool $is_main_query_result = true;
 
+		/**
+		 * Mirrors WP_Query::set(): writes into query_vars only — the same
+		 * surface core's own `set()` exposes.
+		 */
+		public function set( string $key, mixed $value ): void {
+			$this->query_vars[ $key ] = $value;
+		}
+
+		/**
+		 * Mirrors WP_Query::init_query_flags(): resets every conditional this
+		 * stub carries, including `is_feed` — core resets it here too. It's
+		 * `set_404()` that saves and restores `is_feed` around the call, not
+		 * this method that spares it.
+		 */
+		public function init_query_flags(): void {
+			$this->is_search            = false;
+			$this->is_archive           = false;
+			$this->is_home              = false;
+			$this->is_post_type_archive = false;
+			$this->is_feed              = false;
+			$this->is_404               = false;
+		}
+
+		/**
+		 * Mirrors WP_Query::set_404(): saves `is_feed`, resets the
+		 * conditionals via init_query_flags(), restores `is_feed`, sets
+		 * is_404, and fires the `set_404` action — the three things the
+		 * hand-written flag flip in disable_search() used to skip.
+		 */
 		public function set_404(): void {
-			$this->is_404 = true;
+			$is_feed = $this->is_feed;
+			$this->init_query_flags();
+			$this->is_feed = $is_feed;
+			$this->is_404  = true;
+			do_action_ref_array( 'set_404', array( $this ) );
 		}
 
 		public function is_main_query(): bool {

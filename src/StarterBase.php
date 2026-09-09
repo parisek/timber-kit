@@ -5056,10 +5056,14 @@ class StarterBase extends Site {
 			return;
 		}
 
-		$query->is_search       = false;
-		$query->query_vars['s'] = false;
-		$query->query['s']      = false;
-		$query->is_404          = true;
+		// Core's own set_404() doesn't clear the raw request args, but this
+		// method does: pre_get_posts fires after parse_query, and plugins
+		// (Algolia-style search integrations among them) read
+		// $query->query['s'] directly there. Keeping it blank preserves the
+		// behaviour this method has always had.
+		$query->set( 's', '' );
+		$query->query['s'] = '';
+		$query->set_404();
 
 		// Core's WP::handle_404() bails on is_404() before it ever calls
 		// status_header(), so without this the response stays HTTP 200.

@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `disable_search()` reset the query by hand-flipping four properties instead
+  of calling `WP_Query::set_404()`. The manual version skipped three things
+  core does: resetting every other conditional (`is_home`, `is_archive`,
+  `is_post_type_archive`, …) via `init_query_flags()`, so a template asking
+  `is_archive()` on the resulting 404 got a stale `true`; firing the `set_404`
+  action, so anything hooked there never ran; and preserving `is_feed` across
+  the reset. `disable_search()` now calls `$query->set( 's', '' )` followed by
+  `$query->set_404()`.
 - `disable_search()` decided whether to act by asking the global `is_search()`
   instead of the `$query` object it was about to mutate, and never checked
   `is_main_query()`. `parse_query` fires for every `WP_Query`, not only the
