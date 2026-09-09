@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.48.0] - 2026-09-09
+
 ### Fixed
 
 - `disable_search()` decided whether to act by asking the global `is_search()`
