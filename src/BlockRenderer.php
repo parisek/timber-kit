@@ -133,6 +133,21 @@ final class BlockRenderer {
 		$styles_before  = function_exists( 'wp_styles' ) ? wp_styles()->queue : [];
 		$dynamic_before = Helpers::dynamicFormatCount();
 
+		// Core runs this filter for every shortcode it actually executes
+		// (wp-includes/shortcodes.php, do_shortcode_tag()). It catches the
+		// expansions Helpers never sees — above all ACF's own, which runs inside
+		// get_field_objects() before any value reaches us. See writeToCache().
+		$shortcode_expanded = false;
+		$shortcode_probe    = static function ( $output ) use ( &$shortcode_expanded ) {
+			$shortcode_expanded = true;
+
+			return $output;
+		};
+
+		if ( function_exists( 'add_filter' ) ) {
+			add_filter( 'do_shortcode_tag', $shortcode_probe, PHP_INT_MAX );
+		}
+
 		[ $content_data, $is_inserter_preview ] = self::buildContent( $post_id, $is_preview, $attributes );
 
 		if ( ! $is_inserter_preview ) {
@@ -152,15 +167,39 @@ final class BlockRenderer {
 			$template_output = '<div style="aspect-ratio: 16/9; overflow: hidden;">' . $template_output . '</div>';
 		}
 
+		if ( function_exists( 'remove_filter' ) ) {
+			remove_filter( 'do_shortcode_tag', $shortcode_probe, PHP_INT_MAX );
+		}
+
 		$enqueued_during_render = function_exists( 'wp_scripts' ) && function_exists( 'wp_styles' )
 			&& ( array_diff( wp_scripts()->queue, $scripts_before ) || array_diff( wp_styles()->queue, $styles_before ) );
 
 		// A render that expanded a shortcode is not a pure function of its inputs,
-		// even when it enqueued nothing. See writeToCache() for the case that
-		// forced this second test.
-		$formatted_dynamically = Helpers::dynamicFormatCount() !== $dynamic_before;
+		// even when it enqueued nothing. Two probes, because neither sees
+		// everything: the counter reads the INPUT Helpers was handed, the filter
+		// observes what core actually executed. See writeToCache().
+		$formatted_dynamically = Helpers::dynamicFormatCount() !== $dynamic_before || $shortcode_expanded;
 
 		$has_side_effects = $enqueued_during_render || $formatted_dynamically;
+
+		/**
+		 * Filters the side-effect verdict for one block render.
+		 *
+		 * `timber_kit/block_renderer/use_cache` cannot reach this: writeToCache()
+		 * requires `$use_cache && ! $has_side_effects`, so forcing use_cache on
+		 * does not restore caching for a block this guard rejected. This filter is
+		 * the escape hatch for a project that knows a given block is safe.
+		 *
+		 * @param bool                 $has_side_effects Whether the render was impure.
+		 * @param string               $block_name       Block name, e.g. `acf/contact-form`.
+		 * @param array<string, mixed> $attributes       The block's attributes.
+		 */
+		$has_side_effects = (bool) apply_filters(
+			'timber_kit/block_renderer/has_side_effects',
+			$has_side_effects,
+			$block_name,
+			$attributes
+		);
 
 		self::writeToCache(
 			template_output:      $template_output,
@@ -345,31 +384,51 @@ final class BlockRenderer {
 	 * Preview mode: in-request memo (safe — per-request, never seen across users).
 	 * Frontend mode: external object cache with all guards:
 	 *   - has_side_effects: the render was not a pure function of its inputs, so
-	 *     replaying its output would drop whatever the render also did. Two
-	 *     independent tests, because one of them alone was not enough:
+	 *     replaying its output would drop whatever the render also did. Three
+	 *     tests, because no one of them sees everything:
 	 *
 	 *     1. The script/style queues grew during compile. Caching would skip
 	 *        those enqueues on the next request and break the form.
-	 *     2. Helpers expanded a shortcode while formatting the fields. This is
-	 *        the case test 1 cannot see. WPForms enqueues nothing while it
-	 *        renders: `WPForms_Frontend::output()` only appends the form to its
-	 *        own `$forms` array, and the enqueue happens later, on `wp_footer`
-	 *        priority 15, where `assets_footer()` returns early while that array
-	 *        is empty. So a cached WPForms block leaves the queues untouched,
-	 *        passes test 1, gets stored, and from the next request on serves the
-	 *        form markup with none of its CSS or JS. The form then looks right
-	 *        and does nothing. Contact Form 7 behind `wpforms_global_assets`'
-	 *        equivalent reaches the same state. Measured on a live site: after
-	 *        flushing one page's block-cache group, the first request carried 12
-	 *        WPForms scripts and every request after it carried zero, with the
-	 *        form markup unchanged throughout.
+	 *     2. `Helpers::dynamicFormatCount()` moved, so a field value Helpers was
+	 *        handed still held a registered shortcode when it expanded it.
+	 *     3. Core ran `do_shortcode_tag` during the render, so a shortcode was
+	 *        executed somewhere Helpers never saw it.
+	 *
+	 *     Test 1 alone was the original guard, and it cannot see WPForms at all.
+	 *     WPForms enqueues nothing while it renders: `WPForms_Frontend::output()`
+	 *     only appends the form to its own `$forms` array, and the enqueue
+	 *     happens later, on `wp_footer` priority 15, where `assets_footer()`
+	 *     returns early while that array is empty. So a cached WPForms block left
+	 *     the queues untouched, passed test 1, got stored, and from the next
+	 *     request on served the form markup with none of its CSS or JS. The form
+	 *     then looked right and did nothing. Measured on a live site: after
+	 *     flushing one page's block-cache group, the first request carried 12
+	 *     WPForms scripts and every request after it carried zero, with the form
+	 *     markup unchanged throughout.
 	 *
 	 *     Test 2 asks the counter Helpers already keeps, and that counter decides
 	 *     from the INPUT — whether a registered shortcode was present — never
-	 *     from whether the output differed. `MenuFieldsCache` gates its own writes
-	 *     the same way. The cost is that a block holding any registered shortcode
-	 *     stops being cached, harmless ones included; that is the safe direction,
-	 *     and skipping a cache write is cheaper than serving a dead form.
+	 *     from whether the output differed. `MenuFieldsCache` gates its own
+	 *     writes the same way.
+	 *
+	 *     Test 3 exists because test 2 has a blind spot that covers a common
+	 *     case. `formatFields()` calls `get_field_objects()` with ACF's default
+	 *     `$format_value = true`, and ACF's WYSIWYG `format_value()` applies
+	 *     `acf_the_content`, which carries `do_shortcode` at priority 11
+	 *     (`class-acf-field-wysiwyg.php`). A `[wpforms id="…"]` an editor typed
+	 *     into a WYSIWYG field is therefore already expanded before any value
+	 *     reaches `expandShortcodes()`: no bracket is left, the counter never
+	 *     moves, and the block was cached. Core's own `do_shortcode_tag` filter
+	 *     fires for every shortcode it actually executes, so it sees that
+	 *     expansion and every other one — Twig-side `do_shortcode()`, a
+	 *     `field_formatter_<type>` callback — without naming a single plugin.
+	 *
+	 *     Cost of tests 2 and 3: a block holding any registered shortcode stops
+	 *     being cached, harmless ones (`[caption]`, `[embed]`) included. That is
+	 *     the safe direction, and skipping a cache write is cheaper than serving
+	 *     a dead form. A project that knows a given block is safe overrides the
+	 *     verdict through `timber_kit/block_renderer/has_side_effects`;
+	 *     `use_cache` cannot do it, because the write needs both.
 	 *   - rendered_empty_alert: the alert is logged-in-only enrichment; caching
 	 *     it would poison the shared cache for anonymous visitors
 	 *   - use_cache: combines has_filter() detection, wp_using_ext_object_cache,

@@ -29,24 +29,40 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   So the queues never moved, the block was stored, and the shortcode never ran
   again.
 
-  The guard now also compares `Helpers::dynamicFormatCount()` around the
-  render, which is the counter `MenuFieldsCache` already uses for the same
-  question. It rises whenever a field expanded a registered shortcode, so this
-  covers a `post_object` resolving a WPForms or Contact Form 7 form, and it
-  equally covers a shortcode an editor typed into a WYSIWYG field — a case no
-  field-name check reaches.
-
   Measured on a live site before the fix: after flushing one page's block-cache
   group, the first request carried 12 WPForms scripts and every request after
   it carried zero, with the form markup unchanged throughout.
 
+  The guard now applies two further tests. It compares
+  `Helpers::dynamicFormatCount()` around the render — the counter
+  `MenuFieldsCache` already uses for the same question, which rises when a
+  value Helpers was handed still held a registered shortcode. And it watches
+  core's own `do_shortcode_tag` filter, which fires for every shortcode
+  WordPress actually executes.
+
+  The second test is needed because the counter has a blind spot that covers a
+  common case: `formatFields()` calls `get_field_objects()` with ACF's default
+  `$format_value = true`, and ACF's WYSIWYG `format_value()` applies
+  `acf_the_content`, which carries `do_shortcode` at priority 11. A
+  `[wpforms id="…"]` typed into a WYSIWYG field is therefore already expanded
+  before any value reaches Helpers, so no bracket is left to count. Watching
+  `do_shortcode_tag` also covers Twig-side `do_shortcode()` and
+  `field_formatter_<type>` callbacks, without naming a plugin.
+
   Cost: a block holding any registered shortcode is no longer cached, harmless
-  ones included. That is the safe direction, and skipping a cache write is
-  cheaper than serving a dead form. Projects that need the old behaviour for a
-  specific block can force it through `timber_kit/block_renderer/use_cache`.
+  ones (`[caption]`, `[embed]`) included. That is the safe direction, and
+  skipping a cache write is cheaper than serving a dead form.
 
   Projects only affected when production runs an external object cache with
   `flush_group` support; without one the cache path was never active.
+
+### Added
+
+- `timber_kit/block_renderer/has_side_effects` filter — overrides the
+  side-effect verdict for one block render. `timber_kit/block_renderer/use_cache`
+  cannot do this: `writeToCache()` requires `$use_cache && ! $has_side_effects`,
+  so forcing `use_cache` on does not restore caching for a block the guard
+  rejected.
 
 ## [1.47.0] - 2026-09-09
 
