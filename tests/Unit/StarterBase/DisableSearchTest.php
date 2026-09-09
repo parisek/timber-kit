@@ -19,6 +19,8 @@ class DisableSearchTest extends StarterBaseTestCase {
 	public function test_disables_frontend_search(): void {
 		Functions\when( 'is_admin' )->justReturn( false );
 		Functions\when( 'is_search' )->justReturn( true );
+		Functions\expect( 'status_header' )->once()->with( 404 );
+		Functions\expect( 'nocache_headers' )->once();
 
 		$query = new \stdClass();
 		$query->is_search = true;
@@ -37,6 +39,7 @@ class DisableSearchTest extends StarterBaseTestCase {
 	public function test_does_not_disable_admin_search(): void {
 		Functions\when( 'is_admin' )->justReturn( true );
 		Functions\when( 'is_search' )->justReturn( true );
+		Functions\expect( 'status_header' )->never();
 
 		$query = new \stdClass();
 		$query->is_search = true;
@@ -54,6 +57,7 @@ class DisableSearchTest extends StarterBaseTestCase {
 	public function test_does_not_affect_non_search_query(): void {
 		Functions\when( 'is_admin' )->justReturn( false );
 		Functions\when( 'is_search' )->justReturn( false );
+		Functions\expect( 'status_header' )->never();
 
 		$query = new \stdClass();
 		$query->is_search = false;

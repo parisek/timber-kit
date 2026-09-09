@@ -5052,12 +5052,19 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	public function disable_search( $query ) {
-		if ( ! is_admin() && is_search() ) {
-			$query->is_search = false;
-			$query->query_vars['s'] = false;
-			$query->query['s'] = false;
-			$query->is_404 = true;
+		if ( is_admin() || ! is_search() ) {
+			return;
 		}
+
+		$query->is_search       = false;
+		$query->query_vars['s'] = false;
+		$query->query['s']      = false;
+		$query->is_404          = true;
+
+		// Core's WP::handle_404() bails on is_404() before it ever calls
+		// status_header(), so without this the response stays HTTP 200.
+		status_header( 404 );
+		nocache_headers();
 	}
 
 	/**
