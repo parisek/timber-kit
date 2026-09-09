@@ -17,6 +17,55 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   set, even though it was never a search. The guard now reads
   `$query->is_search` and `$query->is_main_query()`, matching the sibling
   `search_post_type_filter()`, which already reads the object it was handed.
+- `BlockRenderer` cached blocks that render a WPForms form, and every request
+  after the first then served the form markup with no CSS and no JS. The form
+  looked correct and did nothing.
+
+  The renderer refuses to cache a block with side effects, but it detected them
+  by comparing the script and style queues around the render. WPForms enqueues
+  nothing while it renders: `WPForms_Frontend::output()` only appends the form
+  to its own `$forms` array, and the enqueue happens later, on `wp_footer`
+  priority 15, where `assets_footer()` returns early while that array is empty.
+  So the queues never moved, the block was stored, and the shortcode never ran
+  again.
+
+  Measured on a live site before the fix (external evidence, not reproducible
+  from this repository): after flushing one page's block-cache group, the first
+  request carried 12 WPForms scripts and every request after it carried zero,
+  with the form markup unchanged throughout.
+
+  The guard now applies two further tests. It compares
+  `Helpers::dynamicFormatCount()` around the render — the counter
+  `MenuFieldsCache` already uses for the same question, which rises when a
+  value Helpers was handed still held a registered shortcode. And it watches
+  core's own `do_shortcode_tag` filter, which fires for every shortcode
+  WordPress actually executes.
+
+  The second test is needed because the counter has a blind spot that covers a
+  common case: `formatFields()` calls `get_field_objects()` with ACF's default
+  `$format_value = true`, and ACF's WYSIWYG `format_value()` applies
+  `acf_the_content`, which carries `do_shortcode` at priority 11. A
+  `[wpforms id="…"]` typed into a WYSIWYG field is therefore already expanded
+  before any value reaches Helpers, so no bracket is left to count. The probe
+  also covers Twig-side `do_shortcode()` and `field_formatter_<type>`
+  callbacks, without naming a plugin.
+
+  Cost: a block whose render executed any registered shortcode is no longer
+  cached — its own, or another post's, since a listing block that renders a
+  listed post's `[caption]` is impure by the same argument. Harmless shortcodes
+  count. That is the safe direction, and skipping a cache write is cheaper than
+  serving a dead form.
+
+  Projects only affected when production runs an external object cache with
+  `flush_group` support; without one the cache path was never active.
+
+### Added
+
+- `timber_kit/block_renderer/has_side_effects` filter — overrides the
+  side-effect verdict for one block render. `timber_kit/block_renderer/use_cache`
+  cannot do this: `writeToCache()` requires `$use_cache && ! $has_side_effects`,
+  so forcing `use_cache` on does not restore caching for a block the guard
+  rejected.
 
 ## [1.47.0] - 2026-09-09
 

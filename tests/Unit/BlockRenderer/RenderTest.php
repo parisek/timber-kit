@@ -346,32 +346,281 @@ class RenderTest extends BlockRendererTestCase {
 		$call_count = 0;
 		Functions\when( 'wp_scripts' )->alias( static function () use ( &$call_count ): object {
 			$call_count++;
-			return (object) [ 'queue' => $call_count === 1 ? [] : [ 'wpforms-frontend' ] ];
+			return (object) [ 'queue' => $call_count === 1 ? [] : [ 'some-plugin-frontend' ] ];
 		} );
 
-		// Inject non-empty output via the empty_alert_html filter so cache-write branch is reachable.
-		Functions\when( 'is_user_logged_in' )->justReturn( true );
-		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
-		Functions\when( 'esc_attr' )->alias( static fn( string $v ): string => $v );
-		Functions\when( 'esc_html' )->alias( static fn( string $v ): string => $v );
+		// Real block output. Injecting it through the empty_alert_html filter
+		// instead would set $rendered_empty_alert, which blocks the cache write
+		// on its own — the assertion below would then hold with or without the
+		// guard under test, and the test would prove nothing.
+		$dir = $this->makeTemplateDir( '<div>{{ content.title }}</div>' );
+		Functions\when( 'get_stylesheet_directory' )->justReturn( $dir );
+		Functions\when( 'get_template_directory' )->justReturn( $dir );
+		Functions\when( 'is_user_logged_in' )->justReturn( false );
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'title' => [ 'name' => 'title', 'type' => 'text', 'value' => 'Example title' ],
+		] );
 		Functions\when( 'apply_filters' )->alias(
 			static function ( string $tag, mixed $value, mixed ...$rest ): mixed {
-				if ( $tag === 'timber_kit/block_renderer/empty_alert_html' ) {
-					return '<synthetic-output>';
+				if ( $tag === 'block_article_featured_template' ) {
+					return 'block.twig';
 				}
 				return $value;
 			}
 		);
 
-		// wp_cache_set MUST NOT be called when side-effects fired.
-		Functions\expect( 'wp_cache_set' )->never();
+		$cached = [];
+		Functions\when( 'wp_cache_set' )->alias(
+			static function ( string $key, mixed $value ) use ( &$cached ): bool {
+				$cached[ $key ] = $value;
+				return true;
+			}
+		);
+
+		ob_start();
+		BlockRenderer::render( Fixtures::attributes(), '', false, 0, null );
+		$output = ob_get_clean();
+
+		// Guard the test itself: with no real output there is nothing to cache.
+		$this->assertStringContainsString( 'Example title', $output );
+		$this->assertSame( [], $cached, 'A block that enqueued during render must not be written to the object cache.' );
+	}
+
+	/**
+	 * Compile a real Twig file so $template_output is genuine block output and
+	 * not the logged-in empty alert, which blocks the cache write on its own.
+	 *
+	 * @return string Directory to point the theme-path stubs at.
+	 */
+	private function makeTemplateDir( string $twig ): string {
+		$dir = sys_get_temp_dir() . '/tk-block-' . uniqid( '', true ) . '/views';
+		mkdir( $dir, 0o777, true );
+		file_put_contents( $dir . '/block.twig', $twig );
+
+		return dirname( $dir );
+	}
+
+	public function test_wpforms_block_is_not_cached_although_the_queues_never_move(): void {
+		// Regression: a block whose ACF post_object resolves a WPForms form must
+		// not be cached. WPForms enqueues nothing while it renders — output()
+		// only fills its own $forms array, and assets_footer() (wp_footer,
+		// priority 15) returns early while that array is empty. So the queue
+		// comparison sees a pure render, the block is stored, and every later
+		// request serves the form markup with no CSS and no JS.
+		//
+		// The queues are held EMPTY throughout, which is the whole point: the
+		// sibling test covers the case where they grow, and that one passes with
+		// or without the fix.
+		if ( ! class_exists( '\WP_Post' ) ) {
+			eval( 'class WP_Post { public $ID; public $post_type;
+				public function __construct( $post ) {
+					$this->ID = $post->ID; $this->post_type = $post->post_type;
+				} }' );
+		}
+
+		$dir = $this->makeTemplateDir( '<div>{{ content.form|raw }}</div>' );
+		Functions\when( 'get_stylesheet_directory' )->justReturn( $dir );
+		Functions\when( 'get_template_directory' )->justReturn( $dir );
+
+		// Not the empty-alert path: that flag blocks the cache write by itself,
+		// so a test that relies on it can never observe this guard.
+		Functions\when( 'is_user_logged_in' )->justReturn( false );
+
+		Functions\when( 'wp_using_ext_object_cache' )->justReturn( true );
+		Functions\when( 'wp_cache_supports' )->justReturn( true );
+		Functions\when( 'wp_cache_get' )->justReturn( false );
+
+		// The real formatFields() path: one post_object field holding a wpforms
+		// post. Helpers turns it into do_shortcode( '[wpforms id="200"]' ) and
+		// raises its dynamic-formatting counter while doing so.
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'form' => [
+				'name'  => 'form',
+				'type'  => 'post_object',
+				'value' => new \WP_Post( (object) [ 'ID' => 200, 'post_type' => 'wpforms' ] ),
+			],
+		] );
+		Functions\when( 'do_shortcode' )->alias(
+			static fn( string $shortcode ): string => '<div class="wpforms-container">' . $shortcode . '</div>'
+		);
+
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ): mixed {
+				if ( $tag === 'block_contact_form_template' ) {
+					return 'block.twig';
+				}
+				return $value;
+			}
+		);
+
+		$cached = [];
+		Functions\when( 'wp_cache_set' )->alias(
+			static function ( string $key, mixed $value ) use ( &$cached ): bool {
+				$cached[ $key ] = $value;
+				return true;
+			}
+		);
+
+		ob_start();
+		BlockRenderer::render( Fixtures::attributes( [ 'name' => 'acf/contact-form' ] ), '', false, 0, null );
+		$output = ob_get_clean();
+
+		// Guard the test itself: without real block output there is nothing to
+		// cache and the assertion below would pass for the wrong reason.
+		$this->assertStringContainsString( 'wpforms-container', $output );
+		$this->assertSame( [], $cached, 'A block that rendered a WPForms form must not be written to the object cache.' );
+	}
+
+	public function test_block_is_not_cached_when_acf_expanded_a_shortcode_before_helpers_saw_it(): void {
+		// Regression: the dynamic-format counter cannot see a shortcode an editor
+		// typed into a WYSIWYG field. formatFields() calls get_field_objects()
+		// with ACF's default $format_value = true, and ACF's WYSIWYG
+		// format_value() applies acf_the_content, which carries do_shortcode at
+		// priority 11. The value reaches Helpers already expanded, so no bracket
+		// is left to count — and the block used to be cached.
+		//
+		// Core's do_shortcode_tag filter fires for every shortcode it actually
+		// executes, which is what this test drives: the get_field_objects stub
+		// stands in for ACF and calls the probe the renderer registered, exactly
+		// as core would while expanding the field.
+		$dir = $this->makeTemplateDir( '<div>{{ content.body|raw }}</div>' );
+		Functions\when( 'get_stylesheet_directory' )->justReturn( $dir );
+		Functions\when( 'get_template_directory' )->justReturn( $dir );
+		Functions\when( 'is_user_logged_in' )->justReturn( false );
+
+		Functions\when( 'wp_using_ext_object_cache' )->justReturn( true );
+		Functions\when( 'wp_cache_supports' )->justReturn( true );
+		Functions\when( 'wp_cache_get' )->justReturn( false );
+
+		// Capture what the renderer hooks onto pre_do_shortcode_tag, and what it
+		// later unhooks. The unhooking is asserted below: without it the probe
+		// outlives the render and flips the verdict for every later block.
+		$probes  = [];
+		$removed = [];
+		Functions\when( 'add_filter' )->alias(
+			static function ( string $tag, callable $cb, int $priority = 10 ) use ( &$probes ): bool {
+				if ( $tag === 'pre_do_shortcode_tag' ) {
+					$probes[] = [ $cb, $priority ];
+				}
+				return true;
+			}
+		);
+		Functions\when( 'remove_filter' )->alias(
+			static function ( string $tag, callable $cb, int $priority = 10 ) use ( &$removed ): bool {
+				$removed[] = [ $tag, $cb, $priority ];
+				return true;
+			}
+		);
+
+		// Identity: the value ACF handed over holds no bracket any more, so
+		// do_shortcode() is a no-op here and the counter cannot move.
+		Functions\when( 'do_shortcode' )->alias( static fn( $value ) => $value );
+
+		// ACF's role: the field arrives already expanded, and core fired
+		// do_shortcode_tag while expanding it. The counter never moves here.
+		Functions\when( 'get_field_objects' )->alias(
+			static function () use ( &$probes ): array {
+				foreach ( $probes as [ $probe, $priority ] ) {
+					// Core's own call shape: the first argument is the
+					// short-circuit value, which the probe must hand back.
+					self::assertFalse( $probe( false, 'wpforms', [], [] ) );
+				}
+				return [
+					'body' => [
+						'name'  => 'body',
+						'type'  => 'wysiwyg',
+						'value' => '<p><div class="wpforms-container">…</div></p>',
+					],
+				];
+			}
+		);
+
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ): mixed {
+				if ( $tag === 'block_contact_form_template' ) {
+					return 'block.twig';
+				}
+				return $value;
+			}
+		);
+
+		$cached = [];
+		Functions\when( 'wp_cache_set' )->alias(
+			static function ( string $key, mixed $value ) use ( &$cached ): bool {
+				$cached[ $key ] = $value;
+				return true;
+			}
+		);
+
+		ob_start();
+		BlockRenderer::render( Fixtures::attributes( [ 'name' => 'acf/contact-form' ] ), '', false, 0, null );
+		$output = ob_get_clean();
+
+		// Guard the test itself, and prove the counter really stayed flat — if
+		// it had moved, this test would pass for the wrong reason.
+		$this->assertStringContainsString( 'wpforms-container', $output );
+		$this->assertNotEmpty( $probes, 'The renderer must register a pre_do_shortcode_tag probe.' );
+		$this->assertSame( [], $cached, 'A block whose fields expanded a shortcode must not be cached.' );
+
+		// The probe must not outlive the render: same closure instance, same
+		// hook, same priority. WordPress identifies a closure by spl_object_id
+		// (wp-includes/plugin.php), so removal only works for this instance.
+		[ $registered, $priority ] = $probes[0];
+		$this->assertContains(
+			[ 'pre_do_shortcode_tag', $registered, $priority ],
+			$removed,
+			'The renderer must unhook the probe it registered.'
+		);
+	}
+
+	public function test_has_side_effects_filter_restores_caching(): void {
+		// The escape hatch. use_cache cannot do this job: writeToCache() needs
+		// both $use_cache and ! $has_side_effects, so forcing use_cache on
+		// leaves a rejected block rejected.
+		$dir = $this->makeTemplateDir( '<div>{{ content.title }}</div>' );
+		Functions\when( 'get_stylesheet_directory' )->justReturn( $dir );
+		Functions\when( 'get_template_directory' )->justReturn( $dir );
+		Functions\when( 'is_user_logged_in' )->justReturn( false );
+
+		Functions\when( 'wp_using_ext_object_cache' )->justReturn( true );
+		Functions\when( 'wp_cache_supports' )->justReturn( true );
+		Functions\when( 'wp_cache_get' )->justReturn( false );
+
+		// A render that would be rejected: the scripts queue grows.
+		$call_count = 0;
+		Functions\when( 'wp_scripts' )->alias( static function () use ( &$call_count ): object {
+			$call_count++;
+			return (object) [ 'queue' => $call_count === 1 ? [] : [ 'some-plugin-frontend' ] ];
+		} );
+
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'title' => [ 'name' => 'title', 'type' => 'text', 'value' => 'Example title' ],
+		] );
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ): mixed {
+				if ( $tag === 'block_article_featured_template' ) {
+					return 'block.twig';
+				}
+				if ( $tag === 'timber_kit/block_renderer/has_side_effects' ) {
+					return false;
+				}
+				return $value;
+			}
+		);
+
+		$cached = [];
+		Functions\when( 'wp_cache_set' )->alias(
+			static function ( string $key, mixed $value ) use ( &$cached ): bool {
+				$cached[ $key ] = $value;
+				return true;
+			}
+		);
 
 		ob_start();
 		BlockRenderer::render( Fixtures::attributes(), '', false, 0, null );
 		ob_end_clean();
 
-		// Brain Monkey enforces the never() expectation in tearDown; acknowledge it here.
-		$this->addToAssertionCount( 1 );
+		$this->assertCount( 1, $cached, 'The filter must be able to override the side-effect verdict.' );
 	}
 
 	public function test_preview_memo_cache_hit_short_circuits(): void {
