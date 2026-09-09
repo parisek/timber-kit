@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.47.0] - 2026-09-09
+
 ### Fixed
 
 - `disable_search()` converted a search query to a 404 template but never sent
