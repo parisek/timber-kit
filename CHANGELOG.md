@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- `disable_search()` converted a search query to a 404 template but never sent
+  a 404 status. `WP::handle_404()` bails on `is_404()` before its own
+  `status_header()` call, so with `is_404` already set the response answered
+  `200` with the not-found template (`/?s=…`), while a genuinely missing URL
+  correctly answered `404`. The fix sends `status_header( 404 )` and
+  `nocache_headers()` explicitly, since core will not. Does not touch the
+  secondary-`WP_Query` gap in `is_search()` — a separate, pre-existing issue.
 - `remove_global_styles_and_svg_filters()` never removed anything. WordPress
   registers `wp_enqueue_global_styles` **twice** — `default-filters.php` has it
   on both `wp_enqueue_scripts` and on `wp_footer` at **priority 1** — and this
