@@ -5052,7 +5052,7 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	public function disable_search( $query ) {
-		if ( is_admin() || ! is_search() ) {
+		if ( is_admin() || ! $query->is_main_query() || ! $query->is_search ) {
 			return;
 		}
 
