@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `remove_global_styles_and_svg_filters()` never removed anything. WordPress
+  registers `wp_enqueue_global_styles` **twice** — `default-filters.php` has it
+  on both `wp_enqueue_scripts` and on `wp_footer` at **priority 1** — and this
+  method removed only the `wp_footer` one, without a priority. `remove_action()`
+  matches on the (hook, callback, priority) triple, so against a callback
+  registered at 1 the default 10 silently misses. Proven with WordPress's own
+  hook API on a throwaway hook: the removal returns `false` and
+  `has_action()` still reports priority 1. Every theme calling this shipped
+  `global-styles-inline-css` while believing it had removed it.
+
+  Scope is deliberately just that. The method name says `_and_svg_filters`
+  and this changes nothing about them —
+  `wp_global_styles_render_svg_filters` was deprecated in WP 6.3 and is
+  registered on no hook on current WordPress (verified on 7.0.4), so a
+  removal for it would be dead code, and it is a separate concern from the
+  stylesheet in any case.
+
+### Added
+
+- `$remove_global_styles` (bool, **default `false`**) gates the method above.
+  The fix makes the removal work, and working is a behaviour change, so it is
+  opt-in rather than a silent flip on every consumer.
+
+  Off is not a placeholder default. The stylesheet also carries the
+  `.has-*-color` / `.has-*-font-size` classes Gutenberg writes into content,
+  so removing it changes rendered output on any site whose editors have used
+  those pickers — measured across the fleet, more than half of them have. The
+  property's own docblock carries the numbers and the one-line query that
+  tells a project which side it is on.
+
 ### Changed
 
 - `setup_breadcrumb_labels()` docblock now shows a **string literal** as the
