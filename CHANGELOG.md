@@ -17,6 +17,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   set, even though it was never a search. The guard now reads
   `$query->is_search` and `$query->is_main_query()`, matching the sibling
   `search_post_type_filter()`, which already reads the object it was handed.
+- `BlockRenderer` cached blocks that render a WPForms form, and every request
+  after the first then served the form markup with no CSS and no JS. The form
+  looked correct and did nothing.
+
+  The renderer refuses to cache a block with side effects, but it detected them
+  by comparing the script and style queues around the render. WPForms enqueues
+  nothing while it renders: `WPForms_Frontend::output()` only appends the form
+  to its own `$forms` array, and the enqueue happens later, on `wp_footer`
+  priority 15, where `assets_footer()` returns early while that array is empty.
+  So the queues never moved, the block was stored, and the shortcode never ran
+  again.
+
+  The guard now also compares `Helpers::dynamicFormatCount()` around the
+  render, which is the counter `MenuFieldsCache` already uses for the same
+  question. It rises whenever a field expanded a registered shortcode, so this
+  covers a `post_object` resolving a WPForms or Contact Form 7 form, and it
+  equally covers a shortcode an editor typed into a WYSIWYG field — a case no
+  field-name check reaches.
+
+  Measured on a live site before the fix: after flushing one page's block-cache
+  group, the first request carried 12 WPForms scripts and every request after
+  it carried zero, with the form markup unchanged throughout.
+
+  Cost: a block holding any registered shortcode is no longer cached, harmless
+  ones included. That is the safe direction, and skipping a cache write is
+  cheaper than serving a dead form. Projects that need the old behaviour for a
+  specific block can force it through `timber_kit/block_renderer/use_cache`.
+
+  Projects only affected when production runs an external object cache with
+  `flush_group` support; without one the cache path was never active.
 
 ## [1.47.0] - 2026-09-09
 

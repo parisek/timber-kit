@@ -346,32 +346,129 @@ class RenderTest extends BlockRendererTestCase {
 		$call_count = 0;
 		Functions\when( 'wp_scripts' )->alias( static function () use ( &$call_count ): object {
 			$call_count++;
-			return (object) [ 'queue' => $call_count === 1 ? [] : [ 'wpforms-frontend' ] ];
+			return (object) [ 'queue' => $call_count === 1 ? [] : [ 'some-plugin-frontend' ] ];
 		} );
 
-		// Inject non-empty output via the empty_alert_html filter so cache-write branch is reachable.
-		Functions\when( 'is_user_logged_in' )->justReturn( true );
-		Functions\when( '__' )->alias( static fn( string $text ): string => $text );
-		Functions\when( 'esc_attr' )->alias( static fn( string $v ): string => $v );
-		Functions\when( 'esc_html' )->alias( static fn( string $v ): string => $v );
+		// Real block output. Injecting it through the empty_alert_html filter
+		// instead would set $rendered_empty_alert, which blocks the cache write
+		// on its own — the assertion below would then hold with or without the
+		// guard under test, and the test would prove nothing.
+		$dir = $this->makeTemplateDir( '<div>{{ content.title }}</div>' );
+		Functions\when( 'get_stylesheet_directory' )->justReturn( $dir );
+		Functions\when( 'get_template_directory' )->justReturn( $dir );
+		Functions\when( 'is_user_logged_in' )->justReturn( false );
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'title' => [ 'name' => 'title', 'type' => 'text', 'value' => 'Example title' ],
+		] );
 		Functions\when( 'apply_filters' )->alias(
 			static function ( string $tag, mixed $value, mixed ...$rest ): mixed {
-				if ( $tag === 'timber_kit/block_renderer/empty_alert_html' ) {
-					return '<synthetic-output>';
+				if ( $tag === 'block_article_featured_template' ) {
+					return 'block.twig';
 				}
 				return $value;
 			}
 		);
 
-		// wp_cache_set MUST NOT be called when side-effects fired.
-		Functions\expect( 'wp_cache_set' )->never();
+		$cached = [];
+		Functions\when( 'wp_cache_set' )->alias(
+			static function ( string $key, mixed $value ) use ( &$cached ): bool {
+				$cached[ $key ] = $value;
+				return true;
+			}
+		);
 
 		ob_start();
 		BlockRenderer::render( Fixtures::attributes(), '', false, 0, null );
-		ob_end_clean();
+		$output = ob_get_clean();
 
-		// Brain Monkey enforces the never() expectation in tearDown; acknowledge it here.
-		$this->addToAssertionCount( 1 );
+		// Guard the test itself: with no real output there is nothing to cache.
+		$this->assertStringContainsString( 'Example title', $output );
+		$this->assertSame( [], $cached, 'A block that enqueued during render must not be written to the object cache.' );
+	}
+
+	/**
+	 * Compile a real Twig file so $template_output is genuine block output and
+	 * not the logged-in empty alert, which blocks the cache write on its own.
+	 *
+	 * @return string Directory to point the theme-path stubs at.
+	 */
+	private function makeTemplateDir( string $twig ): string {
+		$dir = sys_get_temp_dir() . '/tk-block-' . uniqid( '', true ) . '/views';
+		mkdir( $dir, 0o777, true );
+		file_put_contents( $dir . '/block.twig', $twig );
+
+		return dirname( $dir );
+	}
+
+	public function test_wpforms_block_is_not_cached_although_the_queues_never_move(): void {
+		// Regression: a block whose ACF post_object resolves a WPForms form must
+		// not be cached. WPForms enqueues nothing while it renders — output()
+		// only fills its own $forms array, and assets_footer() (wp_footer,
+		// priority 15) returns early while that array is empty. So the queue
+		// comparison sees a pure render, the block is stored, and every later
+		// request serves the form markup with no CSS and no JS.
+		//
+		// The queues are held EMPTY throughout, which is the whole point: the
+		// sibling test covers the case where they grow, and that one passes with
+		// or without the fix.
+		if ( ! class_exists( '\WP_Post' ) ) {
+			eval( 'class WP_Post { public $ID; public $post_type;
+				public function __construct( $post ) {
+					$this->ID = $post->ID; $this->post_type = $post->post_type;
+				} }' );
+		}
+
+		$dir = $this->makeTemplateDir( '<div>{{ content.form|raw }}</div>' );
+		Functions\when( 'get_stylesheet_directory' )->justReturn( $dir );
+		Functions\when( 'get_template_directory' )->justReturn( $dir );
+
+		// Not the empty-alert path: that flag blocks the cache write by itself,
+		// so a test that relies on it can never observe this guard.
+		Functions\when( 'is_user_logged_in' )->justReturn( false );
+
+		Functions\when( 'wp_using_ext_object_cache' )->justReturn( true );
+		Functions\when( 'wp_cache_supports' )->justReturn( true );
+		Functions\when( 'wp_cache_get' )->justReturn( false );
+
+		// The real formatFields() path: one post_object field holding a wpforms
+		// post. Helpers turns it into do_shortcode( '[wpforms id="200"]' ) and
+		// raises its dynamic-formatting counter while doing so.
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'form' => [
+				'name'  => 'form',
+				'type'  => 'post_object',
+				'value' => new \WP_Post( (object) [ 'ID' => 200, 'post_type' => 'wpforms' ] ),
+			],
+		] );
+		Functions\when( 'do_shortcode' )->alias(
+			static fn( string $shortcode ): string => '<div class="wpforms-container">' . $shortcode . '</div>'
+		);
+
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value, mixed ...$rest ): mixed {
+				if ( $tag === 'block_contact_form_template' ) {
+					return 'block.twig';
+				}
+				return $value;
+			}
+		);
+
+		$cached = [];
+		Functions\when( 'wp_cache_set' )->alias(
+			static function ( string $key, mixed $value ) use ( &$cached ): bool {
+				$cached[ $key ] = $value;
+				return true;
+			}
+		);
+
+		ob_start();
+		BlockRenderer::render( Fixtures::attributes( [ 'name' => 'acf/contact-form' ] ), '', false, 0, null );
+		$output = ob_get_clean();
+
+		// Guard the test itself: without real block output there is nothing to
+		// cache and the assertion below would pass for the wrong reason.
+		$this->assertStringContainsString( 'wpforms-container', $output );
+		$this->assertSame( [], $cached, 'A block that rendered a WPForms form must not be written to the object cache.' );
 	}
 
 	public function test_preview_memo_cache_hit_short_circuits(): void {

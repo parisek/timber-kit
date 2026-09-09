@@ -131,6 +131,7 @@ final class BlockRenderer {
 
 		$scripts_before = function_exists( 'wp_scripts' ) ? wp_scripts()->queue : [];
 		$styles_before  = function_exists( 'wp_styles' ) ? wp_styles()->queue : [];
+		$dynamic_before = Helpers::dynamicFormatCount();
 
 		[ $content_data, $is_inserter_preview ] = self::buildContent( $post_id, $is_preview, $attributes );
 
@@ -151,8 +152,15 @@ final class BlockRenderer {
 			$template_output = '<div style="aspect-ratio: 16/9; overflow: hidden;">' . $template_output . '</div>';
 		}
 
-		$has_side_effects = function_exists( 'wp_scripts' ) && function_exists( 'wp_styles' )
+		$enqueued_during_render = function_exists( 'wp_scripts' ) && function_exists( 'wp_styles' )
 			&& ( array_diff( wp_scripts()->queue, $scripts_before ) || array_diff( wp_styles()->queue, $styles_before ) );
+
+		// A render that expanded a shortcode is not a pure function of its inputs,
+		// even when it enqueued nothing. See writeToCache() for the case that
+		// forced this second test.
+		$formatted_dynamically = Helpers::dynamicFormatCount() !== $dynamic_before;
+
+		$has_side_effects = $enqueued_during_render || $formatted_dynamically;
 
 		self::writeToCache(
 			template_output:      $template_output,
@@ -336,8 +344,32 @@ final class BlockRenderer {
 	 *
 	 * Preview mode: in-request memo (safe — per-request, never seen across users).
 	 * Frontend mode: external object cache with all guards:
-	 *   - has_side_effects: form-plugin enqueues happened during compile, caching
-	 *     would skip the enqueues on next request and break the form
+	 *   - has_side_effects: the render was not a pure function of its inputs, so
+	 *     replaying its output would drop whatever the render also did. Two
+	 *     independent tests, because one of them alone was not enough:
+	 *
+	 *     1. The script/style queues grew during compile. Caching would skip
+	 *        those enqueues on the next request and break the form.
+	 *     2. Helpers expanded a shortcode while formatting the fields. This is
+	 *        the case test 1 cannot see. WPForms enqueues nothing while it
+	 *        renders: `WPForms_Frontend::output()` only appends the form to its
+	 *        own `$forms` array, and the enqueue happens later, on `wp_footer`
+	 *        priority 15, where `assets_footer()` returns early while that array
+	 *        is empty. So a cached WPForms block leaves the queues untouched,
+	 *        passes test 1, gets stored, and from the next request on serves the
+	 *        form markup with none of its CSS or JS. The form then looks right
+	 *        and does nothing. Contact Form 7 behind `wpforms_global_assets`'
+	 *        equivalent reaches the same state. Measured on a live site: after
+	 *        flushing one page's block-cache group, the first request carried 12
+	 *        WPForms scripts and every request after it carried zero, with the
+	 *        form markup unchanged throughout.
+	 *
+	 *     Test 2 asks the counter Helpers already keeps, and that counter decides
+	 *     from the INPUT — whether a registered shortcode was present — never
+	 *     from whether the output differed. `MenuFieldsCache` gates its own writes
+	 *     the same way. The cost is that a block holding any registered shortcode
+	 *     stops being cached, harmless ones included; that is the safe direction,
+	 *     and skipping a cache write is cheaper than serving a dead form.
 	 *   - rendered_empty_alert: the alert is logged-in-only enrichment; caching
 	 *     it would poison the shared cache for anonymous visitors
 	 *   - use_cache: combines has_filter() detection, wp_using_ext_object_cache,
