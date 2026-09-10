@@ -317,6 +317,9 @@ class StarterBase extends Site {
 	/** @var bool Block ?author=N URL enumeration that leaks usernames via canonical redirect. */
 	protected bool $block_author_enumeration = true;
 
+	/** @var bool Force a 404 on /author/{nicename}/ archives, the destination ?author=N redirects to. Default on: this stack models article authors as a post type or taxonomy, so the core user archive is a page nobody designed, at a URL built from a login slug. Set false on a site that deliberately publishes author pages. Implies disable_author_sitemap. */
+	protected bool $disable_author_archives = true;
+
 	/**
 	 * @var bool Stop WordPress guessing a destination for a 404 and redirecting
 	 * to it.
@@ -1333,6 +1336,12 @@ class StarterBase extends Site {
 			// Priority 9 runs before redirect_canonical (priority 10), so the username-revealing redirect never fires.
 			add_action( 'template_redirect', array( $this, 'block_author_enumeration' ), 9 );
 		}
+		if ( $this->disable_author_archives ) {
+			// Same hook and priority as the ?author=N guard, because this is the
+			// same vector: that guard blocks the redirect, this one closes the
+			// URL it redirects to.
+			add_action( 'template_redirect', array( $this, 'disable_author_archives' ), 9 );
+		}
 		if ( $this->disable_file_editing && ! defined( 'DISALLOW_FILE_EDIT' ) ) {
 			define( 'DISALLOW_FILE_EDIT', true );
 		}
@@ -1340,8 +1349,14 @@ class StarterBase extends Site {
 			// Filtering the_generator suppresses the version string in wp_head AND in every feed generator.
 			add_filter( 'the_generator', '__return_empty_string' );
 		}
-		if ( $this->disable_author_sitemap ) {
+		if ( $this->disable_author_sitemap || $this->disable_author_archives ) {
 			// Drops /wp-sitemap-users-1.xml — the third username-enumeration vector alongside REST + ?author=.
+			//
+			// Disabling the archives implies dropping the sitemap, whatever the
+			// other flag says: an archive that answers 404 must not be listed
+			// anywhere, and a sitemap full of 404s is worse than no sitemap
+			// entry. The two flags cannot sensibly disagree, so they are not
+			// allowed to.
 			add_filter( 'wp_sitemaps_add_provider', array( $this, 'disable_author_sitemap_provider' ), 10, 2 );
 		}
 		if ( $this->security_headers ) {
@@ -5277,6 +5292,46 @@ class StarterBase extends Site {
 
 		global $wp_query;
 		if ( $wp_query instanceof \WP_Query ) {
+			$wp_query->set_404();
+		}
+		status_header( 404 );
+		nocache_headers();
+	}
+
+	/**
+	 * Force a 404 on `/author/{nicename}/` archives.
+	 *
+	 * `block_author_enumeration()` stops `/?author=1` before core can redirect it
+	 * to `/author/{username}/`, on the grounds that the redirect exposes the login
+	 * slug. This closes the page that redirect points at. Blocking the redirect
+	 * while its target still answers is half a guard, and the target is the half
+	 * a crawler finds on its own.
+	 *
+	 * A core user archive is also a page nobody in this stack designs. Article
+	 * authors are modelled as a post type or a taxonomy on every project here, so
+	 * the WordPress user is whoever happened to publish — and the archive lists
+	 * posts grouped by an account name, under a URL built from a login slug.
+	 *
+	 * **404 on `template_redirect`, not removed rewrite rules.** Dropping the rules
+	 * would be cleaner in principle and worse in practice: they are cached in the
+	 * database, so the flag would appear to do nothing until somebody ran
+	 * `wp rewrite flush`. This takes effect the moment the flag is read.
+	 *
+	 * Hooked to `template_redirect` at priority 9.
+	 *
+	 * @return void
+	 */
+	public function disable_author_archives() {
+		if ( is_admin() || ! is_author() ) {
+			return;
+		}
+
+		global $wp_query;
+		if ( $wp_query instanceof \WP_Query ) {
+			// set_404() clears every is_* flag through init_query_flags() before
+			// setting is_404, so is_author is false afterwards and a theme that
+			// routes on it cannot render over the 404. Clearing it by hand first
+			// reads as though that were not true.
 			$wp_query->set_404();
 		}
 		status_header( 404 );

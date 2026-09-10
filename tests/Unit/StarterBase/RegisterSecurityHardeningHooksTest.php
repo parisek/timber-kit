@@ -34,6 +34,7 @@ class RegisterSecurityHardeningHooksTest extends StarterBaseTestCase {
 			'restrict_rest_users',
 			'disable_application_passwords',
 			'block_author_enumeration',
+			'disable_author_archives',
 			'disable_404_permalink_guess',
 			'disable_file_editing',
 			'remove_wp_generator',

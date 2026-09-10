@@ -75,11 +75,20 @@ if ( ! class_exists( 'WP_Query' ) ) {
 	class WP_Query {
 		public bool $is_404 = false;
 		public bool $is_search = false;
+		public bool $is_author = false;
 		public array $query_vars = [];
 		public array $query = [];
 		private bool $is_main_query_result = true;
 
+		/**
+		 * Core's set_404() calls init_query_flags() first, which clears every
+		 * is_* flag, and only then sets is_404. A stub that just sets is_404
+		 * lets a test pass on production code that redundantly clears a flag by
+		 * hand — which is exactly what happened once, so the stub clears them.
+		 */
 		public function set_404(): void {
+			$this->is_search = false;
+			$this->is_author = false;
 			$this->is_404 = true;
 		}
 
