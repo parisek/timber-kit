@@ -5328,9 +5328,10 @@ class StarterBase extends Site {
 
 		global $wp_query;
 		if ( $wp_query instanceof \WP_Query ) {
-			// Clearing the flag as well as setting 404 keeps a theme that branches
-			// on is_author() from rendering an author template over the 404.
-			$wp_query->is_author = false;
+			// set_404() clears every is_* flag through init_query_flags() before
+			// setting is_404, so is_author is false afterwards and a theme that
+			// routes on it cannot render over the 404. Clearing it by hand first
+			// reads as though that were not true.
 			$wp_query->set_404();
 		}
 		status_header( 404 );
