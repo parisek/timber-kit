@@ -6,6 +6,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `disable_author_archives` (default **on**) forces a 404 on
+  `/author/{nicename}/`. `block_author_enumeration` already stops `/?author=N`
+  because core redirects it to that URL and the redirect leaks the login slug —
+  but the URL it redirects to kept answering, which is half a guard. The kit now
+  closes the fourth enumeration vector alongside REST, the users sitemap and the
+  query-string form.
+
+  Measured across the 26 projects on this kit: **none has a working author
+  archive.** Two route `is_author()` (`geetoo`, `geetooholding`) but neither
+  ships the `author.twig` their branch points at, and no theme anywhere links to
+  an author URL. A site that deliberately publishes author pages sets the flag
+  to `false`.
+
+  It also implies `disable_author_sitemap`: an archive that answers 404 must not
+  be listed, so the two flags are not allowed to disagree.
+
+  The 404 is set on `template_redirect`, not by removing the rewrite rules.
+  Rules are cached in the database, so dropping them would leave the flag
+  appearing to do nothing until somebody ran `wp rewrite flush`.
+
 ## [1.48.0] - 2026-09-09
 
 ### Fixed
