@@ -140,6 +140,32 @@ class DisableAuthorArchivesTest extends StarterBaseTestCase {
 	}
 
 	/**
+	 * Nothing else asserted that the callback is hooked at all. Every other test
+	 * here calls the method directly, so deleting the add_action() line would
+	 * ship a flag that reads as on and does nothing, with the suite green.
+	 */
+	public function test_the_callback_is_registered_when_the_flag_is_on(): void {
+		$actions = [];
+		Functions\when( 'add_filter' )->justReturn( null );
+		Functions\when( 'add_action' )->alias( function ( $hook, $callback = null, $priority = 10 ) use ( &$actions ) {
+			$actions[] = [ $hook, $callback, $priority ];
+		} );
+
+		$this->invokeHardeningHooksWithOnly( 'disable_author_archives' );
+
+		$registered = array_values( array_filter( $actions, function ( $action ) {
+			return 'template_redirect' === $action[0]
+				&& is_array( $action[1] )
+				&& 'disable_author_archives' === $action[1][1];
+		} ) );
+
+		$this->assertCount( 1, $registered, 'disable_author_archives should be hooked to template_redirect exactly once.' );
+		// Priority 9 beats redirect_canonical at 10, which is the whole point of
+		// the sibling guard and the reason this one shares its priority.
+		$this->assertSame( 9, $registered[0][2] );
+	}
+
+	/**
 	 * An archive that answers 404 must not be listed in a sitemap, so disabling
 	 * the archives forces the users provider off whatever the sitemap flag says.
 	 * Without this, a `||` quietly becoming an `&&` would ship a sitemap full of
@@ -152,22 +178,32 @@ class DisableAuthorArchivesTest extends StarterBaseTestCase {
 			$filters[] = $hook;
 		} );
 
-		$instance = ( new \ReflectionClass( StarterBase::class ) )->newInstanceWithoutConstructor();
+		$this->invokeHardeningHooksWithOnly( 'disable_author_archives' );
+
+		$this->assertContains( 'wp_sitemaps_add_provider', $filters );
+	}
+
+	/**
+	 * Registers the hardening hooks with every flag off except the named one, so
+	 * a test can attribute what was registered to that flag alone.
+	 */
+	private function invokeHardeningHooksWithOnly( string $flag ): void {
+		$reflection = new \ReflectionClass( StarterBase::class );
+		$instance   = $reflection->newInstanceWithoutConstructor();
+
 		foreach ( [
 			'cleanup_wp_head', 'disable_xmlrpc', 'disable_emojis', 'disable_feeds',
 			'disable_search', 'cleanup_dashboard', 'cleanup_admin_bar',
 			'editor_role_enhancements', 'disable_self_pingbacks', 'restrict_rest_users',
 			'disable_application_passwords', 'block_author_enumeration',
-			'disable_404_permalink_guess', 'disable_file_editing', 'remove_wp_generator',
-			'disable_author_sitemap', 'security_headers',
-		] as $flag ) {
-			( new \ReflectionClass( StarterBase::class ) )->getProperty( $flag )->setValue( $instance, false );
+			'disable_author_archives', 'disable_404_permalink_guess',
+			'disable_file_editing', 'remove_wp_generator', 'disable_author_sitemap',
+			'security_headers',
+		] as $name ) {
+			$reflection->getProperty( $name )->setValue( $instance, false );
 		}
-		// Everything off EXCEPT the archives flag.
-		( new \ReflectionClass( StarterBase::class ) )->getProperty( 'disable_author_archives' )->setValue( $instance, true );
+		$reflection->getProperty( $flag )->setValue( $instance, true );
 
-		( new \ReflectionClass( StarterBase::class ) )->getMethod( 'registerSecurityHardeningHooks' )->invoke( $instance );
-
-		$this->assertContains( 'wp_sitemaps_add_provider', $filters );
+		$reflection->getMethod( 'registerSecurityHardeningHooks' )->invoke( $instance );
 	}
 }
