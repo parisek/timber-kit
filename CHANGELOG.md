@@ -28,6 +28,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   Rules are cached in the database, so dropping them would leave the flag
   appearing to do nothing until somebody ran `wp rewrite flush`.
 
+  **Upgrade note:** set it `false` on sites that intentionally publish author
+  pages. Same shape as `$disable_author_sitemap` in 1.8.0, and the two now move
+  together — disabling the archives forces the sitemap provider off whatever
+  that flag says.
+
 ## [1.48.0] - 2026-09-09
 
 ### Fixed
