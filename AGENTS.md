@@ -89,6 +89,22 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   `announcement` context in its own `Base`. This is a named exception to the
   rule above, not a case of the rule being skipped.
 
+- **Approved exception:** `Helpers::getEditorAllowedHtml()` permits `target`
+  (restricted to `_blank`/`_self`) and `aria-label` on `<a>` unconditionally —
+  no flag. The owner reviewed it explicitly. The change is strictly permissive:
+  nothing that rendered before stops rendering, and no tag or attribute
+  previously allowed was removed (verified mechanically — 28 tags before and
+  after, nothing lost). What makes default-on right here rather than merely
+  convenient is *which way the old behaviour fails*: this list runs at SAVE
+  time, so an editor who typed `target="_blank"` was not seeing it ignored at
+  render, they were **losing it from the database**, silently, with no error.
+  A default-off flag would leave that data loss running on every site that did
+  not flip it — and nobody flips a flag for a bug they cannot see. `target`
+  carries a wp_kses value restriction rather than a bare `true`, so `_top`,
+  `_parent` and named browsing contexts stay refused. This is a named exception
+  to the rule above, not a case of the rule being skipped.
+
+
 ## Architecture decisions (ADRs)
 
 Significant decisions live in `docs/adr/` — the only tracked subtree under the
