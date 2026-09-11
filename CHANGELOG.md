@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.51.0] - 2026-09-11
+
 ### Added
 
 - `Helpers::getEditorAllowedHtml()` now permits `aria-label` on `<a>`, and
