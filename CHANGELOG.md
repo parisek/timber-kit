@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.50.0] - 2026-09-11
+
 ### Added
 
 - `seo_suppress_plugin_breadcrumb` (default **on**) removes the SEO plugin's own
