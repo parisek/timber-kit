@@ -37,6 +37,7 @@ use Parisek\TimberKit\Health\Check\XmlrpcDisabled;
 use Parisek\TimberKit\Health\CheckRegistry;
 use Parisek\TimberKit\Health\HealthCheck;
 use Parisek\TimberKit\Health\SiteHealthAdapter;
+use Parisek\TimberKit\Seo\BreadcrumbSchema;
 use Parisek\TimberKit\Seo\Canonical;
 
 /**
@@ -316,6 +317,9 @@ class StarterBase extends Site {
 
 	/** @var bool Block ?author=N URL enumeration that leaks usernames via canonical redirect. */
 	protected bool $block_author_enumeration = true;
+
+	/** @var bool Suppress the SEO plugin's own BreadcrumbList so the theme's microdata is the only one on the page. Default on, and tied to the plugin's own "Enable Breadcrumbs" switch: turn that on and this stands aside, because an editor who asked for the plugin's breadcrumbs wants the markup too. Set false to keep both. */
+	protected bool $seo_suppress_plugin_breadcrumb = true;
 
 	/** @var bool Force a 404 on /author/{nicename}/ archives, the destination ?author=N redirects to. Default on: this stack models article authors as a post type or taxonomy, so the core user archive is a page nobody designed, at a URL built from a login slug. Set false on a site that deliberately publishes author pages. Implies disable_author_sitemap. */
 	protected bool $disable_author_archives = true;
@@ -1479,6 +1483,8 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	private function registerSeoHooks(): void {
+		$this->registerBreadcrumbSchemaSuppression();
+
 		if ( ! $this->seo_canonical_pagination ) {
 			return;
 		}
@@ -5296,6 +5302,30 @@ class StarterBase extends Site {
 		}
 		status_header( 404 );
 		nocache_headers();
+	}
+
+	/**
+	 * Take the SEO plugin's BreadcrumbList away, so the theme's is the only one.
+	 *
+	 * This method decides nothing beyond the flag. Which plugin is running,
+	 * whether its own breadcrumb switch is on, and how to read it all live in
+	 * {@see \Parisek\TimberKit\Seo\BreadcrumbSchema} — naming a plugin here
+	 * would put its symbols outside `src/Seo/`, and an architecture test
+	 * enforces that boundary.
+	 *
+	 * @return void
+	 */
+	private function registerBreadcrumbSchemaSuppression(): void {
+		if ( ! $this->seo_suppress_plugin_breadcrumb ) {
+			return;
+		}
+
+		// Deferred, and the resolution lives in Seo\BreadcrumbSchema: reading a
+		// plugin's options from here would name an SEO plugin outside src/Seo/,
+		// which SeoBoundaryTest forbids, and would read them earlier than they
+		// are reliably available. Priority 1 on template_redirect still lands
+		// well before wp_head prints the schema.
+		add_action( 'template_redirect', array( BreadcrumbSchema::class, 'boot' ), 1 );
 	}
 
 	/**

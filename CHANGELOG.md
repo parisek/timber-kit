@@ -6,6 +6,52 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `seo_suppress_plugin_breadcrumb` (default **on**) removes the SEO plugin's own
+  `BreadcrumbList` from its JSON-LD, leaving the theme's microdata as the only
+  one on the page.
+
+  Every theme on this kit renders a breadcrumb built from
+  `timber_kit_breadcrumb_items` and `$breadcrumb_list_page_map`. The plugin adds
+  a second list from data it derived itself, and it is the worse copy because it
+  cannot see the trail the theme decided on. Measured on two unrelated projects:
+  on `rezidence-ponavia` the page read `Úvod > …` while AIOSEO's graph said
+  `Home > …` — `homepageLabel` defaults to `Home` and is not per-language — and
+  on `sloneek` Yoast's leaf was the editor's internal working title rather than
+  the rendered heading.
+
+  **Defers to the plugin's own "Enable Breadcrumbs" switch where that switch
+  exists.** Turn it on and this stands aside: an editor who asked for the
+  plugin's breadcrumbs wants its markup too.
+
+  That switch is a legacy remnant, not a current setting, and the distinction
+  matters. AIOSEO's upgrade routine adds `breadcrumbsEnable` to its
+  deprecated-options list **only** on a site that had breadcrumbs explicitly
+  switched off; a site that never touched it has no such switch and breadcrumbs
+  are simply on. The key also sits in `allDeprecatedOptions`, a removal list. So
+  a missing switch is read as **no signal**, not as "off", and the flag governs
+  — otherwise the behaviour would invert on the release that drops the key. All
+  26 projects on this kit currently carry it.
+
+  Neither plugin offers a setting that drops only the schema. AIOSEO's own
+  settings screen says so outright ("By default AIOSEO will automatically add
+  breadcrumbs to the schema markup"), and its `enable` key gates the visual
+  widget on a path the graph never reads.
+
+  Both plugins are filtered on the finished graph — `aioseo_schema_output` and
+  `wpseo_schema_graph` — so the node and the `breadcrumb` property that
+  references it by `@id` go in one pass. Removing only the node would leave a
+  reference to an id that no longer resolves, which is worse than the duplicate.
+
+  Rank Math is not covered; its filter surface was not examined.
+
+  **Upgrade note:** set it `false` on a site that wants both lists. A site whose
+  theme renders no breadcrumb loses the plugin's list and gains nothing — 8 of
+  the 26 projects on this kit are in that position — so on those either set the
+  flag `false` or switch the plugin's own breadcrumbs on.
+
+
 ## [1.49.0] - 2026-09-10
 
 ### Added
