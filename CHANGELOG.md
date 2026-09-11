@@ -8,8 +8,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- `Helpers::getEditorAllowedHtml()` now permits `target` and `aria-label` on
-  `<a>`. Both are presentational/assistive rather than scripting surfaces, and
+- `Helpers::getEditorAllowedHtml()` now permits `aria-label` on `<a>`, and
+  `target` restricted to `_blank` and `_self`. Both are presentational/assistive rather than scripting surfaces, and
   `rel` was already permitted — which left the list allowing the mitigation for
   `target="_blank"` while forbidding the attribute it mitigates. Browsers have
   implied `rel="noopener"` on `target="_blank"` since 2021, so the historic
@@ -19,6 +19,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   i.e. at SAVE time, so an editor who typed `target="_blank"` was losing it in
   the database, silently. Announcements and rich-text bodies routinely link to
   an external form or a PDF.
+
+  `target` carries a wp_kses value restriction rather than a bare `true`:
+  `_top`, `_parent` and named browsing contexts stay refused, because on a page
+  embedded in an iframe those let a link navigate the embedding document, which
+  is wider than the new-tab case this entry exists for.
 
   Purely additive: every tag and attribute previously permitted still is
   (verified — 28 tags before and after, nothing removed). Nothing that was

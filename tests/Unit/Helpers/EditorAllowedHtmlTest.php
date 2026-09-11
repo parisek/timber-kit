@@ -26,9 +26,20 @@ class EditorAllowedHtmlTest extends HelpersTestCase {
 		foreach ( $this->allowed() as $tag => $attributes ) {
 			$this->assertIsString( $tag );
 			$this->assertIsArray( $attributes, "attributes for <$tag> must be an array" );
-			foreach ( $attributes as $name => $enabled ) {
+			foreach ( $attributes as $name => $constraint ) {
 				$this->assertIsString( $name, "attribute name on <$tag> must be a string" );
-				$this->assertTrue( $enabled, "wp_kses expects `true` for $name on <$tag>" );
+				// wp_kses accepts either `true` (any value) or a constraint map
+				// — `values`, `maxlen`, `valueless`, … — for a narrower one.
+				if ( is_array( $constraint ) ) {
+					$this->assertNotEmpty( $constraint, "constraint map for $name on <$tag> must not be empty" );
+					$this->assertSame(
+						[],
+						array_diff( array_keys( $constraint ), [ 'values', 'maxlen', 'maxval', 'minlen', 'minval', 'valueless' ] ),
+						"unknown wp_kses constraint on $name of <$tag>"
+					);
+				} else {
+					$this->assertTrue( $constraint, "wp_kses expects `true` or a constraint map for $name on <$tag>" );
+				}
 			}
 		}
 	}
@@ -86,23 +97,90 @@ class EditorAllowedHtmlTest extends HelpersTestCase {
 	}
 
 	/**
-	 * Guards the direction of change. This list runs at SAVE time, so an entry
-	 * removed here is content deleted from the database on the next save of
-	 * every affected field, on every consuming site. Growing the list is
-	 * recoverable; shrinking it is not.
+	 * Guards the direction of change, TAG AND ATTRIBUTE.
+	 *
+	 * This list runs at SAVE time, so an entry removed here is content deleted
+	 * from the database on the next save of every affected field, on every
+	 * consuming site. Growing the list is recoverable; shrinking it is not.
+	 *
+	 * The first version of this test snapshotted tag NAMES only, which made it
+	 * a guard in name: it stayed green while `href` vanished from `<a>` or
+	 * `src` from `<img>` — exactly the losses that matter most. The snapshot
+	 * below is the complete map as of the version that introduced this file.
+	 *
+	 * @return array<string, array<int, string>>
 	 */
-	public function test_covers_every_tag_previously_guaranteed(): void {
-		$guaranteed = [
-			'p', 'br', 'strong', 'b', 'em', 'i', 'u', 's', 'sub', 'sup',
-			'ul', 'ol', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-			'blockquote', 'hr', 'span', 'a', 'img', 'figure', 'figcaption',
-			'code', 'pre',
+	private function guaranteed(): array {
+		return [
+			'p' => [ 'class' ],
+			'br' => [],
+			'strong' => [ 'class' ],
+			'b' => [ 'class' ],
+			'em' => [ 'class' ],
+			'i' => [ 'class' ],
+			'u' => [ 'class' ],
+			's' => [ 'class' ],
+			'sub' => [ 'class' ],
+			'sup' => [ 'class' ],
+			'ul' => [ 'class' ],
+			'ol' => [ 'class' ],
+			'li' => [ 'class' ],
+			'h1' => [ 'class' ],
+			'h2' => [ 'class' ],
+			'h3' => [ 'class' ],
+			'h4' => [ 'class' ],
+			'h5' => [ 'class' ],
+			'h6' => [ 'class' ],
+			'blockquote' => [ 'class', 'cite' ],
+			'hr' => [ 'class' ],
+			'span' => [ 'class' ],
+			'a' => [ 'class', 'href', 'rel', 'title' ],
+			'img' => [ 'class', 'src', 'alt', 'width', 'height', 'srcset', 'sizes', 'loading' ],
+			'figure' => [ 'class' ],
+			'figcaption' => [ 'class' ],
+			'code' => [ 'class' ],
+			'pre' => [ 'class' ],
 		];
+	}
+
+	public function test_no_previously_guaranteed_tag_is_removed(): void {
+		$this->assertSame(
+			[],
+			array_values( array_diff( array_keys( $this->guaranteed() ), array_keys( $this->allowed() ) ) ),
+			'a tag may be added to this list, never removed — removal deletes stored content on next save'
+		);
+	}
+
+	public function test_no_previously_guaranteed_attribute_is_removed(): void {
+		$allowed = $this->allowed();
+		$missing = [];
+
+		foreach ( $this->guaranteed() as $tag => $attributes ) {
+			foreach ( $attributes as $attribute ) {
+				if ( ! isset( $allowed[ $tag ][ $attribute ] ) ) {
+					$missing[] = "$tag.$attribute";
+				}
+			}
+		}
 
 		$this->assertSame(
 			[],
-			array_diff( $guaranteed, array_keys( $this->allowed() ) ),
-			'a tag may be added to this list, never removed — removal deletes stored content on next save'
+			$missing,
+			'removing an attribute deletes it from stored content on the next save of every affected field'
 		);
+	}
+
+	/**
+	 * `target` is permitted, but only for the two values an editor has a
+	 * reason to write. `_top`, `_parent` and a named browsing context let a
+	 * link inside an embedded page navigate the embedder, which is wider than
+	 * the new-tab case this entry exists for.
+	 */
+	public function test_target_is_restricted_to_safe_browsing_contexts(): void {
+		$target = $this->allowed()['a']['target'];
+
+		$this->assertIsArray( $target, 'target must carry a value restriction, not a bare true' );
+		$this->assertArrayHasKey( 'values', $target );
+		$this->assertSame( [ '_blank', '_self' ], $target['values'] );
 	}
 }
