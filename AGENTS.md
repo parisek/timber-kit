@@ -72,6 +72,23 @@ New behavior that changes rendered output, admin behavior, or anything a consume
 - **Approved exception:** `$disable_author_archives` defaults `true`, not `false`. The owner reviewed it explicitly against a fleet audit: across the 26 projects on this kit, **none has a working author archive** — two route `is_author()` but neither ships the `author.twig` its branch points at, no theme anywhere links to an author URL, and the one project with an `Author` class reads a taxonomy rather than users. Default-off would have been safe and useless, because the sites carrying the open URL are the ones nobody looks at, and they are exactly the ones that would never flip it. Note that `$block_author_enumeration` (1.4.0) and `$disable_author_sitemap` (1.8.0) also default `true` — they predate this rule, which landed 2026-06-10, one day after 1.8.0, so they are not precedent for skipping it. This is a named exception to the rule above.
 - **Approved exception:** `$seo_suppress_plugin_breadcrumb` defaults `true`, not `false`. The owner reviewed it explicitly: a page carrying two `BreadcrumbList` nodes hands a crawler a choice, and the plugin's copy is measurably the worse one — it cannot see the trail the theme built, so on a Czech site it opens with an English `Home` while the page shows `Úvod`. What makes default-on acceptable here rather than merely convenient is that the suppression defers to the plugin's own "Enable Breadcrumbs" switch wherever that switch exists, so those sites get the list back from wp-admin. On a site without it — AIOSEO only keeps it where breadcrumbs were switched off before the setting was deprecated — the escape hatch is the flag itself. This is a named exception to the rule above.
 
+- **Approved exception:** `Helpers::formatAnnouncement()` sanitises its `text`
+  with `wp_kses()` unconditionally — no flag. The owner reviewed it explicitly.
+  The same allow-list already runs at save time via
+  `acf/update_value/type=wysiwyg`, so for content written through the ACF UI
+  this is a no-op, measured byte-for-byte against a live site's announcement;
+  and the double pass is idempotent, verified across eight shapes including
+  entities, malformed markup and already-encoded `&lt;script&gt;`. What it
+  actually changes is content written by the paths that bypass ACF — WP-CLI, a
+  SQL import, a migration script, a revision restore, a WPML copy — and only
+  where that content carries markup outside the editor list. Default-off would
+  have been safe and useless for the same reason `$disable_author_archives` was:
+  the sites carrying unsanitised imported text are precisely the ones nobody
+  would think to flip a flag on, and the bar renders this field through
+  `x-html`. A project that needs the raw value back overrides the
+  `announcement` context in its own `Base`. This is a named exception to the
+  rule above, not a case of the rule being skipped.
+
 ## Architecture decisions (ADRs)
 
 Significant decisions live in `docs/adr/` — the only tracked subtree under the

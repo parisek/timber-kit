@@ -6,6 +6,24 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Security
+
+- `Helpers::formatAnnouncement()` now sanitises `text` with `wp_kses()` and
+  `getEditorAllowedHtml()` instead of returning the stored value unchanged.
+  The announcement bar renders this field through Alpine's `x-html`, so
+  whatever an editor stores reaches the DOM as markup — a contributor could
+  put a script there. Every other editor-content path in `Helpers` already
+  went through `wp_kses()`; this one was the exception.
+
+  **Upgrade note.** For ordinary announcement copy — a paragraph, emphasis,
+  a link — this is a no-op. Two consequences on sites that stored something
+  outside the editor list: that markup is removed, and because the bar's
+  `sessionStorage` dismissal key is derived from the text, a changed text
+  forks a new key, so a visitor who had dismissed that announcement sees it
+  once more.
+
+  A project that was sanitising in its own `Base.php` can drop that override.
+
 ## [1.50.0] - 2026-09-11
 
 ### Added

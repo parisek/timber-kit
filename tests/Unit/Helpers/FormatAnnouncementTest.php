@@ -16,9 +16,22 @@ use Tests\Unit\HelpersTestCase;
  */
 class FormatAnnouncementTest extends HelpersTestCase {
 
+	/** @var array<int, array{0: string, 1: array}> Every wp_kses() call, in order. */
+	private array $kses_calls = [];
+
 	protected function setUp(): void {
 		parent::setUp();
 		Functions\when( 'wp_timezone' )->justReturn( new \DateTimeZone( 'Europe/Prague' ) );
+
+		// Record the call and model the tag filtering. Attribute filtering is
+		// wp_kses()'s own job and WordPress's to get right — what belongs to
+		// THIS class is which sanitiser it calls and which list it passes.
+		$this->kses_calls = [];
+		Functions\when( 'wp_kses' )->alias( function ( $string, $allowed ) {
+			$this->kses_calls[] = [ $string, $allowed ];
+			$tags = implode( '', array_map( static fn ( $t ) => "<$t>", array_keys( $allowed ) ) );
+			return strip_tags( $string, $tags );
+		} );
 	}
 
 	public function test_null_value_returns_disabled_shape(): void {
@@ -68,5 +81,64 @@ class FormatAnnouncementTest extends HelpersTestCase {
 
 		$this->assertSame( 1727992800000, $result['date_from'] );
 		$this->assertSame( 0, $result['date_to'], 'empty string timestamp collapses to 0' );
+	}
+
+	/**
+	 * The bar renders this through Alpine's `x-html`, so the stored value
+	 * reaches the DOM as markup. Every other editor-content path in Helpers
+	 * already goes through wp_kses(); this one used to be the exception.
+	 */
+	public function test_text_is_sanitised_with_the_editor_allowed_list(): void {
+		Helpers::formatAnnouncement( [
+			'enabled' => true,
+			'text' => '<p>Zveme vás na <strong>akci</strong>.</p>',
+		] );
+
+		$this->assertCount( 1, $this->kses_calls, 'text must be sanitised exactly once' );
+		$this->assertSame(
+			Helpers::getEditorAllowedHtml(),
+			$this->kses_calls[0][1],
+			'the announcement is editor richtext, so it takes the editor list this class already defines'
+		);
+	}
+
+	public function test_editor_markup_survives_unchanged(): void {
+		// The shape a real announcement actually has: a paragraph, emphasis and
+		// links. Sanitising must be a no-op for it, or the change would rewrite
+		// live copy on every consuming site.
+		$text = '<p>Zveme vás na <strong>přednášku</strong>. '
+			. '<a href="https://example.test/prihlaska">Registrovat</a>.</p>';
+
+		$result = Helpers::formatAnnouncement( [ 'enabled' => true, 'text' => $text ] );
+
+		$this->assertSame( $text, $result['text'] );
+	}
+
+	public function test_markup_outside_the_editor_list_is_removed(): void {
+		$result = Helpers::formatAnnouncement( [
+			'enabled' => true,
+			'text' => 'Pozor<script>alert(1)</script><iframe src="evil"></iframe> na termín.',
+		] );
+
+		$this->assertStringNotContainsString( '<script', $result['text'] );
+		$this->assertStringNotContainsString( '<iframe', $result['text'] );
+		$this->assertStringContainsString( 'Pozor', $result['text'] );
+		$this->assertStringContainsString( 'na termín.', $result['text'] );
+	}
+
+	public function test_disabled_announcement_returns_empty_text_without_sanitising(): void {
+		$result = Helpers::formatAnnouncement( [
+			'enabled' => false,
+			'text' => '<script>alert(1)</script>',
+		] );
+
+		$this->assertSame( '', $result['text'] );
+		$this->assertSame( [], $this->kses_calls, 'a disabled bar has no text to sanitise' );
+	}
+
+	public function test_missing_text_key_sanitises_an_empty_string(): void {
+		$result = Helpers::formatAnnouncement( [ 'enabled' => true ] );
+
+		$this->assertSame( '', $result['text'] );
 	}
 }
