@@ -30,4 +30,37 @@ final class Yoast {
 	public static function register( callable $filter ): void {
 		add_filter( 'wpseo_canonical', $filter );
 	}
+
+	/**
+	 * Whether Yoast's own breadcrumb feature is switched on.
+	 *
+	 * Read through `WPSEO_Options` rather than the option row, which holds a
+	 * validated set. Unreadable counts as off, matching {@see Aioseo}.
+	 */
+	public static function breadcrumbsEnabled(): bool {
+		if ( ! class_exists( 'WPSEO_Options' ) ) {
+			return false;
+		}
+
+		return (bool) \WPSEO_Options::get( 'breadcrumbs-enable', false );
+	}
+
+	/**
+	 * Two filters, because Yoast offers no seam on the finished graph.
+	 *
+	 * The pieces filter removes the generator; the WebPage filter removes the
+	 * `breadcrumb` property that points at what the generator would have built.
+	 * Either alone is wrong: the first leaves a dangling `@id` reference, the
+	 * second leaves the node it was meant to describe.
+	 *
+	 * Priority 11 on both, so a project filter registered at the default 10 has
+	 * already run and this sees what it produced.
+	 *
+	 * @param callable $pieces    Callback taking the graph pieces, returning them.
+	 * @param callable $reference Callback taking the WebPage node, returning it.
+	 */
+	public static function registerBreadcrumbSuppression( callable $pieces, callable $reference ): void {
+		add_filter( 'wpseo_schema_graph_pieces', $pieces, 11 );
+		add_filter( 'wpseo_schema_webpage', $reference, 11 );
+	}
 }

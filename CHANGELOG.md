@@ -6,6 +6,38 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `seo_suppress_plugin_breadcrumb` (default **on**) removes the SEO plugin's own
+  `BreadcrumbList` from its JSON-LD, leaving the theme's microdata as the only
+  one on the page.
+
+  Every theme on this kit renders a breadcrumb built from
+  `timber_kit_breadcrumb_items` and `$breadcrumb_list_page_map`. The plugin adds
+  a second list from data it derived itself, and it is the worse copy because it
+  cannot see the trail the theme decided on. Measured on two unrelated projects:
+  on `rezidence-ponavia` the page read `Úvod > …` while AIOSEO's graph said
+  `Home > …` — `homepageLabel` defaults to `Home` and is not per-language — and
+  on `sloneek` Yoast's leaf was the editor's internal working title rather than
+  the rendered heading.
+
+  **Tied to the plugin's own "Enable Breadcrumbs" switch.** Turn that on and this
+  stands aside: an editor who asked for the plugin's breadcrumbs wants its markup
+  too. That is the escape hatch, and it needs no code. Neither plugin offers a
+  setting that drops only the schema — AIOSEO's own settings screen says so
+  outright ("By default AIOSEO will automatically add breadcrumbs to the schema
+  markup"), and its `enable` key gates the visual widget on a path the graph
+  never reads.
+
+  Covers AIOSEO and Yoast. Rank Math is not covered; its filter surface was not
+  examined.
+
+  **Upgrade note:** set it `false` on a site that wants both lists. A site whose
+  theme renders no breadcrumb loses the plugin's list and gains nothing — 8 of
+  the 26 projects on this kit are in that position — so on those either set the
+  flag `false` or switch the plugin's own breadcrumbs on.
+
+
 ## [1.49.0] - 2026-09-10
 
 ### Added
