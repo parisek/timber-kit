@@ -675,7 +675,10 @@ class Helpers {
 	 * Keeps common editorial markup and selected attributes such as `class`,
 	 * while excluding inline styles and risky embedded content.
 	 *
-	 * @return array<string, array<string, bool>>
+	 * A value is `true` (any value allowed) or a wp_kses constraint map such as
+	 * `[ 'values' => [ … ] ]`, which narrows an attribute to an explicit set.
+	 *
+	 * @return array<string, array<string, bool|array<string, list<string>>>>
 	 */
 	public static function getEditorAllowedHtml() {
 		return [
@@ -701,7 +704,26 @@ class Helpers {
 			'blockquote' => [ 'class' => true, 'cite' => true ],
 			'hr' => [ 'class' => true ],
 			'span' => [ 'class' => true ],
-			'a' => [ 'class' => true, 'href' => true, 'rel' => true, 'title' => true ],
+			// `target` and `aria-label` are presentational and assistive, not
+			// scripting surfaces. `rel` was already here, which was the odd half of
+			// a pair: the list permitted the mitigation for `target="_blank"` while
+			// forbidding the attribute it mitigates. Browsers have implied
+			// `rel="noopener"` on `target="_blank"` since 2021, so the historic
+			// reverse-tabnabbing route is closed in the engine as well.
+			//
+			// `target` is restricted to the two values an editor has a reason to
+			// write. `true` would have admitted `_top`, `_parent` and named
+			// browsing contexts too — which, on a page embedded in an iframe, let a
+			// link navigate the embedding document. That is wider than the case
+			// this entry exists for, and wp_kses can express the narrower one.
+			'a' => [
+				'class' => true,
+				'href' => true,
+				'rel' => true,
+				'title' => true,
+				'target' => [ 'values' => [ '_blank', '_self' ] ],
+				'aria-label' => true,
+			],
 			'img' => [ 'class' => true, 'src' => true, 'alt' => true, 'width' => true, 'height' => true, 'srcset' => true, 'sizes' => true, 'loading' => true ],
 			'figure' => [ 'class' => true ],
 			'figcaption' => [ 'class' => true ],
