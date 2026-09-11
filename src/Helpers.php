@@ -3312,7 +3312,21 @@ class Helpers {
 		};
 
 		return [
-			'text' => $enabled ? (string) ( $value['text'] ?? '' ) : '',
+			// Sanitised, not returned raw. The announcement bar renders this
+			// through Alpine's `x-html`, so whatever the editor stored reaches
+			// the DOM as markup — an editor with contributor rights could put a
+			// script there. Every other editor-content path in this class
+			// already goes through wp_kses(); this one was the exception.
+			//
+			// getEditorAllowedHtml() rather than wp_kses_post(): this IS editor
+			// richtext, and it is the list this class already defines for it.
+			//
+			// No html_entity_decode() first, unlike formatLink() below. That
+			// one decodes because a link field arrives entity-encoded from
+			// WordPress; an ACF wysiwyg field does not, and decoding here would
+			// turn stored `&lt;script&gt;` text back into a tag before kses saw
+			// it.
+			'text' => $enabled ? wp_kses( (string) ( $value['text'] ?? '' ), self::getEditorAllowedHtml() ) : '',
 			'date_from' => $enabled ? $day_bound( $dates['date_from'] ?? null, false ) : 0,
 			'date_to' => $enabled ? $day_bound( $dates['date_to'] ?? null, true ) : 0,
 		];
