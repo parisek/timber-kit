@@ -701,7 +701,13 @@ class Helpers {
 			'blockquote' => [ 'class' => true, 'cite' => true ],
 			'hr' => [ 'class' => true ],
 			'span' => [ 'class' => true ],
-			'a' => [ 'class' => true, 'href' => true, 'rel' => true, 'title' => true ],
+			// `target` and `aria-label` are presentational and assistive, not
+			// scripting surfaces. `rel` was already here, which was the odd half of
+			// a pair: the list permitted the mitigation for `target="_blank"` while
+			// forbidding the attribute it mitigates. Browsers have implied
+			// `rel="noopener"` on `target="_blank"` since 2021, so the historic
+			// reverse-tabnabbing route is closed in the engine as well.
+			'a' => [ 'class' => true, 'href' => true, 'rel' => true, 'title' => true, 'target' => true, 'aria-label' => true ],
 			'img' => [ 'class' => true, 'src' => true, 'alt' => true, 'width' => true, 'height' => true, 'srcset' => true, 'sizes' => true, 'loading' => true ],
 			'figure' => [ 'class' => true ],
 			'figcaption' => [ 'class' => true ],

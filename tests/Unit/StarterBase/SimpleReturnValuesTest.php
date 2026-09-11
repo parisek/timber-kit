@@ -108,7 +108,16 @@ class SimpleReturnValuesTest extends StarterBaseTestCase {
 		$this->assertArrayHasKey( 'img', $captured_allowed );
 		$this->assertArrayHasKey( 'span', $captured_allowed );
 		$this->assertSame( [ 'class' => true ], $captured_allowed['span'] );
-		$this->assertArrayNotHasKey( 'target', $captured_allowed['a'] );
+		// `target` and `aria-label` ARE permitted on an anchor — presentational
+		// and assistive, not scripting surfaces, and `rel` was always allowed,
+		// which left the list permitting the mitigation for `target="_blank"`
+		// while forbidding the attribute it mitigates. This assertion used to
+		// read `assertArrayNotHasKey`, pinning the list as it happened to stand
+		// rather than as anyone had decided.
+		$this->assertArrayHasKey( 'target', $captured_allowed['a'] );
+		$this->assertArrayHasKey( 'aria-label', $captured_allowed['a'] );
+		// The boundary that IS deliberate: no inline event handler, anywhere.
+		$this->assertArrayNotHasKey( 'onclick', $captured_allowed['a'] );
 		$this->assertArrayNotHasKey( 'iframe', $captured_allowed );
 		$this->assertArrayNotHasKey( 'script', $captured_allowed );
 		$this->assertArrayNotHasKey( 'style', $captured_allowed['p'] );
