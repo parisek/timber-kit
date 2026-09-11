@@ -39,8 +39,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   breadcrumbs to the schema markup"), and its `enable` key gates the visual
   widget on a path the graph never reads.
 
-  Covers AIOSEO and Yoast. Rank Math is not covered; its filter surface was not
-  examined.
+  Both plugins are filtered on the finished graph — `aioseo_schema_output` and
+  `wpseo_schema_graph` — so the node and the `breadcrumb` property that
+  references it by `@id` go in one pass. Removing only the node would leave a
+  reference to an id that no longer resolves, which is worse than the duplicate.
+
+  Rank Math is not covered; its filter surface was not examined.
 
   **Upgrade note:** set it `false` on a site that wants both lists. A site whose
   theme renders no breadcrumb loses the plugin's list and gains nothing — 8 of

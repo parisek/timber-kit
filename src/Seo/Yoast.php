@@ -52,21 +52,24 @@ final class Yoast {
 	}
 
 	/**
-	 * Two filters, because Yoast offers no seam on the finished graph.
+	 * One filter on the finished graph, the same shape as {@see Aioseo}.
 	 *
-	 * The pieces filter removes the generator; the WebPage filter removes the
-	 * `breadcrumb` property that points at what the generator would have built.
-	 * Either alone is wrong: the first leaves a dangling `@id` reference, the
-	 * second leaves the node it was meant to describe.
+	 * `wpseo_schema_graph` hands over the array of rendered pieces, so the
+	 * BreadcrumbList node and the `breadcrumb` property that references it by
+	 * `@id` are removed in the same pass and cannot fall out of step.
 	 *
-	 * Priority 11 on both, so a project filter registered at the default 10 has
-	 * already run and this sees what it produced.
+	 * The alternative — `wpseo_schema_graph_pieces` plus `wpseo_schema_webpage`
+	 * — needs two filters that must agree, and matches Yoast's generator by its
+	 * fully-qualified class name, which is internal and free to move. Verified
+	 * against the plugin: `webpage.php` is the only generator that sets
+	 * `breadcrumb`, so nothing is missed by working one level up.
 	 *
-	 * @param callable $pieces    Callback taking the graph pieces, returning them.
-	 * @param callable $reference Callback taking the WebPage node, returning it.
+	 * Priority 11, so a project filter registered at the default 10 has already
+	 * run and this sees what it produced.
+	 *
+	 * @param callable $filter Callback taking the graph, returning it.
 	 */
-	public static function registerBreadcrumbSuppression( callable $pieces, callable $reference ): void {
-		add_filter( 'wpseo_schema_graph_pieces', $pieces, 11 );
-		add_filter( 'wpseo_schema_webpage', $reference, 11 );
+	public static function registerBreadcrumbSuppression( callable $filter ): void {
+		add_filter( 'wpseo_schema_graph', $filter, 11 );
 	}
 }

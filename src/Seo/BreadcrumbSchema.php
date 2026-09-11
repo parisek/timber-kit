@@ -33,9 +33,9 @@ namespace Parisek\TimberKit\Seo;
  * **The trap this class exists to close.** Both plugins' WebPage node points at
  * the list by `@id`. Removing the list alone leaves a `breadcrumb` property
  * referencing an id that no longer resolves — a dangling reference is worse
- * than the duplicate it replaced. AIOSEO is filtered on the finished graph, so
- * node and reference go in one pass and cannot fall out of step. Yoast has no
- * equivalent seam and needs both of its filters.
+ * than the duplicate it replaced. Both plugins are therefore filtered on the
+ * finished graph — `aioseo_schema_output` and `wpseo_schema_graph` — so node and
+ * reference go in one pass and cannot fall out of step.
  */
 final class BreadcrumbSchema {
 
@@ -129,10 +129,7 @@ final class BreadcrumbSchema {
 		}
 
 		if ( 'yoast' === $plugin ) {
-			Yoast::registerBreadcrumbSuppression(
-				array( self::class, 'stripPieces' ),
-				array( self::class, 'stripReference' )
-			);
+			Yoast::registerBreadcrumbSuppression( array( self::class, 'stripGraph' ) );
 		}
 	}
 
@@ -169,46 +166,4 @@ final class BreadcrumbSchema {
 		return $kept;
 	}
 
-	/**
-	 * Drop Yoast's breadcrumb generator from its graph pieces.
-	 *
-	 * The class is matched by name rather than imported: Yoast is a plugin, so
-	 * the class may not exist, and this filter never fires when it does not.
-	 *
-	 * @param mixed $pieces Schema graph pieces Yoast is about to render.
-	 * @return mixed The pieces without the breadcrumb one.
-	 */
-	public static function stripPieces( $pieces ) {
-		if ( ! is_array( $pieces ) ) {
-			return $pieces;
-		}
-
-		return array_values(
-			array_filter(
-				$pieces,
-				static function ( $piece ) {
-					return ! is_a( $piece, 'Yoast\\WP\\SEO\\Generators\\Schema\\Breadcrumb' );
-				}
-			)
-		);
-	}
-
-	/**
-	 * Drop the `breadcrumb` reference from Yoast's WebPage node.
-	 *
-	 * Companion to {@see stripPieces()}. Without it the WebPage node keeps a
-	 * property pointing at an `@id` that is no longer in the graph.
-	 *
-	 * @param mixed $data Yoast's WebPage node.
-	 * @return mixed The node without its breadcrumb reference.
-	 */
-	public static function stripReference( $data ) {
-		if ( ! is_array( $data ) ) {
-			return $data;
-		}
-
-		unset( $data['breadcrumb'] );
-
-		return $data;
-	}
 }

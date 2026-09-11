@@ -65,25 +65,6 @@ final class BreadcrumbSchemaTest extends TestCase {
 		$this->assertNull( BreadcrumbSchema::stripGraph( null ) );
 	}
 
-	public function test_yoast_loses_its_breadcrumb_piece(): void {
-		$keep   = new \stdClass();
-		$pieces = array( $keep, new FakeYoastBreadcrumb(), $keep );
-
-		$result = BreadcrumbSchema::stripPieces( $pieces );
-
-		$this->assertCount( 2, $result );
-		$this->assertSame( $keep, $result[0] );
-	}
-
-	public function test_yoast_webpage_loses_its_breadcrumb_reference(): void {
-		$node = array( '@type' => 'WebPage', 'breadcrumb' => array( '@id' => 'x' ), 'name' => 'Page' );
-
-		$this->assertSame(
-			array( '@type' => 'WebPage', 'name' => 'Page' ),
-			BreadcrumbSchema::stripReference( $node )
-		);
-	}
-
 	/**
 	 * The plugin's own switch decides. On means the editor asked for the
 	 * plugin's breadcrumbs, and taking the markup away would be overruling
@@ -118,8 +99,3 @@ final class BreadcrumbSchemaTest extends TestCase {
 		$this->assertTrue( BreadcrumbSchema::shouldSuppress( 'yoast', null ) );
 	}
 }
-
-/** Stands in for Yoast's generator, which is not installed in the test run. */
-class FakeYoastBreadcrumb {}
-
-\class_alias( FakeYoastBreadcrumb::class, 'Yoast\\WP\\SEO\\Generators\\Schema\\Breadcrumb' );
