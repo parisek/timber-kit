@@ -102,6 +102,20 @@ final class BreadcrumbSchemaTest extends TestCase {
 	/** No plugin, nothing to take away. */
 	public function test_no_seo_plugin_means_nothing_to_suppress(): void {
 		$this->assertFalse( BreadcrumbSchema::shouldSuppress( null, false ) );
+		$this->assertFalse( BreadcrumbSchema::shouldSuppress( null, null ) );
+	}
+
+	/**
+	 * A missing switch is not an off switch.
+	 *
+	 * AIOSEO's exists only on sites that had breadcrumbs off before the setting
+	 * was deprecated, and it sits on a removal list. Reading absence as "off"
+	 * happens to give the right answer today and would invert the moment the
+	 * plugin drops the key — so absence means no signal, and the flag governs.
+	 */
+	public function test_a_plugin_with_no_such_switch_falls_back_to_the_flag(): void {
+		$this->assertTrue( BreadcrumbSchema::shouldSuppress( 'aioseo', null ) );
+		$this->assertTrue( BreadcrumbSchema::shouldSuppress( 'yoast', null ) );
 	}
 }
 

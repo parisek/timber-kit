@@ -34,12 +34,18 @@ final class Yoast {
 	/**
 	 * Whether Yoast's own breadcrumb feature is switched on.
 	 *
-	 * Read through `WPSEO_Options` rather than the option row, which holds a
-	 * validated set. Unreadable counts as off, matching {@see Aioseo}.
+	 * Read through `WPSEO_Options`, which holds a validated set, rather than the
+	 * option row. Returns null when Yoast is not loaded, matching
+	 * {@see Aioseo::breadcrumbsEnabled()} — the caller's flag then governs.
+	 *
+	 * Unlike AIOSEO's, this setting is current rather than deprecated, so a
+	 * `null` here means the plugin is absent and nothing more.
+	 *
+	 * @return bool|null
 	 */
-	public static function breadcrumbsEnabled(): bool {
+	public static function breadcrumbsEnabled(): ?bool {
 		if ( ! class_exists( 'WPSEO_Options' ) ) {
-			return false;
+			return null;
 		}
 
 		return (bool) \WPSEO_Options::get( 'breadcrumbs-enable', false );

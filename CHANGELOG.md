@@ -21,13 +21,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   on `sloneek` Yoast's leaf was the editor's internal working title rather than
   the rendered heading.
 
-  **Tied to the plugin's own "Enable Breadcrumbs" switch.** Turn that on and this
-  stands aside: an editor who asked for the plugin's breadcrumbs wants its markup
-  too. That is the escape hatch, and it needs no code. Neither plugin offers a
-  setting that drops only the schema — AIOSEO's own settings screen says so
-  outright ("By default AIOSEO will automatically add breadcrumbs to the schema
-  markup"), and its `enable` key gates the visual widget on a path the graph
-  never reads.
+  **Defers to the plugin's own "Enable Breadcrumbs" switch where that switch
+  exists.** Turn it on and this stands aside: an editor who asked for the
+  plugin's breadcrumbs wants its markup too.
+
+  That switch is a legacy remnant, not a current setting, and the distinction
+  matters. AIOSEO's upgrade routine adds `breadcrumbsEnable` to its
+  deprecated-options list **only** on a site that had breadcrumbs explicitly
+  switched off; a site that never touched it has no such switch and breadcrumbs
+  are simply on. The key also sits in `allDeprecatedOptions`, a removal list. So
+  a missing switch is read as **no signal**, not as "off", and the flag governs
+  — otherwise the behaviour would invert on the release that drops the key. All
+  26 projects on this kit currently carry it.
+
+  Neither plugin offers a setting that drops only the schema. AIOSEO's own
+  settings screen says so outright ("By default AIOSEO will automatically add
+  breadcrumbs to the schema markup"), and its `enable` key gates the visual
+  widget on a path the graph never reads.
 
   Covers AIOSEO and Yoast. Rank Math is not covered; its filter surface was not
   examined.

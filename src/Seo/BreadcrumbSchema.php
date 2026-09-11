@@ -61,16 +61,25 @@ final class BreadcrumbSchema {
 	 * outlive the test that defined them, so a `function_exists` false branch
 	 * cannot be tested once any test in the run has stubbed the symbol.
 	 *
+	 * Three answers, not two. `null` means the plugin offers no such switch on
+	 * this install — AIOSEO's exists only on sites that had breadcrumbs off
+	 * before it deprecated the setting — and that is not the same as "off". A
+	 * missing switch is no signal, so the caller's flag governs and the
+	 * behaviour cannot silently invert on the release that removes it.
+	 *
 	 * @param string|null $plugin          Result of {@see Plugin::active()}.
-	 * @param bool        $pluginOwnEnabled Whether the plugin's own breadcrumb
-	 *                                      feature is switched on. An unreadable
-	 *                                      setting is passed as false, so the
-	 *                                      flag's own default governs.
+	 * @param bool|null   $pluginOwnEnabled Whether the plugin's own breadcrumb
+	 *                                      feature is switched on, or null when
+	 *                                      it has no such switch here.
 	 * @return bool
 	 */
-	public static function shouldSuppress( ?string $plugin, bool $pluginOwnEnabled ): bool {
+	public static function shouldSuppress( ?string $plugin, ?bool $pluginOwnEnabled ): bool {
 		if ( null === $plugin ) {
 			return false;
+		}
+
+		if ( null === $pluginOwnEnabled ) {
+			return true;
 		}
 
 		return ! $pluginOwnEnabled;
@@ -91,7 +100,7 @@ final class BreadcrumbSchema {
 	public static function boot(): void {
 		$plugin = Plugin::active();
 
-		$enabled = false;
+		$enabled = null;
 		if ( 'aioseo' === $plugin ) {
 			$enabled = Aioseo::breadcrumbsEnabled();
 		}

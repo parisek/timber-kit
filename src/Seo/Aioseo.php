@@ -32,14 +32,32 @@ final class Aioseo {
 	/**
 	 * Whether AIOSEO's own "Enable Breadcrumbs" switch is on.
 	 *
-	 * The value lives in a deprecated namespace and is only live while
-	 * `breadcrumbsEnable` is listed in the plugin's deprecated options, so it is
-	 * read through the plugin's API rather than off the option row. Unreadable
-	 * counts as off: the caller's flag then governs.
+	 * Returns null when the switch does not exist on this install, which is a
+	 * third answer and not the same as off.
+	 *
+	 * **The switch is a legacy remnant, not a current setting.** AIOSEO's
+	 * upgrade routine `deprecateBreadcrumbsEnabledSetting()` adds
+	 * `breadcrumbsEnable` to the deprecated-options list **only** on a site that
+	 * had breadcrumbs explicitly switched off; a site that never touched it gets
+	 * nothing, and breadcrumbs are simply on. So membership in that list is the
+	 * question, and the plugin's own code asks it before every read of the value
+	 * — see `Breadcrumbs\Frontend::display()` and `Breadcrumbs\Block.php`.
+	 * Reading the value without the guard is reading a key that may not exist.
+	 *
+	 * It also sits in `allDeprecatedOptions`, which is a removal list. When the
+	 * plugin drops it, membership goes false everywhere and this returns null —
+	 * the caller's flag then governs, and the behaviour does not silently
+	 * invert.
+	 *
+	 * @return bool|null True or false when the switch exists, null when it does not.
 	 */
-	public static function breadcrumbsEnabled(): bool {
+	public static function breadcrumbsEnabled(): ?bool {
 		if ( ! function_exists( 'aioseo' ) ) {
-			return false;
+			return null;
+		}
+
+		if ( ! in_array( 'breadcrumbsEnable', (array) aioseo()->internalOptions->deprecatedOptions, true ) ) {
+			return null;
 		}
 
 		// No `??` here, and that is load-bearing. AIOSEO resolves options through

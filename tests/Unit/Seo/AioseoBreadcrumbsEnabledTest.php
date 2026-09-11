@@ -38,15 +38,27 @@ final class AioseoBreadcrumbsEnabledTest extends TestCase {
 	}
 
 	public function test_the_switch_being_on_is_read_through_a_magic_getter(): void {
-		Functions\when( 'aioseo' )->justReturn( new FakeAioseo( true ) );
+		Functions\when( 'aioseo' )->justReturn( new FakeAioseo( true, array( 'breadcrumbsEnable' ) ) );
 
 		$this->assertTrue( Aioseo::breadcrumbsEnabled() );
 	}
 
 	public function test_the_switch_being_off_reads_as_off(): void {
-		Functions\when( 'aioseo' )->justReturn( new FakeAioseo( false ) );
+		Functions\when( 'aioseo' )->justReturn( new FakeAioseo( false, array( 'breadcrumbsEnable' ) ) );
 
 		$this->assertFalse( Aioseo::breadcrumbsEnabled() );
+	}
+
+	/**
+	 * The switch only exists on a site that had breadcrumbs off before AIOSEO
+	 * deprecated the setting, and it sits on that plugin's removal list. Where
+	 * it is absent the value must not be read at all — the plugin's own code
+	 * checks membership before every read, and so does this.
+	 */
+	public function test_an_absent_switch_reads_as_no_answer_rather_than_off(): void {
+		Functions\when( 'aioseo' )->justReturn( new FakeAioseo( false, array() ) );
+
+		$this->assertNull( Aioseo::breadcrumbsEnabled() );
 	}
 }
 
@@ -59,11 +71,16 @@ final class AioseoBreadcrumbsEnabledTest extends TestCase {
  */
 class FakeAioseo {
 
-	public function __construct( private bool $enable ) {}
+	/** @param array<int, string> $deprecated */
+	public function __construct( private bool $enable, private array $deprecated ) {}
 
 	public function __get( string $name ): mixed {
 		if ( 'enable' === $name ) {
 			return $this->enable;
+		}
+
+		if ( 'deprecatedOptions' === $name ) {
+			return $this->deprecated;
 		}
 
 		return $this;
