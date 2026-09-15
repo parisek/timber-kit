@@ -315,8 +315,10 @@ final class DevMediaProxy {
 		$remote_images = [];
 		foreach ( $variants as $variant ) {
 			$remote_variant = self::build_remote_resizer_variant( $variant, $filename, $default_image, $target_format, $image_cache_dir, $uploads_base_url );
-			// Probe the bare URL, serve the versioned one, so a local render
-			// carries the same URL production does.
+			// Probe the bare URL, serve the versioned one. The origin serves the
+			// file whatever the query, and the probe memo is keyed by URL, so a
+			// bare probe survives version bumps; the served URL matches
+			// production's.
 			if ( self::remote_variant_exists( $remote_variant['src'] ) ) {
 				$remote_variant['src'] = Resizer::appendCacheVersion( $remote_variant['src'], $cache_version );
 				$remote_images[] = $remote_variant;

@@ -25,7 +25,7 @@ class CacheVersionTest extends ResizerTestCase {
 	}
 
 	private function append( string $url, string $version ): string {
-		return ( new \ReflectionMethod( Resizer::class, 'appendCacheVersion' ) )->invoke( null, $url, $version );
+		return Resizer::appendCacheVersion( $url, $version );
 	}
 
 	public function test_empty_version_leaves_the_url_unchanged(): void {
@@ -80,6 +80,37 @@ class CacheVersionTest extends ResizerTestCase {
 			[ [ '900', '0', '', 'center' ] ]
 		);
 
+		$this->assertIsArray( $context );
 		$this->assertSame( '5', $context['cache_version'] ?? null );
+	}
+
+	/**
+	 * The line the feature exists for: a derivative returned by resizer()
+	 * carries the version, and the source appended after it does not.
+	 */
+	public function test_resizer_returns_versioned_derivatives_and_an_unversioned_source(): void {
+		Monkey\setUp();
+		Functions\when( 'wp_upload_dir' )->justReturn( [
+			'basedir' => '/var/www/wp-content/uploads',
+			'baseurl' => 'https://example.com/wp-content/uploads',
+		] );
+		Functions\when( 'wp_check_filetype' )->alias(
+			fn ( $f ) => [ 'type' => str_ends_with( (string) $f, '.avif' ) ? 'image/avif' : 'image/png', 'ext' => '' ]
+		);
+		Functions\when( 'sanitize_file_name' )->alias( fn( $n ) => (string) $n );
+		Functions\when( 'content_url' )->alias( fn ( $p = '' ) => 'https://example.com/wp-content/' . ltrim( (string) $p, '/' ) );
+		Functions\when( 'apply_filters' )->alias(
+			fn ( $filter, $default ) => 'timber_kit_resizer_cache_version' === $filter ? '9' : $default
+		);
+		// Source and target both on disk: the cached-hit branch, no encoding.
+		\Patchwork\redefine( 'file_exists', fn () => true );
+
+		$images = ( new Resizer() )->resizer(
+			[ 'src' => 'https://example.com/wp-content/uploads/hero.png', 'width' => 1000, 'height' => 1000, 'alt' => '' ],
+			[ [ '900', '0', '', 'center' ] ]
+		);
+
+		$this->assertStringEndsWith( '/hero.avif?v=9', $images[0]['src'] );
+		$this->assertSame( 'https://example.com/wp-content/uploads/hero.png', end( $images )['src'] );
 	}
 }

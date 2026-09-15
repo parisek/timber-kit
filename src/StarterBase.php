@@ -949,8 +949,7 @@ class StarterBase extends Site {
 	 *
 	 * Empty by default, which leaves URLs unchanged. Set or bump it to force
 	 * browsers, the proxy and a CDN to fetch derivatives again, for example
-	 * after they were regenerated at the same path (`wp timber-kit
-	 * clear-image-cache`). It changes URLs only: files on disk are not
+	 * after they were regenerated at the same path. It changes URLs only: files on disk are not
 	 * regenerated, and a CDN set to ignore query strings does not see it.
 	 * Purge the page cache so HTML carries the new URLs.
 	 *

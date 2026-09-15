@@ -15,7 +15,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `max-age=2592000`), so without it a returning visitor keeps an old copy for
   up to 30 days. URLs only: files on disk are untouched, and a CDN that
   ignores query strings does not see it. Empty by default, which leaves URLs
-  byte-identical, so no flag. DevMediaProxy carries the same version.
+  byte-identical, so no flag. DevMediaProxy carries the same version, and
+  the block cache key includes it when set.
 
 ## [1.53.0] - 2026-09-15
 
