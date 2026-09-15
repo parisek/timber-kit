@@ -563,12 +563,15 @@ of these went undocumented for several releases.
 |---|---|
 | `wp timber-kit updates` | Runs pending block-data migrations. See § Block data migrations. |
 | `wp timber-kit prune-originals` | Deletes preserved full-resolution originals of `-scaled` images. See § Media processing. |
+| `wp timber-kit rescale-originals` | Re-runs the upload pipeline from preserved originals, so a raised `$big_image_size_threshold` reaches existing `-scaled` images. Dry-run by default, `--apply` to write. See § Media processing. |
 | `wp timber-kit svg-dimensions` | Derives and stores intrinsic `width`/`height` for SVG attachments that have none. See § SVG dimensions. |
 | `wp timber-kit convert-utf8mb4` | Converts legacy `utf8` tables and columns to `utf8mb4`. |
 | `wp timber-kit acfml-sync-preferences` | Reconciles WPML translation preferences for programmatically written ACF meta. See § ACFML preference sync. |
 | `wp timber-kit wpml-cleanup-theme-domain` | Purges WPML String Translation rows and compiled files left behind for a text domain that is no longer registered with ST. See § WPML theme-domain cleanup. |
 | `wp timber-kit outage-screen` | Installs the drop-ins that serve the theme's prerendered outage screen. See § Outage screen. |
 | `wp timber-kit migrate-image-cache` | Moves existing resizer cache derivatives into the source-path layout, ahead of enabling `$resizer_source_path_in_cache_key`. Dry-run by default, `--apply` to write. |
+
+Write flags differ between commands: `migrate-image-cache` and `rescale-originals` write only with `--apply`; the others write by default and take `--dry-run`. Check `wp help timber-kit <command>`.
 
 ---
 
@@ -1173,6 +1176,51 @@ wp timber-kit prune-originals --limit=500          # cap the batch
 ```
 
 The command only prunes genuine size-driven `-scaled` downscales — it leaves originals preserved for EXIF rotation or format conversion untouched, and never strips the `original_image` pointer unless the file was actually deleted. The trade-off it makes permanent: future regeneration of those images falls back to the `-scaled` file. See `\Parisek\TimberKit\OriginalImagePruner`.
+
+#### Raising the threshold for existing images
+
+`$big_image_size_threshold` applies at upload. Raising it later leaves every image already uploaded as a `-scaled` copy at the old, smaller size. `rescale-originals` re-runs core's upload pipeline from the preserved original, so the current threshold applies:
+
+```bash
+wp timber-kit rescale-originals                    # report the plan, write nothing
+wp timber-kit rescale-originals 232 270 --apply    # selected attachments
+wp timber-kit rescale-originals --apply --verbose  # every -scaled attachment, one line each
+wp timber-kit rescale-originals --apply --limit=50 # stop after 50 files, rerun for the next batch
+```
+
+Without IDs the command takes every attachment whose `_wp_attached_file` is `-scaled`, plus any row a killed run left journalled. Rows over one file (WPML translations) count as one file. The summary line counts each status; `--verbose` prints one line per attachment with the served size and the sibling rows written with it.
+
+| Status | Meaning |
+| --- | --- |
+| `restored` / `would_restore` | The original fits under the threshold and is now served (planned, in a dry run). |
+| `rescaled` / `would_rescale` | The original is larger; a new `-scaled` copy at the threshold is served. |
+| `unchanged` | The served file is already as large as the threshold allows. Also the result after a lowered threshold. |
+| `interrupted` | Dry run only: a killed run left this row journalled. The next `--apply` run puts it back first. |
+| `not_scaled` | The file is not a size-driven `-scaled` copy (e.g. a `-rotated` upload). |
+| `no_original` | The metadata names no preserved original. |
+| `missing` | The original is gone from disk, typically after `prune-originals`. |
+| `failed` | Nothing was left changed. The warning line names the reason. |
+
+Per attachment the result is one of two:
+
+- **The original fits under the threshold** (`restored`): the attachment now serves the original.
+- **The original is still larger** (`rescaled`): core writes a new `-scaled` copy at the threshold.
+
+Core's `wp media regenerate` reads the original too, but it covers only the second case. `wp_create_image_subsizes()` rewrites `_wp_attached_file` only when it downscales, so in the first case the metadata describes the original while every URL still serves the old `-scaled` file. The command re-points the attachment first. It also writes the result to every attachment row over the same file (WPML syncs the attached file between translations, not the metadata), and deletes the resizer cache derivatives of the old file (a `rescaled` image keeps its file name, so the cache would otherwise keep serving crops cut from the smaller copy).
+
+The command only grows images. After a **lowered** threshold every attachment reports `unchanged`; shrinking is `wp media regenerate` territory. A threshold of `0` (scaling disabled) restores every original at full size.
+
+Core reports no failure from `wp_create_image_subsizes()`: when the image editor cannot load, resize or save, or a sub-size fails, it returns metadata anyway. So the command trusts only what it reads back. An attachment counts as done when its attached file matches the new metadata, the served file on disk measures within the threshold and larger than before, every row sharing the file reads back the written values, and core reports no missing sub-size. Anything else rolls every row back, and puts the old `-scaled` file back from a copy (a rescale writes the new file over it under the same name). The threshold is pinned for the duration of the call, so core and the check use one value. Metadata keys core does not own (added by other plugins) survive on every row.
+
+Each attachment is journalled in post meta (`_timber_kit_rescale_journal`) before the first write, and its `-scaled` file is copied to `<name>-scaled.<ext>.rescale-backup` beside it. A process killed mid-attachment leaves both behind; the next run lists the row as `interrupted` in a dry run and puts it back before processing it. When the backup is gone and the `-scaled` file no longer matches the journal, the run refuses to roll back, keeps the journal and reports why. Files core wrote on the way (sub-sizes, a `-rotated` or converted copy) stay on disk. A `.rescale-backup` whose attachment has no journal is a leftover copy and safe to delete. Metadata is read and compared unfiltered, so a plugin that filters `wp_get_attachment_metadata` does not fail the check.
+
+Known limits: the journal is not a lock, so **do not run two instances at once**. Recovery restores the journalled state of every row, so an edit made to a sibling row between a killed run and the next run is overwritten. The journal stores an absolute path, so recover on the same host before moving the uploads directory.
+
+The old `-scaled` file stays on disk in every case. After a `restored` result the metadata no longer carries `original_image`, so `prune-originals` reports the attachment `not_scaled` and nothing in the kit reclaims that file.
+
+With `$resizer_source_path_in_cache_key` off, the cache purge matches derivatives by file name alone, as `cleanup_cached_images()` does. Another upload with the same name in a different directory loses its cached derivatives too; they are regenerated on the next request.
+
+The command reads originals, so **run it before `prune-originals`, never after**. See `\Parisek\TimberKit\OriginalImageRescaler`.
 
 #### SVG dimensions
 

@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `wp timber-kit rescale-originals` re-runs the upload pipeline from the
+  originals WordPress preserved beside `-scaled` images, so a raised
+  `$big_image_size_threshold` reaches images uploaded under a lower one.
+  Dry-run by default, `--apply` to write. An original that now fits serves
+  as-is; a larger one gets a new `-scaled` copy at the threshold.
+
+  **Why not `wp media regenerate`.** Core rewrites `_wp_attached_file` only
+  when it downscales. For an original that now fits, regenerate leaves the
+  metadata describing the original and every URL serving the old `-scaled`
+  file. The command also copies the result to every attachment row over the
+  same file (WPML translations) and purges the stale resizer derivatives.
+
+  Core reports no failure from `wp_create_image_subsizes()`, so the command
+  trusts only what it reads back: attached file, served dimensions, every
+  sibling row, missing sub-sizes. Anything else rolls every row and the old
+  `-scaled` file back. Each attachment is journalled first, so a killed run is
+  put back by the next one. It only grows images; a lowered threshold reports
+  `unchanged`.
+
 ## [1.51.0] - 2026-09-11
 
 ### Added

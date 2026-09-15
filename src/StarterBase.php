@@ -1048,6 +1048,11 @@ class StarterBase extends Site {
 	 * originals — a deliberate opt-in sweep, never an on-upload hook. See
 	 * {@see \Parisek\TimberKit\OriginalImagePruner}.
 	 *
+	 * `timber-kit rescale-originals` is its counterpart: it re-runs the upload
+	 * pipeline from those originals, so a raised `$big_image_size_threshold`
+	 * reaches images uploaded under a lower one. See
+	 * {@see \Parisek\TimberKit\OriginalImageRescaler}.
+	 *
 	 * `timber-kit wpml-cleanup-theme-domain` is the companion cleanup for
 	 * `$wpml_theme_domain_authoritative` — it purges the WPML String
 	 * Translation rows and compiled `.mo`/`.l10n.php`/`.json` files that were
@@ -1063,6 +1068,15 @@ class StarterBase extends Site {
 		}
 
 		\WP_CLI::add_command( 'timber-kit prune-originals', \Parisek\TimberKit\Cli\PruneOriginalsCommand::class );
+		\WP_CLI::add_command(
+			'timber-kit rescale-originals',
+			new \Parisek\TimberKit\Cli\RescaleOriginalsCommand(
+				new \Parisek\TimberKit\OriginalImageRescaler(
+					fn ( int $id ) => $this->purge_cached_images( $id ),
+					fn ( int $id ): array => $this->attachments_sharing_file( $id )
+				)
+			)
+		);
 		\WP_CLI::add_command( 'timber-kit convert-utf8mb4', \Parisek\TimberKit\Cli\ConvertUtf8mb4Command::class );
 		\WP_CLI::add_command( 'timber-kit updates', \Parisek\TimberKit\Cli\UpdatesCommand::class );
 		\WP_CLI::add_command( 'timber-kit acfml-sync-preferences', \Parisek\TimberKit\Cli\AcfmlSyncPreferencesCommand::class );
@@ -4117,6 +4131,27 @@ class StarterBase extends Site {
 			return;
 		}
 
+		$this->purge_cached_images( $attachment_id );
+	}
+
+	/**
+	 * Delete the resizer cache derivatives of an attachment's current file.
+	 *
+	 * Unlike {@see cleanup_cached_images()} this does not spare derivatives
+	 * that other attachment rows share. It is for the case where the file
+	 * itself is replaced, which makes them stale for every row:
+	 * `timber-kit rescale-originals` calls it before it re-points the rows.
+	 *
+	 * @param int $attachment_id Attachment post ID.
+	 * @return void
+	 */
+	protected function purge_cached_images( $attachment_id ) {
+		$file_path = get_attached_file( $attachment_id );
+
+		if ( ! $file_path ) {
+			return;
+		}
+
 		// Extract filename without path
 		$filename = basename( $file_path );
 		$path_info = pathinfo( $filename );
@@ -4405,6 +4440,37 @@ class StarterBase extends Site {
 		}
 
 		return (int) $shared > 0;
+	}
+
+	/**
+	 * Other attachment rows whose `_wp_attached_file` equals this one's.
+	 *
+	 * WPML writes one row per language over one file, and syncs the attached
+	 * file but not the metadata. A command that rewrites the file has to
+	 * rewrite every row, or the translations keep describing the old one.
+	 *
+	 * @param int $attachment_id Attachment post ID.
+	 * @return list<int>
+	 */
+	protected function attachments_sharing_file( $attachment_id ) {
+		global $wpdb;
+
+		$relative_path = get_post_meta( (int) $attachment_id, '_wp_attached_file', true );
+
+		if ( ! $wpdb instanceof \wpdb || ! is_string( $relative_path ) || '' === $relative_path ) {
+			return [];
+		}
+
+		$ids = $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT post_id FROM %i WHERE meta_key = '_wp_attached_file' AND meta_value = %s AND post_id != %d",
+				$wpdb->postmeta,
+				$relative_path,
+				(int) $attachment_id
+			)
+		);
+
+		return array_values( array_map( 'intval', (array) $ids ) );
 	}
 
 	/**
