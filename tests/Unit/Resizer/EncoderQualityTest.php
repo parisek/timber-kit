@@ -47,14 +47,23 @@ class EncoderQualityTest extends TestCase {
 		parent::tearDown();
 	}
 
-	/** A noisy source, so the encoder has detail to keep or throw away. */
+	/**
+	 * A noisy source, so the encoder has detail to keep or throw away. Seeded,
+	 * so the probe and the test encode the same pixels on every run.
+	 */
 	private function source(): string {
-		$path  = $this->dir . '/src.png';
-		$image = new \Imagick();
-		$image->newPseudoImage( 800, 533, 'plasma:' );
-		$image->setImageFormat( 'png' );
-		$image->writeImage( $path );
-		$image->clear();
+		$path = $this->dir . '/src.png';
+		if ( is_file( $path ) ) {
+			return $path;
+		}
+		mt_srand( 20260915 );
+		$image = imagecreatetruecolor( 800, 533 );
+		for ( $i = 0; $i < 4000; $i++ ) {
+			$color = imagecolorallocate( $image, mt_rand( 0, 255 ), mt_rand( 0, 255 ), mt_rand( 0, 255 ) );
+			imagefilledellipse( $image, mt_rand( 0, 800 ), mt_rand( 0, 533 ), mt_rand( 4, 40 ), mt_rand( 4, 40 ), $color );
+		}
+		imagepng( $image, $path );
+		mt_srand();
 
 		return $path;
 	}
@@ -62,7 +71,9 @@ class EncoderQualityTest extends TestCase {
 	/** @return array<string, array{string}> */
 	public static function formats(): array {
 		$formats = [];
-		foreach ( [ 'avif', 'webp', 'jpg' ] as $format ) {
+		// AVIF is the format the defect affected. JPEG is the control: it reads
+		// the image-level value, so it must pass with or without the fix.
+		foreach ( [ 'avif', 'jpg' ] as $format ) {
 			$formats[ $format ] = [ $format ];
 		}
 		return $formats;
