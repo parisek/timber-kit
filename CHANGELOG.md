@@ -8,17 +8,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
-- AVIF variants are encoded at the requested quality. spatie/image's Imagick
-  driver sets the wand-level compression quality to `100 - $quality` for PNG,
-  and ImageMagick's AVIF coder reads that wand value, so quality ran backwards:
-  80 encoded as 20, and 100 fell back to the coder default. Measured on a
-  3000x2000 photo resized to 1600 px: 7 KB at SSIM 0.955 before, 44 KB at
-  SSIM 0.985 after. JPEG and WebP were unaffected.
+- AVIF variants are encoded at the requested quality. It never was before.
+  spatie/image's Imagick driver set the wand-level compression quality to
+  `100 - $quality`, meant for PNG, and ImageMagick's AVIF coder reads the wand
+  value. So `timber_kit_resizer_target_quality` ran backwards for AVIF:
+  80 encoded as 20, and the default 100 encoded as 0, which the coder treats
+  as its own default. The smart-crop path set only the image-level value,
+  which AVIF ignores, so it always ran at the coder default. JPEG and WebP
+  read the image-level value and were never affected.
 
-  **Cached AVIF files keep the old encoding.** The cache key does not change,
-  so a site sees the fix only after its AVIF derivatives are deleted from
-  `wp-content/cache/image/`. File sizes grow accordingly; a quality chosen by
-  measuring output before this fix was measured at `100 - quality`.
+  The Spatie paths are fixed by requiring spatie/image `^3.9.6`, which fixed
+  the driver upstream ([spatie/image#332](https://github.com/spatie/image/pull/332));
+  the smart-crop path is fixed here. Measured on one 3000x2000 photo resized to
+  1600 px (SSIM against a lossless resize):
+
+  | Setting | Before | After |
+  | --- | --- | --- |
+  | quality 80 | 7 KB, 0.955 | 44 KB, 0.985 |
+  | quality 100 (default) | 18 KB (coder default) | several times larger |
+
+  **What a site sees.** Cached AVIF files keep the old encoding: the cache key
+  does not change, so nothing moves until `wp-content/cache/image/` is
+  cleared. After that, sites that set a quality get the quality they set.
+  Sites on the default 100 get true quality 100 and should set an explicit
+  value. A quality chosen by comparing output before this release was compared
+  at a different effective value.
+
+### Changed
+
+- Requires spatie/image `^3.9.6` (was `^3.8`).
 
 ## [1.52.0] - 2026-09-15
 

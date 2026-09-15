@@ -129,6 +129,20 @@ Two GitHub Actions automate releases. **Never stamp + tag manually** unless the 
 4. **Latest** badge is auto-set only when the new tag is the highest semver — back-dated patch tags (e.g. `v1.3.1` after `v1.4.0` exists) won't steal it.
 
 If you ever need to back-fill a missing GitHub Release for an older tag manually: use `gh release create vX.Y.Z --latest=false`, otherwise it will steal the Latest badge. Then `gh release edit v<highest> --latest` to restore.
+- **Approved exception:** AVIF encoding honours `timber_kit_resizer_target_quality`
+  unconditionally — no flag. The owner reviewed it explicitly. The old
+  behaviour was a defect that failed invisibly: a site that set quality 80
+  shipped quality-20 pixels, and a site on the default shipped the coder's
+  default, with no error anywhere. A default-off flag would keep that running
+  on every site that did not flip it, and nobody flips a flag for a defect they
+  cannot see. Nothing changes until a site clears its AVIF cache, and the
+  CHANGELOG entry tells a site on the default quality to set an explicit value.
+  This is a named exception to the rule above, not a case of the rule being
+  skipped.
+- **CI AVIF encoder:** the Unit job's ImageMagick cannot write AVIF, so
+  `EncoderQualityTest` skips its AVIF cases there. The `AVIF encoder` job
+  installs libheif with an AV1 encoder and sets `TIMBERKIT_REQUIRE_AVIF_ENCODER`,
+  which turns that skip into a failure.
 
 ## Testing notes
 
