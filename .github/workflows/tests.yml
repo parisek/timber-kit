@@ -44,6 +44,26 @@ jobs:
           ERIS_SEED: ${{ github.run_id }}
         run: composer test:property
 
+  encoder:
+    # The Unit job's ImageMagick has no AVIF encoder, so EncoderQualityTest
+    # skips its AVIF cases there. This job installs one and makes a skip fail.
+    name: AVIF encoder
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install an AVIF-capable ImageMagick
+        run: sudo apt-get update && sudo apt-get install -y libmagickwand-dev libheif-dev libheif-plugin-aomenc libheif-plugin-dav1d
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: imagick, gd
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - name: Encoder quality test
+        env:
+          TIMBERKIT_REQUIRE_AVIF_ENCODER: '1'
+        run: vendor/bin/phpunit tests/Unit/Resizer/EncoderQualityTest.php
+
   adr-index:
     runs-on: ubuntu-latest
     name: docs/adr/ index is in sync

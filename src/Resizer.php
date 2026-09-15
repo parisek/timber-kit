@@ -1052,14 +1052,14 @@ class Resizer {
 						}
 						$imagick->cropImage( $cropRect['width'], $cropRect['height'], $cropRect['x'], $cropRect['y'] );
 						$imagick->setImageFormat( $target_format );
-						self::applyQuality( $imagick, $variant['quality'], $target_format );
+						self::applyImagickQuality( $imagick, $variant['quality'], $target_format );
 						$imagick->writeImage( $target_path );
 						$imagick->clear();
 						$imagick->destroy();
 					} else {
 						// Image is smaller than target, just resize without cropping
 						$imageGenerator->format( $target_format );
-						self::applyQuality( $imageGenerator, $variant['quality'], $target_format );
+						$imageGenerator->quality( $variant['quality'] );
 						$imageGenerator->save( $target_path );
 					}
 				}
@@ -1075,7 +1075,7 @@ class Resizer {
 					$imageGenerator->crop( $variant['width'], $variant['height'], $position );
 
 					$imageGenerator->format( $target_format );
-					self::applyQuality( $imageGenerator, $variant['quality'], $target_format );
+					$imageGenerator->quality( $variant['quality'] );
 
 					$imageGenerator->save( $target_path );
 				} else {
@@ -1088,7 +1088,7 @@ class Resizer {
 					}
 
 					$imageGenerator->format( $target_format );
-					self::applyQuality( $imageGenerator, $variant['quality'], $target_format );
+					$imageGenerator->quality( $variant['quality'] );
 
 					$imageGenerator->save( $target_path );
 				}
@@ -1126,31 +1126,17 @@ class Resizer {
 	}
 
 	/**
-	 * Set the encoder quality on a Spatie image or a raw Imagick wand.
+	 * Set the encoder quality on a raw Imagick wand, for the smart-crop path.
 	 *
-	 * ImageMagick keeps two quality settings, one on the image and one on the
-	 * wand, and its AVIF coder reads the wand one. spatie/image's Imagick driver
-	 * sets the wand value to `100 - $quality`, meant for PNG's compression
-	 * level, so an AVIF asked for at 80 was encoded at 20 and at 100 fell back to
-	 * the coder default. Every other target format gets the requested value on
-	 * the wand as well; PNG keeps Spatie's inversion, because for PNG the wand
-	 * value is a compression level, not a quality.
-	 *
-	 * @param \Spatie\Image\Drivers\ImageDriver|\Imagick $image
-	 * @param string $format Target format, as passed to the encoder.
+	 * ImageMagick keeps two quality settings. JPEG and WebP read the image
+	 * one; AVIF and PNG read the wand one, and for PNG it is a compression
+	 * level, where higher means smaller. Setting only the image value, as this
+	 * path did, left AVIF at the coder default whatever was asked for. The
+	 * Spatie paths get the same handling from spatie/image >= 3.9.6.
 	 */
-	public static function applyQuality( $image, int $quality, string $format ): void {
-		if ( $image instanceof \Imagick ) {
-			$image->setImageCompressionQuality( $quality );
-			$wand = $image;
-		} else {
-			$image->quality( $quality );
-			$wand = $image->image();
-		}
-
-		if ( $wand instanceof \Imagick && 'png' !== strtolower( $format ) ) {
-			$wand->setCompressionQuality( $quality );
-		}
+	private static function applyImagickQuality( \Imagick $image, int $quality, string $format ): void {
+		$image->setImageCompressionQuality( $quality );
+		$image->setCompressionQuality( 'png' === strtolower( $format ) ? 100 - $quality : $quality );
 	}
 
 	/**

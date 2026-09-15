@@ -10,15 +10,14 @@ use PHPUnit\Framework\TestCase;
 use Spatie\Image\Image;
 
 /**
- * A higher quality must produce a larger file, in every format and on both
- * encode paths.
+ * A higher quality must produce a larger file on both encode paths.
  *
- * Runs the real encoder, because the defect this pins lives in a dependency.
- * spatie/image's Imagick driver sets the wand-level compression quality to
- * `100 - $quality` "for PNGs". ImageMagick's AVIF coder reads that wand-level
- * value, not the image-level one, so on AVIF the setting ran backwards:
- * quality 80 encoded as 20, and a 1600 px photo came out at 7 KB. JPEG and
- * WebP read the image-level value and were unaffected.
+ * Runs the real encoder. ImageMagick's AVIF coder reads the wand-level quality,
+ * not the image-level one. spatie/image < 3.9.6 set the wand value to
+ * `100 - $quality` for every format, so AVIF quality ran backwards (80 encoded
+ * as 20); the Spatie case guards against that dependency coming back. The
+ * smart-crop path set only the image value, so AVIF ignored it; the Imagick
+ * case pins this package's own fix.
  */
 class EncoderQualityTest extends TestCase {
 
@@ -28,6 +27,9 @@ class EncoderQualityTest extends TestCase {
 		parent::setUp();
 
 		if ( ! extension_loaded( 'imagick' ) || ! extension_loaded( 'gd' ) ) {
+			if ( getenv( 'TIMBERKIT_REQUIRE_AVIF_ENCODER' ) ) {
+				$this->fail( 'TIMBERKIT_REQUIRE_AVIF_ENCODER is set, but Imagick or GD is missing.' );
+			}
 			$this->markTestSkipped( 'Imagick and GD are needed to encode.' );
 		}
 
@@ -68,6 +70,18 @@ class EncoderQualityTest extends TestCase {
 		return $path;
 	}
 
+	/**
+	 * Skip where the build cannot show the property, except in the CI job that
+	 * installs an AVIF encoder for exactly this test: there a skip would hide
+	 * the case the test exists for, so it fails instead.
+	 */
+	private function skipOrFail( string $format ): void {
+		if ( 'avif' === $format && getenv( 'TIMBERKIT_REQUIRE_AVIF_ENCODER' ) ) {
+			$this->fail( 'TIMBERKIT_REQUIRE_AVIF_ENCODER is set, but this ImageMagick build does not vary AVIF output with quality.' );
+		}
+		$this->markTestSkipped( "This ImageMagick build does not vary {$format} output with quality." );
+	}
+
 	/** @return array<string, array{string}> */
 	public static function formats(): array {
 		$formats = [];
@@ -104,15 +118,13 @@ class EncoderQualityTest extends TestCase {
 	#[DataProvider( 'formats' )]
 	public function test_spatie_path_grows_with_quality( string $format ): void {
 		if ( ! $this->supports( $format ) ) {
-			$this->markTestSkipped( "This ImageMagick build does not vary {$format} output with quality." );
+			$this->skipOrFail( $format );
 		}
 		$source = $this->source();
 		$sizes  = [];
 		foreach ( [ 30, 80 ] as $quality ) {
 			$target = "{$this->dir}/spatie-{$quality}.{$format}";
-			$image  = Image::load( $source )->width( 400 )->format( $format );
-			Resizer::applyQuality( $image, $quality, $format );
-			$image->save( $target );
+			Image::load( $source )->width( 400 )->format( $format )->quality( $quality )->save( $target );
 			$sizes[ $quality ] = filesize( $target );
 		}
 
@@ -122,14 +134,14 @@ class EncoderQualityTest extends TestCase {
 	#[DataProvider( 'formats' )]
 	public function test_imagick_path_grows_with_quality( string $format ): void {
 		if ( ! $this->supports( $format ) ) {
-			$this->markTestSkipped( "This ImageMagick build does not vary {$format} output with quality." );
+			$this->skipOrFail( $format );
 		}
 		$source = $this->source();
 		$sizes  = [];
 		foreach ( [ 30, 80 ] as $quality ) {
 			$image = new \Imagick( $source );
 			$image->setImageFormat( $format );
-			Resizer::applyQuality( $image, $quality, $format );
+			( new \ReflectionMethod( Resizer::class, 'applyImagickQuality' ) )->invoke( null, $image, $quality, $format );
 			$sizes[ $quality ] = strlen( $image->getImagesBlob() );
 			$image->clear();
 		}
