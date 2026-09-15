@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.53.0] - 2026-09-15
+
 ### Added
 
 - `Breadcrumb` logs a dropped listing step under `WP_DEBUG` (#183). When a
