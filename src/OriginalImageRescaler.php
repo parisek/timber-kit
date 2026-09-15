@@ -54,12 +54,13 @@ class OriginalImageRescaler {
 	 *
 	 * @param int  $attachment_id Attachment post ID.
 	 * @param bool $dry_run       When true, report the plan without writing.
-	 * @return array{status: string, width: int, height: int, siblings: list<int>}
+	 * @return array{status: string, width: int, height: int, siblings: list<int>, reason: string}
 	 *         status ∈ {restored, rescaled, would_restore, would_rescale,
 	 *         unchanged, interrupted, not_scaled, no_original, missing, failed};
 	 *         width and height describe the file served afterwards (planned, for
 	 *         dry-run). `interrupted` is dry-run only: a previous run died on
 	 *         this row, and the next real run puts it back before anything else.
+	 *         reason says why a `failed` row failed.
 	 */
 	public function rescale( int $attachment_id, bool $dry_run = false ): array {
 		$result = array(
@@ -67,6 +68,7 @@ class OriginalImageRescaler {
 			'width'    => 0,
 			'height'   => 0,
 			'siblings' => array(),
+			'reason'   => '',
 		);
 
 		$pending = get_post_meta( $attachment_id, self::JOURNAL_KEY, true );
@@ -74,10 +76,15 @@ class OriginalImageRescaler {
 			if ( $dry_run ) {
 				return array_merge( $result, array( 'status' => 'interrupted' ) );
 			}
-			$this->recover( $attachment_id, $pending );
+			$refusal = $this->recover( $attachment_id, $pending );
+			if ( null !== $refusal ) {
+				return array_merge( $result, array( 'status' => 'failed', 'reason' => $refusal ) );
+			}
 		}
 
-		$metadata = wp_get_attachment_metadata( $attachment_id );
+		// Unfiltered throughout: a plugin filtering the read (a CDN adding a URL)
+		// must neither be baked into the journal nor fail the read-back.
+		$metadata = wp_get_attachment_metadata( $attachment_id, true );
 
 		if ( ! is_array( $metadata ) || empty( $metadata['original_image'] ) || empty( $metadata['file'] ) ) {
 			return array_merge( $result, array( 'status' => 'no_original' ) );
@@ -125,7 +132,7 @@ class OriginalImageRescaler {
 
 		$journal = $this->writeJournal( $attachment_id, $siblings, $scaled_path );
 		if ( null === $journal ) {
-			return array_merge( $result, array( 'status' => 'failed', 'siblings' => array() ) );
+			return array_merge( $result, array( 'status' => 'failed', 'siblings' => array(), 'reason' => 'could not write the journal or the backup copy' ) );
 		}
 
 		// While _wp_attached_file still names the -scaled file: the purger
@@ -152,13 +159,16 @@ class OriginalImageRescaler {
 		}
 
 		$served = $this->verifyAndWrite( $attachment_id, $siblings, $journal, $new_metadata, $threshold, $current );
-		if ( null === $served ) {
+		if ( is_string( $served ) ) {
 			$this->recover( $attachment_id, $journal );
-			return array_merge( $result, array( 'status' => 'failed', 'siblings' => array() ) );
+			return array_merge( $result, array( 'status' => 'failed', 'siblings' => array(), 'reason' => $served ) );
 		}
 
+		// Journal first, backup second. A journal left without its backup would
+		// roll the rows back onto pixels the backup no longer holds; a backup
+		// left without its journal is only a stray copy.
 		delete_post_meta( $attachment_id, self::JOURNAL_KEY );
-		if ( is_file( $scaled_path . self::BACKUP_SUFFIX ) ) {
+		if ( '' === get_post_meta( $attachment_id, self::JOURNAL_KEY, true ) && is_file( $scaled_path . self::BACKUP_SUFFIX ) ) {
 			unlink( $scaled_path . self::BACKUP_SUFFIX );
 		}
 
@@ -187,7 +197,7 @@ class OriginalImageRescaler {
 		foreach ( array_merge( array( $attachment_id ), $siblings ) as $row_id ) {
 			$rows[ $row_id ] = array(
 				'attached_file' => get_post_meta( $row_id, '_wp_attached_file', true ),
-				'metadata'      => wp_get_attachment_metadata( $row_id ),
+				'metadata'      => wp_get_attachment_metadata( $row_id, true ),
 			);
 		}
 		$journal = array(
@@ -195,7 +205,14 @@ class OriginalImageRescaler {
 			'scaled_path' => $scaled_path,
 		);
 
-		if ( ! is_file( $scaled_path ) || ! copy( $scaled_path, $scaled_path . self::BACKUP_SUFFIX ) ) {
+		if ( ! is_file( $scaled_path ) ) {
+			return null;
+		}
+		if ( ! copy( $scaled_path, $scaled_path . self::BACKUP_SUFFIX ) ) {
+			// A full disk leaves a partial copy behind.
+			if ( is_file( $scaled_path . self::BACKUP_SUFFIX ) ) {
+				unlink( $scaled_path . self::BACKUP_SUFFIX );
+			}
 			return null;
 		}
 
@@ -218,11 +235,11 @@ class OriginalImageRescaler {
 	 * @param list<int>            $siblings
 	 * @param array<string, mixed> $journal
 	 * @param mixed                $new_metadata What wp_create_image_subsizes() returned.
-	 * @return array{int, int}|null Served width and height, or null when anything does not hold.
+	 * @return array{int, int}|string Served width and height, or the reason the outcome does not hold.
 	 */
-	private function verifyAndWrite( int $attachment_id, array $siblings, array $journal, $new_metadata, int $threshold, int $previous_edge ): ?array {
+	private function verifyAndWrite( int $attachment_id, array $siblings, array $journal, $new_metadata, int $threshold, int $previous_edge ): array|string {
 		if ( ! is_array( $new_metadata ) || empty( $new_metadata['file'] ) ) {
-			return null;
+			return 'core returned no metadata';
 		}
 
 		// The row must point at the file the metadata describes. Comparing the
@@ -231,16 +248,16 @@ class OriginalImageRescaler {
 		// another format.
 		$attached_file = get_post_meta( $attachment_id, '_wp_attached_file', true );
 		if ( $attached_file !== $new_metadata['file'] ) {
-			return null;
+			return 'attached file does not match the new metadata';
 		}
 
 		$served = wp_getimagesize( (string) get_attached_file( $attachment_id ) );
 		if ( false === $served ) {
-			return null;
+			return 'served file is unreadable';
 		}
 		$edge = max( (int) $served[0], (int) $served[1] );
 		if ( ( $threshold > 0 && $edge > $threshold ) || $edge <= $previous_edge ) {
-			return null;
+			return sprintf( 'served file measures %d px, expected above %d and at most %d', $edge, $previous_edge, $threshold );
 		}
 
 		foreach ( array_merge( array( $attachment_id ), $siblings ) as $row_id ) {
@@ -257,16 +274,17 @@ class OriginalImageRescaler {
 
 			// update_post_meta() returns false for an unchanged value too, so its
 			// return says nothing. Reading the row back does. Loose comparison:
-			// a metadata filter may reorder keys without changing a value.
+			// storage may reorder keys or turn an int into a numeric string.
 			if ( get_post_meta( $row_id, '_wp_attached_file', true ) !== $attached_file
-				|| wp_get_attachment_metadata( $row_id ) != $merged
+				|| wp_get_attachment_metadata( $row_id, true ) != $merged
 			) {
-				return null;
+				return sprintf( 'row #%d did not keep the written values', $row_id );
 			}
 		}
 
-		if ( ! empty( wp_get_missing_image_subsizes( $attachment_id ) ) ) {
-			return null;
+		$missing = wp_get_missing_image_subsizes( $attachment_id );
+		if ( ! empty( $missing ) ) {
+			return 'missing sub-sizes: ' . implode( ', ', array_map( 'strval', array_keys( $missing ) ) );
 		}
 
 		return array( (int) $served[0], (int) $served[1] );
@@ -280,19 +298,36 @@ class OriginalImageRescaler {
 	 * succeeds writes over them.
 	 *
 	 * @param array<string, mixed> $journal
+	 * @return string|null Why recovery was refused, or null once it is done.
 	 */
-	private function recover( int $attachment_id, array $journal ): void {
+	private function recover( int $attachment_id, array $journal ): ?string {
+		$scaled_path = (string) ( $journal['scaled_path'] ?? '' );
+		$backup      = $scaled_path . self::BACKUP_SUFFIX;
+		$primary     = $journal['rows'][ $attachment_id ]['metadata'] ?? null;
+
+		if ( '' !== $scaled_path && ! is_file( $backup ) ) {
+			// Without the backup, rolling back is only safe when the -scaled
+			// file still holds the pixels the journal describes, as it does
+			// after an interrupted restore. After an interrupted rescale it
+			// does not, and the journal is the only record left, so it stays.
+			$edge = self::longestEdge( $scaled_path );
+			$was  = is_array( $primary ) ? max( (int) ( $primary['width'] ?? 0 ), (int) ( $primary['height'] ?? 0 ) ) : 0;
+			if ( null !== $edge && $edge !== $was ) {
+				return 'interrupted rescale with no backup copy; the journal was kept';
+			}
+		}
+
 		foreach ( (array) ( $journal['rows'] ?? array() ) as $row_id => $row ) {
 			update_post_meta( (int) $row_id, '_wp_attached_file', $row['attached_file'] );
 			wp_update_attachment_metadata( (int) $row_id, $row['metadata'] );
 		}
 
-		$scaled_path = (string) ( $journal['scaled_path'] ?? '' );
-		if ( '' !== $scaled_path && is_file( $scaled_path . self::BACKUP_SUFFIX ) ) {
-			rename( $scaled_path . self::BACKUP_SUFFIX, $scaled_path );
+		if ( '' !== $scaled_path && is_file( $backup ) && ! rename( $backup, $scaled_path ) ) {
+			return 'could not put the backup copy back; the journal was kept';
 		}
 
 		delete_post_meta( $attachment_id, self::JOURNAL_KEY );
+		return null;
 	}
 
 	private static function longestEdge( string $path ): ?int {

@@ -79,18 +79,18 @@ class RescaleOriginalsCommand {
 
 		$ids = array_map( 'intval', $args );
 		if ( empty( $ids ) ) {
-			$ids = array_map(
-				'intval',
-				(array) $wpdb->get_col(
-					// A row a killed run left behind no longer looks -scaled; its
-					// journal is how it gets found and put back.
-					$wpdb->prepare(
-						"SELECT DISTINCT post_id FROM {$wpdb->postmeta} WHERE ( meta_key = '_wp_attached_file' AND meta_value LIKE %s ) OR meta_key = %s ORDER BY post_id ASC",
-						'%-scaled.%',
-						OriginalImageRescaler::JOURNAL_KEY
-					)
-				)
+			// Journalled rows first. A row a killed run left behind no longer
+			// looks -scaled, so only its journal finds it; and it must come
+			// before its siblings, whose `unchanged` would otherwise settle the
+			// file and skip the recovery. Drop or reorder this and interrupted
+			// rows are never put back.
+			$journalled = (array) $wpdb->get_col(
+				$wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = %s ORDER BY post_id ASC", OriginalImageRescaler::JOURNAL_KEY )
 			);
+			$scaled     = (array) $wpdb->get_col(
+				$wpdb->prepare( "SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND meta_value LIKE %s ORDER BY post_id ASC", '%-scaled.%' )
+			);
+			$ids        = array_values( array_unique( array_map( 'intval', array_merge( $journalled, $scaled ) ) ) );
 		}
 
 		$counts = array();
@@ -121,7 +121,7 @@ class RescaleOriginalsCommand {
 			$counts[ $status ] = ( $counts[ $status ] ?? 0 ) + 1;
 
 			if ( 'failed' === $status ) {
-				\WP_CLI::warning( sprintf( 'Failed to rescale attachment #%d; it was left unchanged.', $id ) );
+				\WP_CLI::warning( sprintf( 'Failed to rescale attachment #%d (%s); it was left unchanged.', $id, $result['reason'] ) );
 			}
 			if ( $verbose ) {
 				\WP_CLI::log(

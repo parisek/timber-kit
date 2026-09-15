@@ -26,7 +26,7 @@ class OriginalImageRescalerTest extends TestCase {
 	/** @var list<int> */
 	private array $purged = [];
 
-	/** @var list<string> */
+	/** @var array<string, array<string, mixed>> Core's shape: size name => size data. */
 	private array $missing_sizes = [];
 
 	protected function setUp(): void {
@@ -45,7 +45,12 @@ class OriginalImageRescalerTest extends TestCase {
 			unset( $this->meta[ $id ][ $key ] );
 			return true;
 		} );
-		Functions\when( 'wp_get_attachment_metadata' )->alias( fn ( $id ) => $this->meta[ $id ]['_wp_attachment_metadata'] ?? false );
+		// Filtered reads carry a key a CDN plugin would inject. Only the
+		// unfiltered read is what was stored.
+		Functions\when( 'wp_get_attachment_metadata' )->alias( function ( $id, $unfiltered = false ) {
+			$meta = $this->meta[ $id ]['_wp_attachment_metadata'] ?? false;
+			return ( $unfiltered || ! is_array( $meta ) ) ? $meta : $meta + [ 'cdn_url' => 'https://cdn.example/x' ];
+		} );
 		Functions\when( 'wp_update_attachment_metadata' )->alias( function ( $id, $value ) {
 			$this->meta[ $id ]['_wp_attachment_metadata'] = $value;
 			return true;
@@ -327,7 +332,7 @@ class OriginalImageRescalerTest extends TestCase {
 		$before = $this->meta;
 		$this->threshold( 4000 );
 		$this->coreRestores( 7, 3417, 4000 );
-		$this->missing_sizes = [ 'large' ];
+		$this->missing_sizes = [ 'large' => [ 'width' => 1024, 'height' => 1024, 'crop' => false ] ];
 
 		$this->assertSame( 'failed', $this->rescaler()->rescale( 7 )['status'] );
 		$this->assertRolledBack( $before );
@@ -367,7 +372,7 @@ class OriginalImageRescalerTest extends TestCase {
 		$this->scaledAttachment( 7, 5000, 1644 );
 		$this->threshold( 4000 );
 		$this->coreRescales( 7, 4000, 1315 );
-		$this->missing_sizes = [ 'large' ];
+		$this->missing_sizes = [ 'large' => [ 'width' => 1024, 'height' => 1024, 'crop' => false ] ];
 
 		$this->rescaler()->rescale( 7 );
 
@@ -436,9 +441,60 @@ class OriginalImageRescalerTest extends TestCase {
 		$before = $this->killedMidWay( 7 );
 		$this->threshold( 4000 );
 		$this->coreRestores( 7, 3417, 4000 );
-		$this->missing_sizes = [ 'large' ];
+		$this->missing_sizes = [ 'large' => [ 'width' => 1024, 'height' => 1024, 'crop' => false ] ];
 
 		$this->assertSame( 'failed', $this->rescaler()->rescale( 7 )['status'] );
 		$this->assertRolledBack( $before );
+	}
+
+	// --- review round 3 -------------------------------------------------------
+
+	public function test_failure_names_its_reason(): void {
+		$this->scaledAttachment( 7, 3417, 4000 );
+		$this->threshold( 4000 );
+		$this->coreRestores( 7, 3417, 4000 );
+		$this->missing_sizes = [ 'large' => [ 'width' => 1024, 'height' => 1024, 'crop' => false ] ];
+
+		$this->assertSame( 'missing sub-sizes: large', $this->rescaler()->rescale( 7 )['reason'] );
+	}
+
+	public function test_keeps_the_backup_when_the_journal_could_not_be_deleted(): void {
+		// Deleting the backup first would leave a journal whose rollback
+		// describes pixels that no longer exist.
+		$this->scaledAttachment( 7, 5000, 1644 );
+		$this->threshold( 4000 );
+		$this->coreRescales( 7, 4000, 1315 );
+		Functions\when( 'delete_post_meta' )->justReturn( false );
+
+		$this->rescaler()->rescale( 7 );
+
+		$this->assertFileExists( $this->uploads . '/photo-scaled.png.rescale-backup' );
+	}
+
+	public function test_refuses_to_recover_a_rescale_whose_backup_is_gone(): void {
+		// The journal describes the old -scaled pixels, the file holds new ones.
+		// Rolling the rows back would make them disagree with the disk.
+		$this->killedMidWay( 7 );
+		unlink( $this->uploads . '/photo-scaled.png.rescale-backup' );
+		$this->png( 'photo-scaled.png', 4000, 4000 );
+		$journal = $this->journal( 7 );
+		$rows    = $this->meta;
+
+		$result = $this->rescaler()->rescale( 7 );
+
+		$this->assertSame( 'failed', $result['status'] );
+		$this->assertStringContainsString( 'backup', $result['reason'] );
+		$this->assertSame( $journal, $this->journal( 7 ), 'the only recovery record stays' );
+		$this->assertSame( $rows, $this->meta );
+	}
+
+	public function test_recovers_a_restore_whose_backup_is_gone_when_the_file_is_intact(): void {
+		// A restore never writes over the -scaled file, so it still matches the journal.
+		$this->killedMidWay( 7 );
+		unlink( $this->uploads . '/photo-scaled.png.rescale-backup' );
+		$this->threshold( 4000 );
+		$this->coreRestores( 7, 3417, 4000 );
+
+		$this->assertSame( 'restored', $this->rescaler()->rescale( 7 )['status'] );
 	}
 }
