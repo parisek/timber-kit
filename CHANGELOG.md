@@ -8,8 +8,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-### Added
-
 - `timber_kit_resizer_cache_version` filter and `StarterBase::$resizer_cache_version`
   (#186). When set, every resizer derivative URL gets `?v=<version>`, so
   browsers, the proxy and a CDN fetch it again after it was regenerated at the
