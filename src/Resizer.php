@@ -42,6 +42,16 @@ class Resizer {
 	private const int DEFAULT_QUALITY = 100;
 
 	/**
+	 * Default AVIF quality when a site sets none.
+	 *
+	 * AVIF ignored the quality until 1.53.0 and ran at the encoder's own
+	 * default, so the package default of 100 cost nothing. Honoured, 100 makes
+	 * a typical photo about 25x larger than what sites were serving. 80 keeps
+	 * the file close to what a site expects from AVIF.
+	 */
+	private const int DEFAULT_AVIF_QUALITY = 80;
+
+	/**
 	 * Default target image format
 	 */
 	private const string DEFAULT_FORMAT = 'avif';
@@ -102,6 +112,14 @@ class Resizer {
 	 * @var int
 	 */
 	private int $target_quality;
+
+	/**
+	 * Whether a site set `timber_kit_resizer_target_quality`. Only an unset
+	 * quality gets the per-format default; a set one applies to every format.
+	 *
+	 * @var bool
+	 */
+	private bool $quality_is_set;
 
 	/**
 	 * Image cache directory path
@@ -184,7 +202,7 @@ class Resizer {
 	 *
 	 * Filters available:
 	 *   - `timber_kit_resizer_target_format`   — output image format (default: avif)
-	 *   - `timber_kit_resizer_target_quality`  — output quality 0-100 (default: 100)
+	 *   - `timber_kit_resizer_target_quality`  — output quality 0-100 (default: 100, AVIF 80)
 	 *   - `timber_kit_resizer_image_cache_dir` — absolute path to cache directory
 	 *   - `timber_kit_resizer_force_regenerate` — skip cache and always regenerate
 	 *   - `timber_kit_resizer_skip_animated`   — pass animated sources through untouched (default: true)
@@ -194,6 +212,7 @@ class Resizer {
 	 */
 	public function __construct() {
 		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );
+		$this->quality_is_set = false !== has_filter( 'timber_kit_resizer_target_quality' );
 		$this->target_quality = (int) apply_filters( 'timber_kit_resizer_target_quality', self::DEFAULT_QUALITY );
 		$this->image_cache_dir = apply_filters( 'timber_kit_resizer_image_cache_dir', WP_CONTENT_DIR . self::CACHE_DIR_PATH );
 		$this->force_regenerate = (bool) apply_filters( 'timber_kit_resizer_force_regenerate', self::FORCE_REGENERATE );
@@ -690,7 +709,7 @@ class Resizer {
 			'height' => ( isset( $variant[1] ) && ! empty( $variant[1] ) ) ? intval( $variant[1] ) : 0,
 			'media' => ( isset( $variant[2] ) && ! empty( $variant[2] ) ) ? intval( $variant[2] ) : 0,
 			'image_style' => ( isset( $variant[3] ) && ! empty( $variant[3] ) ) ? $variant[3] : 'center',
-			'quality' => ( isset( $variant[4] ) && ! empty( $variant[4] ) ) ? intval( $variant[4] ) : $this->target_quality,
+			'quality' => ( isset( $variant[4] ) && ! empty( $variant[4] ) ) ? intval( $variant[4] ) : $this->defaultQuality( $this->target_format ),
 			'format' => $this->target_format,
 		];
 	}
@@ -703,16 +722,27 @@ class Resizer {
 		// `crop` is accepted alongside `image_style` because that is the word
 		// callers reach for; `image_style` stays canonical and wins when both
 		// are given.
-		$style = $variant['image_style'] ?? $variant['crop'] ?? null;
+		$style  = $variant['image_style'] ?? $variant['crop'] ?? null;
+		$format = $this->normalizeFormat( $variant['format'] ?? null );
 
 		return [
 			'width' => ( ! empty( $variant['width'] ) ) ? intval( $variant['width'] ) : 0,
 			'height' => ( ! empty( $variant['height'] ) ) ? intval( $variant['height'] ) : 0,
 			'media' => ( ! empty( $variant['media'] ) ) ? intval( $variant['media'] ) : 0,
 			'image_style' => ( ! empty( $style ) ) ? $style : 'center',
-			'quality' => ( ! empty( $variant['quality'] ) ) ? intval( $variant['quality'] ) : $this->target_quality,
-			'format' => $this->normalizeFormat( $variant['format'] ?? null ),
+			'quality' => ( ! empty( $variant['quality'] ) ) ? intval( $variant['quality'] ) : $this->defaultQuality( $format ),
+			'format' => $format,
 		];
+	}
+
+	/**
+	 * The quality a variant gets when it names none.
+	 */
+	private function defaultQuality( string $format ): int {
+		if ( ! $this->quality_is_set && 'avif' === $format ) {
+			return self::DEFAULT_AVIF_QUALITY;
+		}
+		return $this->target_quality;
 	}
 
 	/**

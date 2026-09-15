@@ -72,6 +72,8 @@ class ConstructorTest extends ResizerTestCase {
 	}
 
 	public function test_quality_filters_affect_normalization(): void {
+		// A site that sets the quality has a callback on the hook.
+		Functions\when( 'has_filter' )->justReturn( 10 );
 		Functions\when( 'apply_filters' )->alias( function ( $filter, $default ) {
 			if ( $filter === 'timber_kit_resizer_target_quality' ) {
 				return 75;

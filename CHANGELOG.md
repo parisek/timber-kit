@@ -25,17 +25,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   | Setting | Before | After |
   | --- | --- | --- |
   | quality 80 | 7 KB, 0.955 | 44 KB, 0.985 |
-  | quality 100 (default) | 18 KB (coder default) | 454 KB, 25x larger |
+  | no quality set | 18 KB (coder default) | 44 KB (new AVIF default, 80) |
+  | quality 100 set | 18 KB (coder default) | 454 KB |
 
   **What a site sees.** Cached AVIF files keep the old encoding: the cache key
   does not change, so nothing moves until `wp-content/cache/image/` is
-  cleared. After that, sites that set a quality get the quality they set.
-  Sites on the default 100 get true quality 100 and should set an explicit
-  value. A quality chosen by comparing output before this release was compared
-  at a different effective value.
+  cleared. After that, a site that sets `timber_kit_resizer_target_quality`
+  gets that quality for every format, 100 included. A quality chosen by
+  comparing output before this release was compared at a different effective
+  value.
 
 ### Changed
 
+- AVIF defaults to quality 80 when a site sets no
+  `timber_kit_resizer_target_quality`. JPEG and WebP keep 100. Without this,
+  honouring the quality would make AVIF on every site without its own setting
+  about 25x larger. With `$resizer_quality_in_cache_key` on and no quality set,
+  AVIF variants move once into `-q80` directories.
 - Requires spatie/image `^3.9.6` (was `^3.8`).
 
 ## [1.52.0] - 2026-09-15
