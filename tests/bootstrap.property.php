@@ -21,4 +21,3 @@ if ( ! function_exists( 'apply_filters' ) ) {
 		return $value;
 	}
 }
-

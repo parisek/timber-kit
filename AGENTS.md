@@ -113,7 +113,10 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   cannot see. Nothing changes until a site clears its image cache. The
   package default quality drops from 100 to 80 in the same release, because
   honouring 100 would make AVIF about 25x larger on every site that sets none.
-  This is a named exception to the rule above, not a case of the rule being
+  JPEG and WebP, which always honoured the value, drop to 80 with it: the owner
+  chose one constant over a per-format default that needs hook detection. The
+  quality cache key keeps quality 100 as its only unsuffixed path, so sites that
+  already set 80 keep their `-q80` URLs. This is a named exception to the rule above, not a case of the rule being
   skipped.
 
 ## Architecture decisions (ADRs)

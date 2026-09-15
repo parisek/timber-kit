@@ -246,8 +246,8 @@ class RegisterPerformanceHooksTest extends StarterBaseTestCase {
 
 		$this->invokeRegisterPerformanceHooks( $instance );
 
-		// Opted in → quality joins the cache key, relocating non-default-quality
-		// variants.
+		// Opted in → quality joins the cache key, relocating variants whose
+		// quality is not 100.
 		$this->assertContains( 'timber_kit_resizer_quality_in_cache_key', $filters );
 	}
 
