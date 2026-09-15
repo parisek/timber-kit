@@ -18,6 +18,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   byte-identical, so no flag. DevMediaProxy carries the same version, and
   the block cache key includes it when set.
 
+- `wp timber-kit clear-image-cache [<image>...] [--format=<format>] [--apply]`
+  (#187) deletes resizer derivatives so they regenerate on the next request:
+  every derivative, one output format, or the derivatives of selected images
+  by attachment ID or file name. Names match in both cache layouts and include
+  the `-scaled` copy WordPress serves. Dry-run by default; deletes files only,
+  and only inside the cache directory. Replaces deleting cache files by hand
+  after a resizer change such as 1.53.0's AVIF quality fix.
+
 ## [1.53.0] - 2026-09-15
 
 ### Added
