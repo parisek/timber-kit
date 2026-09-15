@@ -63,4 +63,10 @@ class AvifDefaultQualityTest extends ResizerTestCase {
 	public function test_an_explicit_variant_quality_wins(): void {
 		$this->assertSame( 95, $this->normalized( $this->resizer( null ), [ '800', '600', '', 'center', '95' ] )['quality'] );
 	}
+
+	public function test_a_filtered_target_format_is_normalised_before_the_default_applies(): void {
+		// A filter returning 'AVIF' or ' avif ' still means AVIF.
+		$this->assertSame( 80, $this->normalized( $this->resizer( null, 'AVIF' ), [ '800', '600' ] )['quality'] );
+		$this->assertSame( 'avif', $this->normalized( $this->resizer( null, ' avif ' ), [ '800', '600' ] )['format'] );
+	}
 }

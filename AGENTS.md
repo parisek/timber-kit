@@ -104,6 +104,17 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   `_parent` and named browsing contexts stay refused. This is a named exception
   to the rule above, not a case of the rule being skipped.
 
+- **Approved exception:** AVIF encoding honours `timber_kit_resizer_target_quality`
+  unconditionally — no flag. The owner reviewed it explicitly. The old
+  behaviour was a defect that failed invisibly: a site that set quality 80
+  shipped quality-20 pixels, and a site on the default shipped the coder's
+  default, with no error anywhere. A default-off flag would keep that running
+  on every site that did not flip it, and nobody flips a flag for a defect they
+  cannot see. Nothing changes until a site clears its AVIF cache. AVIF also
+  gets its own default of 80 when a site sets no quality, because honouring the
+  package default of 100 would make it about 25x larger on every such site.
+  This is a named exception to the rule above, not a case of the rule being
+  skipped.
 
 ## Architecture decisions (ADRs)
 
@@ -129,17 +140,6 @@ Two GitHub Actions automate releases. **Never stamp + tag manually** unless the 
 4. **Latest** badge is auto-set only when the new tag is the highest semver — back-dated patch tags (e.g. `v1.3.1` after `v1.4.0` exists) won't steal it.
 
 If you ever need to back-fill a missing GitHub Release for an older tag manually: use `gh release create vX.Y.Z --latest=false`, otherwise it will steal the Latest badge. Then `gh release edit v<highest> --latest` to restore.
-- **Approved exception:** AVIF encoding honours `timber_kit_resizer_target_quality`
-  unconditionally — no flag. The owner reviewed it explicitly. The old
-  behaviour was a defect that failed invisibly: a site that set quality 80
-  shipped quality-20 pixels, and a site on the default shipped the coder's
-  default, with no error anywhere. A default-off flag would keep that running
-  on every site that did not flip it, and nobody flips a flag for a defect they
-  cannot see. Nothing changes until a site clears its AVIF cache. AVIF also
-  gets its own default of 80 when a site sets no quality, because honouring the
-  package default of 100 would make it about 25x larger on every such site.
-  This is a named exception to the rule above, not a case of the rule being
-  skipped.
 
 ## Testing notes
 

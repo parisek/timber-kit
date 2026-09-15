@@ -35,6 +35,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   comparing output before this release was compared at a different effective
   value.
 
+  The "Before" column assumes spatie/image below 3.9.6. The kit allowed
+  `^3.8`, so a site whose lock resolved 3.9.6 (released 2026-08-18) already
+  had the requested quality honoured on every path except smart-crop; under
+  the old default of 100 its AVIF files were already large, and the new AVIF
+  default of 80 makes them smaller.
+
+  **Upgrading.**
+  1. `composer update parisek/timber-kit` (pulls spatie/image 3.9.6; a lock
+     pinning spatie/image below that fails to resolve, which is intended).
+  2. Clear `wp-content/cache/image/`, or accept the old AVIF files until they
+     are regenerated.
+  3. If the theme hooks `timber_kit_resizer_target_quality`, confirm the value.
+     Any callback counts as set, so a callback returning 100 gets true
+     quality 100 for AVIF.
+  4. With `$resizer_quality_in_cache_key` on and no quality set, AVIF variants
+     move once into `-q80` directories and their URLs change.
+
 ### Changed
 
 - AVIF defaults to quality 80 when a site sets no

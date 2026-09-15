@@ -21,3 +21,11 @@ if ( ! function_exists( 'apply_filters' ) ) {
 		return $value;
 	}
 }
+
+// Resizer asks whether a site registered a quality callback. Property tests
+// register none.
+if ( ! function_exists( 'has_filter' ) ) {
+	function has_filter( $tag, $callback = false ) {
+		return false;
+	}
+}

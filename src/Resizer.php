@@ -211,7 +211,12 @@ class Resizer {
 	 *     directory in its cache key (default: false)
 	 */
 	public function __construct() {
-		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );
+		// Trimmed and lowercased, because the AVIF default quality below and
+		// every per-variant comparison match on the lowercase name.
+		$this->target_format = strtolower( trim( (string) apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT ) ) );
+		// Any callback counts as a site's choice, including one returning 100.
+		// Never register this hook unconditionally from StarterBase, or every
+		// site loses the AVIF default without having chosen anything.
 		$this->quality_is_set = false !== has_filter( 'timber_kit_resizer_target_quality' );
 		$this->target_quality = (int) apply_filters( 'timber_kit_resizer_target_quality', self::DEFAULT_QUALITY );
 		$this->image_cache_dir = apply_filters( 'timber_kit_resizer_image_cache_dir', WP_CONTENT_DIR . self::CACHE_DIR_PATH );
