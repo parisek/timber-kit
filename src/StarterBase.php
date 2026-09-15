@@ -945,6 +945,20 @@ class StarterBase extends Site {
 	protected bool $resizer_source_path_in_cache_key = false;
 
 	/**
+	 * Site-wide version appended to every resizer derivative URL as `?v=`.
+	 *
+	 * Empty by default, which leaves URLs unchanged. Set or bump it to force
+	 * browsers, the proxy and a CDN to fetch derivatives again, for example
+	 * after they were regenerated at the same path (`wp timber-kit
+	 * clear-image-cache`). It changes URLs only: files on disk are not
+	 * regenerated, and a CDN set to ignore query strings does not see it.
+	 * Purge the page cache so HTML carries the new URLs.
+	 *
+	 * @var string
+	 */
+	protected string $resizer_cache_version = '';
+
+	/**
 	 * Which field holds each post type's social preview image.
 	 *
 	 * `[ 'project' => 'hero_image' ]`, or a list to try in order:
@@ -1463,6 +1477,10 @@ class StarterBase extends Site {
 			// Default is false (quality absent from the key, the historic paths).
 			// Opting in relocates every variant whose quality is not 100.
 			add_filter( 'timber_kit_resizer_quality_in_cache_key', '__return_true' );
+		}
+		if ( '' !== $this->resizer_cache_version ) {
+			$version = $this->resizer_cache_version;
+			add_filter( 'timber_kit_resizer_cache_version', static fn (): string => $version );
 		}
 		if ( $this->resizer_source_path_in_cache_key ) {
 			// Default is false (the historic flat paths). Opting in relocates

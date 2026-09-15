@@ -214,6 +214,41 @@ class RegisterPerformanceHooksTest extends StarterBaseTestCase {
 		$this->assertContains( 'aioseo_opengraph_default_image', $filters );
 	}
 
+	public function test_resizer_cache_version_not_wired_when_empty(): void {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
+			$filters[] = $hook;
+		} );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'speculation_rules', null );
+		$this->setProperty( $instance, 'warn_speculation_rules_plugin_redundant', false );
+		$this->setProperty( $instance, 'resizer_format_health', false );
+		$this->setProperty( $instance, 'resizer_cache_version', '' );
+
+		$this->invokeRegisterPerformanceHooks( $instance );
+
+		$this->assertNotContains( 'timber_kit_resizer_cache_version', $filters );
+	}
+
+	public function test_resizer_cache_version_wired_when_set(): void {
+		$callbacks = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, $callback = null ) use ( &$callbacks ) {
+			$callbacks[ $hook ] = $callback;
+		} );
+
+		$instance = $this->bareInstance();
+		$this->setProperty( $instance, 'speculation_rules', null );
+		$this->setProperty( $instance, 'warn_speculation_rules_plugin_redundant', false );
+		$this->setProperty( $instance, 'resizer_format_health', false );
+		$this->setProperty( $instance, 'resizer_cache_version', '2026-09-15' );
+
+		$this->invokeRegisterPerformanceHooks( $instance );
+
+		$this->assertArrayHasKey( 'timber_kit_resizer_cache_version', $callbacks );
+		$this->assertSame( '2026-09-15', ( $callbacks['timber_kit_resizer_cache_version'] )() );
+	}
+
 	public function test_resizer_quality_in_cache_key_no_override_by_default(): void {
 		$filters = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {

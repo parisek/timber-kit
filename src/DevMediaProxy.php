@@ -309,12 +309,16 @@ final class DevMediaProxy {
 
 		$uploads_base_url = isset( $context['uploads_base_url'] ) && is_string( $context['uploads_base_url'] ) ? $context['uploads_base_url'] : self::$uploads_base_url;
 		$target_format = isset( $context['target_format'] ) && is_string( $context['target_format'] ) ? $context['target_format'] : 'avif';
+		$cache_version = isset( $context['cache_version'] ) && is_string( $context['cache_version'] ) ? $context['cache_version'] : '';
 		$image_cache_dir = isset( $context['image_cache_dir'] ) && is_string( $context['image_cache_dir'] ) ? $context['image_cache_dir'] : ( defined( 'WP_CONTENT_DIR' ) ? WP_CONTENT_DIR . '/cache/image' : '/cache/image' );
 
 		$remote_images = [];
 		foreach ( $variants as $variant ) {
 			$remote_variant = self::build_remote_resizer_variant( $variant, $filename, $default_image, $target_format, $image_cache_dir, $uploads_base_url );
+			// Probe the bare URL, serve the versioned one, so a local render
+			// carries the same URL production does.
 			if ( self::remote_variant_exists( $remote_variant['src'] ) ) {
+				$remote_variant['src'] = Resizer::appendCacheVersion( $remote_variant['src'], $cache_version );
 				$remote_images[] = $remote_variant;
 			}
 		}

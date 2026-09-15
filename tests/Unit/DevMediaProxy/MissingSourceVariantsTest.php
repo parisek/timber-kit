@@ -86,7 +86,7 @@ class MissingSourceVariantsTest extends TestCase {
 	 * @param array<int, array<string, mixed>> $variants
 	 * @return array<int, array<string, mixed>>
 	 */
-	private function probe( array $variants ): array {
+	private function probe( array $variants, string $cache_version = '' ): array {
 		return DevMediaProxy::filter_resizer_missing_source_variants(
 			null,
 			$variants,
@@ -96,8 +96,22 @@ class MissingSourceVariantsTest extends TestCase {
 				'uploads_base_url' => $this->uploads_base_url,
 				'target_format' => 'avif',
 				'image_cache_dir' => '/tmp/wp-content/cache/image',
+				'cache_version' => $cache_version,
 			)
 		);
+	}
+
+	public function test_cache_version_is_appended_to_the_remote_url(): void {
+		// The local render must carry the same versioned URL production serves.
+		$result = $this->probe( array( $this->variant() ), '4' );
+
+		$this->assertStringEndsWith( '/1200x630-center/hero.avif?v=4', $result[0]['src'] );
+	}
+
+	public function test_no_cache_version_keeps_the_remote_url(): void {
+		$result = $this->probe( array( $this->variant() ) );
+
+		$this->assertStringEndsWith( '/1200x630-center/hero.avif', $result[0]['src'] );
 	}
 
 	public function test_variant_format_wins_over_the_request_wide_one(): void {
