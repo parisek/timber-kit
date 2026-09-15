@@ -418,11 +418,19 @@ protected bool $seo_canonical_pagination = false;
 
 ### WpmlMenuSyncReadOnly
 
-`Parisek\TimberKit\Wpml\MenuSyncReadOnly` makes a plain page load of WPML → WP Menus Sync read-only.
+`Parisek\TimberKit\Wpml\MenuSyncReadOnly` discards the database writes of a plain page load of WPML → WP Menus Sync.
 
 WPML writes to the database when that screen only loads. `ICLMenusSync::init()` runs on `init` priority 20 and repairs menu items while it builds the preview. One visit, closed without confirming, removed 56 items from four main menus and rewrote 230 `icl_translations` rows.
 
-On that screen only (`is_admin()`, not `wp_doing_ajax()`, `page=sitepress-multilingual-cms/menu/menu-sync/menus-sync.php`), the guard runs `START TRANSACTION` on `init` priority 1 and `ROLLBACK` on `shutdown` priority `PHP_INT_MIN`. The preview still renders. A confirmed Sync is a separate request (`admin-ajax.php`, action `icl_msync_confirm`), so it still writes.
+The guard applies where WPML sets up menu sync: `is_admin()` and a `page` value that contains `<ICL_PLUGIN_FOLDER>/menu/menu-sync/menus-sync.php`, case-insensitive. On `init` priority 1 it runs `SET autocommit = 0` and checks that `SELECT @@autocommit` returns 0. On `shutdown` priority `PHP_INT_MIN` it runs `ROLLBACK` and `SET autocommit = 1`. The preview still renders. It does not use `START TRANSACTION`, because a WPML TM upgrade on `init` priority 10 can send DDL, and DDL commits implicitly.
+
+The guard fails closed. It stops the request with `wp_die()` (HTTP 403) when it cannot prove the rollback:
+
+- the `information_schema` query fails;
+- a mandatory table is missing (`posts`, `postmeta`, `options`, `term_relationships`, `term_taxonomy`, `terms`, `icl_translations`);
+- a table is not InnoDB (`icl_strings` and `icl_string_translations` may be absent);
+- autocommit stays on;
+- the guard registers after `init` priority 1 has started (it also calls `_doing_it_wrong()`).
 
 Enable it with the `$wpml_menu_sync_read_only` flag. It is opt-in (default off) because it changes admin behaviour:
 
@@ -435,14 +443,15 @@ class Base extends StarterBase {
 }
 ```
 
-StarterBase hooks `MenuSyncReadOnly::register()` on `init` priority 0. `register()` does nothing unless WPML is active (`ICL_SITEPRESS_VERSION` defined). Without `StarterBase`, hook it yourself the same way.
+StarterBase hooks `MenuSyncReadOnly::register()` on `init` priority 0, or calls it at once when `init` has already fired. `register()` does nothing unless WPML is active (`ICL_SITEPRESS_VERSION` defined). Without `StarterBase`, hook it yourself before `init` priority 1.
 
-Limits:
+What the guard covers: writes through the global `$wpdb` connection to InnoDB tables during the WordPress request phase. What it does not cover:
 
-- **InnoDB only.** Before it opens the transaction, the guard reads `information_schema` for `term_relationships`, `term_taxonomy`, `posts`, `postmeta`, `options`, `icl_translations`, `icl_strings` and `icl_string_translations`. If one of them is not InnoDB, it opens no transaction and shows an admin notice on that screen that names the table.
-- **DDL commits implicitly.** A `CREATE`, `ALTER` or `LOCK TABLES` inside the request would end the transaction. A measured guarded load runs none.
-- **Late shutdown writes commit.** Shutdown callbacks that run after the rollback write normally.
-- **Object cache.** An external object cache is not part of the transaction, so the rollback calls `wp_cache_flush()` when `wp_using_ext_object_cache()` is true.
+- **Other connections.** HyperDB, LudicrousDB or a read/write split can send writes past `$wpdb`.
+- **Late shutdown writes.** Shutdown callbacks that run after the rollback commit normally.
+- **Sessions and files.** WPML stores the preview tree in `$_SESSION['wpml_menu_sync_menu']`. It is built before the rollback.
+- **Sync.** The Sync request (`admin-ajax.php`, action `icl_msync_confirm`) is not guarded and still writes. It reuses the session tree and does not run WPML's repairs again, so Sync no longer applies those repairs. On sloneek, a full Sync of 337 items with and without the guard gave 0 different rows in the guarded main menus. That is one data set, not a proof for every menu shape.
+- **Object cache.** An external object cache is not part of the transaction, so the rollback calls `wp_cache_flush()` when `wp_using_ext_object_cache()` is true. A failed flush goes to `error_log`. On multisite or a shared Redis, the flush empties the cache of every site that uses it.
 
 Rationale and measurements: [ADR 0009](docs/adr/0009-wpml-menu-sync-read-only.md).
 
