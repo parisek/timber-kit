@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `timber_kit_resizer_cache_version` filter and `StarterBase::$resizer_cache_version`
+  (#186). When set, every resizer derivative URL gets `?v=<version>`, so
+  browsers, the proxy and a CDN fetch it again after it was regenerated at the
+  same path. Derivatives are served with long lifetimes (neoli.org:
+  `max-age=2592000`), so without it a returning visitor keeps an old copy for
+  up to 30 days. URLs only: files on disk are untouched, and a CDN that
+  ignores query strings does not see it. Empty by default, which leaves URLs
+  byte-identical, so no flag. DevMediaProxy carries the same version, and
+  the block cache key includes it when set.
+
 ## [1.53.0] - 2026-09-15
 
 ### Added

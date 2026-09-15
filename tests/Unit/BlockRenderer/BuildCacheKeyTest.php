@@ -79,4 +79,35 @@ class BuildCacheKeyTest extends BlockRendererTestCase {
 		$this->assertSame( 'extra', $cache_data['className'] );
 		$this->assertSame( 7, $cache_data['post_id'] );
 	}
+
+	/**
+	 * Rendered block HTML carries resizer URLs, so a cache version bump must
+	 * not be served from an hour-old block cache entry.
+	 */
+	public function test_key_changes_with_the_resizer_cache_version(): void {
+		$attrs = [ 'data' => [], 'anchor' => '', 'className' => '' ];
+		$plain = self::callPrivate( 'buildCacheKey', [ 'acf/hero', $attrs, 1 ] );
+
+		Functions\when( 'apply_filters' )->alias(
+			static fn( string $tag, mixed $value, mixed ...$rest ) => 'timber_kit_resizer_cache_version' === $tag ? '2' : $value
+		);
+		$versioned = self::callPrivate( 'buildCacheKey', [ 'acf/hero', $attrs, 1 ] );
+
+		$this->assertNotSame( $plain, $versioned );
+	}
+
+	public function test_an_empty_cache_version_keeps_existing_keys(): void {
+		$attrs = [ 'data' => [], 'anchor' => '', 'className' => '' ];
+		$expected = 'acf_block_' . md5( json_encode( [
+			'name'      => 'acf/hero',
+			'data'      => [],
+			'anchor'    => '',
+			'className' => '',
+			'post_id'   => 1,
+			'lang'      => '',
+			'paged'     => 0,
+		] ) );
+
+		$this->assertSame( $expected, self::callPrivate( 'buildCacheKey', [ 'acf/hero', $attrs, 1 ] ) );
+	}
 }
