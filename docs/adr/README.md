@@ -72,3 +72,4 @@ guard (test, CI check, convention) that keeps it from drifting, if any.
 - [0006](0006-warmup-priority-precomputed-at-refresh.md) — Precompute warmup priority at refresh, never at purge
 - [0007](0007-prove-cache-purity-from-inputs.md) — Prove cache purity from inputs, never from a render
 - [0008](0008-resizer-source-path-cache-key.md) — Scope the resizer cache key by the source's upload path
+- [0009](0009-wpml-menu-sync-read-only.md) — Roll back the page load of WPML Menus Sync in a transaction

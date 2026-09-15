@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `Wpml\MenuSyncReadOnly` and `StarterBase::$wpml_menu_sync_read_only`
+  (default off). A plain page load of WPML → WP Menus Sync writes to the
+  database: one visit removed 56 menu items and rewrote 230 `icl_translations`
+  rows. The guard wraps that request in a transaction and rolls it back, then
+  flushes an external object cache. A confirmed Sync is a separate AJAX request
+  and still writes. Stays off with an admin notice when a table WPML writes is
+  not InnoDB.
+
 - `timber_kit_resizer_cache_version` filter and `StarterBase::$resizer_cache_version`
   (#186). When set, every resizer derivative URL gets `?v=<version>`, so
   browsers, the proxy and a CDN fetch it again after it was regenerated at the

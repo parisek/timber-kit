@@ -416,6 +416,36 @@ that needs the old, unfiltered behaviour:
 protected bool $seo_canonical_pagination = false;
 ```
 
+### WpmlMenuSyncReadOnly
+
+`Parisek\TimberKit\Wpml\MenuSyncReadOnly` makes a plain page load of WPML → WP Menus Sync read-only.
+
+WPML writes to the database when that screen only loads. `ICLMenusSync::init()` runs on `init` priority 20 and repairs menu items while it builds the preview. One visit, closed without confirming, removed 56 items from four main menus and rewrote 230 `icl_translations` rows.
+
+On that screen only (`is_admin()`, not `wp_doing_ajax()`, `page=sitepress-multilingual-cms/menu/menu-sync/menus-sync.php`), the guard runs `START TRANSACTION` on `init` priority 1 and `ROLLBACK` on `shutdown` priority `PHP_INT_MIN`. The preview still renders. A confirmed Sync is a separate request (`admin-ajax.php`, action `icl_msync_confirm`), so it still writes.
+
+Enable it with the `$wpml_menu_sync_read_only` flag. It is opt-in (default off) because it changes admin behaviour:
+
+```php
+class Base extends StarterBase {
+    public function __construct() {
+        $this->wpml_menu_sync_read_only = true;
+        parent::__construct();
+    }
+}
+```
+
+StarterBase hooks `MenuSyncReadOnly::register()` on `init` priority 0. `register()` does nothing unless WPML is active (`ICL_SITEPRESS_VERSION` defined). Without `StarterBase`, hook it yourself the same way.
+
+Limits:
+
+- **InnoDB only.** Before it opens the transaction, the guard reads `information_schema` for `term_relationships`, `term_taxonomy`, `posts`, `postmeta`, `options`, `icl_translations`, `icl_strings` and `icl_string_translations`. If one of them is not InnoDB, it opens no transaction and shows an admin notice on that screen that names the table.
+- **DDL commits implicitly.** A `CREATE`, `ALTER` or `LOCK TABLES` inside the request would end the transaction. A measured guarded load runs none.
+- **Late shutdown writes commit.** Shutdown callbacks that run after the rollback write normally.
+- **Object cache.** An external object cache is not part of the transaction, so the rollback calls `wp_cache_flush()` when `wp_using_ext_object_cache()` is true.
+
+Rationale and measurements: [ADR 0009](docs/adr/0009-wpml-menu-sync-read-only.md).
+
 ### WpmlBlockOverride
 
 Runtime override of Copy field values in ACF Gutenberg blocks for WPML-multilingual sites. Hooks `render_block_data` at priority 20 (after WPML's own handlers) and, for ACF blocks rendered in a non-default language, overwrites `attrs.data.<field>` for fields marked `wpml_cf_preferences = 1` (Copy) with the source-language post's value. Attachment IDs (image / file / gallery) are remapped to per-language duplicates via `wpml_object_id`.
