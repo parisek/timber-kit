@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.52.0] - 2026-09-15
+
 ### Added
 
 - `wp timber-kit rescale-originals` re-runs the upload pipeline from the
