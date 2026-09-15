@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- AVIF variants are encoded at the requested quality. spatie/image's Imagick
+  driver sets the wand-level compression quality to `100 - $quality` for PNG,
+  and ImageMagick's AVIF coder reads that wand value, so quality ran backwards:
+  80 encoded as 20, and 100 fell back to the coder default. Measured on a
+  3000x2000 photo resized to 1600 px: 7 KB at SSIM 0.955 before, 44 KB at
+  SSIM 0.985 after. JPEG and WebP were unaffected.
+
+  **Cached AVIF files keep the old encoding.** The cache key does not change,
+  so a site sees the fix only after its AVIF derivatives are deleted from
+  `wp-content/cache/image/`. File sizes grow accordingly; a quality chosen by
+  measuring output before this fix was measured at `100 - quality`.
+
 ## [1.52.0] - 2026-09-15
 
 ### Added
