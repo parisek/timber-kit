@@ -16,6 +16,9 @@ namespace Parisek\TimberKit;
  *
  * Deletes files only, never directories, and never a path that resolves
  * outside the cache directory.
+ *
+ * The `delete_attachment` purge in StarterBase keeps its own matcher until
+ * #190 unifies the two; it also covers legacy Timber `name-WxH` files.
  */
 class ImageCacheCleaner {
 
@@ -48,13 +51,26 @@ class ImageCacheCleaner {
 	 * @return list<string> Absolute paths, sorted.
 	 */
 	public function find( array $names = [], ?string $format = null ): array {
+		return $this->select( $names, $format )['paths'];
+	}
+
+	/**
+	 * Derivative paths matching the selection, and the names that matched
+	 * nothing, from one walk of the cache tree.
+	 *
+	 * @param list<string> $names  As for {@see find()}.
+	 * @param string|null  $format As for {@see find()}.
+	 * @return array{paths: list<string>, unmatched: list<string>}
+	 */
+	public function select( array $names = [], ?string $format = null ): array {
 		if ( ! is_dir( $this->cache_dir ) ) {
-			return [];
+			return array( 'paths' => [], 'unmatched' => $names );
 		}
 
 		$formats = null === $format ? null : self::formatAliases( $format );
 		$stems   = self::candidateStems( $names, $this->source_path_layout );
 		$found   = [];
+		$hit     = [];
 
 		// CATCH_GET_CHILD: an unreadable directory is skipped, not fatal.
 		$files = new \RecursiveIteratorIterator(
@@ -79,14 +95,21 @@ class ImageCacheCleaner {
 					continue;
 				}
 				// Source-path layout: <size>/<source dir>/<name>. A name given
-				// with a directory only matches in that directory.
+				// with a directory matches only there; `*` matches anywhere.
 				$scopes = $stems[ $stem ];
-				if ( $this->source_path_layout && ! isset( $scopes['*'] ) ) {
+				if ( $this->source_path_layout ) {
 					$relative = substr( $file->getPath(), strlen( $this->cache_dir ) + 1 );
 					$parts    = explode( '/', str_replace( '\\', '/', $relative ) );
 					array_shift( $parts );
-					if ( ! isset( $scopes[ implode( '/', $parts ) ] ) ) {
+					$dir    = implode( '/', $parts );
+					$owners = ( $scopes['*'] ?? [] ) + ( $scopes[ $dir ] ?? [] );
+					if ( [] === $owners ) {
 						continue;
+					}
+					$hit += $owners;
+				} else {
+					foreach ( $scopes as $owners ) {
+						$hit += $owners;
 					}
 				}
 			}
@@ -94,7 +117,8 @@ class ImageCacheCleaner {
 		}
 
 		sort( $found );
-		return $found;
+		$unmatched = array_values( array_filter( $names, fn ( $name ) => ! isset( $hit[ $name ] ) ) );
+		return array( 'paths' => $found, 'unmatched' => $unmatched );
 	}
 
 	/**
@@ -133,7 +157,8 @@ class ImageCacheCleaner {
 	 *
 	 * @param list<string> $names
 	 * @param bool         $source_path_layout
-	 * @return array<string, array<string, true>>|null Null when nothing is named.
+	 * @return array<string, array<string, array<string, true>>>|null stem → scope → names
+	 *         that produced it; null when nothing is named.
 	 */
 	private static function candidateStems( array $names, bool $source_path_layout ): ?array {
 		if ( [] === $names ) {
@@ -141,14 +166,19 @@ class ImageCacheCleaner {
 		}
 
 		$stems = [];
-		foreach ( $names as $name ) {
-			$name = trim( str_replace( '\\', '/', $name ), '/' );
-			$base = basename( $name );
-			if ( '' === $base ) {
+		foreach ( $names as $given ) {
+			$name = ltrim( str_replace( '\\', '/', $given ) );
+			if ( '' === basename( trim( $name, '/' ) ) ) {
 				continue;
 			}
+			// `./hero.jpg` names an uploads-root file: scoped to the root, not
+			// to every directory like a bare `hero.jpg`.
+			$root  = str_starts_with( $name, './' );
+			$name  = $root ? substr( $name, 2 ) : $name;
+			$name  = trim( $name, '/' );
+			$base  = basename( $name );
 			$dir   = dirname( $name );
-			$scope = ( '.' === $dir || '' === $dir ) ? '*' : $dir;
+			$scope = $root ? '' : ( ( '.' === $dir || '' === $dir ) ? '*' : $dir );
 
 			$extension = pathinfo( $base, PATHINFO_EXTENSION );
 			if ( ! in_array( strtolower( $extension ), self::IMAGE_EXTENSIONS, true ) ) {
@@ -162,11 +192,11 @@ class ImageCacheCleaner {
 				// upload, so a flat leftover of the same stem is not its own.
 				if ( ! ( $source_path_layout && '*' !== $scope ) ) {
 					$flat = function_exists( 'sanitize_file_name' ) ? sanitize_file_name( $candidate ) : $candidate;
-					$stems[ $flat ]['*'] = true;
+					$stems[ $flat ]['*'][ $given ] = true;
 				}
 				// Source-path layout: the whole name, verbatim, in its directory.
 				if ( '' !== $extension ) {
-					$stems[ $candidate . '.' . $extension ][ $scope ] = true;
+					$stems[ $candidate . '.' . $extension ][ $scope ][ $given ] = true;
 				}
 			}
 		}

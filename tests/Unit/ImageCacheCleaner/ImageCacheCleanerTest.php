@@ -32,6 +32,7 @@ class ImageCacheCleanerTest extends TestCase {
 			'1600x0-center-q80/miminko.webp',
 			'3840x2043-crop-q80/mimco-5000-retus-scaled.avif',
 			'900x0-center/2026/08/hero.png.avif',
+			'900x0-center/hero.png.avif',
 			'900x0-center/2026/10/hero.png.avif',
 			'900x0-center/2026/08/photo.v2.jpg.avif',
 			'900x0-center/my-photo.avif',
@@ -60,7 +61,7 @@ class ImageCacheCleanerTest extends TestCase {
 	}
 
 	public function test_finds_every_derivative_without_a_selection(): void {
-		$this->assertCount( 12, ( new ImageCacheCleaner( $this->dir ) )->find() );
+		$this->assertCount( 13, ( new ImageCacheCleaner( $this->dir ) )->find() );
 	}
 
 	public function test_format_limits_the_selection(): void {
@@ -88,7 +89,7 @@ class ImageCacheCleanerTest extends TestCase {
 	public function test_a_bare_name_matches_the_source_path_layout_in_every_directory(): void {
 		// Source-path layout keeps the source extension in the derivative name.
 		$this->assertSame(
-			[ '900x0-center/2026/08/hero.png.avif', '900x0-center/2026/10/hero.png.avif', '900x0-center/hero.avif' ],
+			[ '900x0-center/2026/08/hero.png.avif', '900x0-center/2026/10/hero.png.avif', '900x0-center/hero.avif', '900x0-center/hero.png.avif' ],
 			$this->relative( ( new ImageCacheCleaner( $this->dir, true ) )->find( [ 'hero.png' ] ) )
 		);
 	}
@@ -142,6 +143,9 @@ class ImageCacheCleanerTest extends TestCase {
 	}
 
 	public function test_an_unreadable_directory_is_skipped_not_fatal(): void {
+		if ( function_exists( 'posix_getuid' ) && 0 === posix_getuid() ) {
+			$this->markTestSkipped( 'Root reads a 0000 directory, so the case cannot be shown.' );
+		}
 		chmod( $this->dir . '/unreadable', 0000 );
 		try {
 			$found = ( new ImageCacheCleaner( $this->dir ) )->find();
@@ -182,5 +186,26 @@ class ImageCacheCleanerTest extends TestCase {
 
 	public function test_a_missing_cache_directory_finds_nothing(): void {
 		$this->assertSame( [], ( new ImageCacheCleaner( $this->dir . '/nope' ) )->find() );
+	}
+
+	public function test_a_root_marked_name_stays_in_the_uploads_root(): void {
+		// The command passes an uploads-root attachment as ./name.
+		$this->assertSame(
+			[ '900x0-center/hero.png.avif' ],
+			$this->relative( ( new ImageCacheCleaner( $this->dir, true ) )->find( [ './hero.png' ] ) )
+		);
+	}
+
+	public function test_select_reports_names_that_matched_nothing_in_one_walk(): void {
+		$selection = ( new ImageCacheCleaner( $this->dir, true ) )->select( [ 'miminko', '2026/09/hero.png', 'nope.jpg' ] );
+
+		$this->assertSame( [ '2026/09/hero.png', 'nope.jpg' ], $selection['unmatched'] );
+		$this->assertCount( 2, $selection['paths'] );
+	}
+
+	public function test_a_bare_name_does_not_widen_a_scoped_name_sharing_the_stem(): void {
+		$selection = ( new ImageCacheCleaner( $this->dir, true ) )->select( [ '2026/09/hero.png', 'hero.png' ] );
+
+		$this->assertSame( [ '2026/09/hero.png' ], $selection['unmatched'] );
 	}
 }

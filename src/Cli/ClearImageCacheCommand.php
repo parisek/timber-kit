@@ -75,13 +75,12 @@ class ClearImageCacheCommand {
 		$source_path = (bool) apply_filters( 'timber_kit_resizer_source_path_in_cache_key', false );
 		$cleaner     = new ImageCacheCleaner( $cache_dir, $source_path );
 		$names       = array_values( array_unique( $names ) );
-		$paths       = $cleaner->find( $names, $format );
+		$selection   = $cleaner->select( $names, $format );
+		$paths       = $selection['paths'];
 
 		// Say what matched nothing, so an empty result is not read as a clean cache.
-		foreach ( $names as $name ) {
-			if ( [] === $cleaner->find( [ $name ], $format ) ) {
-				\WP_CLI::warning( sprintf( 'No derivative matches "%s"%s.', $name, null === $format ? '' : ' in format ' . $format ) );
-			}
+		foreach ( $selection['unmatched'] as $name ) {
+			\WP_CLI::warning( sprintf( 'No derivative matches "%s"%s.', $name, null === $format ? '' : ' in format ' . $format ) );
 		}
 		if ( [] === $names && null !== $format && [] === $paths ) {
 			\WP_CLI::warning( sprintf( 'No derivative has the format "%s".', $format ) );
@@ -115,16 +114,18 @@ class ClearImageCacheCommand {
 	private static function attachmentNames( int $attachment_id ): array {
 		$names    = [];
 		$attached = get_post_meta( $attachment_id, '_wp_attached_file', true );
+		// An uploads-root file is passed as `./name`, so it stays scoped to the
+		// root instead of reaching every month like a bare name.
+		$dir = is_string( $attached ) ? dirname( $attached ) : '.';
 		if ( is_string( $attached ) && '' !== $attached ) {
-			$names[] = $attached;
+			$names[] = '.' === $dir ? './' . $attached : $attached;
 		}
 		// Core's array shape omits original_image, which only -scaled and
 		// -rotated uploads carry.
 		$metadata = (array) wp_get_attachment_metadata( $attachment_id, true );
 		$original = $metadata['original_image'] ?? '';
 		if ( is_string( $original ) && '' !== $original ) {
-			$dir     = is_string( $attached ) ? dirname( $attached ) : '.';
-			$names[] = '.' === $dir ? $original : $dir . '/' . $original;
+			$names[] = ( '.' === $dir ? '.' : $dir ) . '/' . $original;
 		}
 		return $names;
 	}
