@@ -178,7 +178,10 @@ class ImageCacheCleaner {
 			$name  = trim( $name, '/' );
 			$base  = basename( $name );
 			$dir   = dirname( $name );
-			$scope = $root ? '' : ( ( '.' === $dir || '' === $dir ) ? '*' : $dir );
+			$bare  = '.' === $dir || '' === $dir;
+			// `./2026/08/hero.jpg` is still scoped to 2026/08; only a bare
+			// `./hero.jpg` means the root.
+			$scope = $bare ? ( $root ? '' : '*' ) : $dir;
 
 			$extension = pathinfo( $base, PATHINFO_EXTENSION );
 			if ( ! in_array( strtolower( $extension ), self::IMAGE_EXTENSIONS, true ) ) {

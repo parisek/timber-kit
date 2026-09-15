@@ -208,4 +208,11 @@ class ImageCacheCleanerTest extends TestCase {
 
 		$this->assertSame( [ '2026/09/hero.png' ], $selection['unmatched'] );
 	}
+
+	public function test_a_dot_slash_path_with_a_directory_keeps_that_directory(): void {
+		$this->assertSame(
+			[ '900x0-center/2026/08/hero.png.avif' ],
+			$this->relative( ( new ImageCacheCleaner( $this->dir, true ) )->find( [ './2026/08/hero.png' ] ) )
+		);
+	}
 }
