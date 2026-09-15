@@ -563,6 +563,7 @@ of these went undocumented for several releases.
 |---|---|
 | `wp timber-kit updates` | Runs pending block-data migrations. See § Block data migrations. |
 | `wp timber-kit prune-originals` | Deletes preserved full-resolution originals of `-scaled` images. See § Media processing. |
+| `wp timber-kit rescale-originals` | Re-runs the upload pipeline from preserved originals, so a raised `$big_image_size_threshold` reaches existing `-scaled` images. Dry-run by default, `--apply` to write. See § Media processing. |
 | `wp timber-kit svg-dimensions` | Derives and stores intrinsic `width`/`height` for SVG attachments that have none. See § SVG dimensions. |
 | `wp timber-kit convert-utf8mb4` | Converts legacy `utf8` tables and columns to `utf8mb4`. |
 | `wp timber-kit acfml-sync-preferences` | Reconciles WPML translation preferences for programmatically written ACF meta. See § ACFML preference sync. |
@@ -1173,6 +1174,25 @@ wp timber-kit prune-originals --limit=500          # cap the batch
 ```
 
 The command only prunes genuine size-driven `-scaled` downscales — it leaves originals preserved for EXIF rotation or format conversion untouched, and never strips the `original_image` pointer unless the file was actually deleted. The trade-off it makes permanent: future regeneration of those images falls back to the `-scaled` file. See `\Parisek\TimberKit\OriginalImagePruner`.
+
+#### Raising the threshold for existing images
+
+`$big_image_size_threshold` applies at upload. Raising it later leaves every image already uploaded as a `-scaled` copy at the old, smaller size. `rescale-originals` re-runs core's upload pipeline from the preserved original, so the current threshold applies:
+
+```bash
+wp timber-kit rescale-originals                    # report the plan, write nothing
+wp timber-kit rescale-originals 232 270 --apply    # selected attachments
+wp timber-kit rescale-originals --apply --verbose  # every -scaled attachment, one line each
+```
+
+Per attachment the result is one of two:
+
+- **The original fits under the threshold** (`restored`): the attachment now serves the original.
+- **The original is still larger** (`rescaled`): core writes a new `-scaled` copy at the threshold.
+
+Core's `wp media regenerate` reads the original too, but it covers only the second case. `wp_create_image_subsizes()` rewrites `_wp_attached_file` only when it downscales, so in the first case the metadata describes the original while every URL still serves the old `-scaled` file. The command re-points the attachment first. It also writes the result to every attachment row over the same file (WPML syncs the attached file between translations, not the metadata), and deletes the resizer cache derivatives of the old file (a `rescaled` image keeps its file name, so the cache would otherwise keep serving crops cut from the smaller copy).
+
+A failed regeneration restores the attachment's previous file pointer and metadata. The old `-scaled` file stays on disk. The command reads originals, so **run it before `prune-originals`, never after**. See `\Parisek\TimberKit\OriginalImageRescaler`.
 
 #### SVG dimensions
 

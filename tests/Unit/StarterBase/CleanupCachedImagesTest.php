@@ -173,6 +173,19 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		$this->assertFileExists( $this->cache_dir . '/1439x0-center/homepage-hero-desktop.avif' );
 	}
 
+	public function test_purge_deletes_derivatives_even_when_another_attachment_shares_the_file(): void {
+		// rescale-originals replaces the file every row points at, so the shared
+		// derivatives are stale for all of them, not just the row being processed.
+		$this->seedDerivatives();
+		$this->stubAttachment( 59741, '2026/08/homepage-hero-desktop.webp', siblings: 4 );
+
+		$this->base->purge_cached_images( 59741 );
+
+		$this->assertFileDoesNotExist( $this->cache_dir . '/900x0-center/homepage-hero-desktop.avif' );
+		$this->assertFileDoesNotExist( $this->cache_dir . '/1439x0-center/homepage-hero-desktop.avif' );
+		$this->assertFileExists( $this->cache_dir . '/900x0-center/unrelated.avif' );
+	}
+
 	/**
 	 * A failed query answers nothing. `get_var()` returns null on error, and the
 	 * naive `(int) null > 0` reading of that is indistinguishable from a real
