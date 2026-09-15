@@ -1185,7 +1185,21 @@ The command only prunes genuine size-driven `-scaled` downscales — it leaves o
 wp timber-kit rescale-originals                    # report the plan, write nothing
 wp timber-kit rescale-originals 232 270 --apply    # selected attachments
 wp timber-kit rescale-originals --apply --verbose  # every -scaled attachment, one line each
+wp timber-kit rescale-originals --apply --limit=50 # stop after 50 files, rerun for the next batch
 ```
+
+Without IDs the command takes every attachment whose `_wp_attached_file` is `-scaled`, plus any row a killed run left journalled. Rows over one file (WPML translations) count as one file. The summary line counts each status; `--verbose` prints one line per attachment with the served size and the sibling rows written with it.
+
+| Status | Meaning |
+| --- | --- |
+| `restored` / `would_restore` | The original fits under the threshold and is now served (planned, in a dry run). |
+| `rescaled` / `would_rescale` | The original is larger; a new `-scaled` copy at the threshold is served. |
+| `unchanged` | The served file is already as large as the threshold allows. Also the result after a lowered threshold. |
+| `interrupted` | Dry run only: a killed run left this row journalled. The next `--apply` run puts it back first. |
+| `not_scaled` | The file is not a size-driven `-scaled` copy (e.g. a `-rotated` upload). |
+| `no_original` | The metadata names no preserved original. |
+| `missing` | The original is gone from disk, typically after `prune-originals`. |
+| `failed` | Nothing was left changed. The warning line names the reason. |
 
 Per attachment the result is one of two:
 
