@@ -571,7 +571,7 @@ of these went undocumented for several releases.
 | `wp timber-kit outage-screen` | Installs the drop-ins that serve the theme's prerendered outage screen. See § Outage screen. |
 | `wp timber-kit migrate-image-cache` | Moves existing resizer cache derivatives into the source-path layout, ahead of enabling `$resizer_source_path_in_cache_key`. Dry-run by default, `--apply` to write. |
 
-Commands added since `migrate-image-cache` are dry-run by default and write with `--apply`. `prune-originals` predates that and writes by default; it takes `--dry-run` instead.
+Write flags differ between commands: `migrate-image-cache` and `rescale-originals` write only with `--apply`; the others write by default and take `--dry-run`. Check `wp help timber-kit <command>`.
 
 ---
 
@@ -1196,7 +1196,9 @@ Core's `wp media regenerate` reads the original too, but it covers only the seco
 
 The command only grows images. After a **lowered** threshold every attachment reports `unchanged`; shrinking is `wp media regenerate` territory. A threshold of `0` (scaling disabled) restores every original at full size.
 
-Core reports no failure from `wp_create_image_subsizes()`: when the image editor cannot load, resize or save, it returns metadata that still describes the original. The command therefore checks the result against the planned outcome, and on a mismatch or an exception it restores the attachment's previous file pointer and metadata. Rows sharing the file are written only after that check passes. Metadata keys core does not own (added by other plugins) survive on every row.
+Core reports no failure from `wp_create_image_subsizes()`: when the image editor cannot load, resize or save, or a sub-size fails, it returns metadata anyway. So the command trusts only what it reads back. An attachment counts as done when its attached file matches the new metadata, the served file on disk measures within the threshold and larger than before, every row sharing the file reads back the written values, and core reports no missing sub-size. Anything else rolls every row back, and puts the old `-scaled` file back from a copy (a rescale writes the new file over it under the same name). The threshold is pinned for the duration of the call, so core and the check use one value. Metadata keys core does not own (added by other plugins) survive on every row.
+
+Each attachment is journalled in post meta (`_timber_kit_rescale_journal`) before the first write. A process killed mid-attachment leaves that journal behind; the next run lists the row as `interrupted` in a dry run and puts it back before processing it. Files core wrote on the way (sub-sizes, a `-rotated` or converted copy) stay on disk.
 
 The old `-scaled` file stays on disk in every case. After a `restored` result the metadata no longer carries `original_image`, so `prune-originals` reports the attachment `not_scaled` and nothing in the kit reclaims that file.
 

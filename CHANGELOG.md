@@ -20,11 +20,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   file. The command also copies the result to every attachment row over the
   same file (WPML translations) and purges the stale resizer derivatives.
 
-  The command checks the regeneration result against the planned outcome,
-  because core reports no failure: an editor that cannot load or save returns
-  metadata describing the original. On a mismatch or an exception the
-  attachment is rolled back. It only grows images; a lowered threshold
-  reports `unchanged`.
+  Core reports no failure from `wp_create_image_subsizes()`, so the command
+  trusts only what it reads back: attached file, served dimensions, every
+  sibling row, missing sub-sizes. Anything else rolls every row and the old
+  `-scaled` file back. Each attachment is journalled first, so a killed run is
+  put back by the next one. It only grows images; a lowered threshold reports
+  `unchanged`.
 
 ## [1.51.0] - 2026-09-11
 

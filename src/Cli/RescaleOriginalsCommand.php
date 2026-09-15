@@ -33,6 +33,8 @@ class RescaleOriginalsCommand {
 	 * A row that settled nothing (no original, not scaled, missing, failed)
 	 * leaves its siblings to be tried: WPML syncs the attached file between
 	 * translations but not the metadata, so a sibling may still be viable.
+	 *
+	 * Public so the rule can be tested without the WP_CLI loop around it.
 	 */
 	public static function settlesFile( string $status ): bool {
 		return in_array( $status, array( 'restored', 'rescaled', 'would_restore', 'would_rescale', 'unchanged' ), true );
@@ -80,7 +82,13 @@ class RescaleOriginalsCommand {
 			$ids = array_map(
 				'intval',
 				(array) $wpdb->get_col(
-					"SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_wp_attached_file' AND meta_value LIKE '%-scaled.%' ORDER BY post_id ASC"
+					// A row a killed run left behind no longer looks -scaled; its
+					// journal is how it gets found and put back.
+					$wpdb->prepare(
+						"SELECT DISTINCT post_id FROM {$wpdb->postmeta} WHERE ( meta_key = '_wp_attached_file' AND meta_value LIKE %s ) OR meta_key = %s ORDER BY post_id ASC",
+						'%-scaled.%',
+						OriginalImageRescaler::JOURNAL_KEY
+					)
 				)
 			);
 		}

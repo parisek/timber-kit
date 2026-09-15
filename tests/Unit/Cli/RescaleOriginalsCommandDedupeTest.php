@@ -28,6 +28,7 @@ class RescaleOriginalsCommandDedupeTest extends TestCase {
 			'not_scaled'    => [ 'not_scaled', false ],
 			'missing'       => [ 'missing', false ],
 			'failed'        => [ 'failed', false ],
+			'interrupted'   => [ 'interrupted', false ],
 		];
 	}
 
