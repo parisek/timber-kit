@@ -25,7 +25,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   | Setting | Before | After |
   | --- | --- | --- |
   | quality 80 | 7 KB, 0.955 | 44 KB, 0.985 |
-  | quality 100 (default) | 18 KB (coder default) | several times larger |
+  | quality 100 (default) | 18 KB (coder default) | 454 KB, 25x larger |
 
   **What a site sees.** Cached AVIF files keep the old encoding: the cache key
   does not change, so nothing moves until `wp-content/cache/image/` is

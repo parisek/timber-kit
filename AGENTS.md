@@ -139,13 +139,13 @@ If you ever need to back-fill a missing GitHub Release for an older tag manually
   CHANGELOG entry tells a site on the default quality to set an explicit value.
   This is a named exception to the rule above, not a case of the rule being
   skipped.
+
+## Testing notes
+
 - **CI AVIF encoder:** the Unit job's ImageMagick cannot write AVIF, so
   `EncoderQualityTest` skips its AVIF cases there. The `AVIF encoder` job
   installs libheif with an AV1 encoder and sets `TIMBERKIT_REQUIRE_AVIF_ENCODER`,
   which turns that skip into a failure.
-
-## Testing notes
-
 - Tests use `Brain\Monkey` to mock WordPress functions. **Function definitions persist across tests in the same run** (Brain\Monkey resets call expectations but not function existence). So `function_exists('xxx')` returns `true` for the rest of the suite once any earlier test has mocked `xxx` — designing tests that exercise `function_exists`-fail paths is unreliable. Document such guards by inspection instead.
 - The `WP_Term` / `WP_Post` stubs use `#[\AllowDynamicProperties]` mirroring WP core, so tests can hydrate arbitrary properties via the constructor without PHP 8.2+ deprecations.
 - Property tests (`tests/Property/`) are isolated from Brain\Monkey by convention — they target pure functions only. If a property test needs a WP/ACF stub, add it as a plain `function_exists`-guarded function to `tests/bootstrap.property.php` rather than reaching for `Functions\when()`. The Property suite uses its own `phpunit.property.xml` config because Brain\Monkey's Patchwork raises "DefinedTooEarly" if WP function stubs live in the shared `tests/bootstrap.php`. CI pins `ERIS_SEED` to the Actions run ID (`github.run_id`); reproduce a failing build locally with `ERIS_SEED=<actual-run-id-integer> composer test:property`.
