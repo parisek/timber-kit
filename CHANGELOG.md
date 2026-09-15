@@ -6,6 +6,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `Breadcrumb` logs a dropped listing step under `WP_DEBUG` (#183). When a
+  `list_page_map` entry has no `url`/`title` in the `links` option for the
+  current request, the step is still omitted, but the error log now names the
+  post type, the missing `links.<key>`, the options store and the WPML
+  language: `[timber_kit/breadcrumb] listing step dropped post_type=post
+  key=links.article_list options=option lang=en`.
+
+  **Why.** On a WPML + ACFML site the `links` group is translatable, so a
+  language whose options were never saved reads `null` there while the default
+  language renders the step. Before this the trail simply lost a step in one
+  language, with nothing to explain it — and verifying from WP-CLI does not
+  help, because `wpml_switch_language` there still returns the default
+  language's value.
+
+  **Output is unchanged**, so no flag: the log goes to `error_log()`, not a
+  notice, and is silent without `WP_DEBUG`. The step-building condition is
+  untouched — an entry the code accepted before still renders. Same idiom as
+  the `WpmlBlockOverride` diagnostics.
+
 ## [1.52.0] - 2026-09-15
 
 ### Added
