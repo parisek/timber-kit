@@ -570,8 +570,9 @@ of these went undocumented for several releases.
 | `wp timber-kit wpml-cleanup-theme-domain` | Purges WPML String Translation rows and compiled files left behind for a text domain that is no longer registered with ST. See § WPML theme-domain cleanup. |
 | `wp timber-kit outage-screen` | Installs the drop-ins that serve the theme's prerendered outage screen. See § Outage screen. |
 | `wp timber-kit migrate-image-cache` | Moves existing resizer cache derivatives into the source-path layout, ahead of enabling `$resizer_source_path_in_cache_key`. Dry-run by default, `--apply` to write. |
+| `wp timber-kit clear-image-cache` | Deletes resizer derivatives so they regenerate: all, one `--format`, or selected images by attachment ID or file name. Dry-run by default, `--apply` to delete. See § Clearing the image cache. |
 
-Write flags differ between commands: `migrate-image-cache` and `rescale-originals` write only with `--apply`; the others write by default and take `--dry-run`. Check `wp help timber-kit <command>`.
+Write flags differ between commands: `migrate-image-cache`, `rescale-originals` and `clear-image-cache` write only with `--apply`; the others write by default and take `--dry-run`. Check `wp help timber-kit <command>`.
 
 ---
 
@@ -1221,6 +1222,20 @@ The old `-scaled` file stays on disk in every case. After a `restored` result th
 With `$resizer_source_path_in_cache_key` off, the cache purge matches derivatives by file name alone, as `cleanup_cached_images()` does. Another upload with the same name in a different directory loses its cached derivatives too; they are regenerated on the next request.
 
 The command reads originals, so **run it before `prune-originals`, never after**. See `\Parisek\TimberKit\OriginalImageRescaler`.
+
+#### Clearing the image cache
+
+Resizer derivatives in `wp-content/cache/image/` (or `timber_kit_resizer_image_cache_dir`) are generated once and served until deleted. After a resizer or encoder change, or when one image was uploaded badly, delete them and they regenerate on the next request:
+
+```bash
+wp timber-kit clear-image-cache                         # report every derivative, delete nothing
+wp timber-kit clear-image-cache --format=avif --apply   # delete every AVIF derivative
+wp timber-kit clear-image-cache 232 hero.jpg --apply    # delete the derivatives of two images
+```
+
+An `<image>` is an attachment ID or a source file name, with or without its extension. It matches that image's derivatives in both cache layouts, and the `-scaled` copy WordPress serves for a large upload. A name matches exactly, so `hero` never selects `hero-banner`; with `$resizer_source_path_in_cache_key` off, uploads that share a name in different months share derivatives, and all of them are selected. The command deletes files only, never directories, and nothing outside the cache directory.
+
+Deleting a file does not change its URL, so browsers and proxies may keep an old copy. Bump `$resizer_cache_version` in the same deploy to change the URLs, and purge the page cache. See `\Parisek\TimberKit\ImageCacheCleaner`.
 
 #### SVG dimensions
 
