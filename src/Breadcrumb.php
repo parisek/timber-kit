@@ -509,6 +509,8 @@ class Breadcrumb {
 					'title' => (string) $links[ $list_key ]['title'],
 					'url'   => (string) $links[ $list_key ]['url'],
 				];
+			} else {
+				$this->log_missing_listing_link( (string) $post_type, (string) $list_key );
 			}
 		} else {
 			// CPT branch — hierarchical uses ancestors; flat uses only the title
@@ -532,6 +534,40 @@ class Breadcrumb {
 		];
 
 		return $items;
+	}
+
+	/**
+	 * Whether diagnostics should be written. Follows WP_DEBUG.
+	 *
+	 * A method rather than an inline constant check so the reporting path can
+	 * be exercised: the constant cannot be redefined within a test run.
+	 */
+	protected function debug_enabled(): bool {
+		return \defined( 'WP_DEBUG' ) && WP_DEBUG;
+	}
+
+	/**
+	 * Report a listing step that could not be built, under WP_DEBUG only.
+	 *
+	 * The step is dropped either way. Without this the drop is silent, and on a
+	 * WPML + ACFML site its usual cause is invisible: the `links` option is
+	 * translatable, so a language whose options were never saved reads null
+	 * there while the default language renders the step fine. The language is
+	 * logged because it is the diagnosis. Written to the error log, not raised
+	 * as a notice, so a development site's rendered page does not change.
+	 */
+	protected function log_missing_listing_link( string $post_type, string $list_key ): void {
+		if ( ! $this->debug_enabled() ) {
+			return;
+		}
+		$lang = apply_filters( 'wpml_current_language', null );
+		\error_log( \sprintf(
+			'[timber_kit/breadcrumb] listing step dropped post_type=%s key=links.%s options=%s lang=%s — no url/title for this request; on a multilingual site, save the options in this language',
+			$post_type,
+			$list_key,
+			$this->options_post_id,
+			\is_string( $lang ) && '' !== $lang ? $lang : '-'
+		) );
 	}
 
 	/**
