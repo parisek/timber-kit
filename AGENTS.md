@@ -104,6 +104,20 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   `_parent` and named browsing contexts stay refused. This is a named exception
   to the rule above, not a case of the rule being skipped.
 
+- **Approved exception:** AVIF encoding honours `timber_kit_resizer_target_quality`
+  unconditionally — no flag. The owner reviewed it explicitly. The old
+  behaviour was a defect that failed invisibly: a site that set quality 80
+  shipped quality-20 pixels, and a site on the default shipped the coder's
+  default, with no error anywhere. A default-off flag would keep that running
+  on every site that did not flip it, and nobody flips a flag for a defect they
+  cannot see. Nothing changes until a site clears its image cache. The
+  package default quality drops from 100 to 80 in the same release, because
+  honouring 100 would make AVIF about 25x larger on every site that sets none.
+  JPEG and WebP, which always honoured the value, drop to 80 with it: the owner
+  chose one constant over a per-format default that needs hook detection. The
+  quality cache key keeps quality 100 as its only unsuffixed path, so sites that
+  already set 80 keep their `-q80` URLs. This is a named exception to the rule above, not a case of the rule being
+  skipped.
 
 ## Architecture decisions (ADRs)
 
@@ -132,6 +146,10 @@ If you ever need to back-fill a missing GitHub Release for an older tag manually
 
 ## Testing notes
 
+- **CI AVIF encoder:** the Unit job's ImageMagick cannot write AVIF, so
+  `EncoderQualityTest` skips its AVIF cases there. The `AVIF encoder` job
+  installs libheif with an AV1 encoder and sets `TIMBERKIT_REQUIRE_AVIF_ENCODER`,
+  which turns that skip into a failure.
 - Tests use `Brain\Monkey` to mock WordPress functions. **Function definitions persist across tests in the same run** (Brain\Monkey resets call expectations but not function existence). So `function_exists('xxx')` returns `true` for the rest of the suite once any earlier test has mocked `xxx` — designing tests that exercise `function_exists`-fail paths is unreliable. Document such guards by inspection instead.
 - The `WP_Term` / `WP_Post` stubs use `#[\AllowDynamicProperties]` mirroring WP core, so tests can hydrate arbitrary properties via the constructor without PHP 8.2+ deprecations.
 - Property tests (`tests/Property/`) are isolated from Brain\Monkey by convention — they target pure functions only. If a property test needs a WP/ACF stub, add it as a plain `function_exists`-guarded function to `tests/bootstrap.property.php` rather than reaching for `Functions\when()`. The Property suite uses its own `phpunit.property.xml` config because Brain\Monkey's Patchwork raises "DefinedTooEarly" if WP function stubs live in the shared `tests/bootstrap.php`. CI pins `ERIS_SEED` to the Actions run ID (`github.run_id`); reproduce a failing build locally with `ERIS_SEED=<actual-run-id-integer> composer test:property`.

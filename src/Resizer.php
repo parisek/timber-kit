@@ -37,9 +37,13 @@ class Resizer {
 	private const float DEFAULT_ASPECT_TOLERANCE = 0.1;
 
 	/**
-	 * Default image quality (0-100)
+	 * Default image quality (0-100).
+	 *
+	 * 80, not 100. AVIF ignored the quality until 1.53.0 and ran at the
+	 * encoder's own default, so 100 cost nothing there; honoured, it makes a
+	 * typical photo about 25x larger.
 	 */
-	private const int DEFAULT_QUALITY = 100;
+	private const int DEFAULT_QUALITY = 80;
 
 	/**
 	 * Default target image format
@@ -131,9 +135,9 @@ class Resizer {
 	/**
 	 * Whether a variant's quality is part of its cache key.
 	 *
-	 * Off by default because turning it on moves every non-default-quality
-	 * variant to a new path: the old files orphan and the public URLs change.
-	 * Projects that never touched quality see no difference either way.
+	 * Off by default because turning it on moves every variant whose quality
+	 * is not 100 to a new path: the old files orphan and the public URLs
+	 * change.
 	 *
 	 * @var bool
 	 */
@@ -184,7 +188,7 @@ class Resizer {
 	 *
 	 * Filters available:
 	 *   - `timber_kit_resizer_target_format`   — output image format (default: avif)
-	 *   - `timber_kit_resizer_target_quality`  — output quality 0-100 (default: 100)
+	 *   - `timber_kit_resizer_target_quality`  — output quality 0-100 (default: 80)
 	 *   - `timber_kit_resizer_image_cache_dir` — absolute path to cache directory
 	 *   - `timber_kit_resizer_force_regenerate` — skip cache and always regenerate
 	 *   - `timber_kit_resizer_skip_animated`   — pass animated sources through untouched (default: true)
@@ -193,7 +197,9 @@ class Resizer {
 	 *     directory in its cache key (default: false)
 	 */
 	public function __construct() {
-		$this->target_format = apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT );
+		// Trimmed and lowercased, because every format comparison and the
+		// Site Health probe match on the lowercase name.
+		$this->target_format = strtolower( trim( (string) apply_filters( 'timber_kit_resizer_target_format', self::DEFAULT_FORMAT ) ) );
 		$this->target_quality = (int) apply_filters( 'timber_kit_resizer_target_quality', self::DEFAULT_QUALITY );
 		$this->image_cache_dir = apply_filters( 'timber_kit_resizer_image_cache_dir', WP_CONTENT_DIR . self::CACHE_DIR_PATH );
 		$this->force_regenerate = (bool) apply_filters( 'timber_kit_resizer_force_regenerate', self::FORCE_REGENERATE );
@@ -703,7 +709,8 @@ class Resizer {
 		// `crop` is accepted alongside `image_style` because that is the word
 		// callers reach for; `image_style` stays canonical and wins when both
 		// are given.
-		$style = $variant['image_style'] ?? $variant['crop'] ?? null;
+		$style  = $variant['image_style'] ?? $variant['crop'] ?? null;
+		$format = $this->normalizeFormat( $variant['format'] ?? null );
 
 		return [
 			'width' => ( ! empty( $variant['width'] ) ) ? intval( $variant['width'] ) : 0,
@@ -711,7 +718,7 @@ class Resizer {
 			'media' => ( ! empty( $variant['media'] ) ) ? intval( $variant['media'] ) : 0,
 			'image_style' => ( ! empty( $style ) ) ? $style : 'center',
 			'quality' => ( ! empty( $variant['quality'] ) ) ? intval( $variant['quality'] ) : $this->target_quality,
-			'format' => $this->normalizeFormat( $variant['format'] ?? null ),
+			'format' => $format,
 		];
 	}
 
@@ -863,10 +870,9 @@ class Resizer {
 	 * Quality is absent from the key by default, which is a real defect:
 	 * re-cutting the same dimensions at a new quality serves the previously
 	 * generated file, so the setting appears to do nothing. Opting in via
-	 * `timber_kit_resizer_quality_in_cache_key` adds it, and only when it
-	 * differs from the package default, so paths at default quality never move.
-	 * It stays opt-in because switching it on relocates every non-default-quality
-	 * variant: old files orphan, public URLs change.
+	 * `timber_kit_resizer_quality_in_cache_key` adds it for every quality except
+	 * 100, so paths at 100 never move. It stays opt-in because switching it on
+	 * relocates every other variant: old files orphan, public URLs change.
 	 *
 	 * The format stays out — it is the file extension, so it already separates
 	 * variants without a second copy of it here.
@@ -887,7 +893,10 @@ class Resizer {
 
 		$dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $style;
 
-		if ( $this->quality_in_cache_key && (int) $variant['quality'] !== self::DEFAULT_QUALITY ) {
+		// Quality 100 alone goes unsuffixed, a fixed rule rather than "the
+		// default": the default moved from 100 to 80 in 1.53.0, and following
+		// it would have moved every cached variant on sites with the key on.
+		if ( $this->quality_in_cache_key && 100 !== (int) $variant['quality'] ) {
 			$dirname .= '-q' . (int) $variant['quality'];
 		}
 
@@ -1052,7 +1061,7 @@ class Resizer {
 						}
 						$imagick->cropImage( $cropRect['width'], $cropRect['height'], $cropRect['x'], $cropRect['y'] );
 						$imagick->setImageFormat( $target_format );
-						$imagick->setImageCompressionQuality( $variant['quality'] );
+						self::applyImagickQuality( $imagick, $variant['quality'], $target_format );
 						$imagick->writeImage( $target_path );
 						$imagick->clear();
 						$imagick->destroy();
@@ -1123,6 +1132,20 @@ class Resizer {
 			'caption' => $default_image['caption'],
 			'description' => $default_image['description'],
 		];
+	}
+
+	/**
+	 * Set the encoder quality on a raw Imagick wand, for the smart-crop path.
+	 *
+	 * ImageMagick keeps two quality settings. JPEG and WebP read the image
+	 * one; AVIF and PNG read the wand one, and for PNG it is a compression
+	 * level, where higher means smaller. Setting only the image value, as this
+	 * path did, left AVIF at the coder default whatever was asked for. The
+	 * Spatie paths get the same handling from spatie/image >= 3.9.6.
+	 */
+	private static function applyImagickQuality( \Imagick $image, int $quality, string $format ): void {
+		$image->setImageCompressionQuality( $quality );
+		$image->setCompressionQuality( 'png' === strtolower( $format ) ? 100 - $quality : $quality );
 	}
 
 	/**

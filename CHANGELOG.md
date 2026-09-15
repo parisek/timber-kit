@@ -27,6 +27,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   untouched — an entry the code accepted before still renders. Same idiom as
   the `WpmlBlockOverride` diagnostics.
 
+### Fixed
+
+- AVIF variants are encoded at the requested quality. It never was before.
+  spatie/image's Imagick driver set the wand-level compression quality to
+  `100 - $quality`, meant for PNG, and ImageMagick's AVIF coder reads the wand
+  value. So `timber_kit_resizer_target_quality` ran backwards for AVIF:
+  80 encoded as 20, and the default 100 encoded as 0, which the coder treats
+  as its own default. The smart-crop path set only the image-level value,
+  which AVIF ignores, so it always ran at the coder default. JPEG and WebP
+  read the image-level value and were never affected.
+
+  The Spatie paths are fixed by requiring spatie/image `^3.9.6`, which fixed
+  the driver upstream ([spatie/image#332](https://github.com/spatie/image/pull/332));
+  the smart-crop path is fixed here. Measured on one 3000x2000 photo resized to
+  1600 px (SSIM against a lossless resize):
+
+  | Setting | Before | After |
+  | --- | --- | --- |
+  | quality 80 | 7 KB, 0.955 | 44 KB, 0.985 |
+  | no quality set | 18 KB (coder default) | 44 KB (new default, 80) |
+  | quality 100 set | 18 KB (coder default) | 454 KB |
+
+  **What a site sees.** Cached AVIF files keep the old encoding: the cache key
+  does not change, so nothing moves until `wp-content/cache/image/` is
+  cleared. After that, AVIF follows `timber_kit_resizer_target_quality`, or
+  the new default of 80 when a site sets none. A quality chosen by
+  comparing output before this release was compared at a different effective
+  value.
+
+  The "Before" column assumes spatie/image below 3.9.6. The kit allowed
+  `^3.8`, so a site whose lock resolved 3.9.6 (released 2026-08-18) already
+  had the requested quality honoured on every path except smart-crop; under
+  the old default of 100 its AVIF files were already large, and the new
+  default of 80 makes them smaller.
+
+  **Upgrading.**
+  1. `composer update parisek/timber-kit` (pulls spatie/image 3.9.6; a lock
+     pinning spatie/image below that fails to resolve, which is intended).
+  2. Clear `wp-content/cache/image/`, or accept the old AVIF files until they
+     are regenerated.
+  3. A theme that sets no quality now gets 80 for every format, JPEG and WebP
+     included (was 100). Set `timber_kit_resizer_target_quality` to keep 100.
+  4. `$resizer_quality_in_cache_key` keeps its paths: quality 100 goes
+     unsuffixed and every other quality gets `-q<N>`, as before. A theme on
+     the default with the key on moves from the plain directory to `-q80`
+     once; a theme that already set 80 keeps its `-q80` paths.
+
+### Changed
+
+- The default `timber_kit_resizer_target_quality` is 80 (was 100), for every
+  format. Honouring quality 100 would make AVIF about 25x larger on every
+  site that sets none. JPEG and WebP at 80 also get smaller than they were.
+- The quality cache key now omits the suffix for quality 100 as a fixed
+  rule, not for "the default quality". Tied to the default, lowering it to 80
+  would have moved every cached variant on sites with the key on.
+- Requires spatie/image `^3.9.6` (was `^3.8`).
+
 ## [1.52.0] - 2026-09-15
 
 ### Added

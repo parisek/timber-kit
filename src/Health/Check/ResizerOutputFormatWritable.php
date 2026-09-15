@@ -73,14 +73,10 @@ final class ResizerOutputFormatWritable implements HealthCheck {
 		 * be told about WebP, and a project on the default about AVIF.
 		 */
 		/**
-		 * Kept verbatim, not lowercased. Resizer::normalizeFormat() only
-		 * normalises a per-variant format; the request-wide one from this
-		 * filter reaches the encoder exactly as written (src/Resizer.php:184,
-		 * :699). Probing a tidied copy would test a format production never
-		 * uses — `AVIF` passes as `avif` here while Spatie's GD driver rejects
-		 * the uppercase spelling at render time.
+		 * Trimmed and lowercased exactly as the Resizer constructor does, so
+		 * the probe tests the spelling production encodes with.
 		 */
-		$format = (string) apply_filters( 'timber_kit_resizer_target_format', 'avif' );
+		$format = strtolower( trim( (string) apply_filters( 'timber_kit_resizer_target_format', 'avif' ) ) );
 
 		// Asked before the format question: with no backend nothing resizes at
 		// all, and a delegate-free format would otherwise short-circuit to a
@@ -89,9 +85,7 @@ final class ResizerOutputFormatWritable implements HealthCheck {
 			return $this->verdictToResult( ImageFormatProbe::VERDICT_NO_BACKEND, $format );
 		}
 
-		// Case-insensitive only for deciding whether a delegate can be missing;
-		// the probe still receives the format as written.
-		if ( in_array( strtolower( $format ), self::DELEGATE_FREE, true ) ) {
+		if ( in_array( $format, self::DELEGATE_FREE, true ) ) {
 			return Result::good(
 				sprintf(
 					/* translators: %s: image format, e.g. "png". */

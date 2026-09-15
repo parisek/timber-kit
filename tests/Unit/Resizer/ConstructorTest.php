@@ -14,7 +14,7 @@ class ConstructorTest extends ResizerTestCase {
 		$resizer = $this->createResizer();
 
 		$this->assertSame( 'avif', $this->getPrivateProperty( $resizer, 'target_format' ) );
-		$this->assertSame( 100, $this->getPrivateProperty( $resizer, 'target_quality' ) );
+		$this->assertSame( 80, $this->getPrivateProperty( $resizer, 'target_quality' ) );
 		$this->assertStringContainsString( '/cache/image', $this->getPrivateProperty( $resizer, 'image_cache_dir' ) );
 		$this->assertFalse( $this->getPrivateProperty( $resizer, 'force_regenerate' ) );
 	}

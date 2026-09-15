@@ -34,7 +34,7 @@ class NormalizeVariantsTest extends ResizerTestCase {
 		$this->assertSame( 600, $result[0]['height'] );
 		$this->assertSame( 0, $result[0]['media'] );
 		$this->assertSame( 'center', $result[0]['image_style'] );
-		$this->assertSame( 100, $result[0]['quality'] );
+		$this->assertSame( 80, $result[0]['quality'] );
 	}
 
 	public function test_empty_strings_become_zero(): void {
@@ -48,7 +48,7 @@ class NormalizeVariantsTest extends ResizerTestCase {
 		$this->assertSame( 0, $result[0]['height'] );
 		$this->assertSame( 0, $result[0]['media'] );
 		$this->assertSame( 'center', $result[0]['image_style'] );
-		$this->assertSame( 100, $result[0]['quality'] );
+		$this->assertSame( 80, $result[0]['quality'] );
 	}
 
 	public function test_single_dimension_width_only(): void {
@@ -106,8 +106,8 @@ class NormalizeVariantsTest extends ResizerTestCase {
 			[ [ '800', '600', '768', 'crop' ] ],
 		] );
 
-		// Default target_quality from constructor is 100
-		$this->assertSame( 100, $result[0]['quality'] );
+		// Default target_quality from constructor is 80
+		$this->assertSame( 80, $result[0]['quality'] );
 	}
 
 	public function test_zero_string_treated_as_empty(): void {
@@ -212,7 +212,7 @@ class NormalizeVariantsTest extends ResizerTestCase {
 		$this->assertSame( 0, $result[0]['height'] );
 		$this->assertSame( 0, $result[0]['media'] );
 		$this->assertSame( 'center', $result[0]['image_style'] );
-		$this->assertSame( 100, $result[0]['quality'] );
+		$this->assertSame( 80, $result[0]['quality'] );
 		$this->assertSame( 'avif', $result[0]['format'] );
 	}
 

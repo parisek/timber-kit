@@ -186,4 +186,17 @@ class ResizerOutputFormatWritableTest extends HealthTestCase {
 		$this->assertSame( 'recommended', $result->status() );
 		$this->assertNotSame( '', $result->actions() );
 	}
+
+	/**
+	 * The resizer trims and lowercases the filtered format since 1.53.0, so
+	 * the probe must test that spelling, not the raw filter value.
+	 */
+	public function test_probe_receives_the_format_as_the_resizer_normalises_it(): void {
+		Filters\expectApplied( 'timber_kit_resizer_target_format' )->once()->andReturn( ' AVIF ' );
+
+		$probe = new FakeImageFormatProbe();
+		( new ResizerOutputFormatWritable( $probe ) )->run();
+
+		$this->assertSame( 'avif', $probe->seen );
+	}
 }

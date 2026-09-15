@@ -32,7 +32,7 @@ class VariantDirnameTest extends ResizerTestCase {
 				'height' => 630,
 				'media' => 0,
 				'image_style' => 'center',
-				'quality' => 100,
+				'quality' => 80,
 				'format' => 'avif',
 			],
 			$overrides
@@ -47,12 +47,22 @@ class VariantDirnameTest extends ResizerTestCase {
 		$this->assertSame( '1200x630-center', $result );
 	}
 
-	public function test_default_quality_keeps_the_historic_dirname(): void {
+	/**
+	 * Only quality 100 goes without a suffix, whatever the package default is.
+	 * The default dropped from 100 to 80 in 1.53.0; tying the suffix to the
+	 * default would have moved every existing `-q80` and every unsuffixed
+	 * variant on sites with the key on.
+	 */
+	public function test_only_quality_100_keeps_the_plain_dirname(): void {
 		$resizer = $this->createResizerWithQualityInKey();
 
-		$result = $this->callPrivate( $resizer, 'variantDirname', [ $this->variant() ] );
+		$this->assertSame( '1200x630-center', $this->callPrivate( $resizer, 'variantDirname', [ $this->variant( [ 'quality' => 100 ] ) ] ) );
+	}
 
-		$this->assertSame( '1200x630-center', $result );
+	public function test_the_default_quality_80_keeps_its_suffix(): void {
+		$resizer = $this->createResizerWithQualityInKey();
+
+		$this->assertSame( '1200x630-center-q80', $this->callPrivate( $resizer, 'variantDirname', [ $this->variant() ] ) );
 	}
 
 	public function test_opted_in_non_default_quality_is_part_of_the_key(): void {
