@@ -21,13 +21,23 @@ class ImageCacheCleanerTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
-		Functions\when( 'sanitize_file_name' )->alias( fn ( $n ) => preg_replace( '/[^A-Za-z0-9._-]/', '', (string) $n ) );
+		// Close to core: whitespace runs become '-', a few specials go, UTF-8
+		// letters stay.
+		Functions\when( 'sanitize_file_name' )->alias(
+			fn ( $n ) => preg_replace( '/[\s]+/u', '-', str_replace( [ '?', '#', '%', '&' ], '', (string) $n ) )
+		);
 		$this->dir = sys_get_temp_dir() . '/tk-clear-' . uniqid();
 		foreach ( [
 			'1600x0-center-q80/miminko.avif',
 			'1600x0-center-q80/miminko.webp',
 			'3840x2043-crop-q80/mimco-5000-retus-scaled.avif',
 			'900x0-center/2026/08/hero.png.avif',
+			'900x0-center/2026/10/hero.png.avif',
+			'900x0-center/2026/08/photo.v2.jpg.avif',
+			'900x0-center/my-photo.avif',
+			'900x0-center/kočka.avif',
+			'900x0-center/photo.v2.avif',
+			'unreadable/x.avif',
 			'900x0-center/hero-banner.avif',
 			'900x0-center/hero.avif',
 		] as $file ) {
@@ -50,7 +60,7 @@ class ImageCacheCleanerTest extends TestCase {
 	}
 
 	public function test_finds_every_derivative_without_a_selection(): void {
-		$this->assertCount( 6, ( new ImageCacheCleaner( $this->dir ) )->find() );
+		$this->assertCount( 12, ( new ImageCacheCleaner( $this->dir ) )->find() );
 	}
 
 	public function test_format_limits_the_selection(): void {
@@ -75,12 +85,70 @@ class ImageCacheCleanerTest extends TestCase {
 		);
 	}
 
-	public function test_a_name_matches_the_source_path_layout(): void {
+	public function test_a_bare_name_matches_the_source_path_layout_in_every_directory(): void {
 		// Source-path layout keeps the source extension in the derivative name.
 		$this->assertSame(
-			[ '900x0-center/2026/08/hero.png.avif', '900x0-center/hero.avif' ],
-			$this->relative( ( new ImageCacheCleaner( $this->dir ) )->find( [ 'hero.png' ] ) )
+			[ '900x0-center/2026/08/hero.png.avif', '900x0-center/2026/10/hero.png.avif', '900x0-center/hero.avif' ],
+			$this->relative( ( new ImageCacheCleaner( $this->dir, true ) )->find( [ 'hero.png' ] ) )
 		);
+	}
+
+	public function test_a_relative_path_is_scoped_to_its_directory_in_the_source_path_layout(): void {
+		// An attachment's _wp_attached_file: another month's hero.png is a
+		// different upload and must stay.
+		$this->assertSame(
+			[ '900x0-center/2026/08/hero.png.avif' ],
+			$this->relative( ( new ImageCacheCleaner( $this->dir, true ) )->find( [ '2026/08/hero.png' ] ) )
+		);
+	}
+
+	public function test_a_relative_path_matches_by_name_in_the_flat_layout(): void {
+		// Flat derivatives carry no directory, so the directory cannot narrow.
+		$this->assertContains(
+			'900x0-center/hero.avif',
+			$this->relative( ( new ImageCacheCleaner( $this->dir, false ) )->find( [ '2026/08/hero.png' ] ) )
+		);
+	}
+
+	public function test_a_name_with_a_space_matches_the_sanitised_flat_stem(): void {
+		$this->assertSame(
+			[ '900x0-center/my-photo.avif' ],
+			$this->relative( ( new ImageCacheCleaner( $this->dir ) )->find( [ 'my photo.jpg' ] ) )
+		);
+	}
+
+	public function test_a_unicode_name_matches(): void {
+		$this->assertSame(
+			[ '900x0-center/kočka.avif' ],
+			$this->relative( ( new ImageCacheCleaner( $this->dir ) )->find( [ 'kočka.jpg' ] ) )
+		);
+	}
+
+	public function test_a_dotted_bare_name_keeps_its_dot(): void {
+		// Only a known image extension is split off: photo.v2 is a stem.
+		$this->assertContains(
+			'900x0-center/photo.v2.avif',
+			$this->relative( ( new ImageCacheCleaner( $this->dir ) )->find( [ 'photo.v2' ] ) )
+		);
+	}
+
+	public function test_jpg_and_jpeg_are_one_format(): void {
+		file_put_contents( $this->dir . '/900x0-center/hero.jpeg', 'x' );
+
+		$this->assertSame(
+			[ '900x0-center/hero.jpeg' ],
+			$this->relative( ( new ImageCacheCleaner( $this->dir ) )->find( [], 'JPG' ) )
+		);
+	}
+
+	public function test_an_unreadable_directory_is_skipped_not_fatal(): void {
+		chmod( $this->dir . '/unreadable', 0000 );
+		try {
+			$found = ( new ImageCacheCleaner( $this->dir ) )->find();
+		} finally {
+			chmod( $this->dir . '/unreadable', 0777 );
+		}
+		$this->assertNotEmpty( $found );
 	}
 
 	public function test_a_name_never_matches_a_longer_name_sharing_its_prefix(): void {

@@ -27,7 +27,9 @@ class ClearImageCacheCommand {
 	 * ## OPTIONS
 	 *
 	 * [<image>...]
-	 * : Attachment ID or source file name (`hero.jpg` or `hero`). Default: every derivative.
+	 * : Attachment ID, source file name (`hero.jpg`, `hero`) or path relative to
+	 *   uploads (`2026/08/hero.jpg`). A number is always an attachment ID; name a
+	 *   file called `2024.jpg` with its extension. Default: every derivative.
 	 *
 	 * [--format=<format>]
 	 * : Only derivatives of this output format, e.g. `avif`.
@@ -69,9 +71,21 @@ class ClearImageCacheCommand {
 			\WP_CLI::error( 'None of the given images resolved to a file name. Nothing selected.' );
 		}
 
-		$cache_dir = (string) apply_filters( 'timber_kit_resizer_image_cache_dir', WP_CONTENT_DIR . '/cache/image' );
-		$cleaner   = new ImageCacheCleaner( $cache_dir );
-		$paths     = $cleaner->find( array_values( array_unique( $names ) ), $format );
+		$cache_dir   = (string) apply_filters( 'timber_kit_resizer_image_cache_dir', WP_CONTENT_DIR . '/cache/image' );
+		$source_path = (bool) apply_filters( 'timber_kit_resizer_source_path_in_cache_key', false );
+		$cleaner     = new ImageCacheCleaner( $cache_dir, $source_path );
+		$names       = array_values( array_unique( $names ) );
+		$paths       = $cleaner->find( $names, $format );
+
+		// Say what matched nothing, so an empty result is not read as a clean cache.
+		foreach ( $names as $name ) {
+			if ( [] === $cleaner->find( [ $name ], $format ) ) {
+				\WP_CLI::warning( sprintf( 'No derivative matches "%s"%s.', $name, null === $format ? '' : ' in format ' . $format ) );
+			}
+		}
+		if ( [] === $names && null !== $format && [] === $paths ) {
+			\WP_CLI::warning( sprintf( 'No derivative has the format "%s".', $format ) );
+		}
 
 		$bytes = 0;
 		foreach ( $paths as $path ) {
@@ -92,8 +106,9 @@ class ClearImageCacheCommand {
 	}
 
 	/**
-	 * The file names an attachment's derivatives can be named after: the file
-	 * it serves and, for a `-scaled` upload, its original.
+	 * The source paths an attachment's derivatives can be named after, relative
+	 * to uploads so the source-path layout can scope them to their directory:
+	 * the file it serves and, for a `-scaled` or `-rotated` upload, its original.
 	 *
 	 * @return list<string>
 	 */
@@ -101,14 +116,15 @@ class ClearImageCacheCommand {
 		$names    = [];
 		$attached = get_post_meta( $attachment_id, '_wp_attached_file', true );
 		if ( is_string( $attached ) && '' !== $attached ) {
-			$names[] = basename( $attached );
+			$names[] = $attached;
 		}
 		// Core's array shape omits original_image, which only -scaled and
 		// -rotated uploads carry.
 		$metadata = (array) wp_get_attachment_metadata( $attachment_id, true );
 		$original = $metadata['original_image'] ?? '';
 		if ( is_string( $original ) && '' !== $original ) {
-			$names[] = $original;
+			$dir     = is_string( $attached ) ? dirname( $attached ) : '.';
+			$names[] = '.' === $dir ? $original : $dir . '/' . $original;
 		}
 		return $names;
 	}
