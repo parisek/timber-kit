@@ -28,6 +28,17 @@ class RescaleOriginalsCommand {
 	}
 
 	/**
+	 * Whether a row's outcome settles every row over the same file.
+	 *
+	 * A row that settled nothing (no original, not scaled, missing, failed)
+	 * leaves its siblings to be tried: WPML syncs the attached file between
+	 * translations but not the metadata, so a sibling may still be viable.
+	 */
+	public static function settlesFile( string $status ): bool {
+		return in_array( $status, array( 'restored', 'rescaled', 'would_restore', 'would_rescale', 'unchanged' ), true );
+	}
+
+	/**
 	 * Rescale `-scaled` images from their preserved originals.
 	 *
 	 * Run it before `timber-kit prune-originals`, never after: pruning deletes
@@ -79,10 +90,11 @@ class RescaleOriginalsCommand {
 		$seen   = 0;
 
 		foreach ( $ids as $id ) {
-			// Rows over one file are rewritten together by the rescaler, so the
-			// second row of a pair is already done by the time it comes up.
+			// Rows over one file are rewritten together by the rescaler, so once
+			// a row settled its file the siblings are done. An empty value (a
+			// bad ID) names no file and is never grouped.
 			$file = (string) get_post_meta( $id, '_wp_attached_file', true );
-			if ( isset( $done[ $file ] ) ) {
+			if ( '' !== $file && isset( $done[ $file ] ) ) {
 				continue;
 			}
 			if ( $limit > 0 && $seen >= $limit ) {
@@ -90,9 +102,10 @@ class RescaleOriginalsCommand {
 			}
 			++$seen;
 
-			$result        = $this->rescaler->rescale( $id, ! $apply );
-			$done[ $file ] = true;
-			if ( $apply && in_array( $result['status'], array( 'restored', 'rescaled' ), true ) ) {
+			$result = $this->rescaler->rescale( $id, ! $apply );
+			if ( '' !== $file && self::settlesFile( $result['status'] ) ) {
+				$done[ $file ] = true;
+				// A restore renames the file every sibling now points at.
 				$done[ (string) get_post_meta( $id, '_wp_attached_file', true ) ] = true;
 			}
 

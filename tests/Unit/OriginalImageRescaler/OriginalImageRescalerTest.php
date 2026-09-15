@@ -48,6 +48,7 @@ class OriginalImageRescalerTest extends TestCase {
 			$this->attached[ $id ] = basename( $file );
 			return true;
 		} );
+		Functions\when( 'wp_getimagesize' )->alias( fn ( $file ) => getimagesize( $file ) );
 		Functions\when( 'is_wp_error' )->alias( fn ( $thing ) => $thing instanceof \WP_Error );
 	}
 
@@ -201,9 +202,13 @@ class OriginalImageRescalerTest extends TestCase {
 			];
 		} );
 
-		$result = $this->rescaler()->rescale( 7 );
+		$this->attached[8] = 'photo-scaled.png';
+
+		$result = $this->rescaler( [ 8 ] )->rescale( 7 );
 
 		$this->assertSame( 'rescaled', $result['status'] );
+		$this->assertSame( 'photo-scaled.png', $this->attached[8] );
+		$this->assertSame( 4000, $this->metadata[8]['width'] );
 		$this->assertSame( [ 4000, 1315 ], [ $result['width'], $result['height'] ] );
 	}
 
@@ -243,16 +248,109 @@ class OriginalImageRescalerTest extends TestCase {
 		$this->assertSame( $this->metadata[7], $this->metadata[8] );
 	}
 
-	public function test_failed_regeneration_rolls_back_the_attachment(): void {
-		$this->scaledAttachment( 7, $this->tempOriginal( 3417, 4000 ) );
+	public function test_rescale_that_core_silently_skipped_rolls_back(): void {
+		// Core never returns WP_Error here. When the editor cannot load or save,
+		// it returns the default metadata, which still describes the original.
+		$original = $this->tempOriginal( 5000, 1644 );
+		$this->scaledAttachment( 7, $original );
 		$before = $this->metadata[7];
 		$this->threshold( 4000 );
-		Functions\when( 'wp_create_image_subsizes' )->justReturn( new \WP_Error( 'image_no_editor', 'No editor.' ) );
+		Functions\when( 'wp_create_image_subsizes' )->alias( function () use ( $original ) {
+			$meta = [ 'file' => basename( $original ), 'width' => 5000, 'height' => 1644, 'sizes' => [] ];
+			$this->metadata[7] = $meta;
+			return $meta;
+		} );
 
-		$result = $this->rescaler()->rescale( 7 );
+		$result = $this->rescaler( [ 8 ] )->rescale( 7 );
 
 		$this->assertSame( 'failed', $result['status'] );
 		$this->assertSame( 'photo-scaled.png', $this->attached[7] );
 		$this->assertSame( $before, $this->metadata[7] );
+		$this->assertArrayNotHasKey( 8, $this->attached, 'siblings are written only after a verified success' );
+	}
+
+	public function test_restore_that_returned_a_different_file_rolls_back(): void {
+		$original = $this->tempOriginal( 3417, 4000 );
+		$this->scaledAttachment( 7, $original );
+		$this->threshold( 4000 );
+		Functions\when( 'wp_create_image_subsizes' )->justReturn( [] );
+
+		$this->assertSame( 'failed', $this->rescaler()->rescale( 7 )['status'] );
+		$this->assertSame( 'photo-scaled.png', $this->attached[7] );
+	}
+
+	public function test_exception_during_regeneration_rolls_back_and_rethrows(): void {
+		$this->scaledAttachment( 7, $this->tempOriginal( 3417, 4000 ) );
+		$before = $this->metadata[7];
+		$this->threshold( 4000 );
+		Functions\when( 'wp_create_image_subsizes' )->alias( function () {
+			$this->metadata[7] = [ 'file' => 'partial.png' ];
+			throw new \RuntimeException( 'Imagick exhausted memory' );
+		} );
+
+		try {
+			$this->rescaler()->rescale( 7 );
+			$this->fail( 'the exception must reach the caller' );
+		} catch ( \RuntimeException $e ) {
+			$this->assertSame( 'photo-scaled.png', $this->attached[7] );
+			$this->assertSame( $before, $this->metadata[7] );
+		}
+	}
+
+	public function test_keeps_metadata_keys_core_does_not_own(): void {
+		// Plugins add top-level keys; core's array carries only its own.
+		$original = $this->tempOriginal( 3417, 4000 );
+		$this->scaledAttachment( 7, $original );
+		$this->metadata[7]['blurhash'] = 'LEHV6nWB2yk8';
+		$this->attached[8] = 'photo-scaled.png';
+		$this->metadata[8] = $this->metadata[7];
+		$this->metadata[8]['blurhash'] = 'sibling-own';
+		$this->threshold( 4000 );
+		Functions\when( 'wp_create_image_subsizes' )->justReturn( [ 'file' => basename( $original ), 'width' => 3417, 'height' => 4000, 'sizes' => [] ] );
+
+		$this->rescaler( [ 8 ] )->rescale( 7 );
+
+		$this->assertSame( 'LEHV6nWB2yk8', $this->metadata[7]['blurhash'] );
+		$this->assertSame( 'sibling-own', $this->metadata[8]['blurhash'] );
+		$this->assertSame( 3417, $this->metadata[8]['width'] );
+		$this->assertArrayNotHasKey( 'original_image', $this->metadata[7], 'a restored original has no original_image' );
+	}
+
+	public function test_finds_siblings_before_the_attached_file_changes(): void {
+		// The sibling query matches on _wp_attached_file; after re-pointing it
+		// would find nothing.
+		$original = $this->tempOriginal( 3417, 4000 );
+		$this->scaledAttachment( 7, $original );
+		$this->threshold( 4000 );
+		$seen = null;
+		$rescaler = new OriginalImageRescaler(
+			function (): void {},
+			function ( int $id ) use ( &$seen ): array {
+				$seen = $this->attached[ $id ];
+				return [];
+			}
+		);
+		Functions\when( 'wp_create_image_subsizes' )->justReturn( [ 'file' => basename( $original ), 'width' => 3417, 'height' => 4000 ] );
+
+		$rescaler->rescale( 7 );
+
+		$this->assertSame( 'photo-scaled.png', $seen );
+	}
+
+	public function test_dry_run_reports_siblings(): void {
+		$this->scaledAttachment( 7, $this->tempOriginal( 3417, 4000 ) );
+		$this->threshold( 4000 );
+
+		$this->assertSame( [ 8 ], $this->rescaler( [ 8 ] )->rescale( 7, true )['siblings'] );
+	}
+
+	public function test_disabled_threshold_restores_every_original(): void {
+		$this->scaledAttachment( 7, $this->tempOriginal( 6000, 4000 ) );
+		$this->threshold( 0 );
+
+		$result = $this->rescaler()->rescale( 7, true );
+
+		$this->assertSame( 'would_restore', $result['status'] );
+		$this->assertSame( [ 6000, 4000 ], [ $result['width'], $result['height'] ] );
 	}
 }

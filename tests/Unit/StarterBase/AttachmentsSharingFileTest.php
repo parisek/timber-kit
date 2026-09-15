@@ -13,6 +13,12 @@ use Tests\Unit\StarterBaseTestCase;
  */
 class AttachmentsSharingFileTest extends StarterBaseTestCase {
 
+	/** @return list<int> */
+	private function call( int $id ): array {
+		$method = new \ReflectionMethod( \Parisek\TimberKit\StarterBase::class, 'attachments_sharing_file' );
+		return $method->invoke( $this->createStarterBase(), $id );
+	}
+
 	private function stubWpdb( mixed $col ): object {
 		$wpdb = new class( $col ) extends \wpdb {
 			public string $postmeta = 'wp_postmeta';
@@ -39,7 +45,7 @@ class AttachmentsSharingFileTest extends StarterBaseTestCase {
 		Functions\when( 'get_post_meta' )->justReturn( '2026/08/photo-scaled.jpg' );
 		$wpdb = $this->stubWpdb( [ '318', '402' ] );
 
-		$ids = $this->createStarterBase()->attachments_sharing_file( 232 );
+		$ids = $this->call( 232 );
 
 		$this->assertSame( [ 318, 402 ], $ids );
 		$this->assertSame( [ 'wp_postmeta', '2026/08/photo-scaled.jpg', 232 ], $wpdb->prepare_args );
@@ -49,6 +55,6 @@ class AttachmentsSharingFileTest extends StarterBaseTestCase {
 		Functions\when( 'get_post_meta' )->justReturn( '' );
 		$this->stubWpdb( [ '318' ] );
 
-		$this->assertSame( [], $this->createStarterBase()->attachments_sharing_file( 232 ) );
+		$this->assertSame( [], $this->call( 232 ) );
 	}
 }

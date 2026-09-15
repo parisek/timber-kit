@@ -1072,8 +1072,8 @@ class StarterBase extends Site {
 			'timber-kit rescale-originals',
 			new \Parisek\TimberKit\Cli\RescaleOriginalsCommand(
 				new \Parisek\TimberKit\OriginalImageRescaler(
-					array( $this, 'purge_cached_images' ),
-					array( $this, 'attachments_sharing_file' )
+					fn ( int $id ) => $this->purge_cached_images( $id ),
+					fn ( int $id ): array => $this->attachments_sharing_file( $id )
 				)
 			)
 		);
@@ -4145,7 +4145,7 @@ class StarterBase extends Site {
 	 * @param int $attachment_id Attachment post ID.
 	 * @return void
 	 */
-	public function purge_cached_images( $attachment_id ) {
+	protected function purge_cached_images( $attachment_id ) {
 		$file_path = get_attached_file( $attachment_id );
 
 		if ( ! $file_path ) {
@@ -4452,7 +4452,7 @@ class StarterBase extends Site {
 	 * @param int $attachment_id Attachment post ID.
 	 * @return list<int>
 	 */
-	public function attachments_sharing_file( $attachment_id ) {
+	protected function attachments_sharing_file( $attachment_id ) {
 		global $wpdb;
 
 		$relative_path = get_post_meta( (int) $attachment_id, '_wp_attached_file', true );

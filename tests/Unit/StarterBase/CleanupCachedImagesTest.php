@@ -179,7 +179,7 @@ class CleanupCachedImagesTest extends StarterBaseTestCase {
 		$this->seedDerivatives();
 		$this->stubAttachment( 59741, '2026/08/homepage-hero-desktop.webp', siblings: 4 );
 
-		$this->base->purge_cached_images( 59741 );
+		( new \ReflectionMethod( $this->base, 'purge_cached_images' ) )->invoke( $this->base, 59741 );
 
 		$this->assertFileDoesNotExist( $this->cache_dir . '/900x0-center/homepage-hero-desktop.avif' );
 		$this->assertFileDoesNotExist( $this->cache_dir . '/1439x0-center/homepage-hero-desktop.avif' );

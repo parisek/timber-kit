@@ -20,15 +20,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   file. The command also copies the result to every attachment row over the
   same file (WPML translations) and purges the stale resizer derivatives.
 
-  Measured on neoli after raising the threshold to 4000: 27 files, 15 restored,
-  10 rescaled, 2 unchanged; 172 image URLs across the site return 200 and no
-  served file exceeds 4000 px.
-
-- `StarterBase::purge_cached_images()` deletes an attachment's resizer cache
-  derivatives without the shared-file guard `cleanup_cached_images()` keeps.
-  `StarterBase::attachments_sharing_file()` returns the other rows over one
-  file. Both exist for `rescale-originals`; `cleanup_cached_images()` behaves
-  as before.
+  The command checks the regeneration result against the planned outcome,
+  because core reports no failure: an editor that cannot load or save returns
+  metadata describing the original. On a mismatch or an exception the
+  attachment is rolled back. It only grows images; a lowered threshold
+  reports `unchanged`.
 
 ## [1.51.0] - 2026-09-11
 

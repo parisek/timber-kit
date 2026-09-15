@@ -571,6 +571,8 @@ of these went undocumented for several releases.
 | `wp timber-kit outage-screen` | Installs the drop-ins that serve the theme's prerendered outage screen. See § Outage screen. |
 | `wp timber-kit migrate-image-cache` | Moves existing resizer cache derivatives into the source-path layout, ahead of enabling `$resizer_source_path_in_cache_key`. Dry-run by default, `--apply` to write. |
 
+Commands added since `migrate-image-cache` are dry-run by default and write with `--apply`. `prune-originals` predates that and writes by default; it takes `--dry-run` instead.
+
 ---
 
 ## Outage screen
@@ -1192,7 +1194,15 @@ Per attachment the result is one of two:
 
 Core's `wp media regenerate` reads the original too, but it covers only the second case. `wp_create_image_subsizes()` rewrites `_wp_attached_file` only when it downscales, so in the first case the metadata describes the original while every URL still serves the old `-scaled` file. The command re-points the attachment first. It also writes the result to every attachment row over the same file (WPML syncs the attached file between translations, not the metadata), and deletes the resizer cache derivatives of the old file (a `rescaled` image keeps its file name, so the cache would otherwise keep serving crops cut from the smaller copy).
 
-A failed regeneration restores the attachment's previous file pointer and metadata. The old `-scaled` file stays on disk. The command reads originals, so **run it before `prune-originals`, never after**. See `\Parisek\TimberKit\OriginalImageRescaler`.
+The command only grows images. After a **lowered** threshold every attachment reports `unchanged`; shrinking is `wp media regenerate` territory. A threshold of `0` (scaling disabled) restores every original at full size.
+
+Core reports no failure from `wp_create_image_subsizes()`: when the image editor cannot load, resize or save, it returns metadata that still describes the original. The command therefore checks the result against the planned outcome, and on a mismatch or an exception it restores the attachment's previous file pointer and metadata. Rows sharing the file are written only after that check passes. Metadata keys core does not own (added by other plugins) survive on every row.
+
+The old `-scaled` file stays on disk in every case. After a `restored` result the metadata no longer carries `original_image`, so `prune-originals` reports the attachment `not_scaled` and nothing in the kit reclaims that file.
+
+With `$resizer_source_path_in_cache_key` off, the cache purge matches derivatives by file name alone, as `cleanup_cached_images()` does. Another upload with the same name in a different directory loses its cached derivatives too; they are regenerated on the next request.
+
+The command reads originals, so **run it before `prune-originals`, never after**. See `\Parisek\TimberKit\OriginalImageRescaler`.
 
 #### SVG dimensions
 

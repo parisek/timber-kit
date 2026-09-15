@@ -63,13 +63,15 @@ class OriginalImageRescaler {
 		}
 
 		$original = wp_get_original_image_path( $attachment_id );
-		$size     = ( $original && is_file( $original ) ) ? getimagesize( $original ) : false;
+		// wp_getimagesize(), as core's own pipeline does, so the threshold filter
+		// sees the same array at plan time and at apply time.
+		$size     = ( $original && is_file( $original ) ) ? wp_getimagesize( $original ) : false;
 		if ( ! $original || false === $size ) {
 			return array_merge( $result, array( 'status' => 'missing' ) );
 		}
 
 		[ $width, $height ] = $size;
-		$threshold          = (int) apply_filters( 'big_image_size_threshold', 2560, array( $width, $height ), $original, $attachment_id );
+		$threshold          = (int) apply_filters( 'big_image_size_threshold', 2560, $size, $original, $attachment_id );
 		$longest            = max( $width, $height );
 		$fits               = $threshold <= 0 || $longest <= $threshold;
 
@@ -88,45 +90,79 @@ class OriginalImageRescaler {
 			return array_merge( $result, array( 'status' => 'unchanged' ) );
 		}
 
+		$siblings           = ( $this->find_siblings )( $attachment_id );
+		$result['siblings'] = $siblings;
+
 		if ( $dry_run ) {
 			return array_merge( $result, array( 'status' => $fits ? 'would_restore' : 'would_rescale' ) );
 		}
 
-		$siblings      = ( $this->find_siblings )( $attachment_id );
 		$attached_file = get_post_meta( $attachment_id, '_wp_attached_file', true );
+		$rollback      = function () use ( $attachment_id, $attached_file, $metadata ): void {
+			update_post_meta( $attachment_id, '_wp_attached_file', $attached_file );
+			wp_update_attachment_metadata( $attachment_id, $metadata );
+		};
 
 		// While _wp_attached_file still names the -scaled file: the purger
 		// locates derivatives by that name, and a rescale that keeps the name
 		// would otherwise serve crops cut from the old, smaller file.
 		( $this->purge_derivatives )( $attachment_id );
 
-		update_attached_file( $attachment_id, $original );
+		try {
+			update_attached_file( $attachment_id, $original );
 
-		if ( ! function_exists( 'wp_create_image_subsizes' ) ) {
-			require_once ABSPATH . 'wp-admin/includes/image.php';
+			if ( ! function_exists( 'wp_create_image_subsizes' ) ) {
+				require_once ABSPATH . 'wp-admin/includes/image.php';
+			}
+			// Writes metadata itself, first right away and then per sub-size.
+			$new_metadata = wp_create_image_subsizes( $original, $attachment_id );
+		} catch ( \Throwable $e ) {
+			$rollback();
+			throw $e;
 		}
-		$new_metadata = wp_create_image_subsizes( $original, $attachment_id );
 
-		if ( is_wp_error( $new_metadata ) || ! is_array( $new_metadata ) || empty( $new_metadata['file'] ) ) {
-			update_post_meta( $attachment_id, '_wp_attached_file', $attached_file );
-			wp_update_attachment_metadata( $attachment_id, $metadata );
-			return array_merge( $result, array( 'status' => 'failed' ) );
+		// Core reports no failure. When the editor cannot load, resize or save,
+		// it returns metadata that still describes the unscaled original. So the
+		// result is checked against the outcome this plan expects.
+		$expected_file = $fits ? basename( $original ) : null;
+		$new_file      = basename( (string) ( $new_metadata['file'] ?? '' ) );
+		$succeeded     = '' !== $new_file && ( $fits
+			? $new_file === $expected_file
+			: OriginalImagePruner::isScaledDerivative( $new_file )
+				&& max( (int) ( $new_metadata['width'] ?? 0 ), (int) ( $new_metadata['height'] ?? 0 ) ) <= $threshold );
+
+		if ( ! $succeeded ) {
+			$rollback();
+			return array_merge( $result, array( 'status' => 'failed', 'siblings' => array() ) );
 		}
-
-		// Core saves sub-sizes as it goes but leaves the final write to the
-		// caller, as wp_generate_attachment_metadata()'s callers do.
-		wp_update_attachment_metadata( $attachment_id, $new_metadata );
 
 		$result['width']  = (int) ( $new_metadata['width'] ?? $width );
 		$result['height'] = (int) ( $new_metadata['height'] ?? $height );
 
 		$new_attached_file = get_post_meta( $attachment_id, '_wp_attached_file', true );
-		foreach ( $siblings as $sibling_id ) {
-			update_post_meta( $sibling_id, '_wp_attached_file', $new_attached_file );
-			wp_update_attachment_metadata( $sibling_id, $new_metadata );
+		foreach ( array_merge( array( $attachment_id ), $siblings ) as $row_id ) {
+			$row_metadata = $row_id === $attachment_id ? $metadata : wp_get_attachment_metadata( $row_id );
+			if ( $row_id !== $attachment_id ) {
+				update_post_meta( $row_id, '_wp_attached_file', $new_attached_file );
+			}
+			// Core saves sub-sizes as it goes but leaves the final write to the
+			// caller. Keys core does not own belong to other plugins and to the
+			// row itself, so they survive.
+			wp_update_attachment_metadata( $row_id, self::mergeMetadata( is_array( $row_metadata ) ? $row_metadata : array(), $new_metadata ) );
 		}
-		$result['siblings'] = $siblings;
 
 		return array_merge( $result, array( 'status' => $fits ? 'restored' : 'rescaled' ) );
+	}
+
+	/**
+	 * Replace the keys core's pipeline owns, keep every other key of the row.
+	 *
+	 * @param array<string, mixed> $previous  The row's metadata before the rescale.
+	 * @param array<string, mixed> $generated What wp_create_image_subsizes() returned.
+	 * @return array<string, mixed>
+	 */
+	private static function mergeMetadata( array $previous, array $generated ): array {
+		$core_keys = array( 'width', 'height', 'file', 'filesize', 'sizes', 'image_meta', 'original_image' );
+		return array_merge( array_diff_key( $previous, array_flip( $core_keys ) ), $generated );
 	}
 }
