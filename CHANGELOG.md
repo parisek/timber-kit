@@ -25,20 +25,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   | Setting | Before | After |
   | --- | --- | --- |
   | quality 80 | 7 KB, 0.955 | 44 KB, 0.985 |
-  | no quality set | 18 KB (coder default) | 44 KB (new AVIF default, 80) |
+  | no quality set | 18 KB (coder default) | 44 KB (new default, 80) |
   | quality 100 set | 18 KB (coder default) | 454 KB |
 
   **What a site sees.** Cached AVIF files keep the old encoding: the cache key
   does not change, so nothing moves until `wp-content/cache/image/` is
-  cleared. After that, a site that sets `timber_kit_resizer_target_quality`
-  gets that quality for every format, 100 included. A quality chosen by
+  cleared. After that, AVIF follows `timber_kit_resizer_target_quality`, or
+  the new default of 80 when a site sets none. A quality chosen by
   comparing output before this release was compared at a different effective
   value.
 
   The "Before" column assumes spatie/image below 3.9.6. The kit allowed
   `^3.8`, so a site whose lock resolved 3.9.6 (released 2026-08-18) already
   had the requested quality honoured on every path except smart-crop; under
-  the old default of 100 its AVIF files were already large, and the new AVIF
+  the old default of 100 its AVIF files were already large, and the new
   default of 80 makes them smaller.
 
   **Upgrading.**
@@ -46,19 +46,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
      pinning spatie/image below that fails to resolve, which is intended).
   2. Clear `wp-content/cache/image/`, or accept the old AVIF files until they
      are regenerated.
-  3. If the theme hooks `timber_kit_resizer_target_quality`, confirm the value.
-     Any callback counts as set, so a callback returning 100 gets true
-     quality 100 for AVIF.
-  4. With `$resizer_quality_in_cache_key` on and no quality set, AVIF variants
-     move once into `-q80` directories and their URLs change.
+  3. A theme that sets no quality now gets 80 for every format, JPEG and WebP
+     included (was 100). Set `timber_kit_resizer_target_quality` to keep 100.
+  4. With `$resizer_quality_in_cache_key` on, the default quality is the one
+     left out of the path. Variants at 80 move from `-q80` to the plain
+     directory; variants at 100 move into `-q100`. Their URLs change once.
 
 ### Changed
 
-- AVIF defaults to quality 80 when a site sets no
-  `timber_kit_resizer_target_quality`. JPEG and WebP keep 100. Without this,
-  honouring the quality would make AVIF on every site without its own setting
-  about 25x larger. With `$resizer_quality_in_cache_key` on and no quality set,
-  AVIF variants move once into `-q80` directories.
+- The default `timber_kit_resizer_target_quality` is 80 (was 100), for every
+  format. Honouring quality 100 would make AVIF about 25x larger on every
+  site that sets none. JPEG and WebP at 80 also get smaller than they were.
 - Requires spatie/image `^3.9.6` (was `^3.8`).
 
 ## [1.52.0] - 2026-09-15

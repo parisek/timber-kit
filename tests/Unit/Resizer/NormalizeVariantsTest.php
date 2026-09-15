@@ -106,7 +106,7 @@ class NormalizeVariantsTest extends ResizerTestCase {
 			[ [ '800', '600', '768', 'crop' ] ],
 		] );
 
-		// No quality set: AVIF, the default format, gets 80
+		// Default target_quality from constructor is 80
 		$this->assertSame( 80, $result[0]['quality'] );
 	}
 

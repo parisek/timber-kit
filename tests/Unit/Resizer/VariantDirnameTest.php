@@ -32,7 +32,7 @@ class VariantDirnameTest extends ResizerTestCase {
 				'height' => 630,
 				'media' => 0,
 				'image_style' => 'center',
-				'quality' => 100,
+				'quality' => 80,
 				'format' => 'avif',
 			],
 			$overrides

@@ -110,9 +110,9 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   shipped quality-20 pixels, and a site on the default shipped the coder's
   default, with no error anywhere. A default-off flag would keep that running
   on every site that did not flip it, and nobody flips a flag for a defect they
-  cannot see. Nothing changes until a site clears its AVIF cache. AVIF also
-  gets its own default of 80 when a site sets no quality, because honouring the
-  package default of 100 would make it about 25x larger on every such site.
+  cannot see. Nothing changes until a site clears its image cache. The
+  package default quality drops from 100 to 80 in the same release, because
+  honouring 100 would make AVIF about 25x larger on every site that sets none.
   This is a named exception to the rule above, not a case of the rule being
   skipped.
 

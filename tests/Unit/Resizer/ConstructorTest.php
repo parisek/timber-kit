@@ -14,7 +14,7 @@ class ConstructorTest extends ResizerTestCase {
 		$resizer = $this->createResizer();
 
 		$this->assertSame( 'avif', $this->getPrivateProperty( $resizer, 'target_format' ) );
-		$this->assertSame( 100, $this->getPrivateProperty( $resizer, 'target_quality' ) );
+		$this->assertSame( 80, $this->getPrivateProperty( $resizer, 'target_quality' ) );
 		$this->assertStringContainsString( '/cache/image', $this->getPrivateProperty( $resizer, 'image_cache_dir' ) );
 		$this->assertFalse( $this->getPrivateProperty( $resizer, 'force_regenerate' ) );
 	}
@@ -72,8 +72,6 @@ class ConstructorTest extends ResizerTestCase {
 	}
 
 	public function test_quality_filters_affect_normalization(): void {
-		// A site that sets the quality has a callback on the hook.
-		Functions\when( 'has_filter' )->justReturn( 10 );
 		Functions\when( 'apply_filters' )->alias( function ( $filter, $default ) {
 			if ( $filter === 'timber_kit_resizer_target_quality' ) {
 				return 75;
