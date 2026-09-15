@@ -299,6 +299,12 @@ final class BlockRenderer {
 			'lang'      => apply_filters( 'wpml_current_language', '' ),
 			'paged'     => get_query_var( 'paged', 0 ),
 		];
+		// Rendered blocks carry resizer URLs, so a cache version bump must miss
+		// here too. Added only when set, so existing keys stay byte-identical.
+		$resizer_cache_version = trim( (string) apply_filters( 'timber_kit_resizer_cache_version', '' ) );
+		if ( '' !== $resizer_cache_version ) {
+			$cache_data['resizer_cache_version'] = $resizer_cache_version;
+		}
 		$default_key = self::CACHE_GROUP_PREFIX . md5( wp_json_encode( $cache_data ) );
 
 		return apply_filters( 'timber_kit/block_renderer/cache_key', $default_key, $cache_data, $block_name );

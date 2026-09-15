@@ -144,6 +144,17 @@ class Resizer {
 	private bool $quality_in_cache_key;
 
 	/**
+	 * Site-wide version appended to every derivative URL as `?v=`.
+	 *
+	 * Changes URLs, never paths: browsers and proxies that hold an old copy
+	 * fetch the file again, while the server keeps serving whatever is on disk.
+	 * Empty (the default) leaves URLs byte-identical.
+	 *
+	 * @var string
+	 */
+	private string $cache_version;
+
+	/**
 	 * Whether the source's upload directory is part of its cache key.
 	 *
 	 * Off by default: two uploads sharing a filename but sitting in different
@@ -193,6 +204,7 @@ class Resizer {
 	 *   - `timber_kit_resizer_force_regenerate` — skip cache and always regenerate
 	 *   - `timber_kit_resizer_skip_animated`   — pass animated sources through untouched (default: true)
 	 *   - `timber_kit_resizer_quality_in_cache_key` — put a variant's quality in its cache key (default: false)
+	 *   - `timber_kit_resizer_cache_version` — append `?v=<version>` to derivative URLs (default: empty, no suffix)
 	 *   - `timber_kit_resizer_source_path_in_cache_key` — put the source's upload
 	 *     directory in its cache key (default: false)
 	 */
@@ -205,6 +217,7 @@ class Resizer {
 		$this->force_regenerate = (bool) apply_filters( 'timber_kit_resizer_force_regenerate', self::FORCE_REGENERATE );
 		$this->skip_animated = (bool) apply_filters( 'timber_kit_resizer_skip_animated', true );
 		$this->quality_in_cache_key = (bool) apply_filters( 'timber_kit_resizer_quality_in_cache_key', false );
+		$this->cache_version = trim( (string) apply_filters( 'timber_kit_resizer_cache_version', '' ) );
 		$this->source_path_in_cache_key = (bool) apply_filters( 'timber_kit_resizer_source_path_in_cache_key', false );
 	}
 
@@ -904,6 +917,19 @@ class Resizer {
 	}
 
 	/**
+	 * Append the site-wide cache version to a derivative URL.
+	 *
+	 * @param string $url     Derivative URL.
+	 * @param string $version Cache version; empty returns the URL unchanged.
+	 */
+	public static function appendCacheVersion( string $url, string $version ): string {
+		if ( '' === $version ) {
+			return $url;
+		}
+		return $url . ( str_contains( $url, '?' ) ? '&' : '?' ) . 'v=' . rawurlencode( $version );
+	}
+
+	/**
 	 * Percent-encode each component of a relative path, keeping the separators.
 	 *
 	 * @param string $path Relative path.
@@ -1123,7 +1149,7 @@ class Resizer {
 		);
 
 		return [
-			'src' => $target_url,
+			'src' => self::appendCacheVersion( $target_url, $this->cache_version ),
 			'type' => $actual_mime,
 			'width' => $produced_width,
 			'height' => $produced_height,
@@ -1536,6 +1562,7 @@ class Resizer {
 					'uploads_base_dir' => $basedir,
 					'target_format' => $this->target_format,
 					'image_cache_dir' => $this->image_cache_dir,
+					'cache_version' => $this->cache_version,
 				]
 			);
 			if ( is_array( $images ) ) {
