@@ -103,4 +103,37 @@ class RegisterAdminAndEditorHooksTest extends StarterBaseTestCase {
 		$entry = array_values( $adminBar )[0];
 		$this->assertSame( 100, $entry['priority'] );
 	}
+
+	/**
+	 * @return list<array{hook: string, callback: mixed, priority: int}>
+	 */
+	private function collectActions( ?bool $menuSyncReadOnly ): array {
+		$actions  = [];
+		$instance = $this->bareInstance();
+		if ( null !== $menuSyncReadOnly ) {
+			( new \ReflectionProperty( StarterBase::class, 'wpml_menu_sync_read_only' ) )->setValue( $instance, $menuSyncReadOnly );
+		}
+		Functions\when( 'add_filter' )->justReturn( true );
+		Functions\when( 'add_action' )->alias( function ( $hook, $callback, $priority = 10 ) use ( &$actions ) {
+			$actions[] = [ 'hook' => $hook, 'callback' => $callback, 'priority' => $priority ];
+		} );
+
+		$this->invokeRegisterAdminAndEditorHooks( $instance );
+
+		return $actions;
+	}
+
+	public function test_does_not_register_wpml_menu_sync_read_only_by_default(): void {
+		$this->assertNotContains(
+			[ 'hook' => 'init', 'callback' => [ \Parisek\TimberKit\Wpml\MenuSyncReadOnly::class, 'register' ], 'priority' => 0 ],
+			$this->collectActions( null )
+		);
+	}
+
+	public function test_registers_wpml_menu_sync_read_only_when_flag_enabled(): void {
+		$this->assertContains(
+			[ 'hook' => 'init', 'callback' => [ \Parisek\TimberKit\Wpml\MenuSyncReadOnly::class, 'register' ], 'priority' => 0 ],
+			$this->collectActions( true )
+		);
+	}
 }
