@@ -135,9 +135,9 @@ class Resizer {
 	/**
 	 * Whether a variant's quality is part of its cache key.
 	 *
-	 * Off by default because turning it on moves every non-default-quality
-	 * variant to a new path: the old files orphan and the public URLs change.
-	 * Projects that never touched quality see no difference either way.
+	 * Off by default because turning it on moves every variant whose quality
+	 * is not 100 to a new path: the old files orphan and the public URLs
+	 * change.
 	 *
 	 * @var bool
 	 */
@@ -870,10 +870,9 @@ class Resizer {
 	 * Quality is absent from the key by default, which is a real defect:
 	 * re-cutting the same dimensions at a new quality serves the previously
 	 * generated file, so the setting appears to do nothing. Opting in via
-	 * `timber_kit_resizer_quality_in_cache_key` adds it, and only when it
-	 * differs from the package default, so paths at default quality never move.
-	 * It stays opt-in because switching it on relocates every non-default-quality
-	 * variant: old files orphan, public URLs change.
+	 * `timber_kit_resizer_quality_in_cache_key` adds it for every quality except
+	 * 100, so paths at 100 never move. It stays opt-in because switching it on
+	 * relocates every other variant: old files orphan, public URLs change.
 	 *
 	 * The format stays out — it is the file extension, so it already separates
 	 * variants without a second copy of it here.
@@ -894,7 +893,10 @@ class Resizer {
 
 		$dirname = $variant['width'] . 'x' . $variant['height'] . '-' . $style;
 
-		if ( $this->quality_in_cache_key && (int) $variant['quality'] !== self::DEFAULT_QUALITY ) {
+		// Quality 100 alone goes unsuffixed, a fixed rule rather than "the
+		// default": the default moved from 100 to 80 in 1.53.0, and following
+		// it would have moved every cached variant on sites with the key on.
+		if ( $this->quality_in_cache_key && 100 !== (int) $variant['quality'] ) {
 			$dirname .= '-q' . (int) $variant['quality'];
 		}
 

@@ -916,10 +916,10 @@ class StarterBase extends Site {
 	 * generated the first time and the new quality appears to do nothing.
 	 *
 	 * Set **true** to include it. Off by default because switching it on
-	 * relocates every variant whose quality is not the package default: the
-	 * previously generated files orphan in the cache directory and the public
-	 * URLs change. A project that never set a custom quality sees no difference
-	 * either way.
+	 * relocates every variant whose quality is not 100: the previously
+	 * generated files orphan in the cache directory and the public URLs
+	 * change. Since 1.53.0 the package default quality is 80, so a project on
+	 * the default gets `-q80` paths when it opts in.
 	 *
 	 * @var bool
 	 */
@@ -1461,7 +1461,7 @@ class StarterBase extends Site {
 		}
 		if ( $this->resizer_quality_in_cache_key ) {
 			// Default is false (quality absent from the key, the historic paths).
-			// Opting in relocates every non-default-quality variant.
+			// Opting in relocates every variant whose quality is not 100.
 			add_filter( 'timber_kit_resizer_quality_in_cache_key', '__return_true' );
 		}
 		if ( $this->resizer_source_path_in_cache_key ) {

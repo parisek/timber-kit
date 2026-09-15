@@ -48,15 +48,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
      are regenerated.
   3. A theme that sets no quality now gets 80 for every format, JPEG and WebP
      included (was 100). Set `timber_kit_resizer_target_quality` to keep 100.
-  4. With `$resizer_quality_in_cache_key` on, the default quality is the one
-     left out of the path. Variants at 80 move from `-q80` to the plain
-     directory; variants at 100 move into `-q100`. Their URLs change once.
+  4. `$resizer_quality_in_cache_key` keeps its paths: quality 100 goes
+     unsuffixed and every other quality gets `-q<N>`, as before. A theme on
+     the default with the key on moves from the plain directory to `-q80`
+     once; a theme that already set 80 keeps its `-q80` paths.
 
 ### Changed
 
 - The default `timber_kit_resizer_target_quality` is 80 (was 100), for every
   format. Honouring quality 100 would make AVIF about 25x larger on every
   site that sets none. JPEG and WebP at 80 also get smaller than they were.
+- The quality cache key now omits the suffix for quality 100 as a fixed
+  rule, not for "the default quality". Tied to the default, lowering it to 80
+  would have moved every cached variant on sites with the key on.
 - Requires spatie/image `^3.9.6` (was `^3.8`).
 
 ## [1.52.0] - 2026-09-15
