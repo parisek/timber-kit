@@ -140,13 +140,14 @@ Two separate claims worth keeping apart. **Leaving the bridge off changes nothin
 
 **A post whose social image the editor chose by hand is left alone.** AIOSEO's filter is named for the *default* image but fires at the end of resolution, so it also sees an explicit per-post choice; overwriting that would be the plugin equivalent of ignoring the editor, and silent, since the panel still shows their pick. An editor's choice is the `custom_image` or `custom` source.
 
-**The automatic sources are not a choice.** AIOSEO's Yoast importer writes `featured`, `content` and similar onto every post it imports. For those the bridge keeps an image the plugin found and supplies the preview only where the plugin fell back to its global default image or the site logo, or found nothing. `content` on block content is the common case: without this, an imported post renders no `og:image` at all.
+**The automatic sources are not a choice.** AIOSEO's Yoast importer writes `featured`, `content` and similar onto every post it imports. `featured` keeps the featured image the plugin found; the bridge supplies only where the plugin fell back to its global default image or the site logo. The other automatic sources take whatever image turns up in the body, an attachment or an avatar, so the bridge supplies wherever a preview resolves. `content` on block content is the common case: without this, an imported post renders no `og:image` at all, or a CTA banner from its body.
 
 | Source | Bridge |
 | --- | --- |
 | none, `default` | supplies the preview |
 | `custom_image`, `custom` | leaves the editor's image |
-| `featured`, `content`, `attach`, `author`, `auth` | keeps what the plugin found; supplies where it found nothing of the post's own |
+| `featured` | keeps the featured image; supplies where the plugin fell back |
+| `content`, `attach`, `author`, `auth` | supplies wherever a preview resolves |
 | anything else | leaves it, as a choice it cannot name |
 
 Both `og:image` and `twitter:image` are covered. Twitter resolves on a separate path with no filter of its own, so without that second hook the feature only half works and the rest has to be clicked together in the admin. With AIOSEO's "Use Data from Facebook Tab" enabled the Twitter tag already carries the Open Graph result, so the bridge leaves it alone rather than deciding twice. Otherwise the bridge copies the resolved Open Graph image into `twitter:image`, so both cards show one picture — including a post whose editor chose the Open Graph image but left Twitter on its default.

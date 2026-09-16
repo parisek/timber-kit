@@ -161,10 +161,15 @@ class BridgeTest extends TestCase {
 		$this->assertTrue( SocialImageBridge::shouldSupply( 'default', $found, $fallbacks ) );
 		// An editor's image: never.
 		$this->assertFalse( SocialImageBridge::shouldSupply( 'custom_image', '', $fallbacks ) );
-		// An automatic source: only where it found nothing of this post's own.
+		// `featured`: keep the featured image it found; supply only on a fallback.
 		$this->assertFalse( SocialImageBridge::shouldSupply( 'featured', $found, $fallbacks ) );
+		$this->assertTrue( SocialImageBridge::shouldSupply( 'featured', 'https://example.com/default.png', $fallbacks ) );
+		// The other automatic sources pick whatever image turns up in the body,
+		// an attachment or the author's avatar — a CTA banner as often as not.
+		// The mapped preview is the better picture wherever one resolves.
+		$this->assertTrue( SocialImageBridge::shouldSupply( 'content', 'https://example.com/cta-banner.png', $fallbacks ) );
 		$this->assertTrue( SocialImageBridge::shouldSupply( 'content', '', $fallbacks ) );
-		$this->assertTrue( SocialImageBridge::shouldSupply( 'content', 'https://example.com/default.png', $fallbacks ) );
+		$this->assertTrue( SocialImageBridge::shouldSupply( 'author', 'https://example.com/avatar.png', $fallbacks ) );
 		// An unknown source is treated as a choice: never override what we cannot name.
 		$this->assertFalse( SocialImageBridge::shouldSupply( 'something-new', '', $fallbacks ) );
 	}

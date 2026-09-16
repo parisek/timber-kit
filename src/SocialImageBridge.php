@@ -210,10 +210,10 @@ class SocialImageBridge {
 	 * Whether the bridge supplies the preview for this image source.
 	 *
 	 * Pure. No source or `default`: always, as the bridge always did. An
-	 * editor's source: never. An automatic source: only where the plugin found
-	 * nothing of the post's own and fell back to its global default or the site
-	 * logo. Anything else is a source this code cannot name, and a source it
-	 * cannot name is treated as a choice.
+	 * editor's source: never. `featured`: only where the plugin fell back to its
+	 * global default or the site logo. The other automatic sources: always.
+	 * Anything else is a source this code cannot name, and a source it cannot
+	 * name is treated as a choice.
 	 *
 	 * @param string|null        $image_type The post's image-source override.
 	 * @param string|array|mixed $image      What the plugin resolved.
@@ -225,8 +225,17 @@ class SocialImageBridge {
 			return true;
 		}
 
-		if ( self::isAutomatic( $image_type ) ) {
+		// `featured` found the post's own lead image, so it stands unless the
+		// plugin fell back. The other automatic sources take whatever turns up
+		// in the body, an attachment or the author's avatar, so the mapped
+		// preview is the better picture wherever one resolves — and toTuple()
+		// keeps the plugin's image where none does.
+		if ( 'featured' === $image_type ) {
 			return self::isPluginFallback( $image, $fallbacks );
+		}
+
+		if ( self::isAutomatic( $image_type ) ) {
+			return true;
 		}
 
 		return false;

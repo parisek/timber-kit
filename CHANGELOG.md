@@ -20,10 +20,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   `content`, `attach`, `author`, `auth`) as an editor's choice. AIOSEO's Yoast
   importer writes one onto every post, so on a migrated site the bridge stood
   aside almost everywhere, and `content` on block content rendered no
-  `og:image` at all. The bridge now keeps an image the plugin found and supplies
-  the preview only where the plugin fell back to its default image or the site
-  logo. `custom_image` and `custom` still defer, and so does any source it
-  cannot name. Affects sites that already set `$social_image_bridge`.
+  `og:image` at all. The bridge now keeps the featured image under `featured`
+  (supplying only where the plugin fell back to its default image or the site
+  logo) and supplies the preview under the other automatic sources, which pick
+  an arbitrary body image. `custom_image` and `custom` still defer, and so does
+  any source it cannot name. Affects sites that already set `$social_image_bridge`.
 - With the bridge on and "Use Data from Facebook Tab" off for a post,
   `twitter:image` now takes the resolved Open Graph image instead of a separate
   preview. A post whose editor chose the Open Graph image no longer shares a
