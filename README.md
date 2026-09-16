@@ -624,8 +624,9 @@ of these went undocumented for several releases.
 | `wp timber-kit outage-screen` | Installs the drop-ins that serve the theme's prerendered outage screen. See § Outage screen. |
 | `wp timber-kit migrate-image-cache` | Moves existing resizer cache derivatives into the source-path layout, ahead of enabling `$resizer_source_path_in_cache_key`. Dry-run by default, `--apply` to write. |
 | `wp timber-kit clear-image-cache` | Deletes resizer derivatives so they regenerate: all, one `--format`, or selected images by attachment ID or file name. Dry-run by default, `--apply` to delete. See § Clearing the image cache. |
+| `wp timber-kit regenerate-image-cache` | Re-encodes resizer derivatives at their existing paths, so none of them is ever missing. Dry-run by default, `--apply` to write. See § Regenerating the image cache. |
 
-Write flags differ between commands: `migrate-image-cache`, `rescale-originals` and `clear-image-cache` write only with `--apply`; the others write by default and take `--dry-run`. Check `wp help timber-kit <command>`.
+Write flags differ between commands: `migrate-image-cache`, `rescale-originals`, `clear-image-cache` and `regenerate-image-cache` write only with `--apply`; the others write by default and take `--dry-run`. Check `wp help timber-kit <command>`.
 
 ---
 
@@ -1289,6 +1290,33 @@ wp timber-kit clear-image-cache 232 hero.jpg --apply    # delete the derivatives
 An `<image>` is an attachment ID, a source file name with or without its image extension (`hero.jpg`, `hero`), or a path relative to uploads (`2026/08/hero.jpg`). It matches that image's derivatives, including the `-scaled` copy WordPress serves for a large upload, and never a longer name that shares the prefix (`hero` does not select `hero-banner`). How far a name reaches depends on the layout. With `$resizer_source_path_in_cache_key` on, an attachment ID or a path matches only its own directory (an uploads-root attachment only the root, also written `./hero.jpg`), while a bare name matches that name in every month. With it off, derivatives carry no directory, so uploads that share a name in different months share one derivative and any selector of that name selects it. A number is always an attachment ID; name a file called `2024.jpg` with its extension. A name that matches nothing is reported. The command deletes files only, never directories, and nothing outside the cache directory; an unreadable subdirectory is skipped.
 
 Deleting a file does not change its URL, so browsers and proxies may keep an old copy. Bump `$resizer_cache_version` in the same deploy to change the URLs, and purge the page cache. See `\Parisek\TimberKit\ImageCacheCleaner`.
+
+**On a live site, prefer `regenerate-image-cache` below.** Between the delete and the next render of each page, the derivative is a 404, and `<source type="image/avif">` inside `<picture>` has no fallback: the browser picks that source and the visitor sees a broken image. A page cache extends that window to however long the page stays cached.
+
+#### Regenerating the image cache
+
+`wp timber-kit regenerate-image-cache` re-encodes derivatives at their existing paths instead of deleting them. Use it after an encoder change — the AVIF quality fix in 1.53.0, a new `timber_kit_resizer_target_quality`, an ImageMagick upgrade — where every cached file is wrong but every URL is still in use:
+
+```bash
+wp timber-kit regenerate-image-cache --format=avif                  # report the plan, write nothing
+wp timber-kit regenerate-image-cache --format=avif --apply          # re-encode every AVIF derivative
+wp timber-kit regenerate-image-cache 1440x0-center-q80 --apply      # one size only
+```
+
+Each file is encoded to a temp file in its own directory and renamed over the target. The rename is atomic on one filesystem, so the URL is never missing and never serves half a file. A new file replaces the old one only once it encoded, weighs something and decodes; any other outcome deletes the temp file, keeps the old one and reports `failed`. Nothing is ever deleted: a derivative whose source file is gone is reported as an orphan and left in place, which is `clear-image-cache`'s job.
+
+The parameters come from the path (`<W>x<H>-<style>[-q<N>]/<source dir>/<source name>.<format>`), so the command needs `$resizer_source_path_in_cache_key`. The flat layout names a derivative after the sanitised source stem, which no longer says which file it came from; those files are reported as unreadable and left alone. Run `wp timber-kit migrate-image-cache` first.
+
+A `<path>` is a file or a directory under the cache directory, absolute or relative to it. A path resolving outside the cache directory is refused.
+
+**A big site spreads the cost over several nights.** `--older-than` is the resume mechanism: a regenerated file carries a fresh mtime, so the next run with the same cutoff skips what the last one finished. Pick the moment the sweep started and keep it for the whole sweep. `--limit` caps one night's batch, `--sleep=<ms>` puts a gap between files, and `--max-load=<n>` holds before each file while the one-minute load average is above `n`, giving up after 30 minutes and reporting how many files remain.
+
+```cron
+# Re-encode up to 2000 AVIF derivatives a night, gently, until none is left.
+0 2 * * * cd /var/www/html && wp timber-kit regenerate-image-cache --format=avif --older-than='2026-09-16 00:00' --limit=2000 --sleep=150 --max-load=4 --apply >> /var/log/regen.log 2>&1
+```
+
+Two notes. `smart-crop` re-runs its entropy analysis on every encode, so a re-encoded crop may sit a few pixels away from the old one; on a photo whose subject is near a tie between two regions, the shift is visible. And the file changes while its URL does not, so a CDN or a browser that already holds the old copy keeps serving it — bump `$resizer_cache_version` when the new bytes have to reach everyone at once. See `\Parisek\TimberKit\ImageCacheRegenerator`.
 
 #### SVG dimensions
 

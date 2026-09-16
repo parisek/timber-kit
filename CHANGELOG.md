@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `wp timber-kit regenerate-image-cache [<path>...] [--format=<format>]
+  [--older-than=<date>] [--limit=<n>] [--sleep=<ms>] [--max-load=<n>]
+  [--apply]` (#193) re-encodes resizer derivatives at their existing paths.
+  `clear-image-cache` is unsafe on a live site: between the delete and the next
+  render a page cache still points at the file, and
+  `<source type="image/avif">` has no fallback, so the visitor sees a broken
+  image. This command encodes into a temp file beside the target and renames it
+  over the target, which is atomic on one filesystem, so the URL is never
+  missing and never half-written. A new file replaces the old one only once it
+  encoded, weighs something and decodes; anything else keeps the old file.
+  Nothing is deleted: a derivative whose source is gone is reported as an
+  orphan. `--older-than` is the resume mechanism, so with `--limit`, `--sleep`
+  and `--max-load` a large site spreads the encode cost over several nights
+  from cron. The parameters are read from the derivative path, so the command
+  needs `$resizer_source_path_in_cache_key`. Dry-run by default.
+
+- `Parisek\TimberKit\ImageCacheRegenerator` (#193), the tested logic behind that
+  command: path parsing, selection, and the temp-file-plus-rename write.
+
+### Changed
+
+- `Resizer::encodeVariant()` (#193) splits the encode step out of
+  `processVariant()`, so a caller can aim the same encode at an exact path.
+  Private API of the package, marked `@internal`. The encode is moved, not
+  rewritten, so rendered output is unchanged.
+
 ## [1.55.0] - 2026-09-16
 
 ### Added
