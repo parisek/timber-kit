@@ -19,6 +19,10 @@ parameters:
         - '#Call to static method .* on an unknown class Timber#'
         # WP-CLI is a separate package, not in the WordPress stubs (cf. Timber above).
         - '#Call to static method .* on an unknown class WP_CLI#'
+        # Same package, same reason: its Utils namespace holds functions, not
+        # static methods, so it needs its own pattern. Each call site guards on
+        # function_exists(), because WP-CLI is optional here.
+        - '#Function WP_CLI\\Utils\\\w+ not found#'
         # Breeze_Cache_Preloader is the Breeze plugin's class, not a dependency
         # of this package (cf. WP-CLI and Timber above).
         - '#Call to static method .* on an unknown class Breeze_Cache_Preloader#'

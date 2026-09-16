@@ -1057,83 +1057,7 @@ class Resizer {
 					return null;
 				}
 			}
-			try {
-				$imageGenerator = Image::load( $source_path );
-
-				// Handle smart-crop using entropy analysis
-				if ( $variant['image_style'] === 'smart-crop' && $variant['width'] > 0 && $variant['height'] > 0 ) {
-					// Load source image with GD for entropy analysis
-					$gdImage = imagecreatefromstring( file_get_contents( $source_path ) );
-					if ( $gdImage === false ) {
-						throw new \Exception( 'Failed to load image with GD' );
-					}
-
-					$imgWidth = imagesx( $gdImage );
-					$imgHeight = imagesy( $gdImage );
-
-					// Only apply smart crop if image is larger than target dimensions
-					if ( $imgWidth > $variant['width'] || $imgHeight > $variant['height'] ) {
-						// Create edge-detected image for entropy analysis
-						$edgeImage = $this->createEdgeDetectedImage( $gdImage );
-
-						// Use grid algorithm by default (better results)
-						$cropRect = $this->getEntropyCropByGridding( $edgeImage, $variant['width'], $variant['height'] );
-
-						// Apply crop using Imagick with calculated coordinates
-						$imagick = new \Imagick( $source_path );
-						// Preserve transparency for PNG/GIF sources
-						if ( $imagick->getImageAlphaChannel() ) {
-							$imagick->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
-						}
-						$imagick->cropImage( $cropRect['width'], $cropRect['height'], $cropRect['x'], $cropRect['y'] );
-						$imagick->setImageFormat( $target_format );
-						self::applyImagickQuality( $imagick, $variant['quality'], $target_format );
-						$imagick->writeImage( $target_path );
-						$imagick->clear();
-						$imagick->destroy();
-					} else {
-						// Image is smaller than target, just resize without cropping
-						$imageGenerator->format( $target_format );
-						$imageGenerator->quality( $variant['quality'] );
-						$imageGenerator->save( $target_path );
-					}
-				}
-				// Check if both dimensions are provided for standard cropping
-				elseif ( in_array( $variant['image_style'], [ 'crop', 'center', 'top', 'bottom', 'left', 'right' ], true ) && $variant['width'] > 0 && $variant['height'] > 0 ) {
-					$position = $this->mapCropPosition( $variant['image_style'] );
-
-					// Use fit with Fit::Crop which resizes the image to fill the dimensions
-					// maintaining aspect ratio and cropping any overflow
-					$imageGenerator->fit( Fit::Crop, $variant['width'], $variant['height'] );
-
-					// Then crop to exact dimensions at the specified position
-					$imageGenerator->crop( $variant['width'], $variant['height'], $position );
-
-					$imageGenerator->format( $target_format );
-					$imageGenerator->quality( $variant['quality'] );
-
-					$imageGenerator->save( $target_path );
-				} else {
-					// Resize while maintaining aspect ratio; it is possible to provide only one dimension
-					if ( $variant['width'] !== 0 ) {
-						$imageGenerator->width( $variant['width'] );
-					}
-					if ( $variant['height'] !== 0 ) {
-						$imageGenerator->height( $variant['height'] );
-					}
-
-					$imageGenerator->format( $target_format );
-					$imageGenerator->quality( $variant['quality'] );
-
-					$imageGenerator->save( $target_path );
-				}
-
-			} catch (\Throwable $e) {
-				// Throwable, not Exception: the encoder raises a DivisionByZeroError
-				// on some extreme targets (a 1x1 off a 777x333 source), and an
-				// Error slipping past this catch takes the whole page down over
-				// one image.
-				error_log( sprintf( 'Resizer: failed to process "%s" to "%s": %s', $source_path, $target_path, $e->getMessage() ) );
+			if ( ! $this->encodeVariant( $variant, $source_path, $target_path ) ) {
 				return null;
 			}
 		}
@@ -1158,6 +1082,110 @@ class Resizer {
 			'caption' => $default_image['caption'],
 			'description' => $default_image['description'],
 		];
+	}
+
+	/**
+	 * Encode one variant from a source file to an exact target path.
+	 *
+	 * Private API of the package. It exists so `wp timber-kit
+	 * regenerate-image-cache` re-encodes a derivative with the same code a
+	 * render uses, aimed at a temp file beside that derivative. A render goes
+	 * through {@see processVariant()}, which owns the cache path, the URL and
+	 * the returned metadata. Do not call this from a theme.
+	 *
+	 * The caller creates the target directory. Every failure is caught and
+	 * reported as false, because one unencodable image must not end a page
+	 * render or a sweep.
+	 *
+	 * @internal
+	 *
+	 * @param array<string, mixed> $variant     Normalized variant: width, height, image_style, quality, format.
+	 * @param string               $source_path Source file path.
+	 * @param string               $target_path Exact file to write.
+	 * @return bool Whether the file was written.
+	 */
+	public function encodeVariant( array $variant, string $source_path, string $target_path ): bool {
+		$target_format = (string) $variant['format'];
+		try {
+			$imageGenerator = Image::load( $source_path );
+
+			// Handle smart-crop using entropy analysis
+			if ( $variant['image_style'] === 'smart-crop' && $variant['width'] > 0 && $variant['height'] > 0 ) {
+				// Load source image with GD for entropy analysis
+				$gdImage = imagecreatefromstring( file_get_contents( $source_path ) );
+				if ( $gdImage === false ) {
+					throw new \Exception( 'Failed to load image with GD' );
+				}
+
+				$imgWidth = imagesx( $gdImage );
+				$imgHeight = imagesy( $gdImage );
+
+				// Only apply smart crop if image is larger than target dimensions
+				if ( $imgWidth > $variant['width'] || $imgHeight > $variant['height'] ) {
+					// Create edge-detected image for entropy analysis
+					$edgeImage = $this->createEdgeDetectedImage( $gdImage );
+
+					// Use grid algorithm by default (better results)
+					$cropRect = $this->getEntropyCropByGridding( $edgeImage, $variant['width'], $variant['height'] );
+
+					// Apply crop using Imagick with calculated coordinates
+					$imagick = new \Imagick( $source_path );
+					// Preserve transparency for PNG/GIF sources
+					if ( $imagick->getImageAlphaChannel() ) {
+						$imagick->setImageAlphaChannel( \Imagick::ALPHACHANNEL_ACTIVATE );
+					}
+					$imagick->cropImage( $cropRect['width'], $cropRect['height'], $cropRect['x'], $cropRect['y'] );
+					$imagick->setImageFormat( $target_format );
+					self::applyImagickQuality( $imagick, $variant['quality'], $target_format );
+					$imagick->writeImage( $target_path );
+					$imagick->clear();
+					$imagick->destroy();
+				} else {
+					// Image is smaller than target, just resize without cropping
+					$imageGenerator->format( $target_format );
+					$imageGenerator->quality( $variant['quality'] );
+					$imageGenerator->save( $target_path );
+				}
+			}
+			// Check if both dimensions are provided for standard cropping
+			elseif ( in_array( $variant['image_style'], [ 'crop', 'center', 'top', 'bottom', 'left', 'right' ], true ) && $variant['width'] > 0 && $variant['height'] > 0 ) {
+				$position = $this->mapCropPosition( $variant['image_style'] );
+
+				// Use fit with Fit::Crop which resizes the image to fill the dimensions
+				// maintaining aspect ratio and cropping any overflow
+				$imageGenerator->fit( Fit::Crop, $variant['width'], $variant['height'] );
+
+				// Then crop to exact dimensions at the specified position
+				$imageGenerator->crop( $variant['width'], $variant['height'], $position );
+
+				$imageGenerator->format( $target_format );
+				$imageGenerator->quality( $variant['quality'] );
+
+				$imageGenerator->save( $target_path );
+			} else {
+				// Resize while maintaining aspect ratio; it is possible to provide only one dimension
+				if ( $variant['width'] !== 0 ) {
+					$imageGenerator->width( $variant['width'] );
+				}
+				if ( $variant['height'] !== 0 ) {
+					$imageGenerator->height( $variant['height'] );
+				}
+
+				$imageGenerator->format( $target_format );
+				$imageGenerator->quality( $variant['quality'] );
+
+				$imageGenerator->save( $target_path );
+			}
+
+			return true;
+		} catch (\Throwable $e) {
+			// Throwable, not Exception: the encoder raises a DivisionByZeroError
+			// on some extreme targets (a 1x1 off a 777x333 source), and an
+			// Error slipping past this catch takes the whole page down over
+			// one image.
+			error_log( sprintf( 'Resizer: failed to process "%s" to "%s": %s', $source_path, $target_path, $e->getMessage() ) );
+			return false;
+		}
 	}
 
 	/**

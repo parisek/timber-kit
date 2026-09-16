@@ -6,6 +6,54 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `wp timber-kit regenerate-image-cache [<path>...] [--format=<format>]
+  [--older-than=<date>] [--limit=<n>] [--quality=<n>] [--threads=<n>]
+  [--sleep=<ms>] [--max-load=<n>] [--apply]` (#193) re-encodes resizer
+  derivatives at their existing paths.
+  `clear-image-cache` is unsafe on a live site: between the delete and the next
+  render a page cache still points at the file, and
+  `<source type="image/avif">` has no fallback, so the visitor sees a broken
+  image. This command encodes into a temp file beside the target and renames it
+  over the target, which is atomic on one filesystem, so the URL is never
+  missing and never half-written.
+
+  A new file replaces the old one only once it encoded, weighs more than zero,
+  decodes -- for AVIF a full frame read, because a truncated `mdat` keeps a
+  good header -- and measures the same pixel dimensions as the file it
+  replaces. It also takes that file's mode, because `rename()` keeps the temp
+  file's own permissions and a cron under a different umask leaves derivatives
+  the web server cannot read. Anything else keeps the old file and reports
+  which check refused the new one. The run reports the median size ratio and
+  counts a file at or below 1.2x as suspect, which is a report and not a
+  refusal.
+
+  Nothing is deleted: a derivative whose source is gone is reported as an
+  orphan. One run at a time: the run holds a lock in the cache directory and
+  sweeps the temp files left by runs that are no longer alive. It refuses to
+  start with less than three times the selected files' weight free on the
+  cache filesystem, and exits non-zero when a file failed or the load gate
+  gave up with work left.
+
+  `--older-than` is the resume mechanism, so with `--limit`, `--sleep`,
+  `--threads` and `--max-load` a large site spreads the encode cost over
+  several nights from cron; a relative value is refused because it moves with
+  the run. The parameters are read from the derivative path, so the command
+  needs `$resizer_source_path_in_cache_key`. Dry-run by default.
+
+- `Parisek\TimberKit\ImageCacheRegenerator` (#193), the tested logic behind that
+  command: path parsing, selection, the temp-file-plus-rename write and the
+  checks around it -- the run lock, the stale-temp sweep, the cutoff parser,
+  the disk preflight, the thread cap and the exit status.
+
+### Changed
+
+- `Resizer::encodeVariant()` (#193) splits the encode step out of
+  `processVariant()`, so a caller can aim the same encode at an exact path.
+  Private API of the package, marked `@internal`. The encode is moved, not
+  rewritten, so rendered output is unchanged.
+
 ## [1.55.0] - 2026-09-16
 
 ### Added
