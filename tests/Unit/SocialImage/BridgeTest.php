@@ -107,13 +107,66 @@ class BridgeTest extends TestCase {
 		// the image an editor picked by hand in the plugin's own panel.
 		// Overwriting that is the plugin equivalent of ignoring the editor.
 		$this->assertTrue( SocialImageBridge::defersToEditor( 'custom_image' ) );
-		$this->assertTrue( SocialImageBridge::defersToEditor( 'featured' ) );
+		$this->assertTrue( SocialImageBridge::defersToEditor( 'custom' ) );
+	}
+
+	public function test_an_automatic_source_is_not_an_editor_choice(): void {
+		// AIOSEO's Yoast importer writes one of these onto every post it
+		// imports. Nobody chose them, and `content` on block content resolves
+		// to nothing at all.
+		foreach ( [ 'featured', 'content', 'attach', 'author', 'auth' ] as $source ) {
+			$this->assertFalse( SocialImageBridge::defersToEditor( $source ), $source );
+			$this->assertTrue( SocialImageBridge::isAutomatic( $source ), $source );
+		}
+		$this->assertFalse( SocialImageBridge::isAutomatic( 'default' ) );
+		$this->assertFalse( SocialImageBridge::isAutomatic( 'custom_image' ) );
+		$this->assertFalse( SocialImageBridge::isAutomatic( null ) );
 	}
 
 	public function test_no_per_post_choice_leaves_the_field_free(): void {
 		$this->assertFalse( SocialImageBridge::defersToEditor( 'default' ) );
 		$this->assertFalse( SocialImageBridge::defersToEditor( '' ) );
 		$this->assertFalse( SocialImageBridge::defersToEditor( null ) );
+	}
+
+	public function test_a_plugin_fallback_is_recognised(): void {
+		// When an automatic source finds nothing, AIOSEO falls back to its
+		// global default image and then the site logo. Neither is this post's.
+		$fallbacks = [ 'https://example.com/default.png', 'https://example.com/logo.svg' ];
+
+		$this->assertTrue( SocialImageBridge::isPluginFallback( '', $fallbacks ) );
+		$this->assertTrue( SocialImageBridge::isPluginFallback( false, $fallbacks ) );
+		$this->assertTrue( SocialImageBridge::isPluginFallback( 'https://example.com/logo.svg', $fallbacks ) );
+		$this->assertTrue( SocialImageBridge::isPluginFallback( [ 'https://example.com/default.png', 1200, 630 ], $fallbacks ) );
+		$this->assertFalse( SocialImageBridge::isPluginFallback( 'https://example.com/featured.jpg', $fallbacks ) );
+		$this->assertFalse( SocialImageBridge::isPluginFallback( 'https://example.com/featured.jpg', [ '' ] ) );
+	}
+
+	public function test_an_automatic_source_keeps_an_image_it_found(): void {
+		$this->stubAioseoMeta( [ 'og_image_type' => 'featured' ] );
+
+		$image = 'https://example.com/the-featured-image.jpg';
+		$post = new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] );
+
+		// No field map is wired: reaching resolution would fail on a missing mock.
+		$this->assertSame( $image, SocialImageBridge::filterOpengraphImage( $image, [ $post, 'article' ] ) );
+	}
+
+	public function test_the_supply_decision_per_source(): void {
+		$fallbacks = [ 'https://example.com/default.png' ];
+		$found = 'https://example.com/the-featured-image.jpg';
+
+		// No source, or `default`: the bridge always supplies, as before.
+		$this->assertTrue( SocialImageBridge::shouldSupply( null, $found, $fallbacks ) );
+		$this->assertTrue( SocialImageBridge::shouldSupply( 'default', $found, $fallbacks ) );
+		// An editor's image: never.
+		$this->assertFalse( SocialImageBridge::shouldSupply( 'custom_image', '', $fallbacks ) );
+		// An automatic source: only where it found nothing of this post's own.
+		$this->assertFalse( SocialImageBridge::shouldSupply( 'featured', $found, $fallbacks ) );
+		$this->assertTrue( SocialImageBridge::shouldSupply( 'content', '', $fallbacks ) );
+		$this->assertTrue( SocialImageBridge::shouldSupply( 'content', 'https://example.com/default.png', $fallbacks ) );
+		// An unknown source is treated as a choice: never override what we cannot name.
+		$this->assertFalse( SocialImageBridge::shouldSupply( 'something-new', '', $fallbacks ) );
 	}
 
 	public function test_twitter_image_is_replaced_when_a_preview_resolves(): void {
@@ -174,6 +227,41 @@ class BridgeTest extends TestCase {
 		Functions\when( 'get_queried_object' )->justReturn( new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] ) );
 
 		$meta = [ 'twitter:image' => 'https://example.com/what-the-editor-picked.jpg' ];
+
+		$this->assertSame( $meta, SocialImageBridge::filterTwitterTags( $meta ) );
+	}
+
+	public function test_twitter_follows_the_open_graph_image_it_resolved(): void {
+		// Twitter's own fallback is the Open Graph image, but the bridge used to
+		// write a separate preview here, so a post whose editor picked the og
+		// image shared a different picture on X.
+		$facebook = new class() {
+			public function getImage( $post = null ) {
+				unset( $post );
+				return [ 'https://example.com/what-the-editor-picked.jpg', 1200, 630 ];
+			}
+		};
+		$metaData = new class() {
+			public function getMetaData( $post = null ) {
+				unset( $post );
+				return (object) [ 'twitter_use_og' => false, 'twitter_image_type' => 'default', 'og_image_type' => 'custom_image' ];
+			}
+		};
+		Functions\when( 'aioseo' )->justReturn( (object) [ 'meta' => (object) [ 'metaData' => $metaData ], 'social' => (object) [ 'facebook' => $facebook ] ] );
+		Functions\when( 'is_singular' )->justReturn( true );
+		Functions\when( 'get_queried_object' )->justReturn( new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] ) );
+
+		$result = SocialImageBridge::filterTwitterTags( [ 'twitter:image' => 'https://example.com/field.jpeg' ] );
+
+		$this->assertSame( 'https://example.com/what-the-editor-picked.jpg', $result['twitter:image'] );
+	}
+
+	public function test_twitter_is_untouched_when_the_open_graph_image_cannot_be_read(): void {
+		$this->stubAioseoMeta( [ 'twitter_use_og' => false, 'twitter_image_type' => 'default' ] );
+		Functions\when( 'is_singular' )->justReturn( true );
+		Functions\when( 'get_queried_object' )->justReturn( new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] ) );
+
+		$meta = [ 'twitter:image' => 'https://example.com/what-the-plugin-resolved.jpg' ];
 
 		$this->assertSame( $meta, SocialImageBridge::filterTwitterTags( $meta ) );
 	}

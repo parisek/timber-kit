@@ -33,6 +33,17 @@ namespace Parisek\TimberKit;
 class SocialImage {
 
 	/**
+	 * Map token for the featured image's position in a field chain.
+	 *
+	 * `[ '@featured', 'hero_image' ]` tries the featured image first. Without
+	 * the token the featured image is the last candidate, as it always was, so
+	 * no existing map changes meaning. The `@` keeps it out of the space of
+	 * ACF field names, which cannot start with one.
+	 */
+	public const FEATURED = '@featured';
+
+
+	/**
 	 * Output formats a preview scraper can read.
 	 *
 	 * The reason this class exists — see the class docblock. Filterable for the
@@ -190,8 +201,10 @@ class SocialImage {
 	 * the rest lives here.
 	 *
 	 * Candidate order: the fields the map names for this post type, in that
-	 * order, then the featured image. The first candidate that yields a usable
-	 * cut wins — not the first that merely resolves to an image. A post type
+	 * order, then the featured image — unless the chain names `FEATURED`,
+	 * which puts the featured image at that position instead. The first
+	 * candidate that yields a usable cut wins — not the first that merely
+	 * resolves to an image. A post type
 	 * absent from the map falls back to the featured image alone, which is what
 	 * it did before the map existed.
 	 *
@@ -237,46 +250,70 @@ class SocialImage {
 		$map = apply_filters( 'timber_kit_social_image_fields', [] );
 		$names = self::fieldNamesFor( (string) get_post_type( $post ), is_array( $map ) ? $map : [] );
 		$candidates = [];
+		$fields = null;
 
-		if ( [] !== $names ) {
-			/**
-			 * Filter how a post's fields are read.
-			 *
-			 * Returning an array skips `Helpers::formatFields()` entirely, for
-			 * projects that keep this data somewhere other than ACF.
-			 *
-			 * @param array<string, mixed>|null $fields Null to use the default reader.
-			 * @param \WP_Post                  $post   Post being resolved.
-			 */
-			$fields = apply_filters( 'timber_kit_social_image_post_fields', null, $post );
-			$fields = is_array( $fields ) ? $fields : Helpers::formatFields( $post );
+		foreach ( $names as $name ) {
+			if ( self::FEATURED === $name ) {
+				$featured = self::featuredImage( $post );
 
-			foreach ( $names as $name ) {
-				if ( empty( $fields[ $name ] ) ) {
-					continue;
+				if ( null !== $featured ) {
+					$candidates[ $featured['src'] ] = $featured;
 				}
 
-				// Non-empty is not the same as an image: a gallery, a repeater
-				// or a group is all three of those and none of them is one.
-				$image = self::asImage( $fields[ $name ] );
+				continue;
+			}
 
-				if ( null !== $image ) {
-					$candidates[ $image['src'] ] = $image;
-				}
+			if ( null === $fields ) {
+				/**
+				 * Filter how a post's fields are read.
+				 *
+				 * Returning an array skips `Helpers::formatFields()` entirely, for
+				 * projects that keep this data somewhere other than ACF.
+				 *
+				 * @param array<string, mixed>|null $fields Null to use the default reader.
+				 * @param \WP_Post                  $post   Post being resolved.
+				 */
+				$fields = apply_filters( 'timber_kit_social_image_post_fields', null, $post );
+				$fields = is_array( $fields ) ? $fields : Helpers::formatFields( $post );
+			}
+
+			if ( empty( $fields[ $name ] ) ) {
+				continue;
+			}
+
+			// Non-empty is not the same as an image: a gallery, a repeater
+			// or a group is all three of those and none of them is one.
+			$image = self::asImage( $fields[ $name ] );
+
+			if ( null !== $image ) {
+				$candidates[ $image['src'] ] ??= $image;
 			}
 		}
 
-		$thumbnail_id = (int) get_post_thumbnail_id( $post );
-		$featured = $thumbnail_id > 0 ? self::asImage( $thumbnail_id ) : null;
+		if ( ! in_array( self::FEATURED, $names, true ) ) {
+			$featured = self::featuredImage( $post );
 
-		if ( null !== $featured && ! isset( $candidates[ $featured['src'] ] ) ) {
-			$candidates[ $featured['src'] ] = $featured;
+			if ( null !== $featured && ! isset( $candidates[ $featured['src'] ] ) ) {
+				$candidates[ $featured['src'] ] = $featured;
+			}
 		}
 
 		// Keyed by URL while collecting: the featured image is very often also
 		// the mapped field, and two entries for one picture means encoding it
 		// twice to learn the same answer.
 		return array_values( $candidates );
+	}
+
+	/**
+	 * The post's featured image in the shape `get()` takes, or null.
+	 *
+	 * @param \WP_Post $post Post to resolve.
+	 * @return array<string, mixed>|null
+	 */
+	private static function featuredImage( \WP_Post $post ): ?array {
+		$thumbnail_id = (int) get_post_thumbnail_id( $post );
+
+		return $thumbnail_id > 0 ? self::asImage( $thumbnail_id ) : null;
 	}
 
 	/**

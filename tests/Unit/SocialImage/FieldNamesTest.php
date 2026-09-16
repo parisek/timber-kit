@@ -20,6 +20,13 @@ class FieldNamesTest extends TestCase {
 		);
 	}
 
+	public function test_the_featured_token_keeps_its_position(): void {
+		$this->assertSame(
+			[ SocialImage::FEATURED, 'hero_image' ],
+			SocialImage::fieldNamesFor( 'project', [ 'project' => [ '@featured', 'hero_image' ] ] )
+		);
+	}
+
 	public function test_an_unmapped_post_type_has_no_fields(): void {
 		$this->assertSame( [], SocialImage::fieldNamesFor( 'page', [ 'project' => 'hero_image' ] ) );
 	}

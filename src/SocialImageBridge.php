@@ -28,6 +28,24 @@ use Parisek\TimberKit\Seo\Plugin;
 class SocialImageBridge {
 
 	/**
+	 * AIOSEO image sources that carry an image an editor actually picked.
+	 *
+	 * `custom_image` is an upload in the plugin's panel, `custom` a custom
+	 * field the editor named.
+	 */
+	private const EDITOR_SOURCES = [ 'custom_image', 'custom' ];
+
+	/**
+	 * AIOSEO image sources the plugin resolves by itself.
+	 *
+	 * AIOSEO's Yoast importer writes one of these onto every post it imports,
+	 * so on a migrated site they say nothing about intent. `content` on block
+	 * content resolves to no image at all.
+	 */
+	private const AUTOMATIC_SOURCES = [ 'featured', 'content', 'attach', 'author', 'auth' ];
+
+
+	/**
 	 * Supported plugins: how to notice one, and how to wire it.
 	 *
 	 * Only `SocialImage::forPost()` is genuinely shared above this — each
@@ -170,11 +188,115 @@ class SocialImageBridge {
 	public static function filterOpengraphImage( $image, $args ) {
 		$post = is_array( $args ) ? ( $args[0] ?? null ) : null;
 
-		if ( ! $post instanceof \WP_Post || self::standsAside( $post, 'og_image_type' ) ) {
+		if ( ! $post instanceof \WP_Post ) {
+			return $image;
+		}
+
+		$meta = self::postMeta( $post );
+
+		// Unreadable metadata is not evidence that the editor chose nothing.
+		if ( null === $meta ) {
+			return $image;
+		}
+
+		if ( ! self::shouldSupply( self::imageType( $meta, 'og_image_type' ), $image, self::pluginFallbacks() ) ) {
 			return $image;
 		}
 
 		return self::toTuple( SocialImage::forPost( $post ), $image );
+	}
+
+	/**
+	 * Whether the bridge supplies the preview for this image source.
+	 *
+	 * Pure. No source or `default`: always, as the bridge always did. An
+	 * editor's source: never. An automatic source: only where the plugin found
+	 * nothing of the post's own and fell back to its global default or the site
+	 * logo. Anything else is a source this code cannot name, and a source it
+	 * cannot name is treated as a choice.
+	 *
+	 * @param string|null        $image_type The post's image-source override.
+	 * @param string|array|mixed $image      What the plugin resolved.
+	 * @param array<int, string> $fallbacks  The plugin's own fallback URLs.
+	 * @return bool
+	 */
+	public static function shouldSupply( ?string $image_type, $image, array $fallbacks ): bool {
+		if ( null === $image_type || '' === $image_type || 'default' === $image_type ) {
+			return true;
+		}
+
+		if ( self::isAutomatic( $image_type ) ) {
+			return self::isPluginFallback( $image, $fallbacks );
+		}
+
+		return false;
+	}
+
+	/**
+	 * Whether a source is one the plugin resolves by itself.
+	 *
+	 * @param string|null $image_type The post's image-source override.
+	 * @return bool
+	 */
+	public static function isAutomatic( ?string $image_type ): bool {
+		return in_array( $image_type, self::AUTOMATIC_SOURCES, true );
+	}
+
+	/**
+	 * Whether the plugin's resolved image is a fallback rather than the post's.
+	 *
+	 * Pure. AIOSEO answers an automatic source that found nothing with its
+	 * global default image, then the site logo, then nothing. An image equal to
+	 * one of those is not the post's, so a real preview is better.
+	 *
+	 * @param string|array|mixed $image     What the plugin resolved; a tuple's URL is at 0.
+	 * @param array<int, string> $fallbacks The plugin's own fallback URLs.
+	 * @return bool
+	 */
+	public static function isPluginFallback( $image, array $fallbacks ): bool {
+		$url = is_array( $image ) ? ( $image[0] ?? '' ) : $image;
+
+		if ( ! is_string( $url ) || '' === $url ) {
+			return true;
+		}
+
+		foreach ( $fallbacks as $fallback ) {
+			if ( is_string( $fallback ) && '' !== $fallback && $fallback === $url ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * AIOSEO's own fallback image URLs: the global default, then the site logo.
+	 *
+	 * @return array<int, string>
+	 */
+	private static function pluginFallbacks(): array {
+		$fallbacks = [];
+
+		try {
+			$aioseo = function_exists( 'aioseo' ) ? aioseo() : null;
+
+			$image = is_object( $aioseo ) && isset( $aioseo->social->image ) && is_object( $aioseo->social->image ) ? $aioseo->social->image : null;
+
+			if ( null !== $image && is_callable( [ $image, 'getImage' ] ) ) {
+				$default = $image->getImage( 'facebook', 'default' );
+				$fallbacks[] = is_array( $default ) ? (string) ( $default[0] ?? '' ) : (string) $default;
+			}
+
+			$helpers = is_object( $aioseo ) && isset( $aioseo->helpers ) && is_object( $aioseo->helpers ) ? $aioseo->helpers : null;
+
+			if ( null !== $helpers && is_callable( [ $helpers, 'getSiteLogoUrl' ] ) ) {
+				$fallbacks[] = (string) $helpers->getSiteLogoUrl();
+			}
+		} catch ( \Throwable $e ) {
+			return $fallbacks;
+		}
+
+		return array_values( array_filter( $fallbacks ) );
 	}
 
 	/**
@@ -201,13 +323,47 @@ class SocialImageBridge {
 		// image for Twitter too — so the tag already carries whatever the
 		// og:image filter decided, deferral included. Touching it here would
 		// run that decision a second time without the deferral and undo it.
-		// The setting is per post but defaults from the global one, so on a
-		// site with it enabled this is every post, not an edge case.
 		if ( self::usesOpengraphData( $post ) || self::standsAside( $post, 'twitter_image_type' ) ) {
 			return $meta;
 		}
 
-		return self::withTwitterImage( $meta, SocialImage::forPost( $post ) );
+		// Otherwise the card takes the Open Graph image, as resolved through the
+		// og:image filter above. That is AIOSEO's own Twitter fallback, and it is
+		// what keeps the two cards on one picture: a separate preview here would
+		// put the field image on X next to the editor's image on Facebook.
+		$opengraph = self::opengraphImage( $post );
+
+		if ( null === $opengraph ) {
+			return $meta;
+		}
+
+		return self::withTwitterImage( $meta, [ 'src' => $opengraph ] );
+	}
+
+	/**
+	 * The Open Graph image URL AIOSEO resolves for a post, or null.
+	 *
+	 * @param \WP_Post $post Post being rendered.
+	 * @return string|null
+	 */
+	private static function opengraphImage( \WP_Post $post ): ?string {
+		try {
+			$aioseo = function_exists( 'aioseo' ) ? aioseo() : null;
+
+			$facebook = is_object( $aioseo ) && isset( $aioseo->social->facebook ) && is_object( $aioseo->social->facebook ) ? $aioseo->social->facebook : null;
+
+			if ( null === $facebook || ! is_callable( [ $facebook, 'getImage' ] ) ) {
+				return null;
+			}
+
+			$image = $facebook->getImage( $post );
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+
+		$url = is_array( $image ) ? ( $image[0] ?? '' ) : $image;
+
+		return is_string( $url ) && '' !== $url ? $url : null;
 	}
 
 	/**
@@ -241,7 +397,7 @@ class SocialImageBridge {
 	 * @return bool
 	 */
 	public static function defersToEditor( ?string $image_type ): bool {
-		return is_string( $image_type ) && '' !== $image_type && 'default' !== $image_type;
+		return in_array( $image_type, self::EDITOR_SOURCES, true );
 	}
 
 	/**

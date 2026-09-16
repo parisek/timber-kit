@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `SocialImage::FEATURED` (`'@featured'`) in `$social_image_fields` places the
+  featured image at that position in a post type's chain:
+  `'post' => array( '@featured', 'image' )` tries the featured image before the
+  field. Without the token the featured image stays last, so no existing map
+  changes.
+
+### Changed
+
+- The AIOSEO bridge no longer treats the automatic image sources (`featured`,
+  `content`, `attach`, `author`, `auth`) as an editor's choice. AIOSEO's Yoast
+  importer writes one onto every post, so on a migrated site the bridge stood
+  aside almost everywhere, and `content` on block content rendered no
+  `og:image` at all. The bridge now keeps an image the plugin found and supplies
+  the preview only where the plugin fell back to its default image or the site
+  logo. `custom_image` and `custom` still defer, and so does any source it
+  cannot name. Affects sites that already set `$social_image_bridge`.
+- With the bridge on and "Use Data from Facebook Tab" off for a post,
+  `twitter:image` now takes the resolved Open Graph image instead of a separate
+  preview. A post whose editor chose the Open Graph image no longer shares a
+  different picture on X. Affects sites that already set `$social_image_bridge`.
+
 ## [1.56.0] - 2026-09-16
 
 ### Added

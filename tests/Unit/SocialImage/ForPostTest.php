@@ -265,6 +265,45 @@ class ForPostTest extends TestCase {
 		$this->assertSame( 'cut:https://example.com/hero.jpg', $result['src'] );
 	}
 
+	public function test_the_featured_token_puts_the_featured_image_before_the_field(): void {
+		// A project where the editor's featured image is the sharing picture
+		// and the field only fills in when there is none.
+		$this->wire(
+			[ 'project' => [ SocialImage::FEATURED, 'hero_image' ] ],
+			[ 'hero_image' => [ [ 'id' => 9, 'src' => 'https://example.com/hero.jpg', 'type' => 'image/jpeg' ] ] ],
+			42
+		);
+		Functions\when( 'acf_get_attachment' )->justReturn( [ 'url' => 'https://example.com/featured.jpg', 'width' => 4000, 'height' => 2250, 'mime_type' => 'image/jpeg' ] );
+
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerCutting() );
+
+		$this->assertSame( 'cut:https://example.com/featured.jpg', $result['src'] );
+	}
+
+	public function test_the_featured_token_falls_through_to_the_field_without_a_thumbnail(): void {
+		$this->wire(
+			[ 'project' => [ SocialImage::FEATURED, 'hero_image' ] ],
+			[ 'hero_image' => [ [ 'id' => 9, 'src' => 'https://example.com/hero.jpg', 'type' => 'image/jpeg' ] ] ],
+			0
+		);
+
+		$result = SocialImage::forPost( $this->post(), [], $this->resizerCutting() );
+
+		$this->assertSame( 'cut:https://example.com/hero.jpg', $result['src'] );
+	}
+
+	public function test_the_featured_token_is_never_read_as_a_field(): void {
+		// A field reader handing back a value under the token's name must not
+		// turn the token into a second, field-shaped candidate.
+		$this->wire(
+			[ 'project' => [ SocialImage::FEATURED ] ],
+			[ SocialImage::FEATURED => [ [ 'id' => 9, 'src' => 'https://example.com/not-a-field.jpg', 'type' => 'image/jpeg' ] ] ],
+			0
+		);
+
+		$this->assertNull( SocialImage::forPost( $this->post(), [], $this->resizerCutting() ) );
+	}
+
 	public function test_a_featured_image_that_is_also_the_mapped_field_is_tried_once(): void {
 		$calls = 0;
 		$stub = $this->createStub( Resizer::class );
