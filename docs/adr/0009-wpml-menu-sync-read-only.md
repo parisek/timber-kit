@@ -78,10 +78,12 @@ Rejected alternatives:
   rebuilds the tree.** A reviewer suggested it. The `icl_msync_confirm` request
   is not guarded. A rebuild there runs `get_menus_tree()` and its repairs
   unguarded, and persists exactly the writes this guard prevents.
-- **Default on.** The kit rule is default off for admin behaviour, and each
-  project enables the flag for itself. The owner decided against turning it
-  on in the `wordpress-base` template: the screen is part of WPML's admin, and a
-  site that relies on Menus Sync should adopt the guard deliberately.
+- **Default on in the kit.** The kit rule is default off for admin behaviour,
+  so the flag ships off here. The `wordpress-base` template turns it on
+  (portadesign/wordpress-base#153), because the screen is reachable by anyone
+  who knows the URL, a crawler included, so a new project should carry the
+  guard from the start. A project that relies on WPML's own repairs sets the
+  flag back to `false`.
 
 Prior art: WordPress core PHPUnit wraps each test in `START TRANSACTION` /
 `ROLLBACK`. WooCommerce has `wc_transaction_query()`. We know of no production
