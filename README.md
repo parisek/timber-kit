@@ -422,6 +422,8 @@ protected bool $seo_canonical_pagination = false;
 
 WPML writes to the database when that screen only loads. `ICLMenusSync::init()` runs on `init` priority 20 and repairs menu items while it builds the preview. One visit, closed without confirming, removed 56 items from four main menus and rewrote 230 `icl_translations` rows.
 
+**A logged-out request is enough.** `init` runs before WordPress checks the session, so the repairs happen and only then does `admin.php` redirect to the login form. Measured on a WPML 4.9.7 site: the URL fetched with no cookie answers 302 and still changes 94 rows. A crawler that finds the address can break the menus. The guard covers that request too, because `is_admin()` is already true there.
+
 The guard applies where WPML sets up menu sync: `is_admin()` and a `page` value that contains `<ICL_PLUGIN_FOLDER>/menu/menu-sync/menus-sync.php`, case-insensitive. On `init` priority 1 it runs `SET autocommit = 0` and checks that `SELECT @@autocommit` returns 0. On `shutdown` priority `PHP_INT_MIN` it runs `ROLLBACK` and `SET autocommit = 1`. The preview still renders. It does not use `START TRANSACTION`, because a WPML TM upgrade on `init` priority 10 can send DDL, and DDL commits implicitly.
 
 The guard fails closed. It stops the request with `wp_die()` (HTTP 403) when it cannot prove the rollback:
@@ -453,7 +455,19 @@ What the guard covers: writes through the global `$wpdb` connection to InnoDB ta
 - **Sync.** The Sync request (`admin-ajax.php`, action `icl_msync_confirm`) is not guarded and still writes. It reuses the session tree and does not run WPML's repairs again, so Sync no longer applies those repairs. On sloneek, a full Sync of 337 items with and without the guard gave 0 different rows in the guarded main menus. That is one data set, not a proof for every menu shape.
 - **Object cache.** An external object cache is not part of the transaction, so the rollback calls `wp_cache_flush()` when `wp_using_ext_object_cache()` is true. A failed flush goes to `error_log`. On multisite or a shared Redis, the flush empties the cache of every site that uses it.
 
-Rationale and measurements: [ADR 0009](docs/adr/0009-wpml-menu-sync-read-only.md).
+Measured on a live WPML 4.9.7 install (sloneek, production copy, 2026-09-15). Each case has a control run with the guard off, so a zero is evidence rather than an absent trigger.
+
+| Case | Guard on | Guard off |
+| --- | --- | --- |
+| Page load, logged in | 0 rows | 94 rows |
+| Preview POST | 0 rows | — |
+| `CREATE TABLE` on `init` priority 10 | 0 rows, table created | 94 rows (with `START TRANSACTION`) |
+| One table switched to MyISAM | 403, 0 rows | — |
+| `information_schema` query fails | 403, 0 rows | — |
+| Logged-out request | 0 rows | 94 rows |
+| Full Sync of 337 items | same as before the guard | 0 different rows in the guarded menus |
+
+Rationale and the rejected alternatives: [ADR 0009](docs/adr/0009-wpml-menu-sync-read-only.md).
 
 ### WpmlBlockOverride
 

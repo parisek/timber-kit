@@ -14,7 +14,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   rows. On that screen the guard switches autocommit off and rolls back the
   writes through `$wpdb` at shutdown, then flushes an external object cache.
   It blocks the screen (HTTP 403) when it cannot prove the rollback, for
-  example a table that is not InnoDB. A confirmed Sync is a separate AJAX
+  example a table that is not InnoDB. A logged-out request reaches those writes
+  too, because `init` runs before WordPress authenticates, so the guard covers
+  it as well. A confirmed Sync is a separate AJAX
   request and still writes, but no longer applies WPML's page-load repairs.
 
 - `timber_kit_resizer_cache_version` filter and `StarterBase::$resizer_cache_version`

@@ -78,12 +78,41 @@ Rejected alternatives:
   rebuilds the tree.** A reviewer suggested it. The `icl_msync_confirm` request
   is not guarded. A rebuild there runs `get_menus_tree()` and its repairs
   unguarded, and persists exactly the writes this guard prevents.
-- **Default on.** The kit rule is default off for admin behaviour. The
-  `wordpress-base` template enables the flag.
+- **Default on.** The kit rule is default off for admin behaviour, and each
+  project enables the flag for itself. The owner decided against turning it
+  on in the `wordpress-base` template: the screen is part of WPML's admin, and a
+  site that relies on Menus Sync should adopt the guard deliberately.
 
 Prior art: WordPress core PHPUnit wraps each test in `START TRANSACTION` /
 `ROLLBACK`. WooCommerce has `wc_transaction_query()`. We know of no production
 use as a guard against a plugin's page-load side effects.
+
+## A logged-out request is enough
+
+`init` runs before WordPress authenticates the request, so WPML's repairs happen
+and only then does `admin.php` redirect to the login form. Measured on a WPML
+4.9.7 site: the screen's URL fetched with no cookie answers 302 and still
+changes 94 rows. So the screen is not protected by being behind wp-admin, and an
+unauthenticated crawler can break the menus of every language. The guard covers
+that request, because `is_admin()` is true there as well.
+
+## Measurements
+
+Live WPML 4.9.7 install (sloneek, production copy, 2026-09-15). Every case has a
+control run with the guard off.
+
+| Case | Guard on | Guard off |
+| --- | --- | --- |
+| Page load, logged in | 0 rows | 94 rows |
+| Preview POST | 0 rows | — |
+| `CREATE TABLE` on `init` priority 10 | 0 rows, table created | 94 rows with `START TRANSACTION` |
+| One table switched to MyISAM | 403, 0 rows | — |
+| `information_schema` query fails | 403, 0 rows | — |
+| Logged-out request | 0 rows | 94 rows |
+| Full Sync of 337 items | same result as before the guard | 0 different rows in the guarded menus |
+
+The DDL row is why this ADR rejects `START TRANSACTION`: the same probe with a
+transaction lost every protection, while `SET autocommit = 0` kept it.
 
 ## Consequences
 
