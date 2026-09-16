@@ -143,9 +143,13 @@ class RegenerateImageCacheCommand {
 		$encoder  = fn ( array $variant, string $source, string $temp ): bool => $resizer->encodeVariant( $variant, $source, $temp );
 		$verifier = fn ( string $path ): bool => ImageCacheRegenerator::decodes( $path );
 
+		$this->warnAboutOwner( $plan['entries'] );
+
 		$started    = time();
 		$done       = 0;
 		$failed     = 0;
+		$suspect    = 0;
+		$ratios     = array();
 		$before     = 0;
 		$after      = 0;
 		$unreached  = $plan['remaining'];
@@ -162,9 +166,15 @@ class RegenerateImageCacheCommand {
 			$after  += $result['after'];
 			if ( 'failed' === $result['status'] ) {
 				++$failed;
-				\WP_CLI::warning( sprintf( 'Failed to re-encode %s; the old file is unchanged.', $result['path'] ) );
+				\WP_CLI::warning( sprintf( 'Failed to re-encode %s (%s); the old file is unchanged.', $result['path'], $result['reason'] ) );
 			} else {
 				++$done;
+				if ( $apply ) {
+					$ratios[] = $result['ratio'];
+					if ( $result['suspect'] ) {
+						++$suspect;
+					}
+				}
 			}
 
 			if ( $verbose ) {
@@ -202,11 +212,57 @@ class RegenerateImageCacheCommand {
 			time() - $started
 		);
 
+		if ( $apply && array() !== $ratios ) {
+			$summary .= sprintf(
+				' Median size ratio %.2fx, %d suspect (at or below %.1fx, which usually means the encoder did not change).',
+				ImageCacheRegenerator::median( $ratios ),
+				$suspect,
+				ImageCacheRegenerator::SUSPECT_RATIO
+			);
+		}
+
 		if ( ! $apply ) {
 			\WP_CLI::success( $summary . ' Run with --apply to write.' );
 			return;
 		}
 		\WP_CLI::success( $summary );
+	}
+
+	/**
+	 * Say so when this process does not own the files it is about to replace.
+	 *
+	 * A rename by another user writes a file that user owns. The mode is
+	 * carried over, but a mode is only half the answer: `0644` owned by
+	 * `root` is unreadable to nobody, while `0600` owned by `root` is
+	 * unreadable to the web server, and the visitor sees a 403 on an
+	 * `<source type="image/avif">` that has no fallback. Only the first
+	 * mismatch is reported; a whole cache owned by someone else is one fact,
+	 * not thousands.
+	 *
+	 * @param list<array<string, mixed>> $entries
+	 */
+	private function warnAboutOwner( array $entries ): void {
+		if ( array() === $entries || ! function_exists( 'posix_geteuid' ) ) {
+			return;
+		}
+
+		$me = posix_geteuid();
+		foreach ( $entries as $entry ) {
+			$owner = @fileowner( (string) $entry['path'] );
+			if ( false === $owner || $owner === $me ) {
+				continue;
+			}
+			\WP_CLI::warning(
+				sprintf(
+					'%s is owned by uid %d and this process runs as uid %d. The mode is carried over, but the new file belongs to uid %d; check the web server can still read it.',
+					$entry['path'],
+					$owner,
+					$me,
+					$me
+				)
+			);
+			return;
+		}
 	}
 
 	/**

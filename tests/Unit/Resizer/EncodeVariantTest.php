@@ -83,6 +83,20 @@ class EncodeVariantTest extends ResizerTestCase {
 		$this->assertSame( array( 300, 300 ), array( (int) $size[0], (int) $size[1] ) );
 	}
 
+	public function testAScaleOnlyVariantPinsBothAxesOfARealFixture(): void {
+		// The encode was moved out of processVariant() with no equivalence
+		// test, so this pins the geometry the move must not have changed: an
+		// 800x533 source asked for width 400 derives its own height, and that
+		// derived value is part of the contract a re-encode has to reproduce.
+		$target = $this->dir . '/scaled.jpg';
+
+		$ok = $this->createResizer()->encodeVariant( $this->variant( 'center', 400, 0 ), $this->source(), $target );
+
+		$this->assertTrue( $ok );
+		$size = getimagesize( $target ) ?: array( 0, 0 );
+		$this->assertSame( array( 400, 267 ), array( (int) $size[0], (int) $size[1] ) );
+	}
+
 	public function testAnUnreadableSourceIsReportedAndWritesNoTarget(): void {
 		$target = $this->dir . '/never-written.jpg';
 

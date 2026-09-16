@@ -27,7 +27,18 @@ namespace Parisek\TimberKit;
 class ImageCacheRegenerator {
 
 	/** Prefix of the temp file a re-encode writes beside its target. */
-	private const string TEMP_PREFIX = '.tk-regen-';
+	public const string TEMP_PREFIX = '.tk-regen-';
+
+	/**
+	 * Up to this much growth counts a re-encode as suspect.
+	 *
+	 * The encoder defects this command exists for -- a quality read backwards,
+	 * a coder default of 0 -- all made a file far too small, so a correct
+	 * re-encode of such a file is several times bigger. A file that stayed
+	 * about the same size did not necessarily fail, so this is a report, never
+	 * a refusal: a legitimately smaller re-encode exists.
+	 */
+	public const float SUSPECT_RATIO = 1.2;
 
 	/** Source extensions a derivative name may carry before its output format. */
 	private const array SOURCE_EXTENSIONS = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'tif', 'tiff', 'heic' );
@@ -235,27 +246,36 @@ class ImageCacheRegenerator {
 	 *
 	 * The encoder writes to a temp path in the target's own directory, so the
 	 * rename that follows stays on one filesystem and is therefore atomic. A
-	 * new file replaces the target only once it encoded, weighs something and
-	 * decodes; anything else deletes the temp file and keeps the old target,
-	 * which a visitor is reading while this runs.
+	 * new file replaces the target only once it encoded, weighs something,
+	 * decodes and carries the same pixel dimensions as the file it replaces;
+	 * anything else deletes the temp file and keeps the old target, which a
+	 * visitor is reading while this runs.
+	 *
+	 * The new file also takes the old file's mode. A rename keeps the temp
+	 * file's own permissions, and a cron running under a different umask or a
+	 * different user writes a file the web server cannot read -- a 403 on a
+	 * `<source type="image/avif">` that has no fallback.
 	 *
 	 * @param array<string, mixed> $entry    One entry from {@see plan()}.
 	 * @param callable(array<string, mixed>, string, string): bool $encoder Variant, source path, temp path.
 	 * @param callable(string): bool $verifier Whether the temp file decodes.
 	 * @param bool $dry_run Report the entry and write nothing.
-	 * @return array{status: string, path: string, before: int, after: int}
+	 * @param (callable(string): (array{0: int, 1: int}|null))|null $measurer Pixel dimensions of a file;
+	 *        null uses {@see dimensions()}.
+	 * @return array{status: string, path: string, before: int, after: int, reason: string, ratio: float, suspect: bool}
 	 */
-	public function regenerate( array $entry, callable $encoder, callable $verifier, bool $dry_run = false ): array {
+	public function regenerate( array $entry, callable $encoder, callable $verifier, bool $dry_run = false, ?callable $measurer = null ): array {
 		$path   = (string) $entry['path'];
 		$before = (int) filesize( $path );
 
 		if ( $dry_run ) {
-			return array( 'status' => 'would_regenerate', 'path' => $path, 'before' => $before, 'after' => $before );
+			return self::outcome( 'would_regenerate', $path, $before, $before, '' );
 		}
 
 		/** @var array<string, mixed> $variant */
-		$variant = $entry['variant'];
-		$temp    = dirname( $path ) . '/' . self::TEMP_PREFIX . getmypid() . '-' . basename( $path );
+		$variant  = $entry['variant'];
+		$temp     = dirname( $path ) . '/' . self::TEMP_PREFIX . getmypid() . '-' . basename( $path );
+		$measurer ??= static fn ( string $file ): ?array => self::dimensions( $file );
 
 		try {
 			$encoded = $encoder( $variant, (string) $entry['source'], $temp );
@@ -265,36 +285,149 @@ class ImageCacheRegenerator {
 			$encoded = false;
 		}
 
-		$size = $encoded && is_file( $temp ) ? (int) filesize( $temp ) : 0;
-		if ( ! $encoded || 0 === $size || ! $verifier( $temp ) || ! rename( $temp, $path ) ) {
+		$size   = $encoded && is_file( $temp ) ? (int) filesize( $temp ) : 0;
+		$reason = self::refusal( $encoded, $size, $temp, $path, $verifier, $measurer );
+
+		if ( '' === $reason ) {
+			// Carry the old mode before the rename, not after: between the two
+			// the file is already live at its URL.
+			$mode = fileperms( $path );
+			if ( false !== $mode ) {
+				@chmod( $temp, $mode & 0777 );
+			}
+			if ( ! rename( $temp, $path ) ) {
+				$reason = 'rename';
+			}
+		}
+
+		if ( '' !== $reason ) {
 			if ( is_file( $temp ) ) {
 				unlink( $temp );
 			}
-			return array( 'status' => 'failed', 'path' => $path, 'before' => $before, 'after' => $before );
+			return self::outcome( 'failed', $path, $before, $before, $reason );
 		}
 
-		return array( 'status' => 'regenerated', 'path' => $path, 'before' => $before, 'after' => $size );
+		return self::outcome( 'regenerated', $path, $before, $size, '' );
+	}
+
+	/**
+	 * Which check refuses this temp file, or an empty string for none.
+	 *
+	 * Order is deliberate. Cheap facts first, then the decode, then the
+	 * dimension compare, which is the only check that reads the old file too.
+	 *
+	 * @param callable(string): bool $verifier
+	 * @param callable(string): (array{0: int, 1: int}|null) $measurer
+	 */
+	private static function refusal( bool $encoded, int $size, string $temp, string $path, callable $verifier, callable $measurer ): string {
+		if ( ! $encoded ) {
+			return 'encoder';
+		}
+		if ( 0 === $size ) {
+			return 'empty';
+		}
+		if ( ! $verifier( $temp ) ) {
+			return 'undecodable';
+		}
+
+		$old = $measurer( $path );
+		if ( null === $old ) {
+			// An old file nothing can measure is what this command exists to
+			// replace, so it is a reason to continue rather than to stop.
+			return '';
+		}
+
+		// A new file nothing can measure fails here too, and correctly: the
+		// old one is readable, so the new one dropping below that is a loss.
+		return $measurer( $temp ) === $old ? '' : 'dimensions';
+	}
+
+	/**
+	 * @return array{status: string, path: string, before: int, after: int, reason: string, ratio: float, suspect: bool}
+	 */
+	private static function outcome( string $status, string $path, int $before, int $after, string $reason ): array {
+		$ratio = $before > 0 ? $after / $before : 0.0;
+		return array(
+			'status'  => $status,
+			'path'    => $path,
+			'before'  => $before,
+			'after'   => $after,
+			'reason'  => $reason,
+			'ratio'   => $ratio,
+			'suspect' => 'regenerated' === $status && $ratio <= self::SUSPECT_RATIO,
+		);
+	}
+
+	/**
+	 * The middle value of a list, or 0.0 for an empty one.
+	 *
+	 * A run reports the median size ratio rather than the mean, because one
+	 * enormous re-encode moves a mean and says nothing about the rest.
+	 *
+	 * @param list<float> $values
+	 */
+	public static function median( array $values ): float {
+		if ( array() === $values ) {
+			return 0.0;
+		}
+		sort( $values );
+		$count  = count( $values );
+		$middle = intdiv( $count, 2 );
+		return 0 === $count % 2 ? ( $values[ $middle - 1 ] + $values[ $middle ] ) / 2 : $values[ $middle ];
+	}
+
+	/**
+	 * Pixel dimensions of an image file, or null when nothing here reads it.
+	 *
+	 * `getimagesize()` answers for the formats PHP itself parses; AVIF on many
+	 * builds it does not, so an unreadable file falls through to Imagick.
+	 *
+	 * @return array{0: int, 1: int}|null
+	 */
+	public static function dimensions( string $path ): ?array {
+		$size = @getimagesize( $path );
+		if ( false !== $size && isset( $size[0], $size[1] ) ) {
+			return array( (int) $size[0], (int) $size[1] );
+		}
+		if ( ! class_exists( '\Imagick' ) ) {
+			return null;
+		}
+		try {
+			$image = new \Imagick();
+			if ( ! $image->pingImage( $path ) ) {
+				return null;
+			}
+			$found = array( $image->getImageWidth(), $image->getImageHeight() );
+			$image->clear();
+			return $found;
+		} catch ( \Throwable $e ) {
+			return null;
+		}
 	}
 
 	/**
 	 * Whether a written file is a decodable image.
 	 *
-	 * `getimagesize()` answers for the formats PHP itself parses. It does not
-	 * read AVIF on every build, so an unreadable file falls through to an
-	 * Imagick ping, which reads the header only. With neither able to read the
-	 * format, the file is refused: a re-encode that cannot be checked must not
-	 * replace a file that works.
+	 * `getimagesize()` answers for the formats PHP itself parses, but only from
+	 * the header: it reports a truncated file as a valid image of its declared
+	 * size. So the pixels are read as well, and for AVIF they are the only
+	 * check that means anything -- a truncated `mdat` keeps a perfectly good
+	 * header. `readImage()` decodes the whole frame, `pingImage()` does not,
+	 * which is why the ping this replaced passed files the browser refuses.
+	 *
+	 * With Imagick absent the header check stands alone for the formats PHP
+	 * reads, and a format it does not read is refused: a re-encode that cannot
+	 * be checked must not replace a file that works.
 	 */
 	public static function decodes( string $path ): bool {
-		if ( false !== @getimagesize( $path ) ) {
-			return true;
-		}
+		$header = false !== @getimagesize( $path );
 		if ( ! class_exists( '\Imagick' ) ) {
-			return false;
+			return $header;
 		}
 		try {
 			$image = new \Imagick();
-			$ok    = $image->pingImage( $path );
+			$image->readImage( $path );
+			$ok = $image->getImageWidth() > 0 && $image->getImageHeight() > 0;
 			$image->clear();
 			return $ok;
 		} catch ( \Throwable $e ) {
