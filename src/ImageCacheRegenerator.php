@@ -398,7 +398,7 @@ class ImageCacheRegenerator {
 	 *
 	 * The encoder writes to a temp path in the target's own directory, so the
 	 * rename that follows stays on one filesystem and is therefore atomic. A
-	 * new file replaces the target only once it encoded, weighs something,
+	 * new file replaces the target only once it encoded, weighs more than zero,
 	 * decodes and carries the same pixel dimensions as the file it replaces;
 	 * anything else deletes the temp file and keeps the old target, which a
 	 * visitor is reading while this runs.
