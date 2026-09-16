@@ -56,14 +56,37 @@ class RegenerateImageCacheCommand {
 	 * : Only derivatives of this output format, e.g. `avif`.
 	 *
 	 * [--older-than=<date>]
-	 * : Only files modified before this moment: `2026-09-16`, `2026-09-16 22:00`,
-	 *   or a relative `-2 days`. This is the resume mechanism. A regenerated file
-	 *   carries a fresh mtime, so the next run with the same cutoff skips what the
-	 *   last one finished and continues where it stopped. Start a sweep with the
-	 *   moment the sweep began and every night after that reaches only leftovers.
+	 * : Only files modified before this moment: `2026-09-16`,
+	 *   `2026-09-16 22:00`, `2026-09-16T22:00:00+02:00`. This is the resume
+	 *   mechanism. A regenerated file carries a fresh mtime, so the next run
+	 *   with the same cutoff skips what the last one finished and continues
+	 *   where it stopped. Start a sweep with the moment the sweep began and
+	 *   every night after that reaches only leftovers.
+	 *
+	 *   A relative value (`-2 days`, `yesterday`) is refused: it moves with
+	 *   the run, so a few nights later the same files are older than it again
+	 *   and the sweep re-encodes work it already did.
+	 *
+	 *   A value with no timezone is read in the PHP process timezone, which
+	 *   under cron is not necessarily the site's. Write the zone into the
+	 *   value to settle it.
 	 *
 	 * [--limit=<n>]
 	 * : Stop after this many files. Default: all.
+	 *
+	 * [--quality=<n>]
+	 * : Quality for a derivative whose path carries no `-q<N>` segment.
+	 *   Default: `timber_kit_resizer_target_quality`. Use it when the files
+	 *   without a suffix were written at a quality the site no longer asks
+	 *   for -- a per-call `quality => 95` variant, or, on a site whose cache
+	 *   key carries the quality, the unsuffixed quality-100 files.
+	 *
+	 * [--threads=<n>]
+	 * : Cap the threads Imagick gives one encode. One AVIF encode saturates
+	 *   every core by default, and `--max-load` cannot see that coming,
+	 *   because the one-minute average reports it a minute late. Reaches the
+	 *   Imagick extension only; an ImageMagick binary reads
+	 *   `MAGICK_THREAD_LIMIT` and `OMP_NUM_THREADS` from the environment.
 	 *
 	 * [--sleep=<ms>]
 	 * : Pause this many milliseconds between files. Default: 0.
@@ -86,7 +109,13 @@ class RegenerateImageCacheCommand {
 	 *     wp timber-kit regenerate-image-cache --format=avif
 	 *     wp timber-kit regenerate-image-cache --format=avif --apply
 	 *     wp timber-kit regenerate-image-cache 1440x0-center-q80 --apply
-	 *     wp timber-kit regenerate-image-cache --older-than='2026-09-16 22:00' --limit=500 --sleep=200 --max-load=4 --apply
+	 *     wp timber-kit regenerate-image-cache --older-than='2026-09-16 22:00' --limit=500 --sleep=200 --max-load=2 --threads=1 --apply
+	 *
+	 * ## EXIT STATUS
+	 *
+	 * 0 on a run that reached the end with nothing failed. 1 when a file
+	 * failed, or when the load gate gave up with work left, so cron and
+	 * monitoring see it.
 	 *
 	 * @param array<int, string>    $args       Paths under the cache directory.
 	 * @param array<string, string> $assoc_args Associative args.
@@ -99,22 +128,37 @@ class RegenerateImageCacheCommand {
 		$limit   = isset( $assoc_args['limit'] ) ? max( 0, (int) $assoc_args['limit'] ) : 0;
 		$sleep   = isset( $assoc_args['sleep'] ) ? max( 0, (int) $assoc_args['sleep'] ) : 0;
 		$max_load = isset( $assoc_args['max-load'] ) ? (float) $assoc_args['max-load'] : null;
+		$threads  = isset( $assoc_args['threads'] ) ? (int) $assoc_args['threads'] : 0;
 
 		$older_than = null;
 		if ( isset( $assoc_args['older-than'] ) && '' !== $assoc_args['older-than'] ) {
-			$parsed = strtotime( (string) $assoc_args['older-than'] );
-			if ( false === $parsed ) {
-				\WP_CLI::error( sprintf( 'Cannot read "%s" as a date.', $assoc_args['older-than'] ) );
-			} else {
-				$older_than = $parsed;
+			$cutoff = ImageCacheRegenerator::parseCutoff( (string) $assoc_args['older-than'] );
+			if ( $cutoff['relative'] ) {
+				\WP_CLI::error(
+					sprintf(
+						'"%s" is relative, so it moves with every run and the same files fall before it again a few nights later. Give the moment the sweep started, e.g. --older-than=\'%s\'.',
+						$assoc_args['older-than'],
+						gmdate( 'Y-m-d H:i' )
+					)
+				);
 			}
+			if ( null === $cutoff['time'] ) {
+				\WP_CLI::error( sprintf( 'Cannot read "%s" as a date.', $assoc_args['older-than'] ) );
+			}
+			$older_than = $cutoff['time'];
 		}
 
 		$cache_dir   = (string) apply_filters( 'timber_kit_resizer_image_cache_dir', WP_CONTENT_DIR . '/cache/image' );
 		$source_path = (bool) apply_filters( 'timber_kit_resizer_source_path_in_cache_key', false );
-		$quality     = (int) apply_filters( 'timber_kit_resizer_target_quality', 80 );
+		$quality     = isset( $assoc_args['quality'] )
+			? (int) $assoc_args['quality']
+			: (int) apply_filters( 'timber_kit_resizer_target_quality', 80 );
 		$uploads     = wp_get_upload_dir();
 		$basedir     = (string) ( $uploads['basedir'] ?? '' );
+
+		if ( $threads > 0 && ! ImageCacheRegenerator::applyThreadLimit( $threads ) ) {
+			\WP_CLI::warning( 'Imagick is not available here, so --threads reached nothing. Set MAGICK_THREAD_LIMIT and OMP_NUM_THREADS in the environment instead.' );
+		}
 
 		if ( ! $source_path ) {
 			\WP_CLI::warning( 'timber_kit_resizer_source_path_in_cache_key is off, so most derivative paths do not name their source file. Run `wp timber-kit migrate-image-cache` first.' );
@@ -165,6 +209,43 @@ class RegenerateImageCacheCommand {
 
 		$this->warnAboutOwner( $plan['entries'] );
 
+		$selected = 0;
+		foreach ( $plan['entries'] as $entry ) {
+			$selected += (int) filesize( (string) $entry['path'] );
+		}
+		$disk = $regenerator->diskPreflight( $selected );
+		if ( ! $disk['ok'] ) {
+			\WP_CLI::error(
+				sprintf(
+					'%s selected, so the run wants %s free on the cache filesystem and finds %s. A re-encode at the honoured quality is several times the size of one at the broken quality, so %.1fx is the floor. Narrow the run with --limit or free some space.',
+					size_format( $selected ),
+					size_format( $disk['needed'] ),
+					size_format( $disk['free'] ),
+					ImageCacheRegenerator::DISK_FACTOR
+				)
+			);
+		}
+
+		\WP_CLI::log(
+			sprintf(
+				'%d file(s) selected, %s now; the run wants %s free and finds %s. Paths without -q will be encoded at quality %d.',
+				count( $plan['entries'] ),
+				size_format( $selected ),
+				size_format( $disk['needed'] ),
+				-1 === $disk['free'] ? 'an unreadable amount' : size_format( $disk['free'] ),
+				$quality
+			)
+		);
+
+		// Without this a long run prints nothing at all until it ends, so
+		// nobody can tell a slow encode from a hung one. --verbose already
+		// prints a line per file, and a bar over that output is unreadable.
+		$progress = null;
+		if ( $apply && ! $verbose && array() !== $plan['entries'] && function_exists( '\WP_CLI\Utils\make_progress_bar' ) ) {
+			$progress = \WP_CLI\Utils\make_progress_bar( 'Re-encoding', count( $plan['entries'] ) );
+		}
+
+		$gave_up    = false;
 		$started    = time();
 		$done       = 0;
 		$failed     = 0;
@@ -177,6 +258,7 @@ class RegenerateImageCacheCommand {
 		foreach ( $plan['entries'] as $index => $entry ) {
 			if ( $apply && null !== $max_load && ! $this->waitForLoad( $max_load ) ) {
 				$unreached += count( $plan['entries'] ) - $index;
+				$gave_up    = true;
 				\WP_CLI::warning( sprintf( 'Load stayed above %s for %d minutes; stopping.', $max_load, self::LOAD_WAIT_LIMIT_SECONDS / 60 ) );
 				break;
 			}
@@ -213,9 +295,17 @@ class RegenerateImageCacheCommand {
 				);
 			}
 
+			if ( null !== $progress ) {
+				$progress->tick();
+			}
+
 			if ( $apply && $sleep > 0 ) {
 				usleep( $sleep * 1000 );
 			}
+		}
+
+		if ( null !== $progress ) {
+			$progress->finish();
 		}
 
 		$summary = sprintf(
@@ -244,6 +334,14 @@ class RegenerateImageCacheCommand {
 		if ( ! $apply ) {
 			\WP_CLI::success( $summary . ' Run with --apply to write.' );
 			return;
+		}
+
+		$status = ImageCacheRegenerator::exitStatus( $failed, $gave_up );
+		if ( 0 !== $status ) {
+			// The summary goes out first: a status alone says a run went
+			// wrong, and the line above it says which files and why.
+			\WP_CLI::log( $summary );
+			\WP_CLI::halt( $status );
 		}
 		\WP_CLI::success( $summary );
 	}
@@ -292,16 +390,35 @@ class RegenerateImageCacheCommand {
 	 * is still going. When the limit runs out the caller stops cleanly and
 	 * reports what is left, and the next run picks those files up.
 	 *
+	 * It logs when it starts holding and when it stops: a progress bar that
+	 * stops moving looks the same as a stalled encode, and an operator who
+	 * cannot tell them apart kills the run.
+	 *
 	 * @return bool Whether the machine came back under the limit.
 	 */
 	private function waitForLoad( float $max ): bool {
 		$waited = 0;
 		while ( ImageCacheRegenerator::loadExceeded( $max, sys_getloadavg() ) ) {
+			if ( 0 === $waited ) {
+				$loads = sys_getloadavg();
+				\WP_CLI::log(
+					sprintf(
+						'Load is %.2f, above --max-load=%s. Holding, and re-checking every %d seconds for up to %d minutes.',
+						is_array( $loads ) ? $loads[0] : 0.0,
+						$max,
+						self::LOAD_POLL_SECONDS,
+						self::LOAD_WAIT_LIMIT_SECONDS / 60
+					)
+				);
+			}
 			if ( $waited >= self::LOAD_WAIT_LIMIT_SECONDS ) {
 				return false;
 			}
 			sleep( self::LOAD_POLL_SECONDS );
 			$waited += self::LOAD_POLL_SECONDS;
+		}
+		if ( $waited > 0 ) {
+			\WP_CLI::log( sprintf( 'Load is back under %s after %ds; continuing.', $max, $waited ) );
 		}
 		return true;
 	}

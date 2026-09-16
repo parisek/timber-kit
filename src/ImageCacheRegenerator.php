@@ -43,6 +43,19 @@ class ImageCacheRegenerator {
 	/** Name of the lock file that keeps two runs from planning the same files. */
 	public const string LOCK_FILE = '.tk-regen.lock';
 
+	/**
+	 * Free space a run wants, as a multiple of what the selected files weigh.
+	 *
+	 * Three, because the re-encode this command exists for makes a file
+	 * several times bigger -- measured in 1.53.0, an AVIF at the honoured
+	 * quality is about six times the size of the same file at the broken one,
+	 * and about twenty-five times at quality 100. Two would only cover a
+	 * re-encode that changed nothing. The factor is a floor under a run that
+	 * could otherwise fill the disk halfway through and leave a site with no
+	 * room to write anything at all, not a prediction of the final size.
+	 */
+	public const float DISK_FACTOR = 3.0;
+
 	/** Source extensions a derivative name may carry before its output format. */
 	private const array SOURCE_EXTENSIONS = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'tif', 'tiff', 'heic' );
 
@@ -569,6 +582,103 @@ class ImageCacheRegenerator {
 			$ok = $image->getImageWidth() > 0 && $image->getImageHeight() > 0;
 			$image->clear();
 			return $ok;
+		} catch ( \Throwable $e ) {
+			return false;
+		}
+	}
+
+	/**
+	 * Read an `--older-than` value, and say whether it is relative.
+	 *
+	 * A relative value is refused by the caller. `--older-than` is the resume
+	 * mechanism: a regenerated file carries a fresh mtime, so a fixed cutoff
+	 * makes each night reach only what the last one did not finish. A relative
+	 * cutoff moves with the run instead, so a few nights later the same files
+	 * are older than it again and the sweep re-encodes work it already did,
+	 * for as long as anyone leaves the cron line in place.
+	 *
+	 * Relative is detected rather than pattern-matched: the value is read
+	 * against two different "now"s, and a value that answers differently
+	 * depends on when it is read.
+	 *
+	 * An absolute value with no zone is read in the PHP process timezone,
+	 * which under cron is not necessarily the site's. Write the zone into the
+	 * value to settle it.
+	 *
+	 * @return array{time: int|null, relative: bool}
+	 */
+	public static function parseCutoff( string $value ): array {
+		$here  = strtotime( $value, 1000000000 );
+		$later = strtotime( $value, 2000000000 );
+
+		if ( false === $here || false === $later ) {
+			return array( 'time' => null, 'relative' => false );
+		}
+		if ( $here !== $later ) {
+			return array( 'time' => null, 'relative' => true );
+		}
+
+		return array( 'time' => $here, 'relative' => false );
+	}
+
+	/**
+	 * Whether there is room on the cache directory's filesystem.
+	 *
+	 * A run that fills the disk does not only fail: it leaves a site that
+	 * cannot write a session, a log or an upload. Unreadable free space passes
+	 * -- a number nobody can read is not evidence of a full disk, and a run
+	 * that refuses on it never runs on the hosts that hide it.
+	 *
+	 * @param int $selected_bytes What the files this run would touch weigh now.
+	 * @return array{free: int, needed: int, ok: bool}
+	 */
+	public function diskPreflight( int $selected_bytes ): array {
+		$needed = (int) ( $selected_bytes * self::DISK_FACTOR );
+		$free   = @disk_free_space( $this->cache_dir );
+
+		if ( false === $free ) {
+			return array( 'free' => -1, 'needed' => $needed, 'ok' => true );
+		}
+
+		return array( 'free' => (int) $free, 'needed' => $needed, 'ok' => (int) $free >= $needed );
+	}
+
+	/**
+	 * The status a finished run leaves behind.
+	 *
+	 * Cron and monitoring read the status, not the summary. A run that failed
+	 * files, or gave up waiting for the load with work left, must not look
+	 * like a run that finished -- the sweep would otherwise report success
+	 * every night while never reaching the end.
+	 *
+	 * @param int  $failed  Files whose re-encode was refused.
+	 * @param bool $gave_up Whether the load gate ended the run early.
+	 */
+	public static function exitStatus( int $failed, bool $gave_up ): int {
+		return $failed > 0 || $gave_up ? 1 : 0;
+	}
+
+	/**
+	 * Cap the threads Imagick gives one encode.
+	 *
+	 * One AVIF encode saturates every core by default, which is the load the
+	 * `--max-load` gate cannot see coming: the one-minute average reports it
+	 * only after the damage is a minute old. Capping the encoder is the part
+	 * that acts immediately.
+	 *
+	 * This reaches the Imagick extension only. An ImageMagick binary called as
+	 * a subprocess reads `MAGICK_THREAD_LIMIT` and `OMP_NUM_THREADS` from the
+	 * environment instead, which is the cron line's job.
+	 *
+	 * @return bool Whether the limit was applied.
+	 */
+	public static function applyThreadLimit( int $threads ): bool {
+		if ( $threads < 1 || ! class_exists( '\Imagick' ) ) {
+			return false;
+		}
+		try {
+			\Imagick::setResourceLimit( \Imagick::RESOURCETYPE_THREAD, $threads );
+			return true;
 		} catch ( \Throwable $e ) {
 			return false;
 		}
