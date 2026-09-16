@@ -17,7 +17,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ### Changed
 
 - The AIOSEO bridge no longer treats the automatic image sources (`featured`,
-  `content`, `attach`, `author`, `auth`) as an editor's choice. AIOSEO's Yoast
+  `content`, `attach`, `author`, `auto`) as an editor's choice. A post left on `default` is decided on AIOSEO's global source for posts, as the plugin itself resolves it. AIOSEO's Yoast
   importer writes one onto every post, so on a migrated site the bridge stood
   aside almost everywhere, and `content` on block content rendered no
   `og:image` at all. The bridge now keeps the featured image under `featured`

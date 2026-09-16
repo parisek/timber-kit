@@ -114,19 +114,42 @@ class BridgeTest extends TestCase {
 		// AIOSEO's Yoast importer writes one of these onto every post it
 		// imports. Nobody chose them, and `content` on block content resolves
 		// to nothing at all.
-		foreach ( [ 'featured', 'content', 'attach', 'author', 'auth' ] as $source ) {
+		foreach ( [ 'featured', 'content', 'attach', 'author', 'auto' ] as $source ) {
 			$this->assertFalse( SocialImageBridge::defersToEditor( $source ), $source );
 			$this->assertTrue( SocialImageBridge::isAutomatic( $source ), $source );
 		}
 		$this->assertFalse( SocialImageBridge::isAutomatic( 'default' ) );
 		$this->assertFalse( SocialImageBridge::isAutomatic( 'custom_image' ) );
 		$this->assertFalse( SocialImageBridge::isAutomatic( null ) );
+		// Not an AIOSEO source; the plugin resolves it as `default`.
+		$this->assertFalse( SocialImageBridge::isAutomatic( 'auth' ) );
 	}
 
 	public function test_no_per_post_choice_leaves_the_field_free(): void {
 		$this->assertFalse( SocialImageBridge::defersToEditor( 'default' ) );
 		$this->assertFalse( SocialImageBridge::defersToEditor( '' ) );
 		$this->assertFalse( SocialImageBridge::defersToEditor( null ) );
+	}
+
+	public function test_a_default_post_takes_the_global_source(): void {
+		// AIOSEO reads the global source for a post left on `default`, so a
+		// site whose global source is `featured` resolves the featured image
+		// there. Deciding on the per-post value alone would treat that as
+		// "no source" and let the mapped field replace the featured image.
+		$this->assertSame( 'featured', SocialImageBridge::effectiveSource( 'default', 'featured' ) );
+		$this->assertSame( 'featured', SocialImageBridge::effectiveSource( '', 'featured' ) );
+		$this->assertSame( 'featured', SocialImageBridge::effectiveSource( null, 'featured' ) );
+		$this->assertSame( 'custom_image', SocialImageBridge::effectiveSource( 'custom_image', 'featured' ) );
+		$this->assertSame( 'default', SocialImageBridge::effectiveSource( 'default', null ) );
+		$this->assertSame( 'default', SocialImageBridge::effectiveSource( 'default', '' ) );
+	}
+
+	public function test_a_global_featured_source_keeps_the_featured_image(): void {
+		$fallbacks = [ 'https://example.com/default.png' ];
+		$source = SocialImageBridge::effectiveSource( 'default', 'featured' );
+
+		$this->assertFalse( SocialImageBridge::shouldSupply( $source, 'https://example.com/the-featured-image.jpg', $fallbacks ) );
+		$this->assertTrue( SocialImageBridge::shouldSupply( $source, '', $fallbacks ) );
 	}
 
 	public function test_a_plugin_fallback_is_recognised(): void {

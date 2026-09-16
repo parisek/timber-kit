@@ -40,9 +40,10 @@ class SocialImageBridge {
 	 *
 	 * AIOSEO's Yoast importer writes one of these onto every post it imports,
 	 * so on a migrated site they say nothing about intent. `content` on block
-	 * content resolves to no image at all.
+	 * content resolves to no image at all. `auto` is the plugin's "first
+	 * available image".
 	 */
-	private const AUTOMATIC_SOURCES = [ 'featured', 'content', 'attach', 'author', 'auth' ];
+	private const AUTOMATIC_SOURCES = [ 'featured', 'content', 'attach', 'author', 'auto' ];
 
 
 	/**
@@ -199,7 +200,9 @@ class SocialImageBridge {
 			return $image;
 		}
 
-		if ( ! self::shouldSupply( self::imageType( $meta, 'og_image_type' ), $image, self::pluginFallbacks() ) ) {
+		$source = self::effectiveSource( self::imageType( $meta, 'og_image_type' ), self::globalSource() );
+
+		if ( ! self::shouldSupply( $source, $image, self::pluginFallbacks() ) ) {
 			return $image;
 		}
 
@@ -239,6 +242,42 @@ class SocialImageBridge {
 		}
 
 		return false;
+	}
+
+	/**
+	 * The image source AIOSEO actually uses for a post.
+	 *
+	 * Pure. A post left on `default` takes the global source, exactly as
+	 * `Facebook::getImage()` does. Deciding on the per-post value alone would
+	 * read a site-wide `featured` as "no source" and let the mapped field
+	 * replace the featured image.
+	 *
+	 * @param string|null $post_source   The post's `og_image_type`.
+	 * @param string|null $global_source The global `defaultImageSourcePosts`.
+	 * @return string
+	 */
+	public static function effectiveSource( ?string $post_source, ?string $global_source ): string {
+		if ( null !== $post_source && '' !== $post_source && 'default' !== $post_source ) {
+			return $post_source;
+		}
+
+		return null !== $global_source && '' !== $global_source ? $global_source : 'default';
+	}
+
+	/**
+	 * AIOSEO's global image source for posts, or null when unreadable.
+	 *
+	 * @return string|null
+	 */
+	private static function globalSource(): ?string {
+		try {
+			$aioseo = function_exists( 'aioseo' ) ? aioseo() : null;
+			$source = is_object( $aioseo ) ? ( $aioseo->options->social->facebook->general->defaultImageSourcePosts ?? null ) : null;
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+
+		return is_string( $source ) ? $source : null;
 	}
 
 	/**

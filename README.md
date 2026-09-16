@@ -144,13 +144,13 @@ Two separate claims worth keeping apart. **Leaving the bridge off changes nothin
 
 | Source | Bridge |
 | --- | --- |
-| none, `default` | supplies the preview |
+| none, `default` | follows AIOSEO's global source for posts; a global `default` supplies the preview |
 | `custom_image`, `custom` | leaves the editor's image |
 | `featured` | keeps the featured image; supplies where the plugin fell back |
-| `content`, `attach`, `author`, `auth` | supplies wherever a preview resolves |
+| `content`, `attach`, `author`, `auto` | supplies wherever a preview resolves |
 | anything else | leaves it, as a choice it cannot name |
 
-Both `og:image` and `twitter:image` are covered. Twitter resolves on a separate path with no filter of its own, so without that second hook the feature only half works and the rest has to be clicked together in the admin. With AIOSEO's "Use Data from Facebook Tab" enabled the Twitter tag already carries the Open Graph result, so the bridge leaves it alone rather than deciding twice. Otherwise the bridge copies the resolved Open Graph image into `twitter:image`, so both cards show one picture — including a post whose editor chose the Open Graph image but left Twitter on its default.
+Both `og:image` and `twitter:image` are covered. Twitter resolves on a separate path with no filter of its own, so without that second hook the feature only half works and the rest has to be clicked together in the admin. With AIOSEO's "Use Data from Facebook Tab" enabled the Twitter tag already carries the Open Graph result, so the bridge leaves it alone rather than deciding twice. Otherwise the bridge copies the resolved Open Graph image into `twitter:image`, so both cards show one picture — including a post whose editor chose the Open Graph image but left Twitter on its default. A Twitter image the editor set separately is theirs and stays, even when it differs.
 
 Why it is needed for AIOSEO specifically: it resolves the OG image from one global source option plus a per-post override, with no per-post-type layer in between, so without this every post of a type shares one image.
 
