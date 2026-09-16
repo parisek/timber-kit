@@ -40,6 +40,9 @@ class ImageCacheRegenerator {
 	 */
 	public const float SUSPECT_RATIO = 1.2;
 
+	/** Name of the lock file that keeps two runs from planning the same files. */
+	public const string LOCK_FILE = '.tk-regen.lock';
+
 	/** Source extensions a derivative name may carry before its output format. */
 	private const array SOURCE_EXTENSIONS = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'avif', 'bmp', 'tif', 'tiff', 'heic' );
 
@@ -48,6 +51,9 @@ class ImageCacheRegenerator {
 	private string $uploads_basedir;
 
 	private int $default_quality;
+
+	/** @var resource|null The held lock file handle, while this run holds it. */
+	private $lock = null;
 
 	/**
 	 * @param string $cache_dir       The resizer cache directory.
@@ -59,6 +65,139 @@ class ImageCacheRegenerator {
 		$this->cache_dir       = rtrim( $cache_dir, '/\\' );
 		$this->uploads_basedir = rtrim( $uploads_basedir, '/\\' );
 		$this->default_quality = $default_quality;
+	}
+
+	/**
+	 * Take the run lock, or report that another run holds it.
+	 *
+	 * Two overlapping runs plan the same files and encode each one twice: the
+	 * cost doubles and two processes rename over one target. `flock()` carries
+	 * the answer rather than the file's existence, so a run killed with -9
+	 * releases the lock the moment the kernel closes its handle -- a lock file
+	 * holding a PID would survive that and lock the cache until someone
+	 * deleted it by hand.
+	 *
+	 * The lock lives in the cache directory, next to the files it guards, so
+	 * one lock covers one cache even where several sites share a filesystem.
+	 */
+	public function acquireLock(): bool {
+		if ( null !== $this->lock ) {
+			return true;
+		}
+
+		$handle = @fopen( $this->lockPath(), 'c' );
+		if ( false === $handle ) {
+			// Nowhere to put the lock is not a reason to run unguarded.
+			return false;
+		}
+		if ( ! flock( $handle, LOCK_EX | LOCK_NB ) ) {
+			fclose( $handle );
+			return false;
+		}
+
+		$this->lock = $handle;
+		// A run that ends any way at all gives the lock back.
+		register_shutdown_function( fn () => $this->releaseLock() );
+		return true;
+	}
+
+	/** Give the run lock back. Doing this twice, or never having held it, is fine. */
+	public function releaseLock(): void {
+		if ( null === $this->lock ) {
+			return;
+		}
+		flock( $this->lock, LOCK_UN );
+		fclose( $this->lock );
+		$this->lock = null;
+	}
+
+	/** Where the run lock lives. */
+	public function lockPath(): string {
+		return $this->cache_dir . '/' . self::LOCK_FILE;
+	}
+
+	/**
+	 * Delete temp files left behind by runs that are no longer alive.
+	 *
+	 * A run killed between the encode and the rename leaves its temp file in
+	 * the cache directory, where nothing removes it: {@see walk()} skips
+	 * dotfiles, so neither this command nor `clear-image-cache` ever sees it.
+	 * The PID in the name says which run wrote it, and a file whose PID is
+	 * gone is nobody's.
+	 *
+	 * A file is kept whenever the answer is not certain -- a live PID, an
+	 * unreadable one, or a platform without `posix_kill()`. Deleting a temp
+	 * file another process is writing this second costs that process its work.
+	 *
+	 * @return array{deleted: list<string>, kept: list<string>}
+	 */
+	public function sweepStaleTemps(): array {
+		$deleted = array();
+		$kept    = array();
+
+		foreach ( $this->scanTemps( $this->cache_dir ) as $path ) {
+			$pid = self::pidOf( basename( $path ) );
+			if ( null === $pid || self::processIsAlive( $pid ) ) {
+				$kept[] = $path;
+				continue;
+			}
+			if ( @unlink( $path ) ) {
+				$deleted[] = $path;
+			} else {
+				$kept[] = $path;
+			}
+		}
+
+		sort( $deleted );
+		sort( $kept );
+		return array( 'deleted' => $deleted, 'kept' => $kept );
+	}
+
+	/**
+	 * Every temp file below a directory. Separate from {@see walk()}, which
+	 * skips dotfiles on purpose because a derivative is never one.
+	 *
+	 * @return list<string>
+	 */
+	private function scanTemps( string $directory ): array {
+		if ( ! is_dir( $directory ) ) {
+			return array();
+		}
+
+		$found = array();
+		$files = new \RecursiveIteratorIterator(
+			new \RecursiveDirectoryIterator( $directory, \RecursiveDirectoryIterator::SKIP_DOTS ),
+			\RecursiveIteratorIterator::LEAVES_ONLY,
+			\RecursiveIteratorIterator::CATCH_GET_CHILD
+		);
+		foreach ( $files as $file ) {
+			if ( $file->isFile() && str_starts_with( $file->getFilename(), self::TEMP_PREFIX ) ) {
+				$found[] = $file->getPathname();
+			}
+		}
+		return $found;
+	}
+
+	/** The PID a temp file name carries, or null when it carries none. */
+	private static function pidOf( string $filename ): ?int {
+		$rest = substr( $filename, strlen( self::TEMP_PREFIX ) );
+		if ( 1 !== preg_match( '/^(\d+)-/', $rest, $m ) ) {
+			return null;
+		}
+		return (int) $m[1];
+	}
+
+	/** Whether a PID belongs to a running process; unknown counts as alive. */
+	private static function processIsAlive( int $pid ): bool {
+		if ( ! function_exists( 'posix_kill' ) ) {
+			return true;
+		}
+		// Signal 0 checks for the process without sending anything. EPERM
+		// means it exists and belongs to someone else, which is still alive.
+		if ( posix_kill( $pid, 0 ) ) {
+			return true;
+		}
+		return function_exists( 'posix_get_last_error' ) && PHP_OS_FAMILY !== 'Windows' && 1 === posix_get_last_error();
 	}
 
 	/**
@@ -386,7 +525,7 @@ class ImageCacheRegenerator {
 	 */
 	public static function dimensions( string $path ): ?array {
 		$size = @getimagesize( $path );
-		if ( false !== $size && isset( $size[0], $size[1] ) ) {
+		if ( false !== $size ) {
 			return array( (int) $size[0], (int) $size[1] );
 		}
 		if ( ! class_exists( '\Imagick' ) ) {

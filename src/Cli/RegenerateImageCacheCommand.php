@@ -121,7 +121,27 @@ class RegenerateImageCacheCommand {
 		}
 
 		$regenerator = new ImageCacheRegenerator( $cache_dir, $basedir, $quality );
-		$targets     = $regenerator->resolveTargets( array_values( array_map( 'strval', $args ) ) );
+
+		if ( $apply && ! $regenerator->acquireLock() ) {
+			\WP_CLI::error(
+				sprintf(
+					'Another regenerate-image-cache run holds %s. Two runs plan the same files and encode each one twice; wait for the first to finish.',
+					$regenerator->lockPath()
+				)
+			);
+		}
+
+		if ( $apply ) {
+			$swept = $regenerator->sweepStaleTemps();
+			if ( array() !== $swept['deleted'] ) {
+				\WP_CLI::log( sprintf( 'Swept %d temp file(s) left by a run that is no longer alive.', count( $swept['deleted'] ) ) );
+			}
+			if ( array() !== $swept['kept'] ) {
+				\WP_CLI::log( sprintf( 'Left %d temp file(s) alone; their process is still running or their name carries no PID.', count( $swept['kept'] ) ) );
+			}
+		}
+
+		$targets = $regenerator->resolveTargets( array_values( array_map( 'strval', $args ) ) );
 		foreach ( $targets['outside'] as $refused ) {
 			\WP_CLI::warning( sprintf( '"%s" is not inside %s; skipped.', $refused, $cache_dir ) );
 		}
