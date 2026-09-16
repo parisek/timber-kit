@@ -1082,6 +1082,10 @@ class StarterBase extends Site {
 	 * reaches images uploaded under a lower one. See
 	 * {@see \Parisek\TimberKit\OriginalImageRescaler}.
 	 *
+	 * `timber-kit regenerate-image-cache` re-encodes resizer derivatives at
+	 * their existing paths, so a live site never serves a 404 for one. See
+	 * {@see \Parisek\TimberKit\ImageCacheRegenerator}.
+	 *
 	 * `timber-kit wpml-cleanup-theme-domain` is the companion cleanup for
 	 * `$wpml_theme_domain_authoritative` — it purges the WPML String
 	 * Translation rows and compiled `.mo`/`.l10n.php`/`.json` files that were
@@ -1113,6 +1117,7 @@ class StarterBase extends Site {
 		\WP_CLI::add_command( 'timber-kit outage-screen', \Parisek\TimberKit\Cli\OutageScreenCommand::class );
 		\WP_CLI::add_command( 'timber-kit migrate-image-cache', \Parisek\TimberKit\Cli\MigrateImageCacheCommand::class );
 		\WP_CLI::add_command( 'timber-kit clear-image-cache', \Parisek\TimberKit\Cli\ClearImageCacheCommand::class );
+		\WP_CLI::add_command( 'timber-kit regenerate-image-cache', \Parisek\TimberKit\Cli\RegenerateImageCacheCommand::class );
 		// Registered regardless of $svg_dimensions: a sweep a human runs on purpose
 		// is opt-in by being typed, and the existing backlog needs fixing on
 		// projects that have not flipped the upload flag.
