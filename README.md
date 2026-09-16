@@ -416,6 +416,59 @@ that needs the old, unfiltered behaviour:
 protected bool $seo_canonical_pagination = false;
 ```
 
+### WpmlMenuSyncReadOnly
+
+`Parisek\TimberKit\Wpml\MenuSyncReadOnly` discards the database writes of a plain page load of WPML → WP Menus Sync.
+
+WPML writes to the database when that screen only loads. `ICLMenusSync::init()` runs on `init` priority 20 and repairs menu items while it builds the preview. One visit, closed without confirming, removed 56 items from four main menus and rewrote 230 `icl_translations` rows.
+
+**A logged-out request is enough.** `init` runs before WordPress checks the session, so the repairs happen and only then does `admin.php` redirect to the login form. Measured on a WPML 4.9.7 site: the URL fetched with no cookie answers 302 and still changes 94 rows. A crawler that finds the address can break the menus. The guard covers that request too, because `is_admin()` is already true there.
+
+The guard applies where WPML sets up menu sync: `is_admin()` and a `page` value that contains `<ICL_PLUGIN_FOLDER>/menu/menu-sync/menus-sync.php`, case-insensitive. On `init` priority 1 it runs `SET autocommit = 0` and checks that `SELECT @@autocommit` returns 0. On `shutdown` priority `PHP_INT_MIN` it runs `ROLLBACK` and `SET autocommit = 1`. The preview still renders. It does not use `START TRANSACTION`, because a WPML TM upgrade on `init` priority 10 can send DDL, and DDL commits implicitly.
+
+The guard fails closed. It stops the request with `wp_die()` (HTTP 403) when it cannot prove the rollback:
+
+- the `information_schema` query fails;
+- a mandatory table is missing (`posts`, `postmeta`, `options`, `term_relationships`, `term_taxonomy`, `terms`, `icl_translations`);
+- a table is not InnoDB (`icl_strings` and `icl_string_translations` may be absent);
+- autocommit stays on;
+- the guard registers after `init` priority 1 has started (it also calls `_doing_it_wrong()`).
+
+Enable it with the `$wpml_menu_sync_read_only` flag. It is opt-in (default off) because it changes admin behaviour:
+
+```php
+class Base extends StarterBase {
+    public function __construct() {
+        $this->wpml_menu_sync_read_only = true;
+        parent::__construct();
+    }
+}
+```
+
+StarterBase hooks `MenuSyncReadOnly::register()` on `init` priority 0, or calls it at once when `init` has already fired. `register()` does nothing unless WPML is active (`ICL_SITEPRESS_VERSION` defined). Without `StarterBase`, hook it yourself before `init` priority 1.
+
+What the guard covers: writes through the global `$wpdb` connection to InnoDB tables during the WordPress request phase. What it does not cover:
+
+- **Other connections.** HyperDB, LudicrousDB or a read/write split can send writes past `$wpdb`.
+- **Late shutdown writes.** Shutdown callbacks that run after the rollback commit normally.
+- **Sessions and files.** WPML stores the preview tree in `$_SESSION['wpml_menu_sync_menu']`. It is built before the rollback.
+- **Sync.** The Sync request (`admin-ajax.php`, action `icl_msync_confirm`) is not guarded and still writes. It reuses the session tree and does not run WPML's repairs again, so Sync no longer applies those repairs. On sloneek, a full Sync of 337 items with and without the guard gave 0 different rows in the guarded main menus. That is one data set, not a proof for every menu shape.
+- **Object cache.** An external object cache is not part of the transaction, so the rollback calls `wp_cache_flush()` when `wp_using_ext_object_cache()` is true. A failed flush goes to `error_log`. On multisite or a shared Redis, the flush empties the cache of every site that uses it.
+
+Measured on a live WPML 4.9.7 install (sloneek, production copy, 2026-09-15). Each case has a control run with the guard off, so a zero is evidence rather than an absent trigger.
+
+| Case | Guard on | Guard off |
+| --- | --- | --- |
+| Page load, logged in | 0 rows | 94 rows |
+| Preview POST | 0 rows | — |
+| `CREATE TABLE` on `init` priority 10 | 0 rows, table created | 94 rows (with `START TRANSACTION`) |
+| One table switched to MyISAM | 403, 0 rows | — |
+| `information_schema` query fails | 403, 0 rows | — |
+| Logged-out request | 0 rows | 94 rows |
+| Full Sync of 337 items | same as before the guard | 0 different rows in the guarded menus |
+
+Rationale and the rejected alternatives: [ADR 0009](docs/adr/0009-wpml-menu-sync-read-only.md).
+
 ### WpmlBlockOverride
 
 Runtime override of Copy field values in ACF Gutenberg blocks for WPML-multilingual sites. Hooks `render_block_data` at priority 20 (after WPML's own handlers) and, for ACF blocks rendered in a non-default language, overwrites `attrs.data.<field>` for fields marked `wpml_cf_preferences = 1` (Copy) with the source-language post's value. Attachment IDs (image / file / gallery) are remapped to per-language duplicates via `wpml_object_id`.

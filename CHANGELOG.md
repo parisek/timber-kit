@@ -10,6 +10,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `Wpml\MenuSyncReadOnly` and `StarterBase::$wpml_menu_sync_read_only`
+  (default off). A plain page load of WPML → WP Menus Sync writes to the
+  database: one visit removed 56 menu items and rewrote 230 `icl_translations`
+  rows. On that screen the guard switches autocommit off and rolls back the
+  writes through `$wpdb` at shutdown, then flushes an external object cache.
+  It blocks the screen (HTTP 403) when it cannot prove the rollback, for
+  example a table that is not InnoDB. A logged-out request reaches those writes
+  too, because `init` runs before WordPress authenticates, so the guard covers
+  it as well. A confirmed Sync is a separate AJAX
+  request and still writes, but no longer applies WPML's page-load repairs.
+
 - `timber_kit_resizer_cache_version` filter and `StarterBase::$resizer_cache_version`
   (#186). When set, every resizer derivative URL gets `?v=<version>`, so
   browsers, the proxy and a CDN fetch it again after it was regenerated at the

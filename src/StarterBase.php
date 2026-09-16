@@ -23,6 +23,7 @@ use Parisek\Twig\CommonExtension;
 use Parisek\Twig\AttributeExtension;
 use Parisek\Twig\TypographyExtension;
 use Parisek\TimberKit\BlockRenderer;
+use Parisek\TimberKit\Wpml\MenuSyncReadOnly;
 use Parisek\TimberKit\Breeze\Health\PreloadChainHealthy;
 use Parisek\TimberKit\Breeze\Health\WarmupSitemapResolved;
 use Parisek\TimberKit\Breeze\WarmupSitemap;
@@ -577,6 +578,21 @@ class StarterBase extends Site {
 	 * @var bool
 	 */
 	protected bool $wpml_block_override = false;
+
+	/**
+	 * Read-only page load for WPML → WP Menus Sync
+	 * ({@see \Parisek\TimberKit\Wpml\MenuSyncReadOnly}). WPML repairs menu
+	 * items and translation rows when that screen only loads. The guard switches
+	 * autocommit off for that request and rolls it back, so the preview no
+	 * longer changes menus. A confirmed Sync is a separate AJAX request and still
+	 * writes. Opt-in (default off): it changes admin behaviour and flushes an
+	 * external object cache on each visit. No-ops unless WPML is active. Blocks
+	 * the screen when it cannot prove the rollback (for example a table that is
+	 * not InnoDB).
+	 *
+	 * @var bool
+	 */
+	protected bool $wpml_menu_sync_read_only = false;
 
 	/**
 	 * Downgrade empty translatable fields to copy-only in WPML translation job
@@ -1247,6 +1263,15 @@ class StarterBase extends Site {
 			add_filter( 'mce_css', array( $this, 'mce_css' ) );
 		}
 		add_filter( 'pre_get_posts', array( $this, 'search_post_type_filter' ) );
+		if ( $this->wpml_menu_sync_read_only ) {
+			if ( did_action( 'init' ) ) {
+				// Built during init: priority 0 would never run. register() hooks the guard or blocks the screen.
+				MenuSyncReadOnly::register();
+			} else {
+				// Priority 0, so register() can still hook the guard on init priority 1.
+				add_action( 'init', array( MenuSyncReadOnly::class, 'register' ), 0 );
+			}
+		}
 	}
 
 	/**

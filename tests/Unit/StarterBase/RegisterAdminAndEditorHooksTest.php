@@ -103,4 +103,50 @@ class RegisterAdminAndEditorHooksTest extends StarterBaseTestCase {
 		$entry = array_values( $adminBar )[0];
 		$this->assertSame( 100, $entry['priority'] );
 	}
+
+	/**
+	 * @return list<array{hook: string, callback: mixed, priority: int}>
+	 */
+	private function collectActions( ?bool $menuSyncReadOnly, int $initCount = 0 ): array {
+		$actions  = [];
+		Functions\when( 'did_action' )->justReturn( $initCount );
+		$instance = $this->bareInstance();
+		if ( null !== $menuSyncReadOnly ) {
+			( new \ReflectionProperty( StarterBase::class, 'wpml_menu_sync_read_only' ) )->setValue( $instance, $menuSyncReadOnly );
+		}
+		Functions\when( 'add_filter' )->justReturn( true );
+		Functions\when( 'add_action' )->alias( function ( $hook, $callback, $priority = 10 ) use ( &$actions ) {
+			$actions[] = [ 'hook' => $hook, 'callback' => $callback, 'priority' => $priority ];
+		} );
+
+		$this->invokeRegisterAdminAndEditorHooks( $instance );
+
+		return $actions;
+	}
+
+	public function test_does_not_register_wpml_menu_sync_read_only_by_default(): void {
+		$this->assertNotContains(
+			[ 'hook' => 'init', 'callback' => [ \Parisek\TimberKit\Wpml\MenuSyncReadOnly::class, 'register' ], 'priority' => 0 ],
+			$this->collectActions( null )
+		);
+	}
+
+	public function test_registers_wpml_menu_sync_read_only_when_flag_enabled(): void {
+		$this->assertContains(
+			[ 'hook' => 'init', 'callback' => [ \Parisek\TimberKit\Wpml\MenuSyncReadOnly::class, 'register' ], 'priority' => 0 ],
+			$this->collectActions( true )
+		);
+	}
+
+	public function test_registers_wpml_menu_sync_read_only_directly_when_init_has_started(): void {
+		// register() itself decides whether priority 1 is still reachable.
+		Functions\expect( 'is_admin' )->once()->andReturn( false );
+		Functions\when( 'wp_unslash' )->returnArg();
+		Functions\when( 'sanitize_text_field' )->returnArg();
+
+		$this->assertNotContains(
+			[ 'hook' => 'init', 'callback' => [ \Parisek\TimberKit\Wpml\MenuSyncReadOnly::class, 'register' ], 'priority' => 0 ],
+			$this->collectActions( true, 1 )
+		);
+	}
 }
