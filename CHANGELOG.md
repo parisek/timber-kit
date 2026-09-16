@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
-## [1.54.0] - 2026-09-15
+## [1.55.0] - 2026-09-16
 
 ### Added
 
@@ -20,6 +20,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   too, because `init` runs before WordPress authenticates, so the guard covers
   it as well. A confirmed Sync is a separate AJAX
   request and still writes, but no longer applies WPML's page-load repairs.
+
+## [1.54.0] - 2026-09-15
+
+### Added
 
 - `timber_kit_resizer_cache_version` filter and `StarterBase::$resizer_cache_version`
   (#186). When set, every resizer derivative URL gets `?v=<version>`, so
