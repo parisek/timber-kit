@@ -202,7 +202,7 @@ class SocialImageBridge {
 
 		$source = self::effectiveSource( self::imageType( $meta, 'og_image_type' ), self::globalSource( 'facebook' ) );
 
-		if ( ! self::shouldSupply( $source, has_post_thumbnail( $post ) ) ) {
+		if ( ! self::shouldSupply( $source, self::hasFeaturedImage( $post ) ) ) {
 			return $image;
 		}
 
@@ -431,7 +431,31 @@ class SocialImageBridge {
 
 		$source = self::effectiveSource( self::imageType( $meta, 'twitter_image_type' ), self::globalSource( 'twitter' ) );
 
-		return ! self::shouldSupply( $source, has_post_thumbnail( $post ) );
+		return ! self::shouldSupply( $source, self::hasFeaturedImage( $post ) );
+	}
+
+	/**
+	 * Whether the post has a featured image AIOSEO can render.
+	 *
+	 * Not `has_post_thumbnail()`. That answers whether an attachment ID is
+	 * assigned, and an ID whose attachment is gone still answers yes — the post
+	 * then has no picture, AIOSEO falls back to its default image, and the bridge
+	 * would stand aside for an image that is not the post's. Resolving the URL
+	 * asks the question the decision actually needs.
+	 *
+	 * @param \WP_Post $post Post being rendered.
+	 * @return bool
+	 */
+	private static function hasFeaturedImage( \WP_Post $post ): bool {
+		$id = (int) get_post_thumbnail_id( $post );
+
+		if ( 0 === $id ) {
+			return false;
+		}
+
+		$url = wp_get_attachment_image_url( $id, 'full' );
+
+		return is_string( $url ) && '' !== $url;
 	}
 
 	/**

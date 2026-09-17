@@ -21,7 +21,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   importer writes one onto every post, so on a migrated site the bridge stood
   aside almost everywhere, and `content` on block content rendered no
   `og:image` at all. The bridge now keeps the featured image under `featured`
-  (supplying only where the post has no featured image) and supplies the
+  (supplying only where the post has no featured image that resolves, which
+  includes an assigned ID whose attachment is gone) and supplies the
   preview under the other automatic sources, which pick
   an arbitrary body image. `custom_image` and `custom` still defer, and so does
   any source it cannot name. Affects sites that already set `$social_image_bridge`.

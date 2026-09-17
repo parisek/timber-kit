@@ -14,9 +14,10 @@ class BridgeTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		Monkey\setUp();
-		// The `featured` branch asks the post whether it has a lead image. Most
-		// tests here exercise another source, so a default keeps them readable.
-		Functions\when( 'has_post_thumbnail' )->justReturn( true );
+		// The `featured` branch asks whether the post has a renderable lead
+		// image. Most tests here exercise another source, so a default keeps
+		// them readable.
+		$this->stubFeaturedImage( 11, 'https://example.com/the-featured-image.jpg' );
 	}
 
 	protected function tearDown(): void {
@@ -45,6 +46,59 @@ class BridgeTest extends TestCase {
 		$aioseo = (object) [ 'meta' => (object) [ 'metaData' => $metaData ] ];
 
 		Functions\when( 'aioseo' )->justReturn( $aioseo );
+	}
+
+	/**
+	 * Stub the post's featured image.
+	 *
+	 * @param int          $id  Attachment ID, 0 for a post with none.
+	 * @param string|false $url What the attachment resolves to; false for a
+	 *                          dangling ID whose attachment is gone.
+	 */
+	private function stubFeaturedImage( int $id, $url ): void {
+		Functions\when( 'get_post_thumbnail_id' )->justReturn( $id );
+		Functions\when( 'wp_get_attachment_image_url' )->justReturn( $url );
+	}
+
+	/**
+	 * Stub AIOSEO with a working Facebook resolver.
+	 *
+	 * A Twitter deferral test without one passes for the wrong reason: the
+	 * filter would also return the meta unchanged because it could not read an
+	 * Open Graph image to copy.
+	 *
+	 * @param array<string, mixed> $props   Per-post meta properties.
+	 * @param string               $og      The Open Graph image URL.
+	 * @param array<string, mixed> $options AIOSEO's options object, as an array.
+	 */
+	private function stubAioseoWithOpengraph( array $props, string $og, array $options = [] ): void {
+		$meta = (object) $props;
+		$metaData = new class( $meta ) {
+			public function __construct( private object $meta ) {}
+			public function getMetaData( $post = null ) {
+				unset( $post );
+				return $this->meta;
+			}
+		};
+		$facebook = new class( $og ) {
+			public function __construct( private string $og ) {}
+			public function getImage( $post = null ) {
+				unset( $post );
+				return [ $this->og, 1200, 630 ];
+			}
+		};
+		$aioseo = [
+			'meta'   => (object) [ 'metaData' => $metaData ],
+			'social' => (object) [ 'facebook' => $facebook ],
+		];
+
+		if ( [] !== $options ) {
+			$aioseo['options'] = (object) $options;
+		}
+
+		Functions\when( 'aioseo' )->justReturn( (object) $aioseo );
+		Functions\when( 'is_singular' )->justReturn( true );
+		Functions\when( 'get_queried_object' )->justReturn( new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] ) );
 	}
 
 	public function test_aioseo_hook_is_registered_with_both_arguments(): void {
@@ -172,6 +226,32 @@ class BridgeTest extends TestCase {
 		$this->assertSame( $image, SocialImageBridge::filterOpengraphImage( $image, [ $post, 'article' ] ) );
 	}
 
+	public function test_a_dangling_thumbnail_id_is_not_a_featured_image(): void {
+		// `has_post_thumbnail()` answers yes for an ID whose attachment is gone.
+		// The post then has no picture, AIOSEO falls back to its default image,
+		// and standing aside would leave an image that is not the post's.
+		$this->stubAioseoMeta( [ 'og_image_type' => 'featured' ] );
+		$this->stubFeaturedImage( 11, false );
+
+		$post = new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] );
+		Functions\when( 'get_post_meta' )->justReturn( '' );
+		Functions\when( 'get_post_type' )->justReturn( 'project' );
+		// The attachment is gone, so nothing resolves and toTuple() keeps the
+		// plugin's image either way. Asserting the returned image would therefore
+		// pass whichever branch ran, so this watches for the one call that only
+		// happens past the deferral.
+		$reached = false;
+		Functions\when( 'acf_get_attachment' )->alias( function ( $id ) use ( &$reached ) {
+			unset( $id );
+			$reached = true;
+			return null;
+		} );
+		$image = 'https://example.com/site-default.png';
+
+		$this->assertSame( $image, SocialImageBridge::filterOpengraphImage( $image, [ $post, 'article' ] ) );
+		$this->assertTrue( $reached, 'the bridge stood aside on an assigned but unusable thumbnail' );
+	}
+
 	public function test_the_supply_decision_per_source(): void {
 		// No source, or `default`: the bridge always supplies, as before.
 		$this->assertTrue( SocialImageBridge::shouldSupply( null, true ) );
@@ -297,16 +377,15 @@ class BridgeTest extends TestCase {
 		// exactly as it does for Open Graph. Deciding on the per-post value alone
 		// took a site whose global Twitter source is `custom` for "no choice" and
 		// wrote the Open Graph image over the editor's card image.
-		$metaData = new class() {
-			public function getMetaData( $post = null ) {
-				unset( $post );
-				return (object) [ 'twitter_use_og' => false, 'twitter_image_type' => 'default' ];
-			}
-		};
-		$options = (object) [ 'social' => (object) [ 'twitter' => (object) [ 'general' => (object) [ 'defaultImageSourcePosts' => 'custom' ] ] ] ];
-		Functions\when( 'aioseo' )->justReturn( (object) [ 'meta' => (object) [ 'metaData' => $metaData ], 'options' => $options ] );
-		Functions\when( 'is_singular' )->justReturn( true );
-		Functions\when( 'get_queried_object' )->justReturn( new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] ) );
+		//
+		// The Open Graph resolver works here on purpose: without it the filter
+		// would return the meta unchanged for want of an image to copy, and the
+		// test would pass however the decision went.
+		$this->stubAioseoWithOpengraph(
+			[ 'twitter_use_og' => false, 'twitter_image_type' => 'default' ],
+			'https://example.com/the-open-graph-image.jpg',
+			[ 'social' => (object) [ 'twitter' => (object) [ 'general' => (object) [ 'defaultImageSourcePosts' => 'custom' ] ] ] ]
+		);
 
 		$meta = [ 'twitter:image' => 'https://example.com/what-the-editor-picked.jpg' ];
 
@@ -315,13 +394,40 @@ class BridgeTest extends TestCase {
 
 	public function test_twitter_defers_to_a_source_it_cannot_name(): void {
 		// Same contract as Open Graph: a source this code cannot name is a choice.
-		$this->stubAioseoMeta( [ 'twitter_use_og' => false, 'twitter_image_type' => 'a-source-from-a-later-release' ] );
-		Functions\when( 'is_singular' )->justReturn( true );
-		Functions\when( 'get_queried_object' )->justReturn( new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] ) );
+		$this->stubAioseoWithOpengraph(
+			[ 'twitter_use_og' => false, 'twitter_image_type' => 'a-source-from-a-later-release' ],
+			'https://example.com/the-open-graph-image.jpg'
+		);
 
 		$meta = [ 'twitter:image' => 'https://example.com/what-the-plugin-resolved.jpg' ];
 
 		$this->assertSame( $meta, SocialImageBridge::filterTwitterTags( $meta ) );
+	}
+
+	public function test_twitter_keeps_a_featured_card_image(): void {
+		// Under `featured` with a featured image present, AIOSEO put the post's
+		// own picture on the card. That is the picture the bridge wants there.
+		$this->stubAioseoWithOpengraph(
+			[ 'twitter_use_og' => false, 'twitter_image_type' => 'featured' ],
+			'https://example.com/the-open-graph-image.jpg'
+		);
+		$this->stubFeaturedImage( 11, 'https://example.com/the-featured-image.jpg' );
+
+		$meta = [ 'twitter:image' => 'https://example.com/the-featured-image.jpg' ];
+
+		$this->assertSame( $meta, SocialImageBridge::filterTwitterTags( $meta ) );
+	}
+
+	public function test_twitter_supplies_under_featured_when_the_post_has_none(): void {
+		$this->stubAioseoWithOpengraph(
+			[ 'twitter_use_og' => false, 'twitter_image_type' => 'featured' ],
+			'https://example.com/the-open-graph-image.jpg'
+		);
+		$this->stubFeaturedImage( 0, false );
+
+		$result = SocialImageBridge::filterTwitterTags( [ 'twitter:image' => 'https://example.com/site-default.png' ] );
+
+		$this->assertSame( 'https://example.com/the-open-graph-image.jpg', $result['twitter:image'] );
 	}
 
 	public function test_twitter_tags_are_untouched_outside_a_singular_view(): void {
