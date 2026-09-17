@@ -119,6 +119,27 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   already set 80 keep their `-q80` URLs. This is a named exception to the rule above, not a case of the rule being
   skipped.
 
+- **Approved exception:** the social image bridge changed what it does **under
+  the existing `$social_image_bridge` flag**, with no second flag. The owner
+  reviewed it explicitly. The rule above governs new behaviour arriving behind a
+  flag; this is a change to behaviour a consumer had already opted into, and the
+  old behaviour was the defect in both halves. AIOSEO's Yoast importer writes an
+  image source onto every post it imports, and the bridge read any such source as
+  an editor's choice — so on a migrated site it stood aside almost everywhere,
+  and a post whose source was `content` rendered **no `og:image` at all** on
+  block content. The other half: `twitter:image` was resolved separately from
+  `og:image`, so a post whose editor picked the Open Graph image shared a
+  different picture on X. Measured on a downstream site: 164 published posts with
+  no `og:image`, 147 with two different pictures. A default-off compatibility
+  flag would have left both running on every site that did not flip it, and
+  nobody flips a flag for a tag they cannot see — the same reasoning as
+  `$disable_author_archives` and `Helpers::getEditorAllowedHtml()` above. What
+  bounds the change: an image an editor chose in the plugin's own panel
+  (`custom_image`, `custom`) is still never touched, a source the code cannot
+  name still defers, and a site that wants none of it turns the bridge off, which
+  is the flag it already has. This is a named exception to the rule above, not a
+  case of the rule being skipped.
+
 ## Architecture decisions (ADRs)
 
 Significant decisions live in `docs/adr/` — the only tracked subtree under the
