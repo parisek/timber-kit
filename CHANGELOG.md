@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.57.0] - 2026-09-17
+
 ### Added
 
 - `SocialImage::FEATURED` (`'@featured'`) in `$social_image_fields` places the
