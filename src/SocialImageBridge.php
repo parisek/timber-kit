@@ -200,9 +200,9 @@ class SocialImageBridge {
 			return $image;
 		}
 
-		$source = self::effectiveSource( self::imageType( $meta, 'og_image_type' ), self::globalSource() );
+		$source = self::effectiveSource( self::imageType( $meta, 'og_image_type' ), self::globalSource( 'facebook' ) );
 
-		if ( ! self::shouldSupply( $source, $image, self::pluginFallbacks() ) ) {
+		if ( ! self::shouldSupply( $source, has_post_thumbnail( $post ) ) ) {
 			return $image;
 		}
 
@@ -213,35 +213,32 @@ class SocialImageBridge {
 	 * Whether the bridge supplies the preview for this image source.
 	 *
 	 * Pure. No source or `default`: always, as the bridge always did. An
-	 * editor's source: never. `featured`: only where the plugin fell back to its
-	 * global default or the site logo. The other automatic sources: always.
-	 * Anything else is a source this code cannot name, and a source it cannot
-	 * name is treated as a choice.
+	 * editor's source: never. `featured`: only where the post has no featured
+	 * image, because that is the one state in which AIOSEO falls back. The other
+	 * automatic sources: always — they take whatever turns up in the body, an
+	 * attachment or the author's avatar, so the mapped preview is the better
+	 * picture wherever one resolves, and toTuple() keeps the plugin's image where
+	 * none does. Anything else is a source this code cannot name, and a source it
+	 * cannot name is treated as a choice.
 	 *
-	 * @param string|null        $image_type The post's image-source override.
-	 * @param string|array|mixed $image      What the plugin resolved.
-	 * @param array<int, string> $fallbacks  The plugin's own fallback URLs.
+	 * The featured branch asks the post, not the resolved URL. Comparing the URL
+	 * against the plugin's own fallbacks reads a featured image that happens to be
+	 * the site's default social image as a fallback, and replaces it.
+	 *
+	 * @param string|null $image_type   The post's image-source override.
+	 * @param bool        $has_featured Whether the post has a featured image.
 	 * @return bool
 	 */
-	public static function shouldSupply( ?string $image_type, $image, array $fallbacks ): bool {
+	public static function shouldSupply( ?string $image_type, bool $has_featured ): bool {
 		if ( null === $image_type || '' === $image_type || 'default' === $image_type ) {
 			return true;
 		}
 
-		// `featured` found the post's own lead image, so it stands unless the
-		// plugin fell back. The other automatic sources take whatever turns up
-		// in the body, an attachment or the author's avatar, so the mapped
-		// preview is the better picture wherever one resolves — and toTuple()
-		// keeps the plugin's image where none does.
 		if ( 'featured' === $image_type ) {
-			return self::isPluginFallback( $image, $fallbacks );
+			return ! $has_featured;
 		}
 
-		if ( self::isAutomatic( $image_type ) ) {
-			return true;
-		}
-
-		return false;
+		return self::isAutomatic( $image_type );
 	}
 
 	/**
@@ -267,12 +264,17 @@ class SocialImageBridge {
 	/**
 	 * AIOSEO's global image source for posts, or null when unreadable.
 	 *
+	 * Per network: Facebook and Twitter carry their own setting, and a post left
+	 * on `default` inherits the one for the network being rendered.
+	 *
+	 * @param string $network `facebook` or `twitter`.
 	 * @return string|null
 	 */
-	private static function globalSource(): ?string {
+	private static function globalSource( string $network ): ?string {
 		try {
 			$aioseo = function_exists( 'aioseo' ) ? aioseo() : null;
-			$source = is_object( $aioseo ) ? ( $aioseo->options->social->facebook->general->defaultImageSourcePosts ?? null ) : null;
+			$social = is_object( $aioseo ) && isset( $aioseo->options->social ) ? $aioseo->options->social : null;
+			$source = is_object( $social ) ? ( $social->{$network}->general->defaultImageSourcePosts ?? null ) : null;
 		} catch ( \Throwable $e ) {
 			return null;
 		}
@@ -288,63 +290,6 @@ class SocialImageBridge {
 	 */
 	public static function isAutomatic( ?string $image_type ): bool {
 		return in_array( $image_type, self::AUTOMATIC_SOURCES, true );
-	}
-
-	/**
-	 * Whether the plugin's resolved image is a fallback rather than the post's.
-	 *
-	 * Pure. AIOSEO answers an automatic source that found nothing with its
-	 * global default image, then the site logo, then nothing. An image equal to
-	 * one of those is not the post's, so a real preview is better.
-	 *
-	 * @param string|array|mixed $image     What the plugin resolved; a tuple's URL is at 0.
-	 * @param array<int, string> $fallbacks The plugin's own fallback URLs.
-	 * @return bool
-	 */
-	public static function isPluginFallback( $image, array $fallbacks ): bool {
-		$url = is_array( $image ) ? ( $image[0] ?? '' ) : $image;
-
-		if ( ! is_string( $url ) || '' === $url ) {
-			return true;
-		}
-
-		foreach ( $fallbacks as $fallback ) {
-			if ( is_string( $fallback ) && '' !== $fallback && $fallback === $url ) {
-				return true;
-			}
-		}
-
-		return false;
-	}
-
-	/**
-	 * AIOSEO's own fallback image URLs: the global default, then the site logo.
-	 *
-	 * @return array<int, string>
-	 */
-	private static function pluginFallbacks(): array {
-		$fallbacks = [];
-
-		try {
-			$aioseo = function_exists( 'aioseo' ) ? aioseo() : null;
-
-			$image = is_object( $aioseo ) && isset( $aioseo->social->image ) && is_object( $aioseo->social->image ) ? $aioseo->social->image : null;
-
-			if ( null !== $image && is_callable( [ $image, 'getImage' ] ) ) {
-				$default = $image->getImage( 'facebook', 'default' );
-				$fallbacks[] = is_array( $default ) ? (string) ( $default[0] ?? '' ) : (string) $default;
-			}
-
-			$helpers = is_object( $aioseo ) && isset( $aioseo->helpers ) && is_object( $aioseo->helpers ) ? $aioseo->helpers : null;
-
-			if ( null !== $helpers && is_callable( [ $helpers, 'getSiteLogoUrl' ] ) ) {
-				$fallbacks[] = (string) $helpers->getSiteLogoUrl();
-			}
-		} catch ( \Throwable $e ) {
-			return $fallbacks;
-		}
-
-		return array_values( array_filter( $fallbacks ) );
 	}
 
 	/**
@@ -367,11 +312,7 @@ class SocialImageBridge {
 			return $meta;
 		}
 
-		// With "Use Data from Facebook Tab" on, AIOSEO returns the Open Graph
-		// image for Twitter too — so the tag already carries whatever the
-		// og:image filter decided, deferral included. Touching it here would
-		// run that decision a second time without the deferral and undo it.
-		if ( self::usesOpengraphData( $post ) || self::standsAside( $post, 'twitter_image_type' ) ) {
+		if ( self::standsAsideOnTwitter( $post ) ) {
 			return $meta;
 		}
 
@@ -460,39 +401,37 @@ class SocialImageBridge {
 	}
 
 	/**
-	 * Whether the bridge should leave this post's tag alone.
+	 * Whether the bridge should leave this post's `twitter:image` alone.
 	 *
-	 * Deferring is the safe answer when the plugin's metadata cannot be read at
-	 * all: the contract is never to override an editor's choice, and an
-	 * unreadable state is not evidence that they made none.
+	 * Three reasons to stand aside, in order. Unreadable metadata: the contract
+	 * is never to override an editor's choice, and an unreadable state is not
+	 * evidence that they made none. "Use Data from Facebook Tab": AIOSEO already
+	 * returns the Open Graph image for Twitter, so the tag carries whatever the
+	 * og:image filter decided, deferral included — deciding again here would run
+	 * that decision without the deferral and undo it. And an effective Twitter
+	 * source that is not one AIOSEO resolves by itself: the editor picked the
+	 * card's image, or picked a source this code cannot name.
+	 *
+	 * The source is the effective one. Twitter carries its own global setting, so
+	 * reading the per-post value alone takes a post left on `default` for "no
+	 * choice" on a site whose global Twitter source is `custom`.
 	 *
 	 * @param \WP_Post $post Post being rendered.
-	 * @param string   $key  Meta property, `og_image_type` or `twitter_image_type`.
 	 * @return bool
 	 */
-	private static function standsAside( \WP_Post $post, string $key ): bool {
-		// One read decides both questions. Reading twice leaves a gap where the
+	private static function standsAsideOnTwitter( \WP_Post $post ): bool {
+		// One read decides every question. Reading again leaves a gap where the
 		// second lookup fails and its null reads as "the editor chose nothing",
 		// which is the opposite of what an unreadable state means here.
 		$meta = self::postMeta( $post );
 
-		if ( null === $meta ) {
+		if ( null === $meta || ! empty( $meta->twitter_use_og ) ) {
 			return true;
 		}
 
-		return self::defersToEditor( self::imageType( $meta, $key ) );
-	}
+		$source = self::effectiveSource( self::imageType( $meta, 'twitter_image_type' ), self::globalSource( 'twitter' ) );
 
-	/**
-	 * Whether this post's Twitter card reuses the Open Graph image.
-	 *
-	 * @param \WP_Post $post Post being rendered.
-	 * @return bool
-	 */
-	private static function usesOpengraphData( \WP_Post $post ): bool {
-		$meta = self::postMeta( $post );
-
-		return null !== $meta && ! empty( $meta->twitter_use_og );
+		return ! self::shouldSupply( $source, has_post_thumbnail( $post ) );
 	}
 
 	/**
