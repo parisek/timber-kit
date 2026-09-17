@@ -121,10 +121,11 @@ Options: `width`, `height`, `crop`, `quality`, `format` — unknown keys are dro
 protected array $social_image_fields = array(
     'project' => 'hero_image',
     'post'    => array( 'lead_image', 'hero_image' ),  // first usable cut wins
+    'ebook'   => array( '@featured', 'cover' ),         // featured image first, then the field
 );
 ```
 
-A post type left out of the map falls back to its featured image. Every candidate is tried until one yields a usable cut, not until one merely looks like an image — resolving and cutting are separate steps, and an SVG or an undecodable format passes the first while failing the second. Fields are read through `Helpers::formatFields()`; `timber_kit_social_image_post_fields` overrides that reader for projects storing this outside ACF.
+A post type left out of the map falls back to its featured image. In a chain the featured image comes last, unless the chain names `SocialImage::FEATURED` (`'@featured'`), which puts it at that position. Every candidate is tried until one yields a usable cut, not until one merely looks like an image — resolving and cutting are separate steps, and an SVG or an undecodable format passes the first while failing the second. Fields are read through `Helpers::formatFields()`; `timber_kit_social_image_post_fields` overrides that reader for projects storing this outside ACF.
 
 #### Wiring it to an SEO plugin
 
@@ -137,9 +138,19 @@ The plugin keeps rendering its own tags; the bridge only supplies the image, and
 
 Two separate claims worth keeping apart. **Leaving the bridge off changes nothing on upgrade**, since no hook is registered. **Turning it on changes the tag** — that is the point — and with an empty map it hands over the featured image, replacing whatever the plugin resolved. Fill the map for the post types that keep their hero elsewhere. `true` detects the SEO plugin active on the site — one per site is the norm, so naming it is configuration the package can derive. `SocialImageBridge::supported()` lists the keys if you would rather be explicit.
 
-**A post whose social image the editor chose by hand is left alone.** AIOSEO's filter is named for the *default* image but fires at the end of resolution, so it also sees an explicit per-post choice; overwriting that would be the plugin equivalent of ignoring the editor, and silent, since the panel still shows their pick.
+**A post whose social image the editor chose by hand is left alone.** AIOSEO's filter is named for the *default* image but fires at the end of resolution, so it also sees an explicit per-post choice; overwriting that would be the plugin equivalent of ignoring the editor, and silent, since the panel still shows their pick. An editor's choice is the `custom_image` or `custom` source.
 
-Both `og:image` and `twitter:image` are covered. Twitter resolves on a separate path with no filter of its own, so without that second hook the feature only half works and the rest has to be clicked together in the admin. With AIOSEO's "Use Data from Facebook Tab" enabled the Twitter tag already carries the Open Graph result, so the bridge leaves it alone rather than deciding twice.
+**The automatic sources are not a choice.** AIOSEO's Yoast importer writes `featured`, `content` and similar onto every post it imports. `featured` keeps the post's featured image; the bridge supplies only where the post has none, which is when AIOSEO falls back to its global default image or the site logo. It asks the post, not the resolved URL: a featured image that happens to be the site's default social image is still the post's own picture. "Has none" means the featured image resolves to a URL, not that an ID is assigned — an ID whose attachment is gone leaves the post with no picture. The other automatic sources take whatever image turns up in the body, an attachment or an avatar, so the bridge supplies wherever a preview resolves. `content` on block content is the common case: without this, an imported post renders no `og:image` at all, or a CTA banner from its body.
+
+| Source | Bridge |
+| --- | --- |
+| none, `default` | follows AIOSEO's global source for posts; a global `default` supplies the preview |
+| `custom_image`, `custom` | leaves the editor's image |
+| `featured` | keeps the post's featured image; supplies where the post has none |
+| `content`, `attach`, `author`, `auto` | supplies wherever a preview resolves |
+| anything else | leaves it, as a choice it cannot name |
+
+Both `og:image` and `twitter:image` are covered. Twitter resolves on a separate path with no filter of its own, so without that second hook the feature only half works and the rest has to be clicked together in the admin. With AIOSEO's "Use Data from Facebook Tab" enabled the Twitter tag already carries the Open Graph result, so the bridge leaves it alone rather than deciding twice. Otherwise the bridge copies the resolved Open Graph image into `twitter:image`, so both cards show one picture — including a post whose editor chose the Open Graph image but left Twitter on its default. A Twitter image the editor set separately is theirs and stays, even when it differs. Twitter carries its own global source setting, and the table above is read against the effective source on each side: a post left on `default` on a site whose global Twitter source is `custom` is an editor's choice, not an empty one.
 
 Why it is needed for AIOSEO specifically: it resolves the OG image from one global source option plus a per-post override, with no per-post-type layer in between, so without this every post of a type shares one image.
 

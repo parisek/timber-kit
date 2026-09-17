@@ -28,6 +28,25 @@ use Parisek\TimberKit\Seo\Plugin;
 class SocialImageBridge {
 
 	/**
+	 * AIOSEO image sources that carry an image an editor actually picked.
+	 *
+	 * `custom_image` is an upload in the plugin's panel, `custom` a custom
+	 * field the editor named.
+	 */
+	private const EDITOR_SOURCES = [ 'custom_image', 'custom' ];
+
+	/**
+	 * AIOSEO image sources the plugin resolves by itself.
+	 *
+	 * AIOSEO's Yoast importer writes one of these onto every post it imports,
+	 * so on a migrated site they say nothing about intent. `content` on block
+	 * content resolves to no image at all. `auto` is the plugin's "first
+	 * available image".
+	 */
+	private const AUTOMATIC_SOURCES = [ 'featured', 'content', 'attach', 'author', 'auto' ];
+
+
+	/**
 	 * Supported plugins: how to notice one, and how to wire it.
 	 *
 	 * Only `SocialImage::forPost()` is genuinely shared above this — each
@@ -170,11 +189,107 @@ class SocialImageBridge {
 	public static function filterOpengraphImage( $image, $args ) {
 		$post = is_array( $args ) ? ( $args[0] ?? null ) : null;
 
-		if ( ! $post instanceof \WP_Post || self::standsAside( $post, 'og_image_type' ) ) {
+		if ( ! $post instanceof \WP_Post ) {
+			return $image;
+		}
+
+		$meta = self::postMeta( $post );
+
+		// Unreadable metadata is not evidence that the editor chose nothing.
+		if ( null === $meta ) {
+			return $image;
+		}
+
+		$source = self::effectiveSource( self::imageType( $meta, 'og_image_type' ), self::globalSource( 'facebook' ) );
+
+		if ( ! self::shouldSupply( $source, self::featuredImageState( $source, $post ) ) ) {
 			return $image;
 		}
 
 		return self::toTuple( SocialImage::forPost( $post ), $image );
+	}
+
+	/**
+	 * Whether the bridge supplies the preview for this image source.
+	 *
+	 * Pure. No source or `default`: always, as the bridge always did. An
+	 * editor's source: never. `featured`: only where the post has no featured
+	 * image, because that is the one state in which AIOSEO falls back. The other
+	 * automatic sources: always — they take whatever turns up in the body, an
+	 * attachment or the author's avatar, so the mapped preview is the better
+	 * picture wherever one resolves, and toTuple() keeps the plugin's image where
+	 * none does. Anything else is a source this code cannot name, and a source it
+	 * cannot name is treated as a choice.
+	 *
+	 * The featured branch asks the post, not the resolved URL. Comparing the URL
+	 * against the plugin's own fallbacks reads a featured image that happens to be
+	 * the site's default social image as a fallback, and replaces it.
+	 *
+	 * @param string|null $image_type   The post's image-source override.
+	 * @param bool        $has_featured Whether the post has a featured image.
+	 * @return bool
+	 */
+	public static function shouldSupply( ?string $image_type, bool $has_featured ): bool {
+		if ( null === $image_type || '' === $image_type || 'default' === $image_type ) {
+			return true;
+		}
+
+		if ( 'featured' === $image_type ) {
+			return ! $has_featured;
+		}
+
+		return self::isAutomatic( $image_type );
+	}
+
+	/**
+	 * The image source AIOSEO actually uses for a post.
+	 *
+	 * Pure. A post left on `default` takes the global source, exactly as
+	 * `Facebook::getImage()` does. Deciding on the per-post value alone would
+	 * read a site-wide `featured` as "no source" and let the mapped field
+	 * replace the featured image.
+	 *
+	 * @param string|null $post_source   The post's `og_image_type`.
+	 * @param string|null $global_source The global `defaultImageSourcePosts`.
+	 * @return string
+	 */
+	public static function effectiveSource( ?string $post_source, ?string $global_source ): string {
+		if ( null !== $post_source && '' !== $post_source && 'default' !== $post_source ) {
+			return $post_source;
+		}
+
+		return null !== $global_source && '' !== $global_source ? $global_source : 'default';
+	}
+
+	/**
+	 * AIOSEO's global image source for posts, or null when unreadable.
+	 *
+	 * Per network: Facebook and Twitter carry their own setting, and a post left
+	 * on `default` inherits the one for the network being rendered.
+	 *
+	 * @param string $network `facebook` or `twitter`.
+	 * @return string|null
+	 */
+	private static function globalSource( string $network ): ?string {
+		try {
+			$aioseo = function_exists( 'aioseo' ) ? aioseo() : null;
+			$social = is_object( $aioseo ) && isset( $aioseo->options->social ) ? $aioseo->options->social : null;
+			$source = is_object( $social ) ? ( $social->{$network}->general->defaultImageSourcePosts ?? null ) : null;
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+
+		return is_string( $source ) ? $source : null;
+	}
+
+	/**
+	 * Whether a source is one the plugin resolves by itself.
+	 *
+	 * @param string|null $image_type The post's image-source override.
+	 * @return bool
+	 */
+	public static function isAutomatic( ?string $image_type ): bool {
+		return in_array( $image_type, self::AUTOMATIC_SOURCES, true );
 	}
 
 	/**
@@ -197,17 +312,47 @@ class SocialImageBridge {
 			return $meta;
 		}
 
-		// With "Use Data from Facebook Tab" on, AIOSEO returns the Open Graph
-		// image for Twitter too — so the tag already carries whatever the
-		// og:image filter decided, deferral included. Touching it here would
-		// run that decision a second time without the deferral and undo it.
-		// The setting is per post but defaults from the global one, so on a
-		// site with it enabled this is every post, not an edge case.
-		if ( self::usesOpengraphData( $post ) || self::standsAside( $post, 'twitter_image_type' ) ) {
+		if ( self::standsAsideOnTwitter( $post ) ) {
 			return $meta;
 		}
 
-		return self::withTwitterImage( $meta, SocialImage::forPost( $post ) );
+		// Otherwise the card takes the Open Graph image, as resolved through the
+		// og:image filter above. That is AIOSEO's own Twitter fallback, and it is
+		// what keeps the two cards on one picture: a separate preview here would
+		// put the field image on X next to the editor's image on Facebook.
+		$opengraph = self::opengraphImage( $post );
+
+		if ( null === $opengraph ) {
+			return $meta;
+		}
+
+		return self::withTwitterImage( $meta, [ 'src' => $opengraph ] );
+	}
+
+	/**
+	 * The Open Graph image URL AIOSEO resolves for a post, or null.
+	 *
+	 * @param \WP_Post $post Post being rendered.
+	 * @return string|null
+	 */
+	private static function opengraphImage( \WP_Post $post ): ?string {
+		try {
+			$aioseo = function_exists( 'aioseo' ) ? aioseo() : null;
+
+			$facebook = is_object( $aioseo ) && isset( $aioseo->social->facebook ) && is_object( $aioseo->social->facebook ) ? $aioseo->social->facebook : null;
+
+			if ( null === $facebook || ! is_callable( [ $facebook, 'getImage' ] ) ) {
+				return null;
+			}
+
+			$image = $facebook->getImage( $post );
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+
+		$url = is_array( $image ) ? ( $image[0] ?? '' ) : $image;
+
+		return is_string( $url ) && '' !== $url ? $url : null;
 	}
 
 	/**
@@ -241,7 +386,7 @@ class SocialImageBridge {
 	 * @return bool
 	 */
 	public static function defersToEditor( ?string $image_type ): bool {
-		return is_string( $image_type ) && '' !== $image_type && 'default' !== $image_type;
+		return in_array( $image_type, self::EDITOR_SOURCES, true );
 	}
 
 	/**
@@ -256,39 +401,76 @@ class SocialImageBridge {
 	}
 
 	/**
-	 * Whether the bridge should leave this post's tag alone.
+	 * Whether the bridge should leave this post's `twitter:image` alone.
 	 *
-	 * Deferring is the safe answer when the plugin's metadata cannot be read at
-	 * all: the contract is never to override an editor's choice, and an
-	 * unreadable state is not evidence that they made none.
+	 * Three reasons to stand aside, in order. Unreadable metadata: the contract
+	 * is never to override an editor's choice, and an unreadable state is not
+	 * evidence that they made none. "Use Data from Facebook Tab": AIOSEO already
+	 * returns the Open Graph image for Twitter, so the tag carries whatever the
+	 * og:image filter decided, deferral included — deciding again here would run
+	 * that decision without the deferral and undo it. And an effective Twitter
+	 * source that is not one AIOSEO resolves by itself: the editor picked the
+	 * card's image, or picked a source this code cannot name.
+	 *
+	 * The source is the effective one. Twitter carries its own global setting, so
+	 * reading the per-post value alone takes a post left on `default` for "no
+	 * choice" on a site whose global Twitter source is `custom`.
 	 *
 	 * @param \WP_Post $post Post being rendered.
-	 * @param string   $key  Meta property, `og_image_type` or `twitter_image_type`.
 	 * @return bool
 	 */
-	private static function standsAside( \WP_Post $post, string $key ): bool {
-		// One read decides both questions. Reading twice leaves a gap where the
+	private static function standsAsideOnTwitter( \WP_Post $post ): bool {
+		// One read decides every question. Reading again leaves a gap where the
 		// second lookup fails and its null reads as "the editor chose nothing",
 		// which is the opposite of what an unreadable state means here.
 		$meta = self::postMeta( $post );
 
-		if ( null === $meta ) {
+		if ( null === $meta || ! empty( $meta->twitter_use_og ) ) {
 			return true;
 		}
 
-		return self::defersToEditor( self::imageType( $meta, $key ) );
+		$source = self::effectiveSource( self::imageType( $meta, 'twitter_image_type' ), self::globalSource( 'twitter' ) );
+
+		return ! self::shouldSupply( $source, self::featuredImageState( $source, $post ) );
 	}
 
 	/**
-	 * Whether this post's Twitter card reuses the Open Graph image.
+	 * The featured-image state, read only where it changes the answer.
+	 *
+	 * `shouldSupply()` consults it under `featured` and nowhere else, and
+	 * resolving an attachment URL runs the image-downsize path and its filters.
+	 * Every other source would pay for an answer it never reads.
+	 *
+	 * @param string   $source The effective image source.
+	 * @param \WP_Post $post   Post being rendered.
+	 * @return bool
+	 */
+	private static function featuredImageState( string $source, \WP_Post $post ): bool {
+		return 'featured' === $source && self::hasFeaturedImage( $post );
+	}
+
+	/**
+	 * Whether the post has a featured image AIOSEO can render.
+	 *
+	 * Not `has_post_thumbnail()`. That answers whether an attachment ID is
+	 * assigned, and an ID whose attachment is gone still answers yes — the post
+	 * then has no picture, AIOSEO falls back to its default image, and the bridge
+	 * would stand aside for an image that is not the post's. Resolving the URL
+	 * asks the question the decision actually needs.
 	 *
 	 * @param \WP_Post $post Post being rendered.
 	 * @return bool
 	 */
-	private static function usesOpengraphData( \WP_Post $post ): bool {
-		$meta = self::postMeta( $post );
+	private static function hasFeaturedImage( \WP_Post $post ): bool {
+		$id = (int) get_post_thumbnail_id( $post );
 
-		return null !== $meta && ! empty( $meta->twitter_use_og );
+		if ( 0 === $id ) {
+			return false;
+		}
+
+		$url = wp_get_attachment_image_url( $id, 'full' );
+
+		return is_string( $url ) && '' !== $url;
 	}
 
 	/**
