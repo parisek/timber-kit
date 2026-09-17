@@ -318,9 +318,12 @@ class BridgeTest extends TestCase {
 		// deferral included. Replacing it here would run that decision again
 		// without the deferral and undo it. The per-post value defaults from the
 		// global setting, so on a site with it on this is every post.
-		$this->stubAioseoMeta( [ 'twitter_use_og' => true, 'og_image_type' => 'custom_image', 'twitter_image_type' => 'default' ] );
-		Functions\when( 'is_singular' )->justReturn( true );
-		Functions\when( 'get_queried_object' )->justReturn( new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] ) );
+		// The Open Graph resolver works and answers a different URL, so an
+		// implementation that decided again here would change the tag.
+		$this->stubAioseoWithOpengraph(
+			[ 'twitter_use_og' => true, 'og_image_type' => 'custom_image', 'twitter_image_type' => 'default' ],
+			'https://example.com/the-open-graph-image.jpg'
+		);
 
 		$meta = [ 'twitter:image' => 'https://example.com/what-the-editor-picked.jpg' ];
 
@@ -328,9 +331,10 @@ class BridgeTest extends TestCase {
 	}
 
 	public function test_twitter_defers_to_an_editor_chosen_twitter_image(): void {
-		$this->stubAioseoMeta( [ 'twitter_use_og' => false, 'twitter_image_type' => 'custom_image' ] );
-		Functions\when( 'is_singular' )->justReturn( true );
-		Functions\when( 'get_queried_object' )->justReturn( new \WP_Post( [ 'ID' => 7, 'post_type' => 'project' ] ) );
+		$this->stubAioseoWithOpengraph(
+			[ 'twitter_use_og' => false, 'twitter_image_type' => 'custom_image' ],
+			'https://example.com/the-open-graph-image.jpg'
+		);
 
 		$meta = [ 'twitter:image' => 'https://example.com/what-the-editor-picked.jpg' ];
 

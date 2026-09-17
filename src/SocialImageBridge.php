@@ -202,7 +202,7 @@ class SocialImageBridge {
 
 		$source = self::effectiveSource( self::imageType( $meta, 'og_image_type' ), self::globalSource( 'facebook' ) );
 
-		if ( ! self::shouldSupply( $source, self::hasFeaturedImage( $post ) ) ) {
+		if ( ! self::shouldSupply( $source, self::featuredImageState( $source, $post ) ) ) {
 			return $image;
 		}
 
@@ -431,7 +431,22 @@ class SocialImageBridge {
 
 		$source = self::effectiveSource( self::imageType( $meta, 'twitter_image_type' ), self::globalSource( 'twitter' ) );
 
-		return ! self::shouldSupply( $source, self::hasFeaturedImage( $post ) );
+		return ! self::shouldSupply( $source, self::featuredImageState( $source, $post ) );
+	}
+
+	/**
+	 * The featured-image state, read only where it changes the answer.
+	 *
+	 * `shouldSupply()` consults it under `featured` and nowhere else, and
+	 * resolving an attachment URL runs the image-downsize path and its filters.
+	 * Every other source would pay for an answer it never reads.
+	 *
+	 * @param string   $source The effective image source.
+	 * @param \WP_Post $post   Post being rendered.
+	 * @return bool
+	 */
+	private static function featuredImageState( string $source, \WP_Post $post ): bool {
+		return 'featured' === $source && self::hasFeaturedImage( $post );
 	}
 
 	/**
