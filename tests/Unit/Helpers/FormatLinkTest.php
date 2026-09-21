@@ -336,4 +336,109 @@ class FormatLinkTest extends HelpersTestCase {
 		// Previously this concatenated the query onto false, yielding "?a=1".
 		$this->assertSame( 'https://example.com/page/?a=1', $result['url'] );
 	}
+	public function test_route_beneath_a_post_is_left_alone(): void {
+		// `/blog/page/2/` resolves to the blog page, and a permalink cannot
+		// carry the pagination segment — the rewrite used to return `/blog/`
+		// and delete the page number.
+		Functions\when( 'url_to_postid' )->justReturn( 10 );
+		Functions\when( 'apply_filters' )->alias( function ( $hook, $value = null ) {
+			return 'wpml_current_language' === $hook ? 'cs' : $value;
+		} );
+		Functions\when( 'get_permalink' )->justReturn( 'https://example.com/cs/blog/' );
+
+		$value = [
+			'title'  => 'Older posts',
+			'url'    => 'https://example.com/cs/blog/page/2/',
+			'target' => '',
+		];
+
+		$result = Helpers::formatLink( $value, 1, [ 'wpml_cf_preferences' => 2 ] );
+
+		$this->assertSame( 'https://example.com/cs/blog/page/2/', $result['url'] );
+	}
+
+	public function test_route_check_keeps_query_and_fragment_out_of_it(): void {
+		// A query and a fragment are restored by resolveLinkUrl() and must not
+		// make a plain permalink look like a route.
+		Functions\when( 'url_to_postid' )->justReturn( 10 );
+		Functions\when( 'apply_filters' )->alias( function ( $hook, $value = null ) {
+			return 'wpml_current_language' === $hook ? 'cs' : $value;
+		} );
+		Functions\when( 'get_permalink' )->justReturn( 'https://example.com/cs/blog/' );
+
+		$value = [
+			'title'  => 'Blog',
+			'url'    => 'https://example.com/blog/?utm_source=x#top',
+			'target' => '',
+		];
+
+		$result = Helpers::formatLink( $value, 1, [ 'wpml_cf_preferences' => 2 ] );
+
+		$this->assertSame( 'https://example.com/cs/blog/?utm_source=x#top', $result['url'] );
+	}
+
+	public function test_a_link_to_the_front_page_is_not_a_route(): void {
+		// The front page's path is empty and every path sits under it. Without
+		// the guard this test's link would read as a route beneath it.
+		Functions\when( 'url_to_postid' )->justReturn( 10 );
+		Functions\when( 'apply_filters' )->alias( function ( $hook, $value = null ) {
+			return 'wpml_current_language' === $hook ? 'cs' : $value;
+		} );
+		Functions\when( 'get_permalink' )->justReturn( 'https://example.com/' );
+
+		$value = [
+			'title'  => 'Home',
+			'url'    => 'https://example.com/',
+			'target' => '',
+		];
+
+		$result = Helpers::formatLink( $value, 1, [ 'wpml_cf_preferences' => 2 ] );
+
+		$this->assertSame( 'https://example.com/', $result['url'] );
+	}
+
+	public function test_route_check_reads_the_permalink_in_the_urls_own_language(): void {
+		// The stored URL names Italian; the ambient language is Czech. The
+		// check has to compare against the Italian path, or the two sides
+		// describe different posts and every cross-language link reads as a
+		// route.
+		Functions\when( 'url_to_postid' )->justReturn( 10 );
+		$language = 'cs';
+		Functions\when( 'apply_filters' )->alias( function ( $hook, $value = null, ...$rest ) use ( &$language ) {
+			if ( 'wpml_current_language' === $hook ) {
+				return $language;
+			}
+			if ( 'wpml_active_languages' === $hook ) {
+				return [
+					'en' => [ 'code' => 'en', 'url' => 'https://example.com/' ],
+					'cs' => [ 'code' => 'cs', 'url' => 'https://example.com/cs/' ],
+					'it' => [ 'code' => 'it', 'url' => 'https://example.com/it/' ],
+				];
+			}
+			return $value;
+		} );
+		Functions\when( 'do_action' )->alias( function ( $hook, $to = null ) use ( &$language ) {
+			if ( 'wpml_switch_language' === $hook && is_string( $to ) ) {
+				$language = $to;
+			}
+		} );
+		Functions\when( 'get_permalink' )->alias( function () use ( &$language ) {
+			return 'it' === $language
+				? 'https://example.com/it/contatto/'
+				: 'https://example.com/cs/kontakt/';
+		} );
+
+		$value = [
+			'title'  => 'Contact',
+			'url'    => 'https://example.com/it/contatto/',
+			'target' => '',
+		];
+
+		$result = Helpers::formatLink( $value, 1, [ 'wpml_cf_preferences' => 2 ] );
+
+		// Not a route, so preference 2 keeps doing what it does: the link is
+		// translated into the language being rendered.
+		$this->assertSame( 'https://example.com/cs/kontakt/', $result['url'] );
+		$this->assertSame( 'cs', $language, 'the language switch must be restored' );
+	}
 }

@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `Helpers::formatLink()` no longer rewrites a URL that points **beneath** the
+  post it resolves to. `url_to_postid()` answers with a post for more than that
+  post's own address — pagination, feeds, custom endpoints — and the permalink
+  the rewrite builds carries none of those segments, so `/blog/page/2/` came
+  back as `/blog/` with the page number deleted. Such a URL is now left as the
+  editor stored it. A link to the post itself still translates, including one
+  stored in another language; the check compares paths in the language the URL
+  names, and only a path with extra segments under the post counts as a route.
+
 ## [1.57.0] - 2026-09-17
 
 ### Added

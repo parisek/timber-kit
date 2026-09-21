@@ -1957,6 +1957,17 @@ class Helpers {
 			return null;
 		}
 
+		// A stored path that continues PAST the post's own permalink is a
+		// route, not a reference to that post, and `get_permalink()` cannot
+		// carry it: it replaces the whole path, and only the query and the
+		// fragment below are restored. `/blog/page/2/` resolves to the blog
+		// page, so the rewrite returned `/blog/` and deleted the page number.
+		// Same shape for a feed, a comment page, and any rewrite rule whose
+		// extra segments sit under a post's permalink.
+		if ( self::urlIsRouteBeneathPost( $url, $post_id ) ) {
+			return null;
+		}
+
 		$translated_url = get_permalink( $post_id );
 
 		// get_permalink() returns false for an id it cannot resolve. Treat that
@@ -1976,6 +1987,77 @@ class Helpers {
 		}
 
 		return $translated_url;
+	}
+
+	/**
+	 * Does `$url` point BENEATH the post it resolved to, rather than at it?
+	 *
+	 * `url_to_postid()` answers with a post for more than that post's own
+	 * address: pagination, feeds and custom endpoints all resolve to the post
+	 * their rewrite rule hangs off. The id alone therefore cannot tell "this
+	 * page" from "page 2 of this page", and {@see resolveLinkUrl()} has to
+	 * know, because the permalink it builds carries neither.
+	 *
+	 * Deliberately narrow: only a stored path that is the post's own path plus
+	 * at least one more segment counts. Two paths that merely differ are the
+	 * normal case — a link stored in one language resolving to another
+	 * language's post is exactly that — and must keep translating.
+	 *
+	 * The post's path is read in the language the URL itself names, so the two
+	 * sides describe the same post. Under directory negotiation an unprefixed
+	 * URL names the default language, which is what {@see languageFromUrl()}
+	 * returns for it; a link that stays inside one language therefore never
+	 * switches at all, because {@see withLanguage()} returns early when the
+	 * language already matches.
+	 *
+	 * @param string $url     The stored URL.
+	 * @param int    $post_id The post it resolved to.
+	 * @return bool True when the URL names a route beneath that post.
+	 */
+	private static function urlIsRouteBeneathPost( string $url, int $post_id ): bool {
+		if ( ! function_exists( 'get_permalink' ) ) {
+			return false;
+		}
+
+		$own = self::withLanguage(
+			self::languageFromUrl( $url ),
+			static function () use ( $post_id ) {
+				return get_permalink( $post_id );
+			}
+		);
+
+		// An id whose permalink cannot be built is `urlToPostId()`'s problem,
+		// not this check's: `resolveLinkUrl()` drops a non-string permalink a
+		// few lines later anyway.
+		if ( ! is_string( $own ) ) {
+			return false;
+		}
+
+		$own_path = self::pathOf( $own );
+
+		// The front page's path is empty, and every path on the site sits
+		// under it. Without this guard a link to the home page would make
+		// every other link look like a route.
+		if ( '' === $own_path ) {
+			return false;
+		}
+
+		return str_starts_with( self::pathOf( $url ), $own_path . '/' );
+	}
+
+	/**
+	 * The path of a URL, trailing slash normalised away, '' for the site root.
+	 *
+	 * @param string $url Absolute or root-relative URL.
+	 */
+	private static function pathOf( string $url ): string {
+		$path = parse_url( $url, PHP_URL_PATH );
+
+		if ( ! is_string( $path ) ) {
+			return '';
+		}
+
+		return rtrim( $path, '/' );
 	}
 
 	/**
@@ -2003,8 +2085,23 @@ class Helpers {
 	 *   - taxonomy → the field's `taxonomy` setting
 	 *
 	 * Other types (text, user, link, …) are returned unchanged — `user` because
-	 * WPML doesn't translate users, `link` because it stores a URL structure that
-	 * {@see formatLink()} handles through its own translation path. Non-numeric
+	 * WPML doesn't translate users, `link` because it stores a URL structure
+	 * rather than an id.
+	 *
+	 * `link` carries a caveat worth stating here, because this method is what
+	 * {@see \Parisek\TimberKit\WpmlBlockOverride} calls while syncing Copy
+	 * fields. {@see formatLink()} translates a link's URL only at
+	 * `wpml_cf_preferences === 2`. At `1` (Copy) nothing translates it, and the
+	 * Copy sync has meanwhile replaced the field with the SOURCE language
+	 * post's value — so a translated page renders the source language's URL
+	 * even when its own stored value was correct. Measured on a five-language
+	 * site: one component, 8 links, 4 translated pages, live for months.
+	 *
+	 * That is a configuration question rather than a defect here: a link field
+	 * that can hold an internal URL belongs at `2`. A project that genuinely
+	 * wants Copy on a link field, with a per-language URL stored in each
+	 * translation, drops that field from the sync through the
+	 * `timber_kit/wpml_block_override/copy_fields` filter. Non-numeric
 	 * entries (e.g. a `page_link` holding a raw URL) also pass through untouched.
 	 *
 	 * Shared formatting-layer primitive: {@see \Parisek\TimberKit\WpmlBlockOverride}
