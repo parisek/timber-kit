@@ -2003,8 +2003,30 @@ class Helpers {
 	 *   - taxonomy → the field's `taxonomy` setting
 	 *
 	 * Other types (text, user, link, …) are returned unchanged — `user` because
-	 * WPML doesn't translate users, `link` because it stores a URL structure that
-	 * {@see formatLink()} handles through its own translation path. Non-numeric
+	 * WPML doesn't translate users, `link` because it stores a URL structure
+	 * rather than an id.
+	 *
+	 * `link` carries a caveat worth stating here, because this method is what
+	 * {@see \Parisek\TimberKit\WpmlBlockOverride} calls while syncing Copy
+	 * fields. {@see formatLink()} translates a link's URL only at
+	 * `wpml_cf_preferences === 2`. At `1` (Copy) nothing translates it, and the
+	 * Copy sync has meanwhile replaced the field with the SOURCE language
+	 * post's value — so a translated page renders the source language's URL
+	 * even when its own stored value was correct. Measured on a five-language
+	 * site: one component, 8 links, 4 translated pages, live for months.
+	 *
+	 * That is a configuration question rather than a defect here. A link field
+	 * that can hold an internal URL belongs at `2`; a project that genuinely
+	 * wants Copy on a link field, with a per-language URL stored in each
+	 * translation, drops that field from the sync through the
+	 * `timber_kit/wpml_block_override/copy_fields` filter.
+	 *
+	 * Two neighbouring facts, because a reader who arrives here is usually
+	 * chasing one of them: {@see formatLink()} returns on `target: "_blank"`
+	 * BEFORE it reads the preference, which is what makes a new-tab link an
+	 * opt-out from the URL rewrite; and a link's title is never translated at
+	 * render, whatever the preference, so a label that differs per language
+	 * needs its own stored value in each one. Non-numeric
 	 * entries (e.g. a `page_link` holding a raw URL) also pass through untouched.
 	 *
 	 * Shared formatting-layer primitive: {@see \Parisek\TimberKit\WpmlBlockOverride}
