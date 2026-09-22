@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.58.0] - 2026-09-22
+
 ### Added
 
 - `UpdateContext::adoptBlocks( $from, $to, $transform, $post_ids )` renames a
