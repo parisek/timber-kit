@@ -617,6 +617,134 @@ Applying newly-translatable keys triggers WPML's ProcessNewTranslatableFields
 background task — affected translations get flagged as needing update, which
 is the point: translators see the previously invisible backlog.
 
+## Block data migrations
+
+A field-shape change on a deployed block leaves the stored content behind: the
+schema ships, existing posts keep the old shape, and the block renders empty.
+`wp timber-kit updates` runs the rewrites that fix that, Drupal-style — one
+run-once update file per change, discovered from the theme, recorded in the
+`timber_kit_updates_applied` option.
+
+```bash
+wp timber-kit updates status          # what is pending
+wp timber-kit updates run --dry-run   # what it would write
+wp timber-kit updates run             # write it
+```
+
+### The update file
+
+Discovered from `<theme>/updates/NNNN-<slug>.php`,
+`<theme>/templates/component/<name>/updates/NNNN-<slug>.php` and
+`<theme>/static/templates/component/<name>/updates/NNNN-<slug>.php`; the
+`timberkit_update_paths` filter takes the glob list for any other layout. `NNNN` is numbered per component, so parallel branches do not
+collide. The file returns a description and a callable:
+
+```php
+return array(
+    'description' => 'card: gallery rows -> typed repeater rows',
+    'run'         => function ( \Parisek\TimberKit\Updates\UpdateContext $ctx ) {
+        $summary = $ctx->transformBlocks(
+            'acf/card',
+            function ( array $data, \WP_Post $post, string $lang ): ?array {
+                if ( isset( $data['rows'] ) ) {
+                    return null; // already migrated
+                }
+                return array( 'rows' => … ) + $data;
+            },
+            array( 12, 34 )
+        );
+
+        if ( array() !== $summary['errors'] ) {
+            throw new \RuntimeException( 'finished with errors — see log' );
+        }
+    },
+);
+```
+
+`transformBlocks()` walks nested `innerBlocks`, calls the transform once per
+WPML language with that language's own `WP_Post`, writes a revision per post,
+suppresses every write under `--dry-run`, and returns
+`scanned / changed / skipped / errors`. Returning `null` skips the block —
+which is how an update stays idempotent when the registry is lost, for example
+after restoring a database that was dumped post-migration.
+
+`mapAttachment( $id, $lang )` translates an attachment id when data moves
+between languages.
+
+### Renaming a block
+
+`transformBlocks()` replaces `attrs.data` and never `blockName`, so it cannot
+adopt one block into another. `adoptBlocks()` can:
+
+```php
+$summary = $ctx->adoptBlocks(
+    'acf/hero',
+    'acf/hero-wide',
+    function ( array $data, \WP_Post $post, string $lang ) use ( $ctx ): ?array {
+        if ( ! empty( $data['video'] ) ) {
+            return null; // the target has no video field — leave this one alone
+        }
+        return $ctx->mapFieldKeys(
+            array( 'title' => $data['title'], 'perex' => $data['perex'] ),
+            'acf/hero-wide'
+        );
+    },
+    $post_ids
+);
+```
+
+Same walk, same WPML fan-out, same summary, with three differences that matter:
+
+- It writes both `blockName` and `attrs.name`. ACF resolves the field group
+  through `attrs.name`; rewriting only `blockName` yields a renamed block with
+  no fields.
+- **Unchanged data still writes**, because the rename is itself the change.
+  This is the one place where the semantics differ from `transformBlocks()`,
+  and the reason `$from === $to` throws: every block would match with the
+  short-circuit off, so each run would rewrite every post again. Data-only
+  work is `transformBlocks()`.
+- Blocks that already carry the target name are left alone, so the second layer
+  of idempotence is the default rather than something to remember. One
+  exception: a block whose `blockName` is the target while `attrs.name` is
+  still the source was renamed by something that forgot the second write, so it
+  is repaired rather than skipped.
+
+`mapFieldKeys( $data, 'acf/target' )` resolves each value key's `_`-prefixed
+field-key twin — the companion ACF needs to resolve a field — from the target
+block's **registered field group**. Reading the group, rather than deriving
+`field_<block>_<name>` from the block name, is what makes it correct for a
+group authored in the ACF UI (`field_5f3a91c2b7e04`) and for repeater rows,
+whose value key carries an index (`items_0_label`) that the sub-field's key
+never has. A group's sub-field carries no index (`settings_title`), so
+`settings_9_title` is not a valid key and is refused rather than resolved to
+the `title` sub-field. Incoming twins are discarded and rewritten, so data
+lifted from the old block can be passed straight in.
+
+It refuses rather than guesses. A value key the group does not define throws,
+and so does one that **two** fields could flatten to — a top-level `item_label`
+alongside a group `item` with a `label` sub-field. A wrong twin makes ACF read
+and write a different field than the author meant, which is worse than a failed
+run.
+
+**Flexible content is not supported.** Two layouts may each define a field of
+the same name, and which one a row uses is recorded in the data
+(`content_0_acf_fc_layout`), not in the schema, so resolving by name alone
+would return whichever layout comes first. Those keys therefore throw. Map them
+by hand until the layout is read.
+
+### Rollout
+
+```
+media/assets upload → code deploy (schema + update file together)
+→ wp timber-kit updates run --dry-run → wp timber-kit updates run
+→ wp timber-kit acfml-sync-preferences --apply   # WPML projects
+→ cache purge
+```
+
+Take a database backup before the production run. Every write leaves a post
+revision, so a rollback is a revision restore per post, plus removing the
+update's entry from `timber_kit_updates_applied` if it should run again.
+
 ## Command-line
 
 Every command `StarterBase` registers, in one place. A command missing from this

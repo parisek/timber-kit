@@ -6,6 +6,36 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `UpdateContext::adoptBlocks( $from, $to, $transform, $post_ids )` renames a
+  block while rewriting its data. `transformBlocks()` replaces `attrs.data` and
+  never `blockName`, so an update that tried the rename through it reported
+  every post as changed and renamed nothing. The new method reuses the same
+  walk (nested blocks, WPML fan-out, revisions, `wp_slash()`, dry-run,
+  summary), writes `attrs.name` alongside `blockName` because ACF resolves the
+  field group through it, leaves blocks that already carry the target name
+  alone while repairing one renamed without its `attrs.name`, and — unlike
+  `transformBlocks()` — writes even when the transform returns the data
+  unchanged, because the rename is itself the change. Calling it with the same
+  name twice throws: every block would match with the short-circuit off, so
+  each run would rewrite every post again.
+- `UpdateContext::mapFieldKeys( $data, $block_name )` resolves every value
+  key's `_`-prefixed field-key twin from the target block's registered ACF
+  field group, including repeater and group sub-fields. Reading the group
+  rather than deriving `field_<block>_<name>` keeps
+  it correct for groups authored in the ACF UI and for repeater rows, whose
+  value key carries a row index the sub-field key never has. The index is
+  stripped only under a repeater, so a group key with one (`settings_9_title`)
+  stays unknown. A value key the group does not define throws instead of being
+  dropped, and so does one that two fields could flatten to — a wrong twin
+  makes ACF read and write a different field than the author meant. Flexible
+  content is out of scope: the row's layout lives in the data, not the schema,
+  so those keys throw rather than resolve to whichever layout comes first.
+- README § Block data migrations documents the update runner, the update-file
+  shape, the rename pair and the rollout order. The command table referenced
+  that section before it existed.
+
 ## [1.57.0] - 2026-09-17
 
 ### Added
