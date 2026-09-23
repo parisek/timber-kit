@@ -168,6 +168,41 @@ class WpmlThemeDomainAuthoritativeTest extends StarterBaseTestCase {
 		$this->assertSame( [ 'my-theme', 'some-plugin' ], $saved[ self::KEY ] );
 	}
 
+	/**
+	 * While the flag is on it owns the theme domain's entry: a save that adds
+	 * the domain for the first time is stripped as well, so turning the flag
+	 * off restores the list as it was before. ST's own screen echoes the
+	 * injected entry back on save, so a first-time add cannot be told apart
+	 * from it.
+	 */
+	public function test_save_strips_first_time_add_of_theme_domain(): void {
+		$instance = $this->bareInstance( true, 'my-theme' );
+		$instance->wpml_exclude_theme_domain_from_st( [ self::KEY => [] ] );
+
+		$saved = $instance->wpml_keep_theme_domain_exclusion_runtime_only( [ self::KEY => [ 'some-plugin', 'my-theme' ] ] );
+
+		$this->assertSame( [ 'some-plugin' ], $saved[ self::KEY ] );
+	}
+
+	public function test_save_uses_the_latest_read(): void {
+		$instance = $this->bareInstance( true, 'my-theme' );
+		$instance->wpml_exclude_theme_domain_from_st( [ self::KEY => [ 'my-theme' ] ] );
+		$read = $instance->wpml_exclude_theme_domain_from_st( [ self::KEY => [] ] );
+
+		$saved = $instance->wpml_keep_theme_domain_exclusion_runtime_only( $read );
+
+		$this->assertSame( [], $saved[ self::KEY ] );
+	}
+
+	/**
+	 * WPML's Divi integration reads the option with `[]` as its default.
+	 */
+	public function test_missing_option_array_default_carries_theme_domain(): void {
+		$result = $this->bareInstance( true, 'my-theme' )->wpml_exclude_theme_domain_from_st_default( [] );
+
+		$this->assertSame( [ self::KEY => [ 'my-theme' ] ], $result );
+	}
+
 	public function test_save_passes_non_array_value_through(): void {
 		$this->assertSame( 'x', $this->bareInstance( true )->wpml_keep_theme_domain_exclusion_runtime_only( 'x' ) );
 	}

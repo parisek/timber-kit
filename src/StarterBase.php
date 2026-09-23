@@ -648,7 +648,11 @@ class StarterBase extends Site {
 	 * for a site where ST has not saved a setting yet, and
 	 * `pre_update_option_icl_st_settings`, which strips the injected domain
 	 * again before ST writes the array back. Nothing is persisted, so switching
-	 * the flag off restores the stored list exactly.
+	 * the flag off restores the stored list exactly. While the flag is on it
+	 * owns the theme domain's entry: a save that adds the domain for the first
+	 * time is stripped too, because ST's own screen echoes the injected entry
+	 * back and the two cannot be told apart. To store the entry for good,
+	 * switch the flag off first.
 	 *
 	 * The list does not live under `icl_sitepress_settings['st']`. No String
 	 * Translation release from 3.2 to 5.0 reads it from there.
@@ -659,10 +663,11 @@ class StarterBase extends Site {
 	 * that already exists, and WordPress answers from the first file loaded,
 	 * so the flag also refuses that file at `override_load_textdomain` — see
 	 * {@see wpml_keep_theme_mo_authoritative()}. That is the part that makes
-	 * the git file win. String Translation 3.5+ still registers strings the
-	 * theme's `.mo` does not translate through a path that ignores the list,
-	 * so a complete catalogue keeps the ST tables clean;
-	 * `wp timber-kit wpml-cleanup-theme-domain` removes what was registered.
+	 * the git file win. String Translation 3.5.x also registers strings the
+	 * theme's `.mo` does not translate through a second path that ignores the
+	 * list; ST 5.0 checks the list there too. On 3.5.x a complete catalogue
+	 * keeps the ST tables clean, and `wp timber-kit wpml-cleanup-theme-domain`
+	 * removes what was registered.
 	 *
 	 * Default ON — a deliberate exception to the default-off flag doctrine:
 	 * the theme's `.po`/`.mo` pair is already version-controlled and
@@ -682,6 +687,11 @@ class StarterBase extends Site {
 	 * Translation exclusion list, as read before this class injected it.
 	 * {@see wpml_keep_theme_domain_exclusion_runtime_only()} keeps a stored
 	 * entry and strips an injected one.
+	 *
+	 * This relies on core's order inside update_option(): it calls
+	 * get_option() — which runs the `option_` or `default_option_` filter and
+	 * sets this — immediately before `pre_update_option_`. Every save re-reads,
+	 * so the value is fresh for each one. Do not read it anywhere else.
 	 */
 	private bool $wpml_st_theme_domain_stored = false;
 
@@ -3720,7 +3730,13 @@ class StarterBase extends Site {
 	 * `icl_st_settings` back. `WPML_ST_Settings::save_settings()` saves the
 	 * whole array it read, so without this the domain would be persisted on
 	 * the next save and outlive the flag. A domain that was already stored
-	 * stays.
+	 * stays; one added for the first time while the flag is on is stripped
+	 * (see the property docblock).
+	 *
+	 * Side effect on a site where the stored array equals the injected
+	 * default shape: update_option() compares the default with the old value,
+	 * finds them identical and saves through add_option(). The value is still
+	 * written, but the `add_option` actions fire instead of `update_option`.
 	 *
 	 * Hooked to `pre_update_option_icl_st_settings`.
 	 *

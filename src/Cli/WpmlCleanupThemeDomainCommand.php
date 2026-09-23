@@ -23,9 +23,10 @@ use Parisek\TimberKit\Wpml\ThemeDomainCleanupPlan;
  * translators in the ST screens and the files stay on disk. This command
  * removes both, so the theme's own `.po`/`.mo`
  * pair is unambiguously the only place translators and developers need to
- * look. Run it again whenever ST has registered theme strings anew — String
- * Translation 3.5+ registers untranslated strings through a second path
- * that ignores the exclusion list.
+ * look. On String Translation 3.5.x, run it again whenever ST has
+ * registered theme strings anew: that version registers untranslated
+ * strings through a second path that ignores the exclusion list. ST 5.0
+ * checks the list on that path too.
  *
  * Verified against a real site (fellows): 102 `icl_strings`,
  * 69 `icl_string_translations`, and 27 `icl_string_positions` rows existed

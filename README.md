@@ -620,7 +620,9 @@ upgrade deletes the dictionary entries those rules already cover. The command
 detects the resolver (no version check) and leaves out every key it already
 answers with the same preference, so it does not write those entries back. It
 still writes top-level keys, keys the rules do not cover, and keys whose field
-definition asks for a different preference. On WPML 4 nothing changes.
+definition asks for a different preference. A `_<key>` companion is left out
+whenever the resolver answers it: its Copy value is only the command's default,
+and ACFML answers companions Copy once in localization mode. On WPML 4 nothing changes.
 
 Applying newly-translatable keys triggers WPML's ProcessNewTranslatableFields
 background task — affected translations get flagged as needing update, which
@@ -870,9 +872,14 @@ at runtime even where a compiled file exists.
 
 This command cleans up what is left: rows registered before the switch, which
 translators still see in the ST screens, and the compiled files on disk.
-String Translation 3.5+ also registers untranslated strings through a second
-path that ignores the list, so a complete theme catalogue matters, and the
-command is worth re-running after strings were added.
+String Translation 3.5.x also registers untranslated strings through a second
+path that ignores the list, so there a complete theme catalogue matters, and
+the command is worth re-running after strings were added. ST 5.0 checks the
+list on that path too.
+
+While the flag is on, it owns the theme domain's entry in the list: the entry
+is never saved, even when an admin ticks it in the ST screen. Switch the flag
+off first to store it for good.
 
 Earlier versions of the flag filtered `icl_sitepress_settings['st']`. String
 Translation never reads the list from there, so on those versions the flag

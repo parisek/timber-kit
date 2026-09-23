@@ -14,13 +14,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
+- **Upgrade note:** `$wpml_theme_domain_authoritative` is on by default and,
+  after the fixes below, finally does what it describes on every WPML site.
+  String Translation stops registering and translating the theme's strings
+  from its own tables, and the theme's `.mo` from git answers them. A project
+  that manages theme strings in String Translation instead of the `.po` must
+  set the flag to `false` in its `Base` before upgrading.
 - `wp timber-kit acfml-sync-preferences` leaves out keys that WPML 5 already
   resolves at runtime to the same preference. WPML 5 answers keys without a
   dictionary entry through `wpml_resolve_custom_field_preferences`, and ACFML 5
   supplies rules for repeater and group rows; ACFML's `CollapseSubfieldSettings`
   upgrade deletes the entries those rules cover. Writing them back fought that
   upgrade: on one site the rules covered 1240 of 1256 repeater-row entries,
-  all with the same preference. The resolver is feature-detected, so WPML 4
+  all with the same preference. A `_<key>` companion is left out whenever
+  the resolver answers it, because its Copy value is the command's default,
+  not a field definition, and ACFML answers companions Copy once in
+  localization mode. The resolver is feature-detected, so WPML 4
   sites behave as before.
 
 ### Fixed
