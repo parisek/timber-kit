@@ -147,11 +147,11 @@ class RegisterSecurityHardeningHooksTest extends StarterBaseTestCase {
 		$this->assertSame( '__return_empty_string', $filters['the_generator'] );
 	}
 
-	public function test_remove_wpml_generator_defaults_off(): void {
+	public function test_remove_wpml_generator_defaults_on(): void {
 		$instance = ( new \ReflectionClass( StarterBase::class ) )->newInstanceWithoutConstructor();
 		$prop     = ( new \ReflectionClass( StarterBase::class ) )->getProperty( 'remove_wpml_generator' );
 
-		$this->assertFalse( $prop->getValue( $instance ) );
+		$this->assertTrue( $prop->getValue( $instance ) );
 	}
 
 	public function test_remove_wpml_generator_hooks_wp_head_before_the_tag_prints(): void {

@@ -366,12 +366,14 @@ class StarterBase extends Site {
 	 * security fixes regularly (4.9.6, 4.9.7, 5.0), so the version string
 	 * tells a scanner which sites still run an unpatched build.
 	 *
-	 * Opt-in (default off) per the flag doctrine: it changes rendered output.
-	 * No-ops without WPML.
+	 * Default ON — an owner-approved exception to the default-off flag
+	 * doctrine (see AGENTS.md). It removes one meta tag nobody reads except a
+	 * scanner, and it matches the default-on `$remove_wp_generator`. No-ops
+	 * without WPML. Set `false` to keep the tag.
 	 *
 	 * @var bool
 	 */
-	protected bool $remove_wpml_generator = false;
+	protected bool $remove_wpml_generator = true;
 
 	/** @var bool Remove the core author (users) sitemap (/wp-sitemap-users-1.xml), which lists author slugs regardless of ?author= blocking. Default on; set false on sites that intentionally expose author archives for SEO. */
 	protected bool $disable_author_sitemap = true;

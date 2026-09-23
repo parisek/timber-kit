@@ -8,9 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- `$remove_wpml_generator` (default off) removes WPML's
+- `$remove_wpml_generator` (default **on**) removes WPML's
   `<meta name="generator" content="WPML ver:… stt:…">` from `wp_head`. The tag
   prints the exact plugin version on every front-end page.
+  On by default, so the tag disappears on upgrade; set the flag to `false`
+  to keep it.
 
 ### Changed
 

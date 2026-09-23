@@ -149,6 +149,15 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   it to `false` in its `Base`. This is a named exception to the rule above,
   not a case of the rule being skipped.
 
+- **Approved exception:** `$remove_wpml_generator` defaults `true`, not
+  `false`. The owner reviewed it explicitly and accepted the output change on
+  upgrade. The tag it removes, `<meta name="generator" content="WPML ver:…">`,
+  serves no visitor and tells a scanner the exact WPML build, and WPML ships
+  security fixes often. It is the WPML twin of `$remove_wp_generator`, which
+  predates the rule and is also on. A site that wants the tag back sets the
+  flag to `false`. This is a named exception to the rule above, not a case of
+  the rule being skipped.
+
 ## Architecture decisions (ADRs)
 
 Significant decisions live in `docs/adr/` — the only tracked subtree under the
