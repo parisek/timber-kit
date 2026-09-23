@@ -25,6 +25,14 @@ use Parisek\TimberKit\Acfml\PreferenceSyncPlan;
  * WP_CLI I/O here is intentionally not unit-tested (same doctrine as
  * ConvertUtf8mb4Command).
  *
+ * On WPML 5 (feature-detected through `wpml_resolve_custom_field_preferences`,
+ * not a version compare) the dictionary is no longer the only source: WPML
+ * resolves a key with no entry at runtime, and ACFML 5 supplies rules for
+ * repeater and group rows. Keys the resolver already answers with the same
+ * preference are left out of the patch — ACFML's `CollapseSubfieldSettings`
+ * upgrade deletes exactly those entries, and re-adding them would fight it.
+ * On WPML 4 the function does not exist and the command behaves as before.
+ *
  * Scope: postmeta of the current site only. Term meta, options-page meta,
  * user meta and multisite network sweeps are deliberately out of scope for
  * now — run per-site via `wp --url=…` on multisite.
@@ -99,9 +107,21 @@ class AcfmlSyncPreferencesCommand {
 		$patch   = $plan->patch( $current );
 		$summary = $plan->summary();
 
+		$core_resolved = 0;
+		if ( function_exists( 'wpml_resolve_custom_field_preferences' ) && array() !== $patch ) {
+			$resolved = wpml_resolve_custom_field_preferences( array_keys( $patch ) );
+			$kept     = PreferenceSyncPlan::withoutCoreResolved( $patch, is_array( $resolved ) ? $resolved : array() );
+
+			$core_resolved = count( $patch ) - count( $kept );
+			$patch         = $kept;
+		}
+
 		\WP_CLI::log( sprintf( 'Scanned %d post(s) of type(s): %s', $scanned, implode( ', ', $post_types ) ) );
 		foreach ( $summary['registered_by_preference'] as $pref => $count ) {
 			\WP_CLI::log( sprintf( '  preference %d (%s): %d key(s)', $pref, $this->prefLabel( $pref ), $count ) );
+		}
+		if ( $core_resolved > 0 ) {
+			\WP_CLI::log( sprintf( 'Left to WPML runtime resolution: %d key(s) it already resolves to the same preference', $core_resolved ) );
 		}
 		\WP_CLI::log( sprintf( 'Dictionary entries to write: %d (of %d currently registered)', count( $patch ), count( $current ) ) );
 

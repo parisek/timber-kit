@@ -38,6 +38,7 @@ class RegisterSecurityHardeningHooksTest extends StarterBaseTestCase {
 			'disable_404_permalink_guess',
 			'disable_file_editing',
 			'remove_wp_generator',
+			'remove_wpml_generator',
 			'disable_author_sitemap',
 			'security_headers',
 		] as $flag ) {
@@ -144,6 +145,54 @@ class RegisterSecurityHardeningHooksTest extends StarterBaseTestCase {
 
 		$this->assertArrayHasKey( 'the_generator', $filters );
 		$this->assertSame( '__return_empty_string', $filters['the_generator'] );
+	}
+
+	public function test_remove_wpml_generator_defaults_on(): void {
+		$instance = ( new \ReflectionClass( StarterBase::class ) )->newInstanceWithoutConstructor();
+		$prop     = ( new \ReflectionClass( StarterBase::class ) )->getProperty( 'remove_wpml_generator' );
+
+		$this->assertTrue( $prop->getValue( $instance ) );
+	}
+
+	public function test_remove_wpml_generator_hooks_wp_head_before_the_tag_prints(): void {
+		$actions = [];
+		Functions\when( 'add_action' )->alias( function ( $hook, $callback, $priority = 10 ) use ( &$actions ) {
+			$actions[ $hook ] = [ 'callback' => $callback, 'priority' => $priority ];
+		} );
+		Functions\when( 'add_filter' )->justReturn( true );
+
+		$instance = $this->bareInstanceWithAllFlagsOff();
+		$this->setProperty( $instance, 'remove_wpml_generator', true );
+
+		$this->invokeRegisterSecurityHardeningHooks( $instance );
+
+		$this->assertSame( [ $instance, 'remove_wpml_generator_tag' ], $actions['wp_head']['callback'] );
+		// WPML prints the tag from wp_head at the default priority 10.
+		$this->assertLessThan( 10, $actions['wp_head']['priority'] );
+	}
+
+	public function test_remove_wpml_generator_tag_unhooks_sitepress_callback(): void {
+		$sitepress            = new \stdClass();
+		$GLOBALS['sitepress'] = $sitepress;
+		$removed              = [];
+		Functions\when( 'remove_action' )->alias( function ( $hook, $callback ) use ( &$removed ) {
+			$removed[] = [ $hook, $callback ];
+			return true;
+		} );
+
+		$this->bareInstanceWithAllFlagsOff()->remove_wpml_generator_tag();
+		unset( $GLOBALS['sitepress'] );
+
+		$this->assertSame( [ [ 'wp_head', [ $sitepress, 'meta_generator_tag' ] ] ], $removed );
+	}
+
+	public function test_remove_wpml_generator_tag_noops_without_wpml(): void {
+		unset( $GLOBALS['sitepress'] );
+		Functions\expect( 'remove_action' )->never();
+
+		$this->bareInstanceWithAllFlagsOff()->remove_wpml_generator_tag();
+
+		$this->addToAssertionCount( 1 );
 	}
 
 	public function test_disable_author_sitemap_registers_provider_filter(): void {

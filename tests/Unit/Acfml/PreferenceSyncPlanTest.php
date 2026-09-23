@@ -202,4 +202,56 @@ class PreferenceSyncPlanTest extends TestCase {
 
 		$this->assertSame( 1, $calls );
 	}
+
+	/**
+	 * WPML 5 resolves an unknown meta key's preference at runtime through
+	 * `wpml_resolve_custom_field_preferences`, and ACFML 5 feeds it rules for
+	 * repeater rows. A dictionary entry that repeats the resolved preference
+	 * adds nothing, and ACFML's own upgrade deletes exactly such entries.
+	 */
+	public function test_drops_entries_core_already_resolves_to_the_same_preference(): void {
+		$patch = [
+			'rows_0_title'  => PreferenceSyncPlan::PREF_TRANSLATE,
+			'_rows_0_title' => PreferenceSyncPlan::PREF_COPY,
+			'hero_image'    => PreferenceSyncPlan::PREF_COPY,
+		];
+
+		$result = PreferenceSyncPlan::withoutCoreResolved( $patch, [
+			'rows_0_title'  => PreferenceSyncPlan::PREF_TRANSLATE,
+			'_rows_0_title' => PreferenceSyncPlan::PREF_COPY,
+		] );
+
+		$this->assertSame( [ 'hero_image' => PreferenceSyncPlan::PREF_COPY ], $result );
+	}
+
+	/**
+	 * A dictionary entry wins over the runtime resolver, so a key the field
+	 * definition wants handled differently must still be written.
+	 */
+	public function test_keeps_entries_core_resolves_to_a_different_preference(): void {
+		$patch = [ 'rows_0_title' => PreferenceSyncPlan::PREF_COPY ];
+
+		$result = PreferenceSyncPlan::withoutCoreResolved( $patch, [ 'rows_0_title' => '2' ] );
+
+		$this->assertSame( $patch, $result );
+	}
+
+	public function test_empty_resolution_keeps_the_whole_patch(): void {
+		$patch = [ 'a' => 1, '_a' => 1 ];
+
+		$this->assertSame( $patch, PreferenceSyncPlan::withoutCoreResolved( $patch, [] ) );
+	}
+
+	/**
+	 * A companion's preference in the patch is the plan's own default, not a
+	 * field definition. ACFML answers companions from the group's mode — copy
+	 * once in localization mode — so writing the default would override it.
+	 */
+	public function test_drops_companion_whenever_core_answers_it(): void {
+		$patch = [ '_rows_0_title' => PreferenceSyncPlan::PREF_COPY ];
+
+		$result = PreferenceSyncPlan::withoutCoreResolved( $patch, [ '_rows_0_title' => PreferenceSyncPlan::PREF_COPY_ONCE ] );
+
+		$this->assertSame( [], $result );
+	}
 }

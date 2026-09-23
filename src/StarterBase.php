@@ -173,8 +173,9 @@ class StarterBase extends Site {
 	 * existing site onto this version.
 	 *
 	 * Retiring it is a one-line default flip once ACFML memoizes its lookup.
-	 * Not fixed in acfml 3.0-b.1: every file on the hot path is byte-identical
-	 * to 2.2.4, and so is the bundled `wpml/fp`.
+	 * Still not fixed in ACFML 5.0.0 (WPML 5.0.2): on a site with 358 fields,
+	 * loading every field group took 64 ms with the translation and 11 ms
+	 * without it.
 	 */
 	protected bool $acfml_skip_frontend_field_translation = true;
 
@@ -357,6 +358,22 @@ class StarterBase extends Site {
 
 	/** @var bool Filter the_generator to empty so the WP version disappears from wp_head and feeds. */
 	protected bool $remove_wp_generator = true;
+
+	/**
+	 * Remove WPML's `<meta name="generator" content="WPML ver:… stt:…">` from
+	 * wp_head. It prints the exact plugin version on every front-end page, the
+	 * same disclosure `$remove_wp_generator` closes for core. WPML ships
+	 * security fixes regularly (4.9.6, 4.9.7, 5.0), so the version string
+	 * tells a scanner which sites still run an unpatched build.
+	 *
+	 * Default ON — an owner-approved exception to the default-off flag
+	 * doctrine (see AGENTS.md). It removes one meta tag nobody reads except a
+	 * scanner, and it matches the default-on `$remove_wp_generator`. No-ops
+	 * without WPML. Set `false` to keep the tag.
+	 *
+	 * @var bool
+	 */
+	protected bool $remove_wpml_generator = true;
 
 	/** @var bool Remove the core author (users) sitemap (/wp-sitemap-users-1.xml), which lists author slugs regardless of ?author= blocking. Default on; set false on sites that intentionally expose author archives for SEO. */
 	protected bool $disable_author_sitemap = true;
@@ -620,28 +637,45 @@ class StarterBase extends Site {
 
 	/**
 	 * Keep the theme's gettext text-domain authoritative over WPML String
-	 * Translation. WPML ST scans the theme's compiled `.mo`, registers every
-	 * string it finds, and then compiles its own overriding
-	 * `wp-content/languages/wpml/<domain>-<locale>.mo` — which WPML's
-	 * Just-In-Time MO loader loads *instead of* the theme's own `.mo` at
-	 * runtime. That silently desyncs the theme's `.po` source of truth:
-	 * editing the `.po` and rebuilding the `.mo` has no visible effect,
-	 * because WPML's separately-compiled `.mo` still wins (observed in
-	 * production — a corrected string kept rendering its stale value).
+	 * Translation. WPML ST registers strings it sees at runtime and compiles
+	 * its own `wp-content/languages/wpml/<domain>-<locale>.mo` for any domain
+	 * that has ST translations. WPML then loads that file for the domain, so
+	 * a corrected string in the theme's `.po` can keep rendering its stale ST
+	 * value (observed in production).
 	 *
 	 * The fix runtime-injects the theme's text-domain into
-	 * `icl_sitepress_settings['st']['wpml_st_auto_reg_excluded_contexts']`
-	 * via a filter on `option_icl_sitepress_settings` — no `update_option()`
-	 * call, nothing persisted to the database. A domain in that list is (a)
-	 * excluded from WPML ST auto-registration, and (b) skipped by WPML's
-	 * Just-In-Time `.mo` loader, so the theme's own `load_theme_textdomain()`
-	 * call serves its `.mo` directly and stays the single source of truth.
+	 * `icl_st_settings['wpml_st_auto_reg_excluded_contexts']`, the list String
+	 * Translation reads through `WPML_ST_Settings`. Three filters cooperate:
+	 * `option_icl_st_settings` for a stored option, `default_option_icl_st_settings`
+	 * for a site where ST has not saved a setting yet, and
+	 * `pre_update_option_icl_st_settings`, which strips the injected domain
+	 * again before ST writes the array back. Nothing is persisted, so switching
+	 * the flag off restores the stored list exactly. While the flag is on it
+	 * owns the theme domain's entry: a save that adds the domain for the first
+	 * time is stripped too, because ST's own screen echoes the injected entry
+	 * back and the two cannot be told apart. To store the entry for good,
+	 * switch the flag off first.
+	 *
+	 * The list does not live under `icl_sitepress_settings['st']`. No String
+	 * Translation release from 3.2 to 5.0 reads it from there.
+	 *
+	 * The exclusion stops the legacy auto-registration path
+	 * (`WPML_Register_String_Filter`) and ST's gettext hooks from handling
+	 * the theme's strings. It does not stop WPML loading a compiled `.mo`
+	 * that already exists, and WordPress answers from the first file loaded,
+	 * so the flag also refuses that file at `pre_load_textdomain` — see
+	 * {@see wpml_keep_theme_mo_authoritative()}. That is the part that makes
+	 * the git file win. String Translation 3.5.x also registers strings the
+	 * theme's `.mo` does not translate through a second path that ignores the
+	 * list; ST 5.0 checks the list there too. On 3.5.x a complete catalogue
+	 * keeps the ST tables clean, and `wp timber-kit wpml-cleanup-theme-domain`
+	 * removes what was registered.
 	 *
 	 * Default ON — a deliberate exception to the default-off flag doctrine:
 	 * the theme's `.po`/`.mo` pair is already version-controlled and
 	 * dev-managed, so WPML ST managing the same strings a second time is
 	 * pure redundancy with a silent-override failure mode. No-ops without
-	 * WPML — `option_icl_sitepress_settings` is simply never read. Opt out
+	 * String Translation — `icl_st_settings` is simply never read. Opt out
 	 * with `false` in the project's `Base` if a project deliberately wants
 	 * translators to manage theme strings through WPML ST instead of the
 	 * `.po`/`.mo` pipeline.
@@ -649,6 +683,19 @@ class StarterBase extends Site {
 	 * @var bool
 	 */
 	protected bool $wpml_theme_domain_authoritative = true;
+
+	/**
+	 * Whether the theme's text-domain was already in the stored String
+	 * Translation exclusion list, as read before this class injected it.
+	 * {@see wpml_keep_theme_domain_exclusion_runtime_only()} keeps a stored
+	 * entry and strips an injected one.
+	 *
+	 * This relies on core's order inside update_option(): it calls
+	 * get_option() — which runs the `option_` or `default_option_` filter and
+	 * sets this — immediately before `pre_update_option_`. Every save re-reads,
+	 * so the value is fresh for each one. Do not read it anywhere else.
+	 */
+	private bool $wpml_st_theme_domain_stored = false;
 
 	/**
 	 * Clear the whole Breeze page cache when a nav menu is saved
@@ -1339,7 +1386,11 @@ class StarterBase extends Site {
 			add_filter( 'wpml_tm_translation_job_data', array( $this, 'wpml_skip_empty_translation_job_fields' ) );
 		}
 		if ( $this->wpml_theme_domain_authoritative ) {
-			add_filter( 'option_icl_sitepress_settings', array( $this, 'wpml_exclude_theme_domain_from_st' ) );
+			add_filter( 'option_icl_st_settings', array( $this, 'wpml_exclude_theme_domain_from_st' ) );
+			add_filter( 'default_option_icl_st_settings', array( $this, 'wpml_exclude_theme_domain_from_st_default' ) );
+			add_filter( 'pre_update_option_icl_st_settings', array( $this, 'wpml_keep_theme_domain_exclusion_runtime_only' ) );
+			// Runs before override_load_textdomain, where String Translation loads its compiled file.
+			add_filter( 'pre_load_textdomain', array( $this, 'wpml_keep_theme_mo_authoritative' ), 10, 3 );
 		}
 	}
 
@@ -1410,6 +1461,10 @@ class StarterBase extends Site {
 		if ( $this->remove_wp_generator ) {
 			// Filtering the_generator suppresses the version string in wp_head AND in every feed generator.
 			add_filter( 'the_generator', '__return_empty_string' );
+		}
+		if ( $this->remove_wpml_generator ) {
+			// WPML prints its tag from wp_head at priority 10; unhook it before that runs.
+			add_action( 'wp_head', array( $this, 'remove_wpml_generator_tag' ), 0 );
 		}
 		if ( $this->disable_author_sitemap || $this->disable_author_archives ) {
 			// Drops /wp-sitemap-users-1.xml — the third username-enumeration vector alongside REST + ?author=.
@@ -2695,6 +2750,10 @@ class StarterBase extends Site {
 
 			// https://wpml.org/forums/topic/how-to-remove-loading-of-blocks-styling/
 			// remove wp-content/plugins/sitepress-multilingual-cms/dist/css/blocks/styles.css
+			// A no-op from WPML 4.9.4: the Loader then enqueues this handle in admin
+			// only and prints block CSS inline where a WPML block renders. Older
+			// builds still enqueue it on the front end, so the call stays until no
+			// consumer runs WPML below 4.9.4.
 			if ( class_exists( 'WPML\BlockEditor\Loader' ) ) {
 				wp_deregister_style( \WPML\BlockEditor\Loader::SCRIPT_NAME );
 			}
@@ -3615,47 +3674,148 @@ class StarterBase extends Site {
 
 	/**
 	 * Runtime-inject the theme's text-domain into WPML String Translation's
-	 * excluded-contexts list so WPML neither registers the theme's strings
-	 * nor compiles an overriding `.mo` for them — the theme's own `.po`/`.mo`
-	 * stays the single source of truth. See the
-	 * `$wpml_theme_domain_authoritative` property docblock for the full
-	 * rationale.
+	 * excluded-domains list. See the `$wpml_theme_domain_authoritative`
+	 * property docblock for the full rationale.
 	 *
-	 * Filters the option at read time only — nothing is persisted back to
-	 * the database, so this never calls `get_option()`/`update_option()`
-	 * itself (that would recurse through this same filter and/or write
-	 * unnecessarily on every page load).
+	 * Filters the option at read time only. It never calls `get_option()` or
+	 * `update_option()` itself — that would recurse through this same filter.
 	 *
 	 * No-ops when `$this->theme_name` is empty — an unresolved theme name
-	 * (e.g. `resolveThemeName()` failing before `register()` sets it) must
-	 * never inject a bare `''` into the excluded-contexts list, which would
-	 * excuse WPML from registering *every* domain-less string.
+	 * must never inject a bare `''` into the list, which would excuse WPML
+	 * from registering *every* domain-less string.
 	 *
-	 * Hooked to `option_icl_sitepress_settings`.
+	 * Hooked to `option_icl_st_settings`.
 	 *
-	 * @param mixed $settings The `icl_sitepress_settings` option value.
+	 * @param mixed $settings The stored `icl_st_settings` value.
 	 * @return mixed Settings with the theme's text-domain added to
-	 *               `st.wpml_st_auto_reg_excluded_contexts`.
+	 *               `wpml_st_auto_reg_excluded_contexts`.
 	 */
 	public function wpml_exclude_theme_domain_from_st( $settings ) {
 		if ( ! is_array( $settings ) ) {
 			return $settings;
 		}
 
-		if ( ! isset( $settings['st'] ) || ! is_array( $settings['st'] ) ) {
-			$settings['st'] = array();
-		}
-
-		$excluded = isset( $settings['st']['wpml_st_auto_reg_excluded_contexts'] ) && is_array( $settings['st']['wpml_st_auto_reg_excluded_contexts'] )
-			? $settings['st']['wpml_st_auto_reg_excluded_contexts']
+		$excluded = isset( $settings['wpml_st_auto_reg_excluded_contexts'] ) && is_array( $settings['wpml_st_auto_reg_excluded_contexts'] )
+			? $settings['wpml_st_auto_reg_excluded_contexts']
 			: array();
 
-		if ( '' !== (string) $this->theme_name && ! in_array( $this->theme_name, $excluded, true ) ) {
+		$this->wpml_st_theme_domain_stored = '' !== (string) $this->theme_name && in_array( $this->theme_name, $excluded, true );
+
+		if ( '' !== (string) $this->theme_name && ! $this->wpml_st_theme_domain_stored ) {
 			$excluded[] = $this->theme_name;
-			$settings['st']['wpml_st_auto_reg_excluded_contexts'] = array_values( $excluded );
+			$settings['wpml_st_auto_reg_excluded_contexts'] = array_values( $excluded );
 		}
 
 		return $settings;
+	}
+
+	/**
+	 * Same injection for a site where String Translation has not stored
+	 * `icl_st_settings` yet. get_option() answers a missing option from this
+	 * filter and never runs the `option_` one.
+	 *
+	 * Hooked to `default_option_icl_st_settings`.
+	 *
+	 * @param mixed $default The default get_option() would return.
+	 * @return mixed
+	 */
+	public function wpml_exclude_theme_domain_from_st_default( $default ) {
+		if ( '' === (string) $this->theme_name ) {
+			return $default;
+		}
+
+		return $this->wpml_exclude_theme_domain_from_st( is_array( $default ) ? $default : array() );
+	}
+
+	/**
+	 * Strip the injected text-domain before String Translation writes
+	 * `icl_st_settings` back. `WPML_ST_Settings::save_settings()` saves the
+	 * whole array it read, so without this the domain would be persisted on
+	 * the next save and outlive the flag. A domain that was already stored
+	 * stays; one added for the first time while the flag is on is stripped
+	 * (see the property docblock).
+	 *
+	 * Side effect on a site where the stored array equals the injected
+	 * default shape: update_option() compares the default with the old value,
+	 * finds them identical and saves through add_option(). The value is still
+	 * written, but the `add_option` actions fire instead of `update_option`.
+	 *
+	 * Hooked to `pre_update_option_icl_st_settings`.
+	 *
+	 * @param mixed $value The value about to be saved.
+	 * @return mixed
+	 */
+	public function wpml_keep_theme_domain_exclusion_runtime_only( $value ) {
+		if ( ! is_array( $value ) || $this->wpml_st_theme_domain_stored || '' === (string) $this->theme_name ) {
+			return $value;
+		}
+
+		if ( isset( $value['wpml_st_auto_reg_excluded_contexts'] ) && is_array( $value['wpml_st_auto_reg_excluded_contexts'] ) ) {
+			$value['wpml_st_auto_reg_excluded_contexts'] = array_values( array_filter(
+				$value['wpml_st_auto_reg_excluded_contexts'],
+				fn( $domain ) => $domain !== $this->theme_name
+			) );
+		}
+
+		return $value;
+	}
+
+	/**
+	 * Refuse String Translation's compiled `.mo` for the theme's text-domain,
+	 * so the theme's own `.mo` from git answers every string.
+	 *
+	 * String Translation compiles `WP_LANG_DIR/wpml/<domain>-<locale>.mo` for
+	 * any domain with ST translations and loads it from its own
+	 * `override_load_textdomain` handler, just before WordPress loads the
+	 * theme's file. WordPress 6.5+ answers a string from the first file loaded
+	 * for the domain, so the compiled file wins. The exclusion list does not
+	 * stop this: the loader never reads it. Every ST load path (first load,
+	 * reload after a language switch, the theme preload) goes through
+	 * `load_textdomain()`, so this one check covers all of them.
+	 *
+	 * `pre_load_textdomain` (WP 6.3+) rather than `override_load_textdomain`:
+	 * a non-null answer ends load_textdomain() at once, so no later callback
+	 * can undo it, and it runs before ST's handler without a priority race.
+	 *
+	 * The file stays on disk; `wp timber-kit wpml-cleanup-theme-domain`
+	 * removes it together with the ST rows.
+	 *
+	 * Hooked to `pre_load_textdomain` (gated by
+	 * `$wpml_theme_domain_authoritative`).
+	 *
+	 * @param bool|null $loaded Null to let WordPress load the file; an earlier
+	 *                          callback's answer otherwise.
+	 * @param string    $domain Text domain being loaded.
+	 * @param string    $mofile Path of the `.mo` file being loaded.
+	 * @return bool|null True to skip the WPML file; `$loaded` otherwise.
+	 */
+	public function wpml_keep_theme_mo_authoritative( $loaded, $domain, $mofile ) {
+		if ( null !== $loaded || '' === (string) $this->theme_name || $domain !== $this->theme_name || ! is_string( $mofile ) ) {
+			return $loaded;
+		}
+
+		$lang_dir = defined( 'WP_LANG_DIR' ) ? WP_LANG_DIR : WP_CONTENT_DIR . '/languages';
+		$wpml_dir = rtrim( str_replace( '\\', '/', $lang_dir ), '/' ) . '/wpml/';
+
+		return str_starts_with( str_replace( '\\', '/', $mofile ), $wpml_dir ) ? true : null;
+	}
+
+	/**
+	 * Unhook WPML's generator meta tag. WPML registers it on the `$sitepress`
+	 * instance, so it can only be removed with that same object.
+	 *
+	 * Hooked to `wp_head` at priority 0 (gated by `$remove_wpml_generator`).
+	 *
+	 * @return void
+	 */
+	public function remove_wpml_generator_tag() {
+		global $sitepress;
+
+		if ( ! is_object( $sitepress ) ) {
+			return;
+		}
+
+		remove_action( 'wp_head', array( $sitepress, 'meta_generator_tag' ) );
 	}
 
 	/**

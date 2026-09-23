@@ -613,6 +613,17 @@ are never overwritten). Keys resolving to **different** preferences across
 posts are reported as conflicts and skipped — never guessed. Scope is postmeta
 of the current site; on multisite run per-site via `wp --url=…`.
 
+**WPML 5.** WPML 5 resolves a meta key with no dictionary entry at runtime
+(`wpml_resolve_custom_field_preferences`), and ACFML 5 supplies rules for
+repeater and group rows. On first admin load ACFML's `CollapseSubfieldSettings`
+upgrade deletes the dictionary entries those rules already cover. The command
+detects the resolver (no version check) and leaves out every key it already
+answers with the same preference, so it does not write those entries back. It
+still writes top-level keys, keys the rules do not cover, and keys whose field
+definition asks for a different preference. A `_<key>` companion is left out
+whenever the resolver answers it: its Copy value is only the command's default,
+and ACFML answers companions Copy once in localization mode. On WPML 4 nothing changes.
+
 Applying newly-translatable keys triggers WPML's ProcessNewTranslatableFields
 background task — affected translations get flagged as needing update, which
 is the point: translators see the previously invisible backlog.
@@ -850,9 +861,29 @@ writes it forward-dated).
 ## WPML theme-domain cleanup
 
 Once a project runs with `$wpml_theme_domain_authoritative` on — the default —
-WPML stops registering the theme's own strings with String Translation, and the
-`.mo` files the theme ships become the single source. Rows registered before
-that switch stay behind, and a stale ST row can still win at runtime.
+the theme's text domain sits in String Translation's excluded-domains list
+(`icl_st_settings`), injected at read time and never saved. The legacy
+auto-registration then skips the theme's strings, and the `.mo` files the
+theme ships become the single source. WPML still loads its compiled
+`wp-content/languages/wpml/<domain>-<locale>.mo` for an excluded domain, and
+WordPress answers from the first file loaded, so the flag also refuses that
+file at `pre_load_textdomain`. The theme's `.mo` from git therefore wins
+at runtime even where a compiled file exists.
+
+This command cleans up what is left: rows registered before the switch, which
+translators still see in the ST screens, and the compiled files on disk.
+String Translation 3.5.x also registers untranslated strings through a second
+path that ignores the list, so there a complete theme catalogue matters, and
+the command is worth re-running after strings were added. ST 5.0 checks the
+list on that path too.
+
+While the flag is on, it owns the theme domain's entry in the list: the entry
+is never saved, even when an admin ticks it in the ST screen. Switch the flag
+off first to store it for good.
+
+Earlier versions of the flag filtered `icl_sitepress_settings['st']`. String
+Translation never reads the list from there, so on those versions the flag
+excluded nothing.
 
 ```bash
 wp timber-kit wpml-cleanup-theme-domain             # dry-run report
@@ -1345,6 +1376,7 @@ For an admin label without a dedicated setup hook (e.g. an options-page `page_ti
 | `$disable_404_permalink_guess` | bool | `true` | **Reverses core.** Stops `redirect_guess_404_permalink()` turning a 404 into a redirect. Core matches the requested slug as a PREFIX (`post_name LIKE 'about%'`) and redirects to whatever comes back first, so a reader following a dead link is told the page moved and then shown something else — worse than being told it is gone. The query has a trailing wildcard, so it cannot use the `post_name` index, and it runs on every 404 carrying a name: a cost any visitor can ask for repeatedly. Genuine canonical redirects are untouched — the guess is the last thing `redirect_canonical()` tries, after trailing-slash, `?p=ID`-to-slug and category-base. Set `false` on a site that renames slugs without leaving redirects behind and relies on the guess |
 | `$disable_file_editing` | bool | `true` | Define `DISALLOW_FILE_EDIT` so the Theme Editor and Plugin Editor screens are removed from `wp-admin` |
 | `$remove_wp_generator` | bool | `true` | Strip the WordPress version from the `the_generator` filter (covers both `<meta name="generator">` and RSS/Atom feed generators) |
+| `$remove_wpml_generator` | bool | `true` | Remove WPML's `<meta name="generator" content="WPML ver:…">` from `wp_head`. It prints the exact plugin version on every front-end page. No-op without WPML |
 
 ### Media Processing
 

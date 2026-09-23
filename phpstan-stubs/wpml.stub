@@ -28,3 +28,15 @@ class SitePress {
 		return array();
 	}
 }
+
+/**
+ * WPML 5.0+: preference for meta keys without a dictionary entry, as
+ * answered by the `wpml_resolve_custom_field_preferences` filter chain.
+ *
+ * @param array<int, string> $meta_keys
+ * @param string             $element_type 'post' or 'term'.
+ * @return array<string, int>
+ */
+function wpml_resolve_custom_field_preferences( array $meta_keys, $element_type = 'post' ) {
+	return array();
+}

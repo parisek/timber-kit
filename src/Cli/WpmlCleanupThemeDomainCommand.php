@@ -14,16 +14,19 @@ use Parisek\TimberKit\Wpml\ThemeDomainCleanupPlan;
  * Once a project runs with `$wpml_theme_domain_authoritative` ON (the
  * default — see
  * {@see \Parisek\TimberKit\StarterBase::wpml_exclude_theme_domain_from_st()}),
- * WPML stops registering new strings for the theme's domain and stops
- * compiling an overriding `.mo` for it. Rows String Translation had already
- * registered *before* the exclusion took effect are left behind: inert
- * (WPML's Just-In-Time MO loader skips the excluded domain, and ST no
- * longer surfaces them to translators) but still occupying
- * `icl_strings` / `icl_string_translations` / `icl_string_positions`, plus
- * whatever compiled `.mo` / `.l10n.php` / `.json` files WPML already wrote
- * to `wp-content/languages/wpml/`. This command removes both, so the
- * theme's own `.po`/`.mo` pair is unambiguously the only place translators
- * and developers need to look.
+ * the legacy String Translation auto-registration stops registering new
+ * strings for the theme's domain. Rows registered *before* that are left
+ * behind in `icl_strings` / `icl_string_translations` /
+ * `icl_string_positions`, plus whatever compiled `.mo` / `.l10n.php` /
+ * `.json` files WPML already wrote to `wp-content/languages/wpml/`. The
+ * flag refuses the compiled file at runtime, but the rows still show up to
+ * translators in the ST screens and the files stay on disk. This command
+ * removes both, so the theme's own `.po`/`.mo`
+ * pair is unambiguously the only place translators and developers need to
+ * look. On String Translation 3.5.x, run it again whenever ST has
+ * registered theme strings anew: that version registers untranslated
+ * strings through a second path that ignores the exclusion list. ST 5.0
+ * checks the list on that path too.
  *
  * Verified against a real site (fellows): 102 `icl_strings`,
  * 69 `icl_string_translations`, and 27 `icl_string_positions` rows existed

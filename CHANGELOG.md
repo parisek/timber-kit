@@ -6,6 +6,63 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `$remove_wpml_generator` (default **on**) removes WPML's
+  `<meta name="generator" content="WPML ver:… stt:…">` from `wp_head`. The tag
+  prints the exact plugin version on every front-end page.
+  On by default, so the tag disappears on upgrade; set the flag to `false`
+  to keep it.
+
+### Changed
+
+- **Upgrade note:** `$wpml_theme_domain_authoritative` is on by default and,
+  after the fixes below, finally does what it describes on every WPML site.
+  String Translation stops registering and translating the theme's strings
+  from its own tables, and the theme's `.mo` from git answers them. A project
+  that manages theme strings in String Translation instead of the `.po` must
+  set the flag to `false` in its `Base` before upgrading.
+- `wp timber-kit acfml-sync-preferences` leaves out keys that WPML 5 already
+  resolves at runtime to the same preference. WPML 5 answers keys without a
+  dictionary entry through `wpml_resolve_custom_field_preferences`, and ACFML 5
+  supplies rules for repeater and group rows; ACFML's `CollapseSubfieldSettings`
+  upgrade deletes the entries those rules cover. Writing them back fought that
+  upgrade: on one site the rules covered 1240 of 1256 repeater-row entries,
+  all with the same preference. A `_<key>` companion is left out whenever
+  the resolver answers it, because its Copy value is the command's default,
+  not a field definition, and ACFML answers companions Copy once in
+  localization mode. The resolver is feature-detected, so WPML 4
+  sites behave as before.
+
+### Fixed
+
+- `$wpml_theme_domain_authoritative` now excludes the theme's text domain
+  from WPML String Translation. It filtered
+  `icl_sitepress_settings['st']['wpml_st_auto_reg_excluded_contexts']`, but
+  String Translation reads that list from the separate `icl_st_settings`
+  option — in every release from 3.2 to 5.0 — so the flag never excluded
+  anything. Measured on a WPML 5.0.2 site: the filtered option carried the
+  domain while `AutoRegisterSettings::getExcludedDomains()` returned `[]`,
+  and 7 theme strings had been registered again after a cleanup. The flag now
+  filters `option_icl_st_settings`, `default_option_icl_st_settings` (the
+  option does not exist until String Translation first saves a setting) and
+  `pre_update_option_icl_st_settings`, which strips the injected domain
+  before String Translation writes its whole settings array back, so nothing
+  is persisted. Verified against WPML 5.0.2: String Translation reports the
+  domain as excluded, and a settings save leaves it out of the database. The
+  docblocks no longer claim that WPML's MO loader skips an excluded domain;
+  it does not.
+- `$wpml_theme_domain_authoritative` now makes the theme's `.mo` from git
+  win at runtime. String Translation loads its compiled
+  `wp-content/languages/wpml/<domain>-<locale>.mo` for any domain that has
+  one, excluded or not, just before WordPress loads the theme's file, and
+  WordPress 6.5+ answers from the first file loaded — so a stale ST
+  translation beat the corrected `.po`. The flag now refuses that file for
+  the theme's domain at `pre_load_textdomain`, which runs before ST's
+  `override_load_textdomain` handler and ends the load. Tested live on WPML 5.0.2: with a compiled file carrying a
+  changed string, the page showed the ST value; with the guard, the git
+  value. Other domains and the theme's own file are untouched.
+
 ## [1.58.0] - 2026-09-22
 
 ### Added
