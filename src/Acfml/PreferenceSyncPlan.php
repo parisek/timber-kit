@@ -137,6 +137,11 @@ class PreferenceSyncPlan {
 	 * resolver answers differently stays in the patch: the dictionary wins
 	 * over the resolver, so the definition's preference must be written.
 	 *
+	 * A `_<key>` companion is dropped whenever the resolver answers it at all.
+	 * Its preference in the patch is this plan's default (Copy), not a field
+	 * definition, and ACFML answers companions from the group's mode — Copy
+	 * once in localization mode — so writing the default would override it.
+	 *
 	 * @param array<string, int>        $patch    Output of {@see patch()}.
 	 * @param array<string, int|string> $resolved Resolver answer, meta key => preference.
 	 * @return array<string, int>
@@ -144,7 +149,8 @@ class PreferenceSyncPlan {
 	public static function withoutCoreResolved( array $patch, array $resolved ): array {
 		return array_filter(
 			$patch,
-			static fn ( int $pref, string $key ): bool => ! isset( $resolved[ $key ] ) || (int) $resolved[ $key ] !== $pref,
+			static fn ( int $pref, string $key ): bool => ! isset( $resolved[ $key ] )
+				|| ( ! str_starts_with( $key, '_' ) && (int) $resolved[ $key ] !== $pref ),
 			ARRAY_FILTER_USE_BOTH
 		);
 	}

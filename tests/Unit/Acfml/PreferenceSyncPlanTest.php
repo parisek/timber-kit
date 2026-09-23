@@ -241,4 +241,17 @@ class PreferenceSyncPlanTest extends TestCase {
 
 		$this->assertSame( $patch, PreferenceSyncPlan::withoutCoreResolved( $patch, [] ) );
 	}
+
+	/**
+	 * A companion's preference in the patch is the plan's own default, not a
+	 * field definition. ACFML answers companions from the group's mode — copy
+	 * once in localization mode — so writing the default would override it.
+	 */
+	public function test_drops_companion_whenever_core_answers_it(): void {
+		$patch = [ '_rows_0_title' => PreferenceSyncPlan::PREF_COPY ];
+
+		$result = PreferenceSyncPlan::withoutCoreResolved( $patch, [ '_rows_0_title' => PreferenceSyncPlan::PREF_COPY_ONCE ] );
+
+		$this->assertSame( [], $result );
+	}
 }
