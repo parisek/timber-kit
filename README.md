@@ -850,9 +850,20 @@ writes it forward-dated).
 ## WPML theme-domain cleanup
 
 Once a project runs with `$wpml_theme_domain_authoritative` on — the default —
-WPML stops registering the theme's own strings with String Translation, and the
-`.mo` files the theme ships become the single source. Rows registered before
-that switch stay behind, and a stale ST row can still win at runtime.
+the theme's text domain sits in String Translation's excluded-domains list
+(`icl_st_settings`), injected at read time and never saved. The legacy
+auto-registration then skips the theme's strings, and the `.mo` files the
+theme ships become the single source. Two gaps remain, and this command closes
+them: rows registered before the switch stay behind, and WPML still loads a
+compiled `wp-content/languages/wpml/<domain>-<locale>.mo` for an excluded
+domain, so a stale ST row can win at runtime. String Translation 3.5+ also
+registers untranslated strings through a second path that ignores the list,
+so a complete theme catalogue matters, and the command is worth re-running
+after strings were added.
+
+Earlier versions of the flag filtered `icl_sitepress_settings['st']`. String
+Translation never reads the list from there, so on those versions the flag
+excluded nothing.
 
 ```bash
 wp timber-kit wpml-cleanup-theme-domain             # dry-run report

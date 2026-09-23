@@ -10,18 +10,17 @@ use Tests\Unit\StarterBaseTestCase;
 
 /**
  * Covers the `$wpml_theme_domain_authoritative` flag (default on): hook wiring
- * inside registerMiscHooks() and the option_icl_sitepress_settings callback
- * that excludes the theme's text-domain from WPML String Translation.
+ * inside registerMiscHooks() and the `icl_st_settings` callbacks that exclude
+ * the theme's text-domain from WPML String Translation auto-registration.
  *
- * Why it matters: WPML ST scans the theme's compiled `.mo`, registers its
- * strings, and compiles its own overriding
- * `wp-content/languages/wpml/<domain>-<locale>.mo` — which WPML's
- * Just-In-Time MO loader serves instead of the theme's own `.mo` at runtime.
- * That silently desyncs the theme's `.po` source of truth. Excluding the
- * theme's domain from ST's `wpml_st_auto_reg_excluded_contexts` keeps the
- * theme `.po`/`.mo` as the single source.
+ * WPML ST reads its excluded domains from the `icl_st_settings` option
+ * (`WPML_ST_Settings::SETTINGS_KEY`), a flat array. The list is not nested
+ * under `icl_sitepress_settings['st']`, and nothing in WPML reads it from
+ * there. That is the same in every String Translation release from 3.2 to 5.0.
  */
 class WpmlThemeDomainAuthoritativeTest extends StarterBaseTestCase {
+
+	private const KEY = 'wpml_st_auto_reg_excluded_contexts';
 
 	private function invokeRegisterMiscHooks( StarterBase $instance ): void {
 		$method = ( new \ReflectionClass( StarterBase::class ) )->getMethod( 'registerMiscHooks' );
@@ -38,118 +37,138 @@ class WpmlThemeDomainAuthoritativeTest extends StarterBaseTestCase {
 		return $instance;
 	}
 
-	public function test_filter_registered_by_default(): void {
+	/**
+	 * @return array<string, mixed>
+	 */
+	private function registeredCallbacks( StarterBase $instance ): array {
 		$callbacks = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, $callback, ...$rest ) use ( &$callbacks ) {
 			$callbacks[ $hook ] = $callback;
 		} );
 		Functions\when( 'add_action' )->justReturn( true );
 
-		$instance = $this->bareInstance();
 		$this->invokeRegisterMiscHooks( $instance );
 
-		$this->assertArrayHasKey( 'option_icl_sitepress_settings', $callbacks );
-		$this->assertSame( [ $instance, 'wpml_exclude_theme_domain_from_st' ], $callbacks['option_icl_sitepress_settings'] );
+		return $callbacks;
 	}
 
-	public function test_filter_not_registered_when_flag_opted_out(): void {
-		$filters = [];
-		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
-			$filters[] = $hook;
-		} );
-		Functions\when( 'add_action' )->justReturn( true );
+	public function test_st_settings_filters_registered_by_default(): void {
+		$instance  = $this->bareInstance();
+		$callbacks = $this->registeredCallbacks( $instance );
 
-		$this->invokeRegisterMiscHooks( $this->bareInstance( false ) );
+		$this->assertSame( [ $instance, 'wpml_exclude_theme_domain_from_st' ], $callbacks['option_icl_st_settings'] );
+		$this->assertSame( [ $instance, 'wpml_exclude_theme_domain_from_st_default' ], $callbacks['default_option_icl_st_settings'] );
+		$this->assertSame( [ $instance, 'wpml_keep_theme_domain_exclusion_runtime_only' ], $callbacks['pre_update_option_icl_st_settings'] );
+	}
 
-		$this->assertNotContains( 'option_icl_sitepress_settings', $filters );
+	public function test_sitepress_settings_are_no_longer_filtered(): void {
+		$callbacks = $this->registeredCallbacks( $this->bareInstance() );
+
+		$this->assertArrayNotHasKey( 'option_icl_sitepress_settings', $callbacks );
+	}
+
+	public function test_no_filter_registered_when_flag_opted_out(): void {
+		$callbacks = $this->registeredCallbacks( $this->bareInstance( false ) );
+
+		$this->assertArrayNotHasKey( 'option_icl_st_settings', $callbacks );
+		$this->assertArrayNotHasKey( 'default_option_icl_st_settings', $callbacks );
+		$this->assertArrayNotHasKey( 'pre_update_option_icl_st_settings', $callbacks );
 	}
 
 	public function test_adds_theme_domain_to_empty_settings(): void {
 		$result = $this->bareInstance( true, 'my-theme' )->wpml_exclude_theme_domain_from_st( [] );
 
-		$this->assertSame( [ 'my-theme' ], $result['st']['wpml_st_auto_reg_excluded_contexts'] );
+		$this->assertSame( [ 'my-theme' ], $result[ self::KEY ] );
 	}
 
-	public function test_preserves_existing_excluded_contexts_and_appends_theme_domain(): void {
-		$settings = [
-			'st' => [
-				'wpml_st_auto_reg_excluded_contexts' => [ 'some-plugin' ],
-			],
-		];
+	public function test_preserves_existing_excluded_domains_and_appends_theme_domain(): void {
+		$result = $this->bareInstance( true, 'my-theme' )->wpml_exclude_theme_domain_from_st( [ self::KEY => [ 'some-plugin' ] ] );
 
-		$result = $this->bareInstance( true, 'my-theme' )->wpml_exclude_theme_domain_from_st( $settings );
-
-		$this->assertSame( [ 'some-plugin', 'my-theme' ], $result['st']['wpml_st_auto_reg_excluded_contexts'] );
+		$this->assertSame( [ 'some-plugin', 'my-theme' ], $result[ self::KEY ] );
 	}
 
 	public function test_does_not_duplicate_theme_domain_when_already_excluded(): void {
-		$settings = [
-			'st' => [
-				'wpml_st_auto_reg_excluded_contexts' => [ 'my-theme' ],
-			],
-		];
+		$result = $this->bareInstance( true, 'my-theme' )->wpml_exclude_theme_domain_from_st( [ self::KEY => [ 'my-theme' ] ] );
 
-		$result = $this->bareInstance( true, 'my-theme' )->wpml_exclude_theme_domain_from_st( $settings );
-
-		$this->assertSame( [ 'my-theme' ], $result['st']['wpml_st_auto_reg_excluded_contexts'] );
+		$this->assertSame( [ 'my-theme' ], $result[ self::KEY ] );
 	}
 
 	public function test_preserves_other_settings_keys(): void {
 		$settings = [
-			'st'          => [],
-			'other_key'   => 'untouched',
-			'setup_wizard' => true,
+			'strings_language' => 'cs',
+			'pb_shortcode'     => [ 'x' ],
 		];
 
 		$result = $this->bareInstance( true, 'my-theme' )->wpml_exclude_theme_domain_from_st( $settings );
 
-		$this->assertSame( 'untouched', $result['other_key'] );
-		$this->assertTrue( $result['setup_wizard'] );
+		$this->assertSame( 'cs', $result['strings_language'] );
+		$this->assertSame( [ 'x' ], $result['pb_shortcode'] );
 	}
 
-	public function test_non_array_settings_returned_unchanged(): void {
+	public function test_non_array_stored_value_returned_unchanged(): void {
 		$this->assertSame( 'not-an-array', $this->bareInstance( true )->wpml_exclude_theme_domain_from_st( 'not-an-array' ) );
-		$this->assertFalse( $this->bareInstance( true )->wpml_exclude_theme_domain_from_st( false ) );
+	}
+
+	public function test_excluded_domains_not_an_array_is_treated_as_empty(): void {
+		$result = $this->bareInstance( true, 'my-theme' )->wpml_exclude_theme_domain_from_st( [ self::KEY => 'not-an-array' ] );
+
+		$this->assertSame( [ 'my-theme' ], $result[ self::KEY ] );
 	}
 
 	public function test_empty_theme_name_does_not_inject_empty_string(): void {
-		$result = $this->bareInstance( true, '' )->wpml_exclude_theme_domain_from_st( [] );
+		$result = $this->bareInstance( true, '' )->wpml_exclude_theme_domain_from_st( [ self::KEY => [ 'some-plugin' ] ] );
 
-		$this->assertArrayNotHasKey( 'wpml_st_auto_reg_excluded_contexts', $result['st'] );
+		$this->assertSame( [ 'some-plugin' ], $result[ self::KEY ] );
 	}
 
-	public function test_empty_theme_name_does_not_append_to_existing_excluded_contexts(): void {
-		$settings = [
-			'st' => [
-				'wpml_st_auto_reg_excluded_contexts' => [ 'some-plugin' ],
-			],
-		];
+	/**
+	 * `icl_st_settings` does not exist until String Translation first saves a
+	 * setting. get_option() then answers from the default filter, and the
+	 * option_ filter never runs.
+	 */
+	public function test_missing_option_default_carries_theme_domain(): void {
+		$result = $this->bareInstance( true, 'my-theme' )->wpml_exclude_theme_domain_from_st_default( false );
 
-		$result = $this->bareInstance( true, '' )->wpml_exclude_theme_domain_from_st( $settings );
-
-		$this->assertSame( [ 'some-plugin' ], $result['st']['wpml_st_auto_reg_excluded_contexts'] );
-		$this->assertNotContains( '', $result['st']['wpml_st_auto_reg_excluded_contexts'] );
+		$this->assertSame( [ self::KEY => [ 'my-theme' ] ], $result );
 	}
 
-	public function test_st_key_not_an_array_is_replaced_without_fatal(): void {
-		$settings = [
-			'st' => 'not-an-array',
-		];
-
-		$result = $this->bareInstance( true, 'my-theme' )->wpml_exclude_theme_domain_from_st( $settings );
-
-		$this->assertSame( [ 'my-theme' ], $result['st']['wpml_st_auto_reg_excluded_contexts'] );
+	public function test_missing_option_default_with_empty_theme_name_stays_untouched(): void {
+		$this->assertFalse( $this->bareInstance( true, '' )->wpml_exclude_theme_domain_from_st_default( false ) );
 	}
 
-	public function test_excluded_contexts_not_an_array_is_treated_as_empty(): void {
-		$settings = [
-			'st' => [
-				'wpml_st_auto_reg_excluded_contexts' => 'not-an-array',
-			],
-		];
+	/**
+	 * String Translation writes back the whole array it read, so the injected
+	 * domain would be persisted on its next save and survive the flag being
+	 * switched off.
+	 */
+	public function test_save_strips_domain_that_was_only_injected(): void {
+		$instance = $this->bareInstance( true, 'my-theme' );
+		$read     = $instance->wpml_exclude_theme_domain_from_st( [ self::KEY => [ 'some-plugin' ] ] );
 
-		$result = $this->bareInstance( true, 'my-theme' )->wpml_exclude_theme_domain_from_st( $settings );
+		$saved = $instance->wpml_keep_theme_domain_exclusion_runtime_only( $read );
 
-		$this->assertSame( [ 'my-theme' ], $result['st']['wpml_st_auto_reg_excluded_contexts'] );
+		$this->assertSame( [ 'some-plugin' ], $saved[ self::KEY ] );
+	}
+
+	public function test_save_strips_domain_injected_through_missing_option_default(): void {
+		$instance = $this->bareInstance( true, 'my-theme' );
+		$read     = $instance->wpml_exclude_theme_domain_from_st_default( false );
+
+		$saved = $instance->wpml_keep_theme_domain_exclusion_runtime_only( $read );
+
+		$this->assertSame( [], $saved[ self::KEY ] );
+	}
+
+	public function test_save_keeps_domain_that_was_already_stored(): void {
+		$instance = $this->bareInstance( true, 'my-theme' );
+		$read     = $instance->wpml_exclude_theme_domain_from_st( [ self::KEY => [ 'my-theme', 'some-plugin' ] ] );
+
+		$saved = $instance->wpml_keep_theme_domain_exclusion_runtime_only( $read );
+
+		$this->assertSame( [ 'my-theme', 'some-plugin' ], $saved[ self::KEY ] );
+	}
+
+	public function test_save_passes_non_array_value_through(): void {
+		$this->assertSame( 'x', $this->bareInstance( true )->wpml_keep_theme_domain_exclusion_runtime_only( 'x' ) );
 	}
 }

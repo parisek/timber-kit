@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `$wpml_theme_domain_authoritative` now excludes the theme's text domain
+  from WPML String Translation. It filtered
+  `icl_sitepress_settings['st']['wpml_st_auto_reg_excluded_contexts']`, but
+  String Translation reads that list from the separate `icl_st_settings`
+  option — in every release from 3.2 to 5.0 — so the flag never excluded
+  anything. Measured on a WPML 5.0.2 site: the filtered option carried the
+  domain while `AutoRegisterSettings::getExcludedDomains()` returned `[]`,
+  and 7 theme strings had been registered again after a cleanup. The flag now
+  filters `option_icl_st_settings`, `default_option_icl_st_settings` (the
+  option does not exist until String Translation first saves a setting) and
+  `pre_update_option_icl_st_settings`, which strips the injected domain
+  before String Translation writes its whole settings array back, so nothing
+  is persisted. Verified against WPML 5.0.2: String Translation reports the
+  domain as excluded, and a settings save leaves it out of the database. The
+  docblocks no longer claim that WPML's MO loader skips an excluded domain;
+  it does not, which is why `wp timber-kit wpml-cleanup-theme-domain` is
+  still needed for rows registered earlier.
+
 ## [1.58.0] - 2026-09-22
 
 ### Added
