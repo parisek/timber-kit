@@ -18,10 +18,10 @@ use Parisek\TimberKit\Wpml\ThemeDomainCleanupPlan;
  * strings for the theme's domain. Rows registered *before* that are left
  * behind in `icl_strings` / `icl_string_translations` /
  * `icl_string_positions`, plus whatever compiled `.mo` / `.l10n.php` /
- * `.json` files WPML already wrote to `wp-content/languages/wpml/`. They are
- * not inert: WPML loads a compiled file for any domain that has one,
- * excluded or not, so a stale ST translation keeps winning over the
- * theme's `.mo`. This command removes both, so the theme's own `.po`/`.mo`
+ * `.json` files WPML already wrote to `wp-content/languages/wpml/`. The
+ * flag refuses the compiled file at runtime, but the rows still show up to
+ * translators in the ST screens and the files stay on disk. This command
+ * removes both, so the theme's own `.po`/`.mo`
  * pair is unambiguously the only place translators and developers need to
  * look. Run it again whenever ST has registered theme strings anew — String
  * Translation 3.5+ registers untranslated strings through a second path

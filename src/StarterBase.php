@@ -653,14 +653,16 @@ class StarterBase extends Site {
 	 * The list does not live under `icl_sitepress_settings['st']`. No String
 	 * Translation release from 3.2 to 5.0 reads it from there.
 	 *
-	 * What the exclusion does and does not do: it stops the legacy
-	 * auto-registration path (`WPML_Register_String_Filter`) from registering
-	 * the theme's strings. It does not stop WPML loading a compiled `.mo` that
-	 * already exists, and String Translation 3.5+ has a second registration
-	 * path that ignores this list and skips only strings the theme's `.mo`
-	 * already translates. A complete theme catalogue is therefore the real
-	 * guard; `wp timber-kit wpml-cleanup-theme-domain` removes what was
-	 * registered before.
+	 * The exclusion stops the legacy auto-registration path
+	 * (`WPML_Register_String_Filter`) and ST's gettext hooks from handling
+	 * the theme's strings. It does not stop WPML loading a compiled `.mo`
+	 * that already exists, and WordPress answers from the first file loaded,
+	 * so the flag also refuses that file at `override_load_textdomain` — see
+	 * {@see wpml_keep_theme_mo_authoritative()}. That is the part that makes
+	 * the git file win. String Translation 3.5+ still registers strings the
+	 * theme's `.mo` does not translate through a path that ignores the list,
+	 * so a complete catalogue keeps the ST tables clean;
+	 * `wp timber-kit wpml-cleanup-theme-domain` removes what was registered.
 	 *
 	 * Default ON — a deliberate exception to the default-off flag doctrine:
 	 * the theme's `.po`/`.mo` pair is already version-controlled and
@@ -1375,6 +1377,8 @@ class StarterBase extends Site {
 			add_filter( 'option_icl_st_settings', array( $this, 'wpml_exclude_theme_domain_from_st' ) );
 			add_filter( 'default_option_icl_st_settings', array( $this, 'wpml_exclude_theme_domain_from_st_default' ) );
 			add_filter( 'pre_update_option_icl_st_settings', array( $this, 'wpml_keep_theme_domain_exclusion_runtime_only' ) );
+			// Before String Translation's own handler at 10, which loads its compiled file first.
+			add_filter( 'override_load_textdomain', array( $this, 'wpml_keep_theme_mo_authoritative' ), 5, 3 );
 		}
 	}
 
@@ -3736,6 +3740,41 @@ class StarterBase extends Site {
 		}
 
 		return $value;
+	}
+
+	/**
+	 * Refuse String Translation's compiled `.mo` for the theme's text-domain,
+	 * so the theme's own `.mo` from git answers every string.
+	 *
+	 * String Translation compiles `WP_LANG_DIR/wpml/<domain>-<locale>.mo` for
+	 * any domain with ST translations and loads it from its own
+	 * `override_load_textdomain` handler, just before WordPress loads the
+	 * theme's file. WordPress 6.5+ answers a string from the first file loaded
+	 * for the domain, so the compiled file wins. The exclusion list does not
+	 * stop this: the loader never reads it. Every ST load path (first load,
+	 * reload after a language switch, the theme preload) goes through
+	 * `load_textdomain()`, so this one check covers all of them.
+	 *
+	 * The file stays on disk; `wp timber-kit wpml-cleanup-theme-domain`
+	 * removes it together with the ST rows.
+	 *
+	 * Hooked to `override_load_textdomain` at priority 5 (gated by
+	 * `$wpml_theme_domain_authoritative`).
+	 *
+	 * @param bool   $override Whether an earlier callback already took over.
+	 * @param string $domain   Text domain being loaded.
+	 * @param string $mofile   Path of the `.mo` file being loaded.
+	 * @return bool True to skip loading the file.
+	 */
+	public function wpml_keep_theme_mo_authoritative( $override, $domain, $mofile ) {
+		if ( $override || '' === (string) $this->theme_name || $domain !== $this->theme_name || ! is_string( $mofile ) ) {
+			return $override;
+		}
+
+		$lang_dir = defined( 'WP_LANG_DIR' ) ? WP_LANG_DIR : WP_CONTENT_DIR . '/languages';
+		$wpml_dir = rtrim( str_replace( '\\', '/', $lang_dir ), '/' ) . '/wpml/';
+
+		return str_starts_with( str_replace( '\\', '/', $mofile ), $wpml_dir );
 	}
 
 	/**

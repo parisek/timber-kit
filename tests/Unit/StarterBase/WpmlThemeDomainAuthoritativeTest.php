@@ -171,4 +171,75 @@ class WpmlThemeDomainAuthoritativeTest extends StarterBaseTestCase {
 	public function test_save_passes_non_array_value_through(): void {
 		$this->assertSame( 'x', $this->bareInstance( true )->wpml_keep_theme_domain_exclusion_runtime_only( 'x' ) );
 	}
+
+	private function wpmlDir(): string {
+		return ( defined( 'WP_LANG_DIR' ) ? WP_LANG_DIR : WP_CONTENT_DIR . '/languages' ) . '/wpml';
+	}
+
+	public function test_mo_guard_registered_before_wpml_override_by_default(): void {
+		$registered = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, $callback, $priority = 10, $args = 1 ) use ( &$registered ) {
+			$registered[ $hook ] = [ $callback, $priority, $args ];
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+
+		$instance = $this->bareInstance();
+		$this->invokeRegisterMiscHooks( $instance );
+
+		// WPML String Translation hooks override_load_textdomain at priority 10.
+		$this->assertSame( [ [ $instance, 'wpml_keep_theme_mo_authoritative' ], 5, 3 ], $registered['override_load_textdomain'] );
+	}
+
+	public function test_mo_guard_not_registered_when_flag_opted_out(): void {
+		$callbacks = $this->registeredCallbacks( $this->bareInstance( false ) );
+
+		$this->assertArrayNotHasKey( 'override_load_textdomain', $callbacks );
+	}
+
+	/**
+	 * WordPress 6.5+ answers a string from the first file loaded for the
+	 * domain, and String Translation loads its compiled file before the
+	 * theme's. Skipping that file keeps the theme's `.mo` authoritative.
+	 */
+	public function test_mo_guard_skips_wpml_compiled_file_for_theme_domain(): void {
+		$result = $this->bareInstance( true, 'my-theme' )
+			->wpml_keep_theme_mo_authoritative( false, 'my-theme', $this->wpmlDir() . '/my-theme-cs_CZ.mo' );
+
+		$this->assertTrue( $result );
+	}
+
+	public function test_mo_guard_leaves_theme_own_file_alone(): void {
+		$result = $this->bareInstance( true, 'my-theme' )
+			->wpml_keep_theme_mo_authoritative( false, 'my-theme', '/srv/wp-content/themes/my-theme/static/translations/cs_CZ.mo' );
+
+		$this->assertFalse( $result );
+	}
+
+	public function test_mo_guard_leaves_other_domains_alone(): void {
+		$result = $this->bareInstance( true, 'my-theme' )
+			->wpml_keep_theme_mo_authoritative( false, 'some-plugin', $this->wpmlDir() . '/some-plugin-cs_CZ.mo' );
+
+		$this->assertFalse( $result );
+	}
+
+	public function test_mo_guard_respects_an_earlier_override(): void {
+		$result = $this->bareInstance( true, 'my-theme' )
+			->wpml_keep_theme_mo_authoritative( true, 'some-plugin', '/any/file.mo' );
+
+		$this->assertTrue( $result );
+	}
+
+	public function test_mo_guard_does_nothing_without_theme_name(): void {
+		$result = $this->bareInstance( true, '' )
+			->wpml_keep_theme_mo_authoritative( false, '', $this->wpmlDir() . '/-cs_CZ.mo' );
+
+		$this->assertFalse( $result );
+	}
+
+	public function test_mo_guard_does_not_match_a_sibling_directory_prefix(): void {
+		$result = $this->bareInstance( true, 'my-theme' )
+			->wpml_keep_theme_mo_authoritative( false, 'my-theme', $this->wpmlDir() . '-backup/my-theme-cs_CZ.mo' );
+
+		$this->assertFalse( $result );
+	}
 }

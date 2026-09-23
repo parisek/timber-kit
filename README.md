@@ -862,13 +862,17 @@ Once a project runs with `$wpml_theme_domain_authoritative` on â€” the default â
 the theme's text domain sits in String Translation's excluded-domains list
 (`icl_st_settings`), injected at read time and never saved. The legacy
 auto-registration then skips the theme's strings, and the `.mo` files the
-theme ships become the single source. Two gaps remain, and this command closes
-them: rows registered before the switch stay behind, and WPML still loads a
-compiled `wp-content/languages/wpml/<domain>-<locale>.mo` for an excluded
-domain, so a stale ST row can win at runtime. String Translation 3.5+ also
-registers untranslated strings through a second path that ignores the list,
-so a complete theme catalogue matters, and the command is worth re-running
-after strings were added.
+theme ships become the single source. WPML still loads its compiled
+`wp-content/languages/wpml/<domain>-<locale>.mo` for an excluded domain, and
+WordPress answers from the first file loaded, so the flag also refuses that
+file at `override_load_textdomain`. The theme's `.mo` from git therefore wins
+at runtime even where a compiled file exists.
+
+This command cleans up what is left: rows registered before the switch, which
+translators still see in the ST screens, and the compiled files on disk.
+String Translation 3.5+ also registers untranslated strings through a second
+path that ignores the list, so a complete theme catalogue matters, and the
+command is worth re-running after strings were added.
 
 Earlier versions of the flag filtered `icl_sitepress_settings['st']`. String
 Translation never reads the list from there, so on those versions the flag

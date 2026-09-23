@@ -81,7 +81,7 @@ class RegisterMiscHooksTest extends StarterBaseTestCase {
 		$this->assertNotContains( 'wp_update_nav_menu', array_column( $actions, 'hook' ) );
 	}
 
-	public function test_registers_exactly_four_filters_by_default(): void {
+	public function test_registers_exactly_these_filters_by_default(): void {
 		$filters = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {
 			$filters[] = $hook;
@@ -90,7 +90,7 @@ class RegisterMiscHooksTest extends StarterBaseTestCase {
 		$this->invokeRegisterMiscHooks( $this->bareInstance() );
 
 		$this->assertSame(
-			[ 'run_wptexturize', 'wpcf7_autop_or_not', 'wpml_tm_translation_job_data', 'option_icl_st_settings', 'default_option_icl_st_settings', 'pre_update_option_icl_st_settings' ],
+			[ 'run_wptexturize', 'wpcf7_autop_or_not', 'wpml_tm_translation_job_data', 'option_icl_st_settings', 'default_option_icl_st_settings', 'pre_update_option_icl_st_settings', 'override_load_textdomain' ],
 			$filters
 		);
 	}

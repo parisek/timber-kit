@@ -40,8 +40,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   is persisted. Verified against WPML 5.0.2: String Translation reports the
   domain as excluded, and a settings save leaves it out of the database. The
   docblocks no longer claim that WPML's MO loader skips an excluded domain;
-  it does not, which is why `wp timber-kit wpml-cleanup-theme-domain` is
-  still needed for rows registered earlier.
+  it does not.
+- `$wpml_theme_domain_authoritative` now makes the theme's `.mo` from git
+  win at runtime. String Translation loads its compiled
+  `wp-content/languages/wpml/<domain>-<locale>.mo` for any domain that has
+  one, excluded or not, just before WordPress loads the theme's file, and
+  WordPress 6.5+ answers from the first file loaded — so a stale ST
+  translation beat the corrected `.po`. The flag now refuses that file for
+  the theme's domain at `override_load_textdomain` (priority 5, before ST's
+  handler). Tested live on WPML 5.0.2: with a compiled file carrying a
+  changed string, the page showed the ST value; with the guard, the git
+  value. Other domains and the theme's own file are untouched.
 
 ## [1.58.0] - 2026-09-22
 
