@@ -173,8 +173,9 @@ class StarterBase extends Site {
 	 * existing site onto this version.
 	 *
 	 * Retiring it is a one-line default flip once ACFML memoizes its lookup.
-	 * Not fixed in acfml 3.0-b.1: every file on the hot path is byte-identical
-	 * to 2.2.4, and so is the bundled `wpml/fp`.
+	 * Still not fixed in ACFML 5.0.0 (WPML 5.0.2): on a site with 358 fields,
+	 * loading every field group took 64 ms with the translation and 11 ms
+	 * without it.
 	 */
 	protected bool $acfml_skip_frontend_field_translation = true;
 
@@ -2733,6 +2734,10 @@ class StarterBase extends Site {
 
 			// https://wpml.org/forums/topic/how-to-remove-loading-of-blocks-styling/
 			// remove wp-content/plugins/sitepress-multilingual-cms/dist/css/blocks/styles.css
+			// A no-op from WPML 4.9.4: the Loader then enqueues this handle in admin
+			// only and prints block CSS inline where a WPML block renders. Older
+			// builds still enqueue it on the front end, so the call stays until no
+			// consumer runs WPML below 4.9.4.
 			if ( class_exists( 'WPML\BlockEditor\Loader' ) ) {
 				wp_deregister_style( \WPML\BlockEditor\Loader::SCRIPT_NAME );
 			}
