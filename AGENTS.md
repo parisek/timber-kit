@@ -136,6 +136,19 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   source the code cannot name defers; and the bridge still switches off. This is
   a named exception to the rule above, not a case of the rule being skipped.
 
+- **Approved exception:** `$wpml_theme_domain_authoritative` defaults `true`,
+  not `false`. The owner reviewed it explicitly: the theme's translation file
+  in git has priority over WPML String Translation. The default has been on
+  since 1.26.0 and no project overrides it, but until the WPML 5 fixes it
+  excluded nothing, so it takes effect on every WPML site for the first time.
+  Default-off would be the harmful state, for the same reason as
+  `$disable_author_archives`: a stale String Translation value beating the
+  `.po` is invisible, and nobody flips a flag for a problem they cannot see.
+  What bounds it: it touches only the theme's own text domain, persists
+  nothing, and a project that manages theme strings in String Translation sets
+  it to `false` in its `Base`. This is a named exception to the rule above,
+  not a case of the rule being skipped.
+
 ## Architecture decisions (ADRs)
 
 Significant decisions live in `docs/adr/` — the only tracked subtree under the
