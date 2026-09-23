@@ -1365,6 +1365,7 @@ For an admin label without a dedicated setup hook (e.g. an options-page `page_ti
 | `$disable_404_permalink_guess` | bool | `true` | **Reverses core.** Stops `redirect_guess_404_permalink()` turning a 404 into a redirect. Core matches the requested slug as a PREFIX (`post_name LIKE 'about%'`) and redirects to whatever comes back first, so a reader following a dead link is told the page moved and then shown something else — worse than being told it is gone. The query has a trailing wildcard, so it cannot use the `post_name` index, and it runs on every 404 carrying a name: a cost any visitor can ask for repeatedly. Genuine canonical redirects are untouched — the guess is the last thing `redirect_canonical()` tries, after trailing-slash, `?p=ID`-to-slug and category-base. Set `false` on a site that renames slugs without leaving redirects behind and relies on the guess |
 | `$disable_file_editing` | bool | `true` | Define `DISALLOW_FILE_EDIT` so the Theme Editor and Plugin Editor screens are removed from `wp-admin` |
 | `$remove_wp_generator` | bool | `true` | Strip the WordPress version from the `the_generator` filter (covers both `<meta name="generator">` and RSS/Atom feed generators) |
+| `$remove_wpml_generator` | bool | `false` | Remove WPML's `<meta name="generator" content="WPML ver:…">` from `wp_head`. It prints the exact plugin version on every front-end page. No-op without WPML |
 
 ### Media Processing
 

@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `$remove_wpml_generator` (default off) removes WPML's
+  `<meta name="generator" content="WPML ver:… stt:…">` from `wp_head`. The tag
+  prints the exact plugin version on every front-end page.
+
 ### Changed
 
 - `wp timber-kit acfml-sync-preferences` leaves out keys that WPML 5 already

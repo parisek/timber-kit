@@ -358,6 +358,20 @@ class StarterBase extends Site {
 	/** @var bool Filter the_generator to empty so the WP version disappears from wp_head and feeds. */
 	protected bool $remove_wp_generator = true;
 
+	/**
+	 * Remove WPML's `<meta name="generator" content="WPML ver:… stt:…">` from
+	 * wp_head. It prints the exact plugin version on every front-end page, the
+	 * same disclosure `$remove_wp_generator` closes for core. WPML ships
+	 * security fixes regularly (4.9.6, 4.9.7, 5.0), so the version string
+	 * tells a scanner which sites still run an unpatched build.
+	 *
+	 * Opt-in (default off) per the flag doctrine: it changes rendered output.
+	 * No-ops without WPML.
+	 *
+	 * @var bool
+	 */
+	protected bool $remove_wpml_generator = false;
+
 	/** @var bool Remove the core author (users) sitemap (/wp-sitemap-users-1.xml), which lists author slugs regardless of ?author= blocking. Default on; set false on sites that intentionally expose author archives for SEO. */
 	protected bool $disable_author_sitemap = true;
 
@@ -1430,6 +1444,10 @@ class StarterBase extends Site {
 		if ( $this->remove_wp_generator ) {
 			// Filtering the_generator suppresses the version string in wp_head AND in every feed generator.
 			add_filter( 'the_generator', '__return_empty_string' );
+		}
+		if ( $this->remove_wpml_generator ) {
+			// WPML prints its tag from wp_head at priority 10; unhook it before that runs.
+			add_action( 'wp_head', array( $this, 'remove_wpml_generator_tag' ), 0 );
 		}
 		if ( $this->disable_author_sitemap || $this->disable_author_archives ) {
 			// Drops /wp-sitemap-users-1.xml — the third username-enumeration vector alongside REST + ?author=.
@@ -3713,6 +3731,24 @@ class StarterBase extends Site {
 		}
 
 		return $value;
+	}
+
+	/**
+	 * Unhook WPML's generator meta tag. WPML registers it on the `$sitepress`
+	 * instance, so it can only be removed with that same object.
+	 *
+	 * Hooked to `wp_head` at priority 0 (gated by `$remove_wpml_generator`).
+	 *
+	 * @return void
+	 */
+	public function remove_wpml_generator_tag() {
+		global $sitepress;
+
+		if ( ! is_object( $sitepress ) ) {
+			return;
+		}
+
+		remove_action( 'wp_head', array( $sitepress, 'meta_generator_tag' ) );
 	}
 
 	/**
