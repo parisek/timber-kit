@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.59.0] - 2026-09-23
+
 ### Added
 
 - `$remove_wpml_generator` (default **on**) removes WPML's
