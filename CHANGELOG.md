@@ -56,8 +56,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   one, excluded or not, just before WordPress loads the theme's file, and
   WordPress 6.5+ answers from the first file loaded — so a stale ST
   translation beat the corrected `.po`. The flag now refuses that file for
-  the theme's domain at `override_load_textdomain` (priority 5, before ST's
-  handler). Tested live on WPML 5.0.2: with a compiled file carrying a
+  the theme's domain at `pre_load_textdomain`, which runs before ST's
+  `override_load_textdomain` handler and ends the load. Tested live on WPML 5.0.2: with a compiled file carrying a
   changed string, the page showed the ST value; with the guard, the git
   value. Other domains and the theme's own file are untouched.
 

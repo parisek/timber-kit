@@ -661,7 +661,7 @@ class StarterBase extends Site {
 	 * (`WPML_Register_String_Filter`) and ST's gettext hooks from handling
 	 * the theme's strings. It does not stop WPML loading a compiled `.mo`
 	 * that already exists, and WordPress answers from the first file loaded,
-	 * so the flag also refuses that file at `override_load_textdomain` — see
+	 * so the flag also refuses that file at `pre_load_textdomain` — see
 	 * {@see wpml_keep_theme_mo_authoritative()}. That is the part that makes
 	 * the git file win. String Translation 3.5.x also registers strings the
 	 * theme's `.mo` does not translate through a second path that ignores the
@@ -1387,8 +1387,8 @@ class StarterBase extends Site {
 			add_filter( 'option_icl_st_settings', array( $this, 'wpml_exclude_theme_domain_from_st' ) );
 			add_filter( 'default_option_icl_st_settings', array( $this, 'wpml_exclude_theme_domain_from_st_default' ) );
 			add_filter( 'pre_update_option_icl_st_settings', array( $this, 'wpml_keep_theme_domain_exclusion_runtime_only' ) );
-			// Before String Translation's own handler at 10, which loads its compiled file first.
-			add_filter( 'override_load_textdomain', array( $this, 'wpml_keep_theme_mo_authoritative' ), 5, 3 );
+			// Runs before override_load_textdomain, where String Translation loads its compiled file.
+			add_filter( 'pre_load_textdomain', array( $this, 'wpml_keep_theme_mo_authoritative' ), 10, 3 );
 		}
 	}
 
@@ -3771,26 +3771,31 @@ class StarterBase extends Site {
 	 * reload after a language switch, the theme preload) goes through
 	 * `load_textdomain()`, so this one check covers all of them.
 	 *
+	 * `pre_load_textdomain` (WP 6.3+) rather than `override_load_textdomain`:
+	 * a non-null answer ends load_textdomain() at once, so no later callback
+	 * can undo it, and it runs before ST's handler without a priority race.
+	 *
 	 * The file stays on disk; `wp timber-kit wpml-cleanup-theme-domain`
 	 * removes it together with the ST rows.
 	 *
-	 * Hooked to `override_load_textdomain` at priority 5 (gated by
+	 * Hooked to `pre_load_textdomain` (gated by
 	 * `$wpml_theme_domain_authoritative`).
 	 *
-	 * @param bool   $override Whether an earlier callback already took over.
-	 * @param string $domain   Text domain being loaded.
-	 * @param string $mofile   Path of the `.mo` file being loaded.
-	 * @return bool True to skip loading the file.
+	 * @param bool|null $loaded Null to let WordPress load the file; an earlier
+	 *                          callback's answer otherwise.
+	 * @param string    $domain Text domain being loaded.
+	 * @param string    $mofile Path of the `.mo` file being loaded.
+	 * @return bool|null True to skip the WPML file; `$loaded` otherwise.
 	 */
-	public function wpml_keep_theme_mo_authoritative( $override, $domain, $mofile ) {
-		if ( $override || '' === (string) $this->theme_name || $domain !== $this->theme_name || ! is_string( $mofile ) ) {
-			return $override;
+	public function wpml_keep_theme_mo_authoritative( $loaded, $domain, $mofile ) {
+		if ( null !== $loaded || '' === (string) $this->theme_name || $domain !== $this->theme_name || ! is_string( $mofile ) ) {
+			return $loaded;
 		}
 
 		$lang_dir = defined( 'WP_LANG_DIR' ) ? WP_LANG_DIR : WP_CONTENT_DIR . '/languages';
 		$wpml_dir = rtrim( str_replace( '\\', '/', $lang_dir ), '/' ) . '/wpml/';
 
-		return str_starts_with( str_replace( '\\', '/', $mofile ), $wpml_dir );
+		return str_starts_with( str_replace( '\\', '/', $mofile ), $wpml_dir ) ? true : null;
 	}
 
 	/**

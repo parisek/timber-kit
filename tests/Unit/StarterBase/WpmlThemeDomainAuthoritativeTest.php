@@ -221,14 +221,16 @@ class WpmlThemeDomainAuthoritativeTest extends StarterBaseTestCase {
 		$instance = $this->bareInstance();
 		$this->invokeRegisterMiscHooks( $instance );
 
-		// WPML String Translation hooks override_load_textdomain at priority 10.
-		$this->assertSame( [ [ $instance, 'wpml_keep_theme_mo_authoritative' ], 5, 3 ], $registered['override_load_textdomain'] );
+		// pre_load_textdomain runs before override_load_textdomain, where String
+		// Translation loads its compiled file, and a non-null answer ends the load.
+		$this->assertSame( [ [ $instance, 'wpml_keep_theme_mo_authoritative' ], 10, 3 ], $registered['pre_load_textdomain'] );
+		$this->assertArrayNotHasKey( 'override_load_textdomain', $registered );
 	}
 
 	public function test_mo_guard_not_registered_when_flag_opted_out(): void {
 		$callbacks = $this->registeredCallbacks( $this->bareInstance( false ) );
 
-		$this->assertArrayNotHasKey( 'override_load_textdomain', $callbacks );
+		$this->assertArrayNotHasKey( 'pre_load_textdomain', $callbacks );
 	}
 
 	/**
@@ -238,43 +240,43 @@ class WpmlThemeDomainAuthoritativeTest extends StarterBaseTestCase {
 	 */
 	public function test_mo_guard_skips_wpml_compiled_file_for_theme_domain(): void {
 		$result = $this->bareInstance( true, 'my-theme' )
-			->wpml_keep_theme_mo_authoritative( false, 'my-theme', $this->wpmlDir() . '/my-theme-cs_CZ.mo' );
+			->wpml_keep_theme_mo_authoritative( null, 'my-theme', $this->wpmlDir() . '/my-theme-cs_CZ.mo' );
 
 		$this->assertTrue( $result );
 	}
 
 	public function test_mo_guard_leaves_theme_own_file_alone(): void {
 		$result = $this->bareInstance( true, 'my-theme' )
-			->wpml_keep_theme_mo_authoritative( false, 'my-theme', '/srv/wp-content/themes/my-theme/static/translations/cs_CZ.mo' );
+			->wpml_keep_theme_mo_authoritative( null, 'my-theme', '/srv/wp-content/themes/my-theme/static/translations/cs_CZ.mo' );
 
-		$this->assertFalse( $result );
+		$this->assertNull( $result );
 	}
 
 	public function test_mo_guard_leaves_other_domains_alone(): void {
 		$result = $this->bareInstance( true, 'my-theme' )
-			->wpml_keep_theme_mo_authoritative( false, 'some-plugin', $this->wpmlDir() . '/some-plugin-cs_CZ.mo' );
+			->wpml_keep_theme_mo_authoritative( null, 'some-plugin', $this->wpmlDir() . '/some-plugin-cs_CZ.mo' );
 
-		$this->assertFalse( $result );
+		$this->assertNull( $result );
 	}
 
 	public function test_mo_guard_respects_an_earlier_override(): void {
 		$result = $this->bareInstance( true, 'my-theme' )
-			->wpml_keep_theme_mo_authoritative( true, 'some-plugin', '/any/file.mo' );
+			->wpml_keep_theme_mo_authoritative( false, 'my-theme', $this->wpmlDir() . '/my-theme-cs_CZ.mo' );
 
-		$this->assertTrue( $result );
+		$this->assertFalse( $result );
 	}
 
 	public function test_mo_guard_does_nothing_without_theme_name(): void {
 		$result = $this->bareInstance( true, '' )
-			->wpml_keep_theme_mo_authoritative( false, '', $this->wpmlDir() . '/-cs_CZ.mo' );
+			->wpml_keep_theme_mo_authoritative( null, '', $this->wpmlDir() . '/-cs_CZ.mo' );
 
-		$this->assertFalse( $result );
+		$this->assertNull( $result );
 	}
 
 	public function test_mo_guard_does_not_match_a_sibling_directory_prefix(): void {
 		$result = $this->bareInstance( true, 'my-theme' )
-			->wpml_keep_theme_mo_authoritative( false, 'my-theme', $this->wpmlDir() . '-backup/my-theme-cs_CZ.mo' );
+			->wpml_keep_theme_mo_authoritative( null, 'my-theme', $this->wpmlDir() . '-backup/my-theme-cs_CZ.mo' );
 
-		$this->assertFalse( $result );
+		$this->assertNull( $result );
 	}
 }

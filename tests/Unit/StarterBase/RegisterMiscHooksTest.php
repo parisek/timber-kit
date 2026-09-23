@@ -90,7 +90,7 @@ class RegisterMiscHooksTest extends StarterBaseTestCase {
 		$this->invokeRegisterMiscHooks( $this->bareInstance() );
 
 		$this->assertSame(
-			[ 'run_wptexturize', 'wpcf7_autop_or_not', 'wpml_tm_translation_job_data', 'option_icl_st_settings', 'default_option_icl_st_settings', 'pre_update_option_icl_st_settings', 'override_load_textdomain' ],
+			[ 'run_wptexturize', 'wpcf7_autop_or_not', 'wpml_tm_translation_job_data', 'option_icl_st_settings', 'default_option_icl_st_settings', 'pre_update_option_icl_st_settings', 'pre_load_textdomain' ],
 			$filters
 		);
 	}

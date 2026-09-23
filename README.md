@@ -867,7 +867,7 @@ auto-registration then skips the theme's strings, and the `.mo` files the
 theme ships become the single source. WPML still loads its compiled
 `wp-content/languages/wpml/<domain>-<locale>.mo` for an excluded domain, and
 WordPress answers from the first file loaded, so the flag also refuses that
-file at `override_load_textdomain`. The theme's `.mo` from git therefore wins
+file at `pre_load_textdomain`. The theme's `.mo` from git therefore wins
 at runtime even where a compiled file exists.
 
 This command cleans up what is left: rows registered before the switch, which
