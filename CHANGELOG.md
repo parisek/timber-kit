@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- `wp timber-kit acfml-sync-preferences` leaves out keys that WPML 5 already
+  resolves at runtime to the same preference. WPML 5 answers keys without a
+  dictionary entry through `wpml_resolve_custom_field_preferences`, and ACFML 5
+  supplies rules for repeater and group rows; ACFML's `CollapseSubfieldSettings`
+  upgrade deletes the entries those rules cover. Writing them back fought that
+  upgrade: on one site the rules covered 1240 of 1256 repeater-row entries,
+  all with the same preference. The resolver is feature-detected, so WPML 4
+  sites behave as before.
+
 ### Fixed
 
 - `$wpml_theme_domain_authoritative` now excludes the theme's text domain

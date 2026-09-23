@@ -613,6 +613,15 @@ are never overwritten). Keys resolving to **different** preferences across
 posts are reported as conflicts and skipped — never guessed. Scope is postmeta
 of the current site; on multisite run per-site via `wp --url=…`.
 
+**WPML 5.** WPML 5 resolves a meta key with no dictionary entry at runtime
+(`wpml_resolve_custom_field_preferences`), and ACFML 5 supplies rules for
+repeater and group rows. On first admin load ACFML's `CollapseSubfieldSettings`
+upgrade deletes the dictionary entries those rules already cover. The command
+detects the resolver (no version check) and leaves out every key it already
+answers with the same preference, so it does not write those entries back. It
+still writes top-level keys, keys the rules do not cover, and keys whose field
+definition asks for a different preference. On WPML 4 nothing changes.
+
 Applying newly-translatable keys triggers WPML's ProcessNewTranslatableFields
 background task — affected translations get flagged as needing update, which
 is the point: translators see the previously invisible backlog.

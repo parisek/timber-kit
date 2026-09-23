@@ -126,6 +126,30 @@ class PreferenceSyncPlan {
 	}
 
 	/**
+	 * Drop patch entries that WPML already resolves at runtime to the same
+	 * preference.
+	 *
+	 * WPML 5 answers a meta key with no dictionary entry through
+	 * `wpml_resolve_custom_field_preferences`, and ACFML 5 supplies rules
+	 * for repeater and group rows there. Writing such a key again only
+	 * duplicates the rule — ACFML's own upgrade deletes exactly these
+	 * entries, so a sync that re-adds them keeps fighting it. A key the
+	 * resolver answers differently stays in the patch: the dictionary wins
+	 * over the resolver, so the definition's preference must be written.
+	 *
+	 * @param array<string, int>        $patch    Output of {@see patch()}.
+	 * @param array<string, int|string> $resolved Resolver answer, meta key => preference.
+	 * @return array<string, int>
+	 */
+	public static function withoutCoreResolved( array $patch, array $resolved ): array {
+		return array_filter(
+			$patch,
+			static fn ( int $pref, string $key ): bool => ! isset( $resolved[ $key ] ) || (int) $resolved[ $key ] !== $pref,
+			ARRAY_FILTER_USE_BOTH
+		);
+	}
+
+	/**
 	 * @return array{
 	 *     registered_by_preference: array<int, int>,
 	 *     conflicts: array<string, list<int>>,
