@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `$options_pages` entries take `menu_title`, the label in the admin menu and
+  the admin-bar node. `page_title` stays the page heading. Omitted, both use
+  `page_title` as before. When a top-level entry declares a different
+  `menu_title`, the first submenu entry that WordPress adds for it takes the
+  page title, so a parent with sub-pages no longer lists its own menu title
+  as its first entry.
+- `$options_pages` entries take `collapsed` (default off). That page opens
+  with every field group box collapsed, on every load, and ignores the
+  user's stored state.
+- `$acf_options_page_box_state` (default **off**) keeps each user's collapsed
+  boxes and box order on ACF options pages. ACF renders every options page on
+  the screen `acf_options_page`, and WordPress saves the state under the
+  page's own screen, so the state was lost on every load. Measured in a
+  downstream project: a toggle and a drag both came back reset after a
+  reload, and both persisted with the flag on. Off by default, because every
+  box a user once collapsed renders collapsed again when it is switched on.
+
 ## [1.59.0] - 2026-09-23
 
 ### Added
