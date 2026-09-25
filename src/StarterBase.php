@@ -541,11 +541,49 @@ class StarterBase extends Site {
 	 * Set to an empty array (`$this->options_pages = [];`) to register NO options
 	 * pages at all — disables the feature entirely (no ACF page, no admin-bar link).
 	 *
+	 * `menu_title` (optional, any entry) is the label in the admin menu and in
+	 * the admin-bar node; `page_title` stays the heading of the page. Omitted, the
+	 * menu uses `page_title`, as before. It matters once a page has sub-pages:
+	 * WordPress adds the parent as the first submenu entry and copies its menu
+	 * title into it, so "Theme Settings" would sit beside "Forms" and "Content"
+	 * without saying what it holds. When a top-level entry declares a
+	 * `menu_title` different from its `page_title`, that first entry takes the
+	 * page title instead:
+	 *   $this->options_pages = [
+	 *     ['menu_slug'=>'settings','menu_title'=>'Theme Settings','page_title'=>'General'],
+	 *     ['menu_slug'=>'forms','page_title'=>'Forms','parent_slug'=>'settings'],
+	 *   ];
+	 *
+	 * `collapsed` (optional bool, any entry, default off) opens that page with
+	 * every field group box collapsed, on every load. The user's stored state is
+	 * ignored on that page: a box someone expands is collapsed again next time.
+	 * Meant for a page with many groups, where the editor scans the box titles
+	 * and opens one. See also $acf_options_page_box_state.
+	 *
 	 * @var array<int, array<string, mixed>>
 	 */
 	protected array $options_pages = [
 		[ 'menu_slug' => 'settings', 'page_title' => 'Theme Settings', 'admin_bar' => true ],
 	];
+
+	/**
+	 * Keep each user's collapsed boxes and box order on ACF options pages.
+	 *
+	 * Opt-in — default OFF. Without it, the state is lost on every load, and
+	 * nothing reports it. ACF renders the boxes of every options page on the
+	 * screen `acf_options_page`, so WordPress reads
+	 * `closedpostboxes_acf_options_page` and `meta-box-order_acf_options_page`.
+	 * WordPress saves a toggle or a drag under the page's own screen instead
+	 * (`closedpostboxes_toplevel_page_settings`, …), and the read key never has
+	 * a value. The flag answers the read key with the value stored under the
+	 * current page's screen.
+	 *
+	 * Opt-in because it changes what an editor sees: every box a user ever
+	 * collapsed on an options page, possibly years ago, renders collapsed again
+	 * after the upgrade. A value stored under the ACF key itself still wins,
+	 * and outside an admin screen nothing changes.
+	 */
+	protected bool $acf_options_page_box_state = false;
 
 	/**
 	 * Resizable Gutenberg editor sidebar (assets/js|css/gutenberg-resizable-sidebar.*).
@@ -1251,6 +1289,7 @@ class StarterBase extends Site {
 		}
 		add_action( 'init', array( $this, 'gutenberg_blocks' ) );
 		add_action( 'acf/init', array( $this, 'acf_options_page' ) );
+		$this->registerOptionsPageAdminHooks();
 		add_action( 'acf/save_post', array( $this, 'clear_cache_on_options_save' ), 20 );
 		add_action( 'acf/fields/google_map/api', array( $this, 'acf_google_map_api' ) );
 		add_filter( 'render_block_data', array( $this, 'render_block_data' ), 10, 3 );
@@ -1260,6 +1299,34 @@ class StarterBase extends Site {
 			// Opt-in render-time Copy-field sync for ACF blocks under WPML.
 			// register() self-guards on WPML + ACF Pro, so it no-ops otherwise.
 			add_action( 'init', array( WpmlBlockOverride::class, 'register' ) );
+		}
+	}
+
+	/**
+	 * Wire the admin-side options-page behaviour, only where a consumer asks
+	 * for it: the box state behind $acf_options_page_box_state, the closed
+	 * list behind a `collapsed` entry, and the submenu label behind a
+	 * `menu_title` entry. With none of them, nothing is wired.
+	 *
+	 * @return void
+	 */
+	private function registerOptionsPageAdminHooks(): void {
+		$collapsed  = false;
+		$menu_title = false;
+		foreach ( $this->options_pages as $page ) {
+			$collapsed  = $collapsed || ! empty( $page['collapsed'] );
+			$menu_title = $menu_title || isset( $page['menu_title'] );
+		}
+
+		if ( $this->acf_options_page_box_state || $collapsed ) {
+			add_filter( 'get_user_option_closedpostboxes_acf_options_page', array( $this, 'acf_options_page_closed_boxes' ), 10, 3 );
+		}
+		if ( $this->acf_options_page_box_state ) {
+			add_filter( 'get_user_option_meta-box-order_acf_options_page', array( $this, 'acf_options_page_box_order' ), 10, 3 );
+		}
+		if ( $menu_title ) {
+			// After ACF, which builds the options-page menu at priority 99.
+			add_action( 'admin_menu', array( $this, 'acf_options_page_submenu_labels' ), 100 );
 		}
 	}
 
@@ -3475,7 +3542,7 @@ class StarterBase extends Site {
 		// Title used verbatim — translation is the consumer's job (cf. $breadcrumb_labels).
 		$args = [
 			'page_title'      => $page['page_title'],
-			'menu_title'      => $page['page_title'],
+			'menu_title'      => $page['menu_title'] ?? $page['page_title'],
 			'menu_slug'       => $page['menu_slug'],
 			'capability'      => $page['capability'] ?? 'edit_posts',
 			'redirect'        => false,
@@ -3494,6 +3561,121 @@ class StarterBase extends Site {
 		} else {
 			$args['icon_url'] = $page['icon_url'] ?? 'dashicons-admin-generic';
 			acf_add_options_page( $args );
+		}
+	}
+
+	/**
+	 * Closed boxes on an ACF options page.
+	 *
+	 * Filters `get_user_option_closedpostboxes_acf_options_page`. On a page with
+	 * `collapsed` it returns every field group box of that page. Otherwise, with
+	 * $acf_options_page_box_state on, it returns what the user saved under the
+	 * page's own screen. See $acf_options_page_box_state for the key mismatch.
+	 *
+	 * @param mixed    $result Stored value under the ACF key; false when none.
+	 * @param string   $option Option name (unused).
+	 * @param \WP_User $user   The user the option is read for.
+	 * @return mixed
+	 */
+	public function acf_options_page_closed_boxes( $result, $option, $user ) {
+		$page = $this->current_options_page();
+		if ( $page && ! empty( $page['collapsed'] ) && function_exists( 'acf_get_field_groups' ) ) {
+			$box_ids = [];
+			foreach ( acf_get_field_groups( [ 'options_page' => $page['menu_slug'] ] ) as $group ) {
+				$box_ids[] = 'acf-' . $group['key'];
+			}
+			return $box_ids;
+		}
+
+		return $this->acf_options_page_user_option( $result, 'closedpostboxes', $user );
+	}
+
+	/**
+	 * Box order on an ACF options page.
+	 *
+	 * Filters `get_user_option_meta-box-order_acf_options_page`, wired only with
+	 * $acf_options_page_box_state on.
+	 *
+	 * @param mixed    $result Stored value under the ACF key; false when none.
+	 * @param string   $option Option name (unused).
+	 * @param \WP_User $user   The user the option is read for.
+	 * @return mixed
+	 */
+	public function acf_options_page_box_order( $result, $option, $user ) {
+		return $this->acf_options_page_user_option( $result, 'meta-box-order', $user );
+	}
+
+	/**
+	 * Read `<prefix>_<screen id>` for the user, in place of the empty
+	 * `<prefix>_acf_options_page`.
+	 *
+	 * @param mixed    $result Stored value under the ACF key.
+	 * @param string   $prefix `closedpostboxes` or `meta-box-order`.
+	 * @param \WP_User $user   The user the option is read for.
+	 * @return mixed
+	 */
+	private function acf_options_page_user_option( $result, string $prefix, $user ) {
+		// A value under the ACF key itself was put there on purpose; keep it.
+		if ( false !== $result || ! $this->acf_options_page_box_state ) {
+			return $result;
+		}
+
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( ! $screen || empty( $screen->id ) || 'acf_options_page' === $screen->id ) {
+			return $result;
+		}
+
+		return get_user_option( $prefix . '_' . $screen->id, $user->ID );
+	}
+
+	/**
+	 * The $options_pages entry for the admin page being rendered, if any.
+	 *
+	 * Reads `$plugin_page`, which `wp-admin/admin.php` sets from `?page=`. ACF
+	 * renders every options page on the same screen, so the screen cannot tell
+	 * them apart.
+	 *
+	 * @return array<string, mixed>|null
+	 */
+	private function current_options_page(): ?array {
+		global $plugin_page;
+
+		if ( ! is_string( $plugin_page ) || '' === $plugin_page ) {
+			return null;
+		}
+		foreach ( $this->options_pages as $page ) {
+			if ( ( $page['menu_slug'] ?? null ) === $plugin_page ) {
+				return $page;
+			}
+		}
+
+		return null;
+	}
+
+	/**
+	 * Label the first submenu entry of a parent options page with its page
+	 * title.
+	 *
+	 * WordPress adds that entry itself when the first sub-page registers, and
+	 * copies the parent's menu title into it. Runs only for a top-level entry
+	 * whose `menu_title` differs from its `page_title`, and only when the entry
+	 * is still the parent's own (another plugin may have taken the slot).
+	 *
+	 * Hooked to `admin_menu` at priority 100, after ACF.
+	 *
+	 * @return void
+	 */
+	public function acf_options_page_submenu_labels() {
+		global $submenu;
+
+		foreach ( $this->options_pages as $page ) {
+			if ( isset( $page['parent_slug'] ) || ! isset( $page['menu_title'] ) || $page['menu_title'] === $page['page_title'] ) {
+				continue;
+			}
+			$slug = $page['menu_slug'];
+			if ( isset( $submenu[ $slug ][0][2] ) && $slug === $submenu[ $slug ][0][2] ) {
+				$submenu[ $slug ][0][0] = $page['page_title']; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- no API renames the entry core adds.
+			}
 		}
 	}
 
@@ -3519,7 +3701,7 @@ class StarterBase extends Site {
 			$wp_admin_bar->add_node( [
 				'parent' => 'site-name',
 				'id'     => 'theme-settings-' . $page['menu_slug'],
-				'title'  => $page['page_title'],
+				'title'  => $page['menu_title'] ?? $page['page_title'],
 				'href'   => add_query_arg( 'page', $page['menu_slug'], admin_url( 'admin.php' ) ),
 			] );
 		}

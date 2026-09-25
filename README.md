@@ -1797,11 +1797,12 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 
 ### Options Pages
 
-`$options_pages` declares the ACF options page(s). Each entry requires `menu_slug` + `page_title`; optional per-entry keys are `parent_slug` (sub-page), `capability` (default `edit_posts`), `icon_url` (top-level pages only, default `dashicons-admin-generic`), and `admin_bar` (bool, default off — add an admin-bar shortcut to this page; any number of entries may carry this key, including sub-pages).
+`$options_pages` declares the ACF options page(s). Each entry requires `menu_slug` + `page_title`; optional per-entry keys are `parent_slug` (sub-page), `menu_title` (menu and admin-bar label, default `page_title`), `capability` (default `edit_posts`), `icon_url` (top-level pages only, default `dashicons-admin-generic`), `admin_bar` (bool, default off — add an admin-bar shortcut to this page; any number of entries may carry this key, including sub-pages), and `collapsed` (bool, default off — see below).
 
 | Property | Type | Default | Description |
 |----------|------|---------|-------------|
 | `$options_pages` | array | one "Theme Settings" page | List of ACF options pages. `parent_slug` => sub-page; `admin_bar => true` => add admin-bar link for this entry; `post_id` => ACF storage namespace (see below); `[]` disables the feature entirely (no page, no admin-bar link). The default "Theme Settings" entry has `admin_bar => true` |
+| `$acf_options_page_box_state` | bool | `false` | Keep each user's collapsed boxes and box order on ACF options pages (see below) |
 
 ```php
 // one top-level page with an admin-bar shortcut + two sub-pages under it
@@ -1838,6 +1839,24 @@ Inheritance is **transitive**: ACF's `add_sub_page()` accepts a `parent_slug` po
 Adopting `post_id` also widens what `clear_cache_on_options_save()` matches: it purges on a save to any options namespace rather than the literal `'options'`, since ACF saves through `acf_save_post( $page['post_id'] )` and would otherwise stop purging for exactly the projects that namespace their storage.
 
 Adopting this on a live site is a **data migration**: existing values stay behind under the old prefix and have to be copied to the new one. Set it from the start on new projects.
+
+#### Menu title, collapsed boxes and box state
+
+`menu_title` separates the menu label from the page heading. It matters once a page has sub-pages: WordPress adds the parent as the first submenu entry and copies its menu title into it, so "Theme Settings" would sit beside "Forms" without saying what it holds. When a top-level entry declares a `menu_title` different from its `page_title`, that first submenu entry takes the page title.
+
+```php
+$this->options_pages = [
+    [ 'menu_slug' => 'settings', 'menu_title' => 'Theme Settings', 'page_title' => 'General', 'admin_bar' => true ],
+    [ 'menu_slug' => 'forms', 'page_title' => 'Forms', 'parent_slug' => 'settings', 'collapsed' => true ],
+];
+$this->acf_options_page_box_state = true;
+```
+
+The menu reads "Theme Settings" with the entries "General" and "Forms"; the admin-bar node reads "Theme Settings".
+
+**Box state on options pages is lost without `$acf_options_page_box_state`.** ACF renders the boxes of every options page on the screen `acf_options_page`, so WordPress reads `closedpostboxes_acf_options_page` and `meta-box-order_acf_options_page`. It saves a toggle or a drag under the page's own screen (`closedpostboxes_toplevel_page_settings`, …), and the read key never has a value. Nothing reports it: the toggle animates and the AJAX save succeeds. The flag answers the read key with the value stored under the current page's screen. It is off by default because every box a user once collapsed renders collapsed again after it is switched on.
+
+**`collapsed => true`** opens that page with every field group box collapsed, on every load, and ignores the user's stored state there. It is for a page with many groups, where the editor scans the box titles and opens one. It works with or without the flag.
 
 ### Breadcrumbs
 
