@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.60.0] - 2026-09-25
+
 ### Added
 
 - `$options_pages` entries take `menu_title`, the label in the admin menu and
