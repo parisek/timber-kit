@@ -180,7 +180,7 @@ class FieldFormatterTest extends HelpersTestCase {
 		Functions\expect( 'get_post_meta' )
 			->once()
 			->with( 3, '_timber_kit_video_codecs', true )
-			->andReturn( 'none' );
+			->andReturn( 'v2:none' );
 		Functions\expect( 'get_attached_file' )->never();
 		Functions\expect( 'update_post_meta' )->never();
 
@@ -716,7 +716,7 @@ class FieldFormatterTest extends HelpersTestCase {
 		Functions\when( 'wp_get_attachment_image_src' )->justReturn( false );
 		Functions\expect( 'get_post_meta' )
 			->times( 3 )
-			->andReturn( 'av01.0.00M.08', 'none', 'none' );
+			->andReturn( 'v2:av01.0.00M.08', 'v2:none', 'v2:none' );
 
 		$result = Helpers::fieldFormatter( $field );
 
