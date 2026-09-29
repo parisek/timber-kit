@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.61.0] - 2026-09-29
+
 ### Added
 
 - `VideoCodecs::codecsString()` reads H.264 (`avcC`), HEVC (`hvcC`) and WebM
