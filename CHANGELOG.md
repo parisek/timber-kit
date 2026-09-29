@@ -17,6 +17,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   form `vp9` when `CodecPrivate` lacks profile, level or bit depth. The
   parser returns null when it cannot derive an exact value. Every read is
   bounded.
+- `Helpers::videoCodecs()` does not cache `none` for a missing or unreadable file.
+  A later request can parse it again. A parsed file with no derivable codec still
+  stores `v2:none`.
 
 ### Changed
 

@@ -313,8 +313,15 @@ class Helpers {
 			return 'none' === $value ? null : $value;
 		}
 
+		// A missing or unreadable file says nothing about its codecs. Return null
+		// without a write, so a later request can try again. Only a parsed file
+		// earns the `none` sentinel.
 		$path = get_attached_file( $attachment_id );
-		$codecs = is_string( $path ) ? VideoCodecs::codecsString( $path ) : null;
+		if ( ! is_string( $path ) || ! is_readable( $path ) ) {
+			return null;
+		}
+
+		$codecs = VideoCodecs::codecsString( $path );
 
 		update_post_meta( $attachment_id, '_timber_kit_video_codecs', $prefix . ( $codecs ?? 'none' ) );
 

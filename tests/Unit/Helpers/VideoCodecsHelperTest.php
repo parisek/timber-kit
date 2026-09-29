@@ -110,6 +110,22 @@ class VideoCodecsHelperTest extends HelpersTestCase {
 		$this->assertSame( 'vp9', Helpers::videoCodecs( 13 ) );
 	}
 
+	public function test_missing_file_returns_null_and_is_not_cached(): void {
+		Functions\expect( 'get_post_meta' )->once()->with( 15, self::CACHE_KEY, true )->andReturn( '' );
+		Functions\expect( 'get_attached_file' )->once()->with( 15 )->andReturn( '/nonexistent/dir/gone.mp4' );
+		Functions\expect( 'update_post_meta' )->never();
+
+		$this->assertNull( Helpers::videoCodecs( 15 ) );
+	}
+
+	public function test_attachment_without_a_file_path_returns_null_and_is_not_cached(): void {
+		Functions\expect( 'get_post_meta' )->once()->with( 16, self::CACHE_KEY, true )->andReturn( '' );
+		Functions\expect( 'get_attached_file' )->once()->with( 16 )->andReturn( false );
+		Functions\expect( 'update_post_meta' )->never();
+
+		$this->assertNull( Helpers::videoCodecs( 16 ) );
+	}
+
 	public function test_input_without_resolvable_id_returns_null_without_meta_access(): void {
 		Functions\expect( 'get_post_meta' )->never();
 		Functions\expect( 'get_attached_file' )->never();
