@@ -199,7 +199,7 @@ class FormatFileTest extends HelpersTestCase {
 			->andReturn( dirname( __DIR__, 2 ) . '/Fixtures/video/av1-8bit.mp4' );
 		Functions\expect( 'update_post_meta' )
 			->once()
-			->with( 20, '_timber_kit_video_codecs', 'av01.0.00M.08' );
+			->with( 20, '_timber_kit_video_codecs', 'v2:av01.0.00M.08' );
 
 		$result = Helpers::formatFile( $file );
 
@@ -207,7 +207,7 @@ class FormatFileTest extends HelpersTestCase {
 		$this->assertSame( 'av01.0.00M.08', $result['codecs'] );
 	}
 
-	public function test_non_av1_video_file_includes_null_codecs(): void {
+	public function test_h264_video_file_includes_avc_codecs(): void {
 		$file = [
 			'ID'          => 21,
 			'url'         => 'https://example.com/clip-h264.mp4',
@@ -230,13 +230,12 @@ class FormatFileTest extends HelpersTestCase {
 			->andReturn( dirname( __DIR__, 2 ) . '/Fixtures/video/h264.mp4' );
 		Functions\expect( 'update_post_meta' )
 			->once()
-			->with( 21, '_timber_kit_video_codecs', 'none' );
+			->with( 21, '_timber_kit_video_codecs', 'v2:avc1.64000A' );
 
 		$result = Helpers::formatFile( $file );
 
 		$this->assertIsArray( $result );
-		$this->assertArrayHasKey( 'codecs', $result );
-		$this->assertNull( $result['codecs'] );
+		$this->assertSame( 'avc1.64000A', $result['codecs'] );
 	}
 
 	public function test_non_numeric_filesize_returns_empty_string(): void {

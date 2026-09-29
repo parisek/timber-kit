@@ -21,6 +21,12 @@ use Timber\ImageHelper;
 class Helpers {
 
 	/**
+	 * Version of the video codecs parser output stored in attachment meta.
+	 * Version 1 (no prefix) knew AV1 in MP4 only. Version 2 adds H.264, HEVC and WebM.
+	 */
+	private const VIDEO_CODECS_CACHE_VERSION = 'v2';
+
+	/**
 	 * Pure-core shaping for a single ACF "array" return-format attachment.
 	 *
 	 * Extracted from {@see formatImage()}'s associative-array branch so it can
@@ -272,19 +278,25 @@ class Helpers {
 	/**
 	 * Resolve a video attachment's bare RFC 6381 codecs string.
 	 *
-	 * Returns e.g. `av01.0.01M.08` for AV1 MP4 attachments (derived from the
-	 * file's `av1C` box), or null when no codecs string applies (non-AV1 MP4,
-	 * WebM, unresolvable file). Deliberately separate from the mime type: the
-	 * mime stays a plain comparable value and the codecs value stays
-	 * independently inspectable; templates compose the attribute themselves —
+	 * Returns e.g. `av01.0.01M.08`, `avc1.64001F`, `hvc1.1.6.L93.B0`,
+	 * `vp09.00.10.08`, `vp9` or `vp8`. The value comes from the file itself
+	 * (see {@see VideoCodecs::codecsString()}). The method returns null when
+	 * no exact value applies: another codec, or an unreadable or malformed
+	 * file. Deliberately separate from the mime type: the mime stays a plain
+	 * comparable value and the codecs value stays independently inspectable;
+	 * templates compose the attribute themselves —
 	 * `type='video/mp4; codecs="…"'`, single-quoted because the composed
 	 * value embeds double quotes.
 	 *
-	 * The computed value is cached in attachment meta on first use (`none`
-	 * sentinel for negative results). This v1 cache is intentionally simple:
-	 * replacing the underlying file does not invalidate the meta
-	 * automatically, so callers must clear `_timber_kit_video_codecs` when
-	 * regenerating attachments in place.
+	 * The computed value is cached in attachment meta on first use. The stored
+	 * value carries a parser version prefix (`v2:`) and uses `none` for a
+	 * negative result, for example `v2:none`. An entry without the current
+	 * prefix is stale, so the method parses the file again and overwrites it.
+	 * That is how an entry written before the parser learned H.264, HEVC and
+	 * WebM gets replaced, without a migration. Bump {@see self::VIDEO_CODECS_CACHE_VERSION}
+	 * when the parser output changes. Replacing the underlying file does not
+	 * invalidate the meta automatically, so callers must clear
+	 * `_timber_kit_video_codecs` when regenerating attachments in place.
 	 *
 	 * @param int|array<string,mixed> $attachment Attachment ID or ACF file-field array.
 	 */
@@ -294,15 +306,24 @@ class Helpers {
 			return null;
 		}
 
+		$prefix = self::VIDEO_CODECS_CACHE_VERSION . ':';
 		$cached = get_post_meta( $attachment_id, '_timber_kit_video_codecs', true );
-		if ( is_string( $cached ) && '' !== $cached ) {
-			return 'none' === $cached ? null : $cached;
+		if ( is_string( $cached ) && str_starts_with( $cached, $prefix ) && strlen( $cached ) > strlen( $prefix ) ) {
+			$value = substr( $cached, strlen( $prefix ) );
+			return 'none' === $value ? null : $value;
 		}
 
+		// A missing or unreadable file says nothing about its codecs. Return null
+		// without a write, so a later request can try again. Only a parsed file
+		// earns the `none` sentinel.
 		$path = get_attached_file( $attachment_id );
-		$codecs = is_string( $path ) ? VideoCodecs::codecsString( $path ) : null;
+		if ( ! is_string( $path ) || ! is_readable( $path ) ) {
+			return null;
+		}
 
-		update_post_meta( $attachment_id, '_timber_kit_video_codecs', $codecs ?? 'none' );
+		$codecs = VideoCodecs::codecsString( $path );
+
+		update_post_meta( $attachment_id, '_timber_kit_video_codecs', $prefix . ( $codecs ?? 'none' ) );
 
 		return $codecs;
 	}

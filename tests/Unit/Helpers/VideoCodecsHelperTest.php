@@ -6,6 +6,7 @@ namespace Tests\Unit\Helpers;
 
 use Brain\Monkey\Functions;
 use Parisek\TimberKit\Helpers;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\Unit\HelpersTestCase;
 
 class VideoCodecsHelperTest extends HelpersTestCase {
@@ -26,7 +27,7 @@ class VideoCodecsHelperTest extends HelpersTestCase {
 		Functions\expect( 'get_post_meta' )
 			->once()
 			->with( 10, self::CACHE_KEY, true )
-			->andReturn( 'av01.0.00M.08' );
+			->andReturn( 'v2:av01.0.00M.08' );
 		Functions\expect( 'get_attached_file' )->never();
 		Functions\expect( 'update_post_meta' )->never();
 
@@ -37,7 +38,7 @@ class VideoCodecsHelperTest extends HelpersTestCase {
 		Functions\expect( 'get_post_meta' )
 			->once()
 			->with( 14, self::CACHE_KEY, true )
-			->andReturn( 'none' );
+			->andReturn( 'v2:none' );
 		Functions\expect( 'get_attached_file' )->never();
 		Functions\expect( 'update_post_meta' )->never();
 
@@ -54,18 +55,12 @@ class VideoCodecsHelperTest extends HelpersTestCase {
 		Functions\expect( 'get_attached_file' )->once()->with( 11 )->andReturn( $path );
 		Functions\expect( 'update_post_meta' )
 			->once()
-			->with( 11, self::CACHE_KEY, 'av01.0.00M.10' );
+			->with( 11, self::CACHE_KEY, 'v2:av01.0.00M.10' );
 
 		$this->assertSame( 'av01.0.00M.10', Helpers::videoCodecs( 11 ) );
 	}
 
-	public function test_non_av1_file_returns_null_and_stores_none_sentinel(): void {
-		$attachment = [
-			'ID' => 12,
-			'url' => 'https://example.test/uploads/h264.mp4',
-			'mime_type' => 'video/mp4',
-		];
-
+	public function test_unsupported_file_returns_null_and_stores_versioned_none_sentinel(): void {
 		Functions\expect( 'get_post_meta' )
 			->once()
 			->with( 12, self::CACHE_KEY, true )
@@ -73,10 +68,62 @@ class VideoCodecsHelperTest extends HelpersTestCase {
 		Functions\expect( 'get_attached_file' )
 			->once()
 			->with( 12 )
-			->andReturn( dirname( __DIR__, 2 ) . '/Fixtures/video/h264.mp4' );
-		Functions\expect( 'update_post_meta' )->once()->with( 12, self::CACHE_KEY, 'none' );
+			->andReturn( dirname( __DIR__, 2 ) . '/Fixtures/video/truncated.mp4' );
+		Functions\expect( 'update_post_meta' )->once()->with( 12, self::CACHE_KEY, 'v2:none' );
 
-		$this->assertNull( Helpers::videoCodecs( $attachment ) );
+		$this->assertNull( Helpers::videoCodecs( [ 'ID' => 12 ] ) );
+	}
+
+	public function test_h264_file_returns_avc_codecs_and_stores_versioned_value(): void {
+		Functions\expect( 'get_post_meta' )->once()->with( 12, self::CACHE_KEY, true )->andReturn( '' );
+		Functions\expect( 'get_attached_file' )
+			->once()
+			->with( 12 )
+			->andReturn( dirname( __DIR__, 2 ) . '/Fixtures/video/h264.mp4' );
+		Functions\expect( 'update_post_meta' )->once()->with( 12, self::CACHE_KEY, 'v2:avc1.64000A' );
+
+		$this->assertSame( 'avc1.64000A', Helpers::videoCodecs( 12 ) );
+	}
+
+	/**
+	 * @return array<string, array{0: mixed}>
+	 */
+	public static function provideStaleCacheValues(): array {
+		return [
+			'v1 negative sentinel' => [ 'none' ],
+			'v1 AV1 value' => [ 'av01.0.00M.08' ],
+			'other version prefix' => [ 'v1:none' ],
+			'prefix without value' => [ 'v2:' ],
+			'non-string meta' => [ 0 ],
+		];
+	}
+
+	#[DataProvider( 'provideStaleCacheValues' )]
+	public function test_entry_without_current_version_is_parsed_again_and_overwritten( mixed $stale ): void {
+		Functions\expect( 'get_post_meta' )->once()->with( 13, self::CACHE_KEY, true )->andReturn( $stale );
+		Functions\expect( 'get_attached_file' )
+			->once()
+			->with( 13 )
+			->andReturn( dirname( __DIR__, 2 ) . '/Fixtures/video/vp9.webm' );
+		Functions\expect( 'update_post_meta' )->once()->with( 13, self::CACHE_KEY, 'v2:vp9' );
+
+		$this->assertSame( 'vp9', Helpers::videoCodecs( 13 ) );
+	}
+
+	public function test_missing_file_returns_null_and_is_not_cached(): void {
+		Functions\expect( 'get_post_meta' )->once()->with( 15, self::CACHE_KEY, true )->andReturn( '' );
+		Functions\expect( 'get_attached_file' )->once()->with( 15 )->andReturn( '/nonexistent/dir/gone.mp4' );
+		Functions\expect( 'update_post_meta' )->never();
+
+		$this->assertNull( Helpers::videoCodecs( 15 ) );
+	}
+
+	public function test_attachment_without_a_file_path_returns_null_and_is_not_cached(): void {
+		Functions\expect( 'get_post_meta' )->once()->with( 16, self::CACHE_KEY, true )->andReturn( '' );
+		Functions\expect( 'get_attached_file' )->once()->with( 16 )->andReturn( false );
+		Functions\expect( 'update_post_meta' )->never();
+
+		$this->assertNull( Helpers::videoCodecs( 16 ) );
 	}
 
 	public function test_input_without_resolvable_id_returns_null_without_meta_access(): void {
@@ -109,7 +156,7 @@ class VideoCodecsHelperTest extends HelpersTestCase {
 			->times( 2 )
 			->andReturn(
 				dirname( __DIR__, 2 ) . '/Fixtures/video/av1-8bit.mp4',
-				dirname( __DIR__, 2 ) . '/Fixtures/video/av1.webm'
+				dirname( __DIR__, 2 ) . '/Fixtures/video/vp8.webm'
 			);
 		Functions\expect( 'update_post_meta' )
 			->times( 2 )
@@ -125,7 +172,7 @@ class VideoCodecsHelperTest extends HelpersTestCase {
 				[
 					'src' => 'https://example.test/uploads/mobile.webm',
 					'type' => 'video/webm',
-					'codecs' => null,
+					'codecs' => 'vp8',
 				],
 			],
 			Helpers::formatVideoSources( $variants )

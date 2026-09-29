@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `VideoCodecs::codecsString()` reads H.264 (`avcC`), HEVC (`hvcC`) and WebM
+  (VP8, VP9, AV1) files, not only AV1 in MP4. `Helpers::videoCodecs()`,
+  `formatFile()`, `formatVideo()` and `formatVideoSources()` return the bare
+  RFC 6381 value in `codecs`: `avc1.64001F`, `hvc1.1.6.L93.B0`, `vp8`,
+  `vp9`, `vp09.00.10.08`, `av01.0.01M.08`. The file's own sample entry type
+  (`avc1`..`avc4`, `hvc1`, `hev1`) is kept. VP9 in WebM returns the short
+  form `vp9` when `CodecPrivate` lacks profile, level or bit depth. The
+  parser returns null when it cannot derive an exact value. Every read is
+  bounded.
+- `Helpers::videoCodecs()` does not cache `none` for a missing or unreadable file.
+  A later request can parse it again. A parsed file with no derivable codec still
+  stores `v2:none`.
+
+### Changed
+
+- The `_timber_kit_video_codecs` attachment meta now stores a versioned value
+  (`v2:<codecs>` or `v2:none`). An entry without that prefix, written by an
+  earlier release, is parsed again on its next read and overwritten. No
+  migration runs. A file whose codec was unknown before (`codecs` null)
+  now gets its value the first time a template reads it.
+
 ## [1.60.0] - 2026-09-25
 
 ### Added

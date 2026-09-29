@@ -25,7 +25,7 @@ class FormatVideoTest extends HelpersTestCase {
 		Functions\expect( 'get_post_meta' )
 			->once()
 			->with( 5, '_timber_kit_video_codecs', true )
-			->andReturn( 'none' );
+			->andReturn( 'v2:none' );
 		Functions\expect( 'get_attached_file' )->never();
 		Functions\expect( 'update_post_meta' )->never();
 
@@ -62,7 +62,7 @@ class FormatVideoTest extends HelpersTestCase {
 			->andReturn( dirname( __DIR__, 2 ) . '/Fixtures/video/av1-8bit.mp4' );
 		Functions\expect( 'update_post_meta' )
 			->once()
-			->with( 15, '_timber_kit_video_codecs', 'av01.0.00M.08' );
+			->with( 15, '_timber_kit_video_codecs', 'v2:av01.0.00M.08' );
 
 		$result = Helpers::formatVideo( $video );
 
@@ -85,7 +85,7 @@ class FormatVideoTest extends HelpersTestCase {
 		Functions\expect( 'get_post_meta' )
 			->once()
 			->with( 5, '_timber_kit_video_codecs', true )
-			->andReturn( 'none' );
+			->andReturn( 'v2:none' );
 		Functions\expect( 'get_attached_file' )->never();
 		Functions\expect( 'update_post_meta' )->never();
 

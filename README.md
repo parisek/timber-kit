@@ -24,11 +24,15 @@ Extends `Timber\Site` with dozens of configurable properties. Handles theme setu
 
 Static methods for formatting ACF data into clean arrays for Twig templates:
 
-- `formatImage()`, `formatFile()`, `formatVideo()` — media formatting. `formatVideo()`
-  derives the `codecs=` part of the `type` attribute through `VideoCodecs::codecsString()`,
-  which sniffs the file rather than trusting the container extension — a browser
-  skips a `<source>` whose codec string is wrong, so guessing it means a video
-  that silently never plays.
+- `formatImage()`, `formatFile()`, `formatVideo()` — media formatting. Video
+  results carry `codecs`, the bare RFC 6381 string (`avc1.64001F`, `hvc1.1.6.L93.B0`,
+  `av01.0.01M.08`, `vp09.00.10.08`, `vp9`, `vp8`). `VideoCodecs::codecsString()`
+  derives it by sniffing MP4 and WebM files rather than trusting the extension —
+  a browser skips a `<source>` whose codec string is wrong, so guessing it means
+  a video that silently never plays. It returns null when it cannot derive an
+  exact value. The result is cached in attachment meta under a parser version
+  prefix, so a release that teaches the parser a new codec replaces old entries
+  without a migration.
 - `formatMenu()` returns a `MenuData`, which behaves as its item list under every
   array-shaped operation — iteration, `count()`, index access, JSON encoding —
   while exposing the menu's own metadata as properties. That equivalence is what

@@ -158,6 +158,22 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   flag to `false`. This is a named exception to the rule above, not a case of
   the rule being skipped.
 
+- **Approved exception:** `Helpers::videoCodecs()` derives codecs for H.264,
+  HEVC and WebM with **no flag**. The owner reviewed it explicitly in a session
+  on 2026-09-29 and accepted the output change on upgrade. Before this change
+  only AV1 in MP4 got a value, so the rest rendered a plain `video/mp4` and the
+  browser could not choose between variants. A flag would leave every project on
+  that state, and the projects that would miss it are the ones nobody audits.
+  The change reaches a page only where a template already composes `codecs` into
+  the `<source>` type: across the 26 projects on this kit, 13 render video and 6
+  compose `codecs`. What bounds it: the parser returns `null` when it cannot derive
+  an exact value, and a template that ignores `codecs` renders as before. The
+  known cost is a file whose `avcC` or `hvcC` describes a stream that is not there.
+  A browser then skips that source. A project fixes it by re-encoding the file.
+  The cache carries a version prefix, so old entries are read again without a
+  migration. This is a named exception to the rule above, not a case of the rule
+  being skipped.
+
 ## Architecture decisions (ADRs)
 
 Significant decisions live in `docs/adr/` — the only tracked subtree under the
