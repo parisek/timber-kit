@@ -356,6 +356,21 @@ per-environment tweaks. Custom checks implement `Health\HealthCheck` (`id`,
 `label`, `category`, `method`, `run(): Result`) and return
 `Result::good()` / `Result::recommended()` / `Result::critical()`.
 
+#### Package assets reachable
+
+The `package_assets_reachable` check (category `timber-kit`) is registered
+only when `$admin_resizable_sidebar` is `true`. It requests the sidebar
+stylesheet from the package `vendor/` directory as an anonymous visitor
+(`HEAD`, then `GET` when the answer is not 200, 5 second timeout).
+
+| Answer | Result |
+| --- | --- |
+| 200 | `good` |
+| 403 or 404 | `recommended`. Names both causes and the fix for each: the theme `.htaccess` denies `vendor/` without the static-file allow rule (see [§ Gutenberg](#gutenberg)), or the web server user cannot enter a `vendor/` directory (mode 750 with ACL `group::---`; fix with `setfacl -m g::--x` or `chmod g+x` on `vendor/` down to the package). A 403 body with `Server unable to read htaccess file` points to the second cause |
+| loopback error or other status | `recommended` ("could not verify"), never critical |
+
+The check never changes `.htaccess`, file modes or ACLs. It only reports.
+
 #### utf8mb4 charset audit + conversion
 
 The `utf8mb4_tables` check (category `database`) audits every prefix-scoped
@@ -1797,7 +1812,7 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 > RewriteRule ^vendor/(.*)?$ / [F,L]
 > ```
 >
-> PHP / source / config under `vendor/` stay forbidden. Projects scaffolded from `wordpress-base` (current `starter_theme`) already ship this allow rule.
+> PHP / source / config under `vendor/` stay forbidden. Projects scaffolded from `wordpress-base` (current `starter_theme`) already ship this allow rule. With `$site_health` on, the `package_assets_reachable` check reports when the assets still answer 403 (see [§ Package assets reachable](#package-assets-reachable)).
 
 ### Options Pages
 

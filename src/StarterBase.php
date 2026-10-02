@@ -30,6 +30,7 @@ use Parisek\TimberKit\Breeze\WarmupSitemap;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
 use Parisek\TimberKit\Health\Check\FileEditingDisabled;
 use Parisek\TimberKit\Health\Check\GtmContainerNotDuplicated;
+use Parisek\TimberKit\Health\Check\PackageAssetsReachable;
 use Parisek\TimberKit\Health\Check\ResizerOutputFormatWritable;
 use Parisek\TimberKit\Health\Check\RestUsersRestricted;
 use Parisek\TimberKit\Health\Check\Utf8mb4Tables;
@@ -1725,6 +1726,12 @@ class StarterBase extends Site {
 		// reads.
 		if ( $this->breeze_warmup_sitemap ) {
 			$checks[] = new WarmupSitemapResolved();
+		}
+
+		// Same reason: only a site that enqueues the sidebar assets needs to
+		// know whether the server serves them.
+		if ( $this->admin_resizable_sidebar ) {
+			$checks[] = new PackageAssetsReachable( $this->packageAssetUrl( '/assets/css/gutenberg-resizable-sidebar.css' ) );
 		}
 
 		return $checks;

@@ -6,6 +6,29 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- Site Health check `package_assets_reachable` (`Health\Check\PackageAssetsReachable`,
+  category `timber-kit`, needs `$site_health`). It is registered only when
+  `$admin_resizable_sidebar` is `true`. It sends an anonymous `HEAD` request
+  to the sidebar stylesheet that `packageAssetUrl()` builds. Any answer other
+  than 200 is repeated as `GET`. 200 is good. 403 or 404 is `recommended` and
+  names both causes with a fix for each: a theme `.htaccess` that denies
+  `vendor/` without the static-file allow rule, and a `vendor/` directory the
+  web server user cannot enter. A 403 body that contains `Server unable to
+  read htaccess file` points to the second cause. A failed loopback is
+  `recommended` ("could not verify"), never critical. Neither request follows
+  redirects, so a redirect to a login page or a soft-404 handler is reported as
+  unverified, not as a healthy stylesheet.
+
+### Changed
+
+- `search_post_type_filter()` is hooked only when `$disable_search` is `false`.
+  With the search disabled, the main search query is a 404 and the filter had
+  nothing to scope. A project that sets `$disable_search = false` gets the same
+  behaviour as before. A project that calls `search_post_type_filter()` itself
+  is not affected.
+
 ### Fixed
 
 - `search_post_type_filter()` rewrote `post_type` on every `WP_Query` with a
@@ -17,14 +40,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   query only, the same guard `disable_search()` has. A frontend `/?s=` request
   is unchanged. A theme that relied on the filter for a secondary search query
   must now pass `post_type` itself.
-
-### Changed
-
-- `search_post_type_filter()` is hooked only when `$disable_search` is `false`.
-  With the search disabled, the main search query is a 404 and the filter had
-  nothing to scope. A project that sets `$disable_search = false` gets the same
-  behaviour as before. A project that calls `search_post_type_filter()` itself
-  is not affected.
 
 ## [1.61.0] - 2026-09-29
 
