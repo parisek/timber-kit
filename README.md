@@ -2083,10 +2083,28 @@ ddev start
 ddev exec "composer test"           # Unit suite (Brain\Monkey, fast — default)
 ddev exec "composer test:property"  # Eris property suite (invariant-based)
 ddev exec "composer test:all"       # both suites
+composer test:integration          # real WordPress + database, see below
 ddev exec "composer phpstan"
 ```
 
 The property suite (`tests/Property/`, powered by `giorgiosironi/eris`) targets pure functions only and runs under its own `phpunit.property.xml` config to stay isolated from Brain\Monkey's Patchwork hooks. CI pins `ERIS_SEED` to the Actions run ID — reproduce a failing build locally with `ERIS_SEED=<run-id> composer test:property`.
+
+### Integration suite
+
+The integration suite (`tests/Integration/`, `phpunit.integration.xml`) boots real WordPress and runs the kit against a real MySQL or MariaDB database. It covers what the stubbed unit suite cannot see: how the kit's hooks act on a REST controller's own query, on the main query, and on core registries such as Site Health. Each test runs in a transaction that WordPress rolls back.
+
+```bash
+TIMBERKIT_TEST_DB_HOST=127.0.0.1:3306 \
+TIMBERKIT_TEST_DB_NAME=wordpress_test \
+TIMBERKIT_TEST_DB_USER=root \
+TIMBERKIT_TEST_DB_PASSWORD=secret \
+composer test:integration
+```
+
+- **The database is wiped.** On every run the core installer drops each table with the `wptests_` prefix and installs a fresh site. Use a database you can lose.
+- **No database, no failure.** When the variables are missing or the server does not answer, every test is skipped with the reason. `TIMBERKIT_REQUIRE_TEST_DB=1` turns the skip into a failure; CI sets it.
+- **WordPress is pinned.** `wp-phpunit/wp-phpunit` and `roots/wordpress-no-content` are both pinned to `7.1.1` in `composer.json`, so a WordPress release cannot break the suite until both are bumped together.
+- `composer test`, `composer test:all` and `composer check` never run this suite.
 
 ## Releasing
 

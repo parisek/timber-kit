@@ -17,7 +17,7 @@ Go-style brevity. Bullets, not paragraphs. Add only what saves the next session 
 WordPress/Timber starter-kit library distributed via Composer (`parisek/timber-kit`).
 
 - `src/` — all production code (PSR-4 `Parisek\TimberKit\`)
-- `tests/` — PHPUnit + Brain\Monkey, no real WordPress boot (minimal `WP_Post` / `WP_Term` / `WP_Query` stubs in `tests/bootstrap.php`)
+- `tests/` — PHPUnit + Brain\Monkey, no real WordPress boot (minimal `WP_Post` / `WP_Term` / `WP_Query` stubs in `tests/bootstrap.php`). Exception: `tests/Integration/` boots real WordPress (see Testing notes)
 - `.github/workflows/` — CI (`tests.yml`) + release automation (`release-stamp.yml`, `release.yml`)
 - `.gitattributes` controls dist scope — `composer require` only ships `src/`, `composer.json`, `LICENSE`, `README.md`. Everything else (`tests/`, `.github/`, `CHANGELOG.md`, `CLAUDE.md`, `.ddev/`, lint configs) is `export-ignore`.
 
@@ -29,12 +29,13 @@ PHP 8.3 minimum. PHPStan level 8 (existing findings grandfathered in phpstan-bas
 composer test           # Unit suite (Brain\Monkey, fast — default)
 composer test:property  # Eris property suite (invariant-based, ~100 iterations/test)
 composer test:all       # both suites
+composer test:integration # real WordPress + database (skips without one)
 composer phpstan        # static analysis
 composer normalize      # tidy composer.json (CI checks it with --dry-run)
 composer audit          # scan the dependency tree for known advisories
 ```
 
-DDEV is the local-dev expectation (`ddev exec "composer test"`). CI runs the suites on PHP 8.3 + 8.4, plus a `composer` hygiene job (validate + audit + normalize check). `config.platform.php` is pinned to 8.3 so the lock resolves for the supported floor.
+DDEV is the local-dev expectation (`ddev exec "composer test"`). CI runs the suites on PHP 8.3 + 8.4, an `integration` job on 8.3 with a MariaDB service, plus a `composer` hygiene job (validate + audit + normalize check). `config.platform.php` is pinned to 8.3 so the lock resolves for the supported floor.
 
 ## TDD — non-negotiable
 
@@ -201,6 +202,15 @@ If you ever need to back-fill a missing GitHub Release for an older tag manually
 
 ## Testing notes
 
+- **Integration tier** (`tests/Integration/`, `phpunit.integration.xml`): real
+  WordPress 7.1.1 and a real database, each test rolled back. A test belongs
+  here only when the interaction with WordPress is the thing under test: a REST
+  controller's own `WP_Query`, the main query, a core registry such as
+  `WP_Site_Health::get_tests()`. Logic stays in the unit suite. Keep the tier
+  small; each test boots the kit with `bootKit()`. Database from
+  `TIMBERKIT_TEST_DB_{HOST,NAME,USER,PASSWORD}`; the installer drops every
+  `wptests_` table, so use a database you can lose. `@expectedDeprecated`
+  annotations do not work (PHPUnit 12); call `setExpectedDeprecated()`.
 - **CI AVIF encoder:** the Unit job's ImageMagick cannot write AVIF, so
   `EncoderQualityTest` skips its AVIF cases there. The `AVIF encoder` job
   installs libheif with an AV1 encoder and sets `TIMBERKIT_REQUIRE_AVIF_ENCODER`,

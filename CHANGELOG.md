@@ -45,6 +45,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   no request and reports `good`. No new flag.
 - `Seo\BreadcrumbSchema::resolve()` returns the running SEO plugin and its own
   breadcrumb switch. `boot()` now uses it.
+- Integration test tier: `tests/Integration/`, `phpunit.integration.xml` and `composer test:integration`. It runs the kit against real WordPress 7.1.1 (core test library from `wp-phpunit/wp-phpunit`, core from `roots/wordpress-no-content`, both pinned) and a real database. First tests: the REST page search with the search filter hooked, the frontend search main query, a secondary search query, the filter wiring with `$disable_search` on, and the flag-gated Site Health check. Without a database the suite skips. A new CI job runs it on PHP 8.3 with a MariaDB service. Test-only: nothing under `src/` changes (#217).
 
 ### Changed
 
