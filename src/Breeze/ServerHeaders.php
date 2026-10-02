@@ -21,7 +21,8 @@ namespace Parisek\TimberKit\Breeze;
  *   {@see self::maybe_schedule_rebuild()} notices a changed list of names
  *   and rebuilds the config once, after the response is sent.
  *
- * The rebuild is best effort. It never runs from WP-CLI or cron, so a deploy
+ * The rebuild is best effort. It runs only on a front-end request: never from
+ * WP-CLI, cron, wp-admin, AJAX or REST, so a deploy
  * in maintenance mode cannot make Breeze save an empty list. It records the
  * list as done only after the new config no longer holds those headers. A
  * transient lock spaces the retries.
@@ -49,16 +50,22 @@ final class ServerHeaders {
 	public static function register( array $names ): void {
 		$names = self::normalize( $names );
 
-		if ( array() === $names || self::$registered ) {
+		if ( self::$registered ) {
 			return;
 		}
 
 		self::$registered = true;
 
-		add_filter(
-			'breeze_custom_headers_allow',
-			static fn ( $allowed ): array => self::filter_allowed( $allowed, $names )
-		);
+		// An empty list adds no filter. It still checks for a stored
+		// fingerprint, so a site that clears the list gets Breeze's own
+		// unfiltered config back.
+		if ( array() !== $names ) {
+			add_filter(
+				'breeze_custom_headers_allow',
+				static fn ( $allowed ): array => self::filter_allowed( $allowed, $names )
+			);
+		}
+
 		add_action(
 			'init',
 			static function () use ( $names ): void {
@@ -124,11 +131,14 @@ final class ServerHeaders {
 	 * @return void
 	 */
 	public static function maybe_schedule_rebuild( array $names ): void {
-		if ( ( defined( 'WP_CLI' ) && WP_CLI ) || defined( 'DOING_CRON' ) ) {
+		if ( ( defined( 'WP_CLI' ) && WP_CLI ) || defined( 'DOING_CRON' ) || is_admin() || wp_doing_ajax() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) ) {
 			return;
 		}
 
-		if ( get_option( self::OPTION, '' ) === self::fingerprint( $names ) ) {
+		$stored = (string) get_option( self::OPTION, '' );
+
+		// Nothing stored and nothing listed: the feature was never on.
+		if ( array() === self::normalize( $names ) ? '' === $stored : self::fingerprint( $names ) === $stored ) {
 			return;
 		}
 
@@ -156,6 +166,12 @@ final class ServerHeaders {
 		}
 
 		call_user_func( array( 'Breeze_ConfigCache', 'write_config_cache' ) );
+
+		if ( array() === self::normalize( $names ) ) {
+			delete_option( self::OPTION );
+
+			return;
+		}
 
 		$path   = WP_CONTENT_DIR . '/breeze-config/breeze-config.php';
 		$config = is_readable( $path ) ? (string) file_get_contents( $path ) : '';

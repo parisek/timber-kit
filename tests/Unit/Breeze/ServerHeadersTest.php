@@ -24,6 +24,8 @@ class ServerHeadersTest extends TestCase {
 		parent::setUp();
 		Monkey\setUp();
 		ServerHeaders::reset_for_tests();
+		Functions\when( 'is_admin' )->justReturn( false );
+		Functions\when( 'wp_doing_ajax' )->justReturn( false );
 	}
 
 	protected function tearDown(): void {
@@ -74,26 +76,6 @@ class ServerHeadersTest extends TestCase {
 		$config = "<?php\nreturn array (\n  'x-frame-options' => 'elsewhere',\n  'breeze_custom_headers' => \n  array (\n    'permissions-policy' => 'x',\n  ),\n);\n";
 
 		$this->assertFalse( ServerHeaders::config_lists_headers( $config, array( 'x-frame-options' ) ) );
-	}
-
-	public function test_register_with_no_names_wires_nothing(): void {
-		$calls = array();
-		Functions\when( 'add_filter' )->alias(
-			function ( $tag ) use ( &$calls ) {
-				$calls[] = $tag;
-				return true;
-			}
-		);
-		Functions\when( 'add_action' )->alias(
-			function ( $tag ) use ( &$calls ) {
-				$calls[] = $tag;
-				return true;
-			}
-		);
-
-		ServerHeaders::register( array() );
-
-		$this->assertSame( array(), $calls );
 	}
 
 	public function test_register_wires_the_filter_and_the_init_check(): void {
@@ -161,7 +143,9 @@ class ServerHeadersTest extends TestCase {
 	private function fakeBreeze( array $stored ): void {
 		$dir = WP_CONTENT_DIR . '/tk-test-' . uniqid();
 		mkdir( $dir, 0777, true );
-		mkdir( WP_CONTENT_DIR . '/breeze-config', 0777, true );
+		if ( ! is_dir( WP_CONTENT_DIR . '/breeze-config' ) ) {
+			mkdir( WP_CONTENT_DIR . '/breeze-config', 0777, true );
+		}
 		@unlink( WP_CONTENT_DIR . '/breeze-config/breeze-config.php' );
 		$GLOBALS['tk_breeze_stored'] = $stored;
 
@@ -207,5 +191,85 @@ PHP;
 
 		ServerHeaders::rebuild( array( 'x-frame-options' ) );
 		$this->addToAssertionCount( 1 );
+	}
+
+	public function test_check_skips_admin_requests(): void {
+		Functions\when( 'is_admin' )->justReturn( true );
+		Functions\when( 'get_option' )->justReturn( '' );
+		Functions\expect( 'add_action' )->never();
+
+		ServerHeaders::maybe_schedule_rebuild( array( 'x-frame-options' ) );
+		$this->addToAssertionCount( 1 );
+	}
+
+	public function test_check_skips_ajax_requests(): void {
+		Functions\when( 'wp_doing_ajax' )->justReturn( true );
+		Functions\when( 'get_option' )->justReturn( '' );
+		Functions\expect( 'add_action' )->never();
+
+		ServerHeaders::maybe_schedule_rebuild( array( 'x-frame-options' ) );
+		$this->addToAssertionCount( 1 );
+	}
+
+	public function test_an_empty_list_restores_the_config_when_a_fingerprint_was_stored(): void {
+		Functions\when( 'get_option' )->justReturn( 'abc' );
+		Functions\when( 'get_transient' )->justReturn( false );
+		Functions\expect( 'set_transient' )->once();
+		$tags = array();
+		Functions\when( 'add_action' )->alias(
+			function ( $tag ) use ( &$tags ) {
+				$tags[] = $tag;
+				return true;
+			}
+		);
+
+		ServerHeaders::maybe_schedule_rebuild( array() );
+
+		$this->assertSame( array( 'shutdown' ), $tags );
+	}
+
+	public function test_an_empty_list_with_nothing_stored_does_nothing(): void {
+		Functions\when( 'get_option' )->justReturn( '' );
+		Functions\expect( 'add_action' )->never();
+
+		ServerHeaders::maybe_schedule_rebuild( array() );
+		$this->addToAssertionCount( 1 );
+	}
+
+	public function test_register_with_no_names_still_wires_the_restore_check(): void {
+		$calls = array();
+		Functions\when( 'add_filter' )->alias(
+			function ( $tag ) use ( &$calls ) {
+				$calls[] = $tag;
+				return true;
+			}
+		);
+		Functions\when( 'add_action' )->alias(
+			function ( $tag ) use ( &$calls ) {
+				$calls[] = $tag;
+				return true;
+			}
+		);
+
+		ServerHeaders::register( array() );
+
+		$this->assertSame( array( 'init' ), $calls );
+	}
+
+	#[PreserveGlobalState( false )]
+	#[RunInSeparateProcess]
+	public function test_rebuild_with_an_empty_list_deletes_the_stored_fingerprint(): void {
+		$this->fakeBreeze( array( 'x-frame-options' ) );
+		$deleted = null;
+		Functions\when( 'delete_option' )->alias(
+			function ( $key ) use ( &$deleted ) {
+				$deleted = $key;
+				return true;
+			}
+		);
+
+		ServerHeaders::rebuild( array() );
+
+		$this->assertSame( ServerHeaders::OPTION, $deleted );
 	}
 }

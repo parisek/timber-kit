@@ -14,9 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   appears twice. Name the headers the server sends and the kit removes them
   from Breeze's list (`breeze_custom_headers_allow`). A Breeze config written
   before that still holds them, because a purge does not rewrite it. The kit
-  rebuilds it once, after the response, from a front-end request. It never
-  rebuilds from WP-CLI or cron, so a deploy in maintenance mode cannot make
-  Breeze save an empty list. A header that only PHP sends must not be listed:
+  rebuilds it once, after the response, from a front-end request only. It never
+  rebuilds from WP-CLI, cron, wp-admin, AJAX or REST, so a deploy in
+  maintenance mode cannot make Breeze save an empty list. Clearing the list
+  restores Breeze's own config the same way. A header that only PHP sends must not be listed:
   on a hit PHP does not run, so the replay is the only way it reaches the
   visitor.
 

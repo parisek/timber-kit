@@ -1884,7 +1884,7 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	protected function setup_breeze_server_headers(): void {
-		if ( array() === $this->breeze_server_headers || ! $this->breeze_is_active() ) {
+		if ( ! $this->breeze_is_active() ) {
 			return;
 		}
 

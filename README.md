@@ -1279,6 +1279,48 @@ saved copy changes only when Breeze rebuilds its config, for example when you
 save the Breeze settings. Cache state changes over time, so one clean result is
 not proof. The check changes no Breeze setting and no header.
 
+### Keeping server headers out of Breeze's replay
+
+`$breeze_server_headers` (default `array()`) names the headers your web server
+already sends. Set it when the check above reports a header sent twice on a
+hit.
+
+```php
+protected array $breeze_server_headers = array(
+	'content-security-policy',
+	'x-frame-options',
+	'referrer-policy',
+	'strict-transport-security',
+	'x-content-type-options',
+	'x-xss-protection',
+);
+```
+
+`Breeze\ServerHeaders` does two things, only when Breeze is active:
+
+- It removes those names from the list Breeze may save
+  (`breeze_custom_headers_allow`).
+- Breeze writes that list into `wp-content/breeze-config/breeze-config.php`
+  only when it builds its config. A purge does not rebuild it. When the stored
+  fingerprint of your list differs, the kit calls `Breeze_ConfigCache::write_config_cache()`
+  once, after the response, and stores the fingerprint when the new config no
+  longer holds the names. It retries after 5 minutes if it does.
+
+The rebuild runs only on a front-end request, never from WP-CLI, cron, wp-admin,
+AJAX or REST. Clearing the list restores Breeze's own config the same way.
+
+List only headers the server sends. A header that only PHP sends
+(`$security_headers`) must stay: a cache hit does not run PHP.
+
+| Method | Use |
+| --- | --- |
+| `ServerHeaders::register( array $names )` | Wire the filter and the rebuild check. `StarterBase` calls it. |
+| `ServerHeaders::filter_allowed( $allowed, array $names )` | The filter body: `$allowed` without `$names`, case-insensitive. |
+| `ServerHeaders::fingerprint( array $names )` | Order- and case-independent hash of a list. |
+| `ServerHeaders::config_lists_headers( string $config, array $names )` | Whether a config text stores any of the names under `breeze_custom_headers`. |
+| `ServerHeaders::maybe_schedule_rebuild( array $names )` | The `init` check. |
+| `ServerHeaders::rebuild( array $names )` | The rebuild, run on `shutdown`. |
+
 ### Image resizer output format
 
 The Site Health check `resizer_output_format_writable` (category `performance`,
