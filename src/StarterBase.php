@@ -990,22 +990,25 @@ class StarterBase extends Site {
 	 *
 	 * Breeze pings the home URL, saves each allowed header it sees, and sends
 	 * them again on every hit. A header the server also sends then appears
-	 * twice. List the server's headers here and the kit removes them from
-	 * Breeze's list (`breeze_custom_headers_allow`), and rebuilds a Breeze
-	 * config that still holds them (once, from a front-end request).
+	 * twice. The kit removes the named headers from Breeze's list
+	 * (`breeze_custom_headers_allow`), and rebuilds a Breeze config that still
+	 * holds them (once, from a front-end request).
 	 *
-	 * Empty by default: only the site knows what its server sends. Measure
-	 * first (`probe-security-headers.sh`). Do not list a header that only PHP
-	 * sends, such as `$security_headers` output. On a hit PHP does not run, so
-	 * Breeze's replay is the only way that header reaches the visitor.
+	 * `null` (default) picks the names from `$security_headers`, one source of
+	 * truth for the security headers:
+	 * - Off: the theme sends none, so the server owns them. The kit drops the
+	 *   managed set without `Permissions-Policy` (`ServerHeaders::DEFAULT_NAMES`).
+	 * - On: the theme sends them. Nothing is dropped. On a hit PHP does not
+	 *   run, so Breeze's replay is the only way they reach the visitor.
 	 *
-	 * The canonical set for a site whose `.htaccess` follows `wordpress-base`:
-	 * `content-security-policy`, `x-frame-options`, `referrer-policy`,
-	 * `strict-transport-security`, `x-content-type-options`, `x-xss-protection`.
+	 * An array replaces that choice. `array()` turns it off. Set it when a PHP
+	 * plugin sends one of the default names and the server does not: the
+	 * replay is then that header's only path on a hit. Measure first
+	 * (`probe-security-headers.sh`).
 	 *
-	 * @var string[]
+	 * @var string[]|null
 	 */
-	protected array $breeze_server_headers = array();
+	protected ?array $breeze_server_headers = null;
 
 	/** @var bool Surface a Site Health warning when the live response carries a managed security header more than once — the signature of a second, server-level source (Apache .htaccess mod_headers, nginx add_header, a security plugin) emitting the same headers $security_headers already sends. Only registered when $security_headers is on. */
 	protected bool $warn_duplicate_security_headers = true;
@@ -1888,7 +1891,21 @@ class StarterBase extends Site {
 			return;
 		}
 
-		ServerHeaders::register( $this->breeze_server_headers );
+		ServerHeaders::register( $this->resolve_breeze_server_headers() );
+	}
+
+	/**
+	 * The header names to keep out of Breeze's replay: the explicit list, else
+	 * the managed set when the theme leaves security headers to the server.
+	 *
+	 * @return string[]
+	 */
+	protected function resolve_breeze_server_headers(): array {
+		if ( null !== $this->breeze_server_headers ) {
+			return $this->breeze_server_headers;
+		}
+
+		return $this->security_headers ? array() : ServerHeaders::DEFAULT_NAMES;
 	}
 
 	/**

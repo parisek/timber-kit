@@ -1281,20 +1281,20 @@ not proof. The check changes no Breeze setting and no header.
 
 ### Keeping server headers out of Breeze's replay
 
-`$breeze_server_headers` (default `array()`) names the headers your web server
-already sends. Set it when the check above reports a header sent twice on a
-hit.
+`$breeze_server_headers` (default `null`) names the headers your web server
+already sends. The default follows `$security_headers`, so a theme needs no
+setting:
 
-```php
-protected array $breeze_server_headers = array(
-	'content-security-policy',
-	'x-frame-options',
-	'referrer-policy',
-	'strict-transport-security',
-	'x-content-type-options',
-	'x-xss-protection',
-);
-```
+| `$security_headers` | `$breeze_server_headers` | Kit drops from Breeze's list |
+| --- | --- | --- |
+| off (default) | `null` | the managed set without `Permissions-Policy`: Content-Security-Policy, Referrer-Policy, Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options, X-XSS-Protection |
+| on | `null` | nothing. The theme sends them, and on a hit Breeze's replay is the only way they reach the visitor |
+| any | an array | exactly that array |
+| any | `array()` | nothing |
+
+`Permissions-Policy` stays out of the default because plugins send it from
+PHP (WPForms captcha does). Set an array, or `array()`, when a PHP plugin sends
+one of the default names and the server does not.
 
 `Breeze\ServerHeaders` does two things, only when Breeze is active:
 

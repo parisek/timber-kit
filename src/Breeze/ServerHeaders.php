@@ -27,9 +27,30 @@ namespace Parisek\TimberKit\Breeze;
  * list as done only after the new config no longer holds those headers. A
  * transient lock spaces the retries.
  *
- * Activation is opt-in: `StarterBase::$breeze_server_headers`, plus Breeze.
+ * `StarterBase::$breeze_server_headers` picks the names. Left at `null`, the
+ * names are {@see self::DEFAULT_NAMES} when the theme sends no security
+ * headers itself (`$security_headers` off), and none when it does.
  */
 final class ServerHeaders {
+
+	/**
+	 * The headers `StarterBase::security_headers()` manages, without
+	 * `Permissions-Policy`. A site whose theme does not send them leaves them
+	 * to the web server, and the server is the second source Breeze would
+	 * replay. `Permissions-Policy` stays out because plugins send it from PHP
+	 * (WPForms captcha does), and on a cache hit the replay is its only way
+	 * to the visitor. A test keeps this list equal to the managed set.
+	 *
+	 * @var string[]
+	 */
+	public const DEFAULT_NAMES = array(
+		'content-security-policy',
+		'referrer-policy',
+		'strict-transport-security',
+		'x-content-type-options',
+		'x-frame-options',
+		'x-xss-protection',
+	);
 
 	/** @var string Option holding the fingerprint of the list the config was last rebuilt for. */
 	public const OPTION = 'timber_kit_breeze_server_headers';
