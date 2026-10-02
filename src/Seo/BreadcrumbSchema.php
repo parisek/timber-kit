@@ -98,6 +98,27 @@ final class BreadcrumbSchema {
 	 * @return void
 	 */
 	public static function boot(): void {
+		$state = self::resolve();
+
+		if ( ! self::shouldSuppress( $state['plugin'], $state['enabled'] ) ) {
+			return;
+		}
+
+		self::register( $state['plugin'] );
+	}
+
+	/**
+	 * The running plugin and its own breadcrumb switch, as
+	 * {@see shouldSuppress()} takes them.
+	 *
+	 * Public for one more caller: `StarterBase` registers the
+	 * `breadcrumb_list_rendered` Site Health check only while the suppression
+	 * is active, and must not read a plugin's symbols itself. Thin by design,
+	 * for the reason {@see Plugin} records, so it is verified by reading.
+	 *
+	 * @return array{plugin: 'aioseo'|'yoast'|null, enabled: bool|null}
+	 */
+	public static function resolve(): array {
 		$plugin = Plugin::active();
 
 		$enabled = null;
@@ -108,11 +129,10 @@ final class BreadcrumbSchema {
 			$enabled = Yoast::breadcrumbsEnabled();
 		}
 
-		if ( ! self::shouldSuppress( $plugin, $enabled ) ) {
-			return;
-		}
-
-		self::register( $plugin );
+		return array(
+			'plugin'  => $plugin,
+			'enabled' => $enabled,
+		);
 	}
 
 	/**

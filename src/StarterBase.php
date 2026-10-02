@@ -29,6 +29,7 @@ use Parisek\TimberKit\Breeze\Health\SecurityHeadersSingleOnCacheHit;
 use Parisek\TimberKit\Breeze\Health\WarmupSitemapResolved;
 use Parisek\TimberKit\Breeze\WarmupSitemap;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
+use Parisek\TimberKit\Health\Check\BreadcrumbListRendered;
 use Parisek\TimberKit\Health\Check\FileEditingDisabled;
 use Parisek\TimberKit\Health\Check\GtmContainerNotDuplicated;
 use Parisek\TimberKit\Health\Check\PackageAssetsReachable;
@@ -1746,7 +1747,31 @@ class StarterBase extends Site {
 			);
 		}
 
+		// Only while the kit actually removes the SEO plugin's list: that is
+		// the one state in which a theme without its own list loses the
+		// markup. Every other site gets no row and no loopback request.
+		if ( $this->seo_suppress_plugin_breadcrumb ) {
+			$state = $this->breadcrumb_schema_state();
+			if ( BreadcrumbSchema::shouldSuppress( $state['plugin'], $state['enabled'] ) ) {
+				$checks[] = new BreadcrumbListRendered();
+			}
+		}
+
 		return $checks;
+	}
+
+	/**
+	 * The running SEO plugin and its own breadcrumb switch.
+	 *
+	 * A seam, not an extension point: the lookup asks `function_exists()`,
+	 * which a unit test cannot answer reliably, so the wiring test overrides
+	 * this. The lookup itself lives in `Seo\BreadcrumbSchema`, because naming
+	 * a plugin here would cross the boundary `SeoBoundaryTest` enforces.
+	 *
+	 * @return array{plugin: ?string, enabled: ?bool}
+	 */
+	protected function breadcrumb_schema_state(): array {
+		return BreadcrumbSchema::resolve();
 	}
 
 	/**

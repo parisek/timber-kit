@@ -113,6 +113,62 @@ class SiteHealthRegisterChecksTest extends StarterBaseTestCase {
 		$this->assertArrayNotHasKey( 'timber_kit_health_security_headers_single_on_cache_hit', $tests['direct'] );
 	}
 
+	public function test_breadcrumb_check_is_registered_while_the_suppression_is_active(): void {
+		$base = $this->createStarterBase( [
+			'seo_suppress_plugin_breadcrumb' => true,
+			'breadcrumbSchemaState'          => [ 'plugin' => 'yoast', 'enabled' => false ],
+		] );
+
+		$tests = $base->site_health_register_checks( [ 'direct' => [], 'async' => [] ] );
+
+		$this->assertArrayHasKey( 'timber_kit_health_breadcrumb_list_rendered', $tests['direct'] );
+	}
+
+	/** A plugin without its own switch on this install still counts as suppressed. */
+	public function test_breadcrumb_check_is_registered_when_the_plugin_has_no_switch(): void {
+		$base = $this->createStarterBase( [
+			'breadcrumbSchemaState' => [ 'plugin' => 'yoast', 'enabled' => null ],
+		] );
+
+		$tests = $base->site_health_register_checks( [ 'direct' => [], 'async' => [] ] );
+
+		$this->assertArrayHasKey( 'timber_kit_health_breadcrumb_list_rendered', $tests['direct'] );
+	}
+
+	public function test_breadcrumb_check_is_not_registered_when_the_flag_is_false(): void {
+		$base = $this->createStarterBase( [
+			'seo_suppress_plugin_breadcrumb' => false,
+			'breadcrumbSchemaState'          => [ 'plugin' => 'yoast', 'enabled' => false ],
+		] );
+
+		$tests = $base->site_health_register_checks( [ 'direct' => [], 'async' => [] ] );
+
+		$this->assertArrayNotHasKey( 'timber_kit_health_breadcrumb_list_rendered', $tests['direct'] );
+	}
+
+	public function test_breadcrumb_check_is_not_registered_without_an_seo_plugin(): void {
+		$base = $this->createStarterBase( [
+			'seo_suppress_plugin_breadcrumb' => true,
+			'breadcrumbSchemaState'          => [ 'plugin' => null, 'enabled' => null ],
+		] );
+
+		$tests = $base->site_health_register_checks( [ 'direct' => [], 'async' => [] ] );
+
+		$this->assertArrayNotHasKey( 'timber_kit_health_breadcrumb_list_rendered', $tests['direct'] );
+	}
+
+	/** The plugin's own breadcrumb switch is on, so its list stays and nothing is lost. */
+	public function test_breadcrumb_check_is_not_registered_when_the_plugin_keeps_its_list(): void {
+		$base = $this->createStarterBase( [
+			'seo_suppress_plugin_breadcrumb' => true,
+			'breadcrumbSchemaState'          => [ 'plugin' => 'yoast', 'enabled' => true ],
+		] );
+
+		$tests = $base->site_health_register_checks( [ 'direct' => [], 'async' => [] ] );
+
+		$this->assertArrayNotHasKey( 'timber_kit_health_breadcrumb_list_rendered', $tests['direct'] );
+	}
+
 	public function test_health_checks_override_can_drop_a_default(): void {
 		Functions\when( 'add_action' )->justReturn( true );
 		Functions\when( 'add_filter' )->justReturn( true );
@@ -120,6 +176,10 @@ class SiteHealthRegisterChecksTest extends StarterBaseTestCase {
 		$base = new class extends StarterBase {
 			public function __construct() {
 				// Skip parent constructor to avoid hook registration.
+			}
+			// No SEO plugin: see StarterBaseTestCase for why the real lookup is avoided.
+			protected function breadcrumb_schema_state(): array {
+				return [ 'plugin' => null, 'enabled' => null ];
 			}
 			protected function health_checks( array $checks ): array {
 				unset( $checks['xmlrpc_disabled'] );

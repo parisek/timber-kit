@@ -39,6 +39,19 @@ abstract class StarterBaseTestCase extends TestCase {
 				// Skip parent constructor to avoid hook registration
 			}
 
+			/**
+			 * No SEO plugin by default. The real lookup asks function_exists(),
+			 * and a Brain\Monkey stub defined by an earlier test outlives it,
+			 * so the answer would depend on test order.
+			 *
+			 * @var array{plugin: ?string, enabled: ?bool}
+			 */
+			public array $breadcrumbSchemaState = array( 'plugin' => null, 'enabled' => null );
+
+			protected function breadcrumb_schema_state(): array {
+				return $this->breadcrumbSchemaState;
+			}
+
 			public function setProperty( string $name, mixed $value ): void {
 				$this->$name = $value;
 			}
