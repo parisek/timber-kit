@@ -140,7 +140,7 @@ class ServerHeadersTest extends TestCase {
 	 *
 	 * @param string[] $stored Names Breeze_ConfigCache will write.
 	 */
-	private function fakeBreeze( array $stored ): void {
+	private function fakeBreeze( array $stored, bool $writes = true ): void {
 		$dir = WP_CONTENT_DIR . '/tk-test-' . uniqid();
 		mkdir( $dir, 0777, true );
 		if ( ! is_dir( WP_CONTENT_DIR . '/breeze-config' ) ) {
@@ -148,11 +148,15 @@ class ServerHeadersTest extends TestCase {
 		}
 		@unlink( WP_CONTENT_DIR . '/breeze-config/breeze-config.php' );
 		$GLOBALS['tk_breeze_stored'] = $stored;
+		$GLOBALS['tk_breeze_writes'] = $writes;
 
 		$class = <<<'PHP'
 <?php
 class Breeze_ConfigCache {
 	public static function write_config_cache() {
+		if ( ! $GLOBALS['tk_breeze_writes'] ) {
+			return;
+		}
 		$rows = '';
 		foreach ( $GLOBALS['tk_breeze_stored'] as $name ) {
 			$rows .= "    '" . $name . "' => 'v',\n";
@@ -271,5 +275,28 @@ PHP;
 		ServerHeaders::rebuild( array() );
 
 		$this->assertSame( ServerHeaders::OPTION, $deleted );
+	}
+
+	#[PreserveGlobalState( false )]
+	#[RunInSeparateProcess]
+	public function test_rebuild_records_nothing_when_the_config_file_is_missing(): void {
+		$this->fakeBreeze( array(), false );
+		Functions\expect( 'update_option' )->never();
+		Functions\expect( 'delete_option' )->never();
+
+		ServerHeaders::rebuild( array( 'x-frame-options' ) );
+		$this->addToAssertionCount( 1 );
+	}
+
+	#[PreserveGlobalState( false )]
+	#[RunInSeparateProcess]
+	public function test_restore_keeps_the_fingerprint_when_the_config_was_not_rewritten(): void {
+		$this->fakeBreeze( array( 'x-frame-options' ), false );
+		file_put_contents( WP_CONTENT_DIR . '/breeze-config/breeze-config.php', '<?php return array();' );
+		touch( WP_CONTENT_DIR . '/breeze-config/breeze-config.php', time() - 3600 );
+		Functions\expect( 'delete_option' )->never();
+
+		ServerHeaders::rebuild( array() );
+		$this->addToAssertionCount( 1 );
 	}
 }

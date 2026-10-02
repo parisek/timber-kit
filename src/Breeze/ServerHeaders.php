@@ -165,18 +165,28 @@ final class ServerHeaders {
 			return;
 		}
 
+		$path    = WP_CONTENT_DIR . '/breeze-config/breeze-config.php';
+		$started = time();
+
 		call_user_func( array( 'Breeze_ConfigCache', 'write_config_cache' ) );
 
+		clearstatcache( true, $path );
+
+		// No readable file means no evidence the rebuild worked. Keep the
+		// fingerprint unset so the next attempt runs after the lock expires.
+		if ( ! is_readable( $path ) ) {
+			return;
+		}
+
 		if ( array() === self::normalize( $names ) ) {
-			delete_option( self::OPTION );
+			if ( (int) filemtime( $path ) >= $started ) {
+				delete_option( self::OPTION );
+			}
 
 			return;
 		}
 
-		$path   = WP_CONTENT_DIR . '/breeze-config/breeze-config.php';
-		$config = is_readable( $path ) ? (string) file_get_contents( $path ) : '';
-
-		if ( self::config_lists_headers( $config, $names ) ) {
+		if ( self::config_lists_headers( (string) file_get_contents( $path ), $names ) ) {
 			return;
 		}
 
