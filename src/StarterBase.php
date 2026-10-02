@@ -26,6 +26,7 @@ use Parisek\TimberKit\BlockRenderer;
 use Parisek\TimberKit\Wpml\MenuSyncReadOnly;
 use Parisek\TimberKit\Breeze\Health\PreloadChainHealthy;
 use Parisek\TimberKit\Breeze\Health\SecurityHeadersSingleOnCacheHit;
+use Parisek\TimberKit\Breeze\ServerHeaders;
 use Parisek\TimberKit\Breeze\Health\WarmupSitemapResolved;
 use Parisek\TimberKit\Breeze\WarmupSitemap;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
@@ -983,6 +984,29 @@ class StarterBase extends Site {
 	 */
 	protected array $gtm_containers = array();
 
+	/**
+	 * Header names the web server (Apache `.htaccess`, nginx) already sends, to
+	 * keep out of the headers Breeze saves and replays on a cache hit.
+	 *
+	 * Breeze pings the home URL, saves each allowed header it sees, and sends
+	 * them again on every hit. A header the server also sends then appears
+	 * twice. List the server's headers here and the kit removes them from
+	 * Breeze's list (`breeze_custom_headers_allow`), and rebuilds a Breeze
+	 * config that still holds them (once, from a front-end request).
+	 *
+	 * Empty by default: only the site knows what its server sends. Measure
+	 * first (`probe-security-headers.sh`). Do not list a header that only PHP
+	 * sends, such as `$security_headers` output. On a hit PHP does not run, so
+	 * Breeze's replay is the only way that header reaches the visitor.
+	 *
+	 * The canonical set for a site whose `.htaccess` follows `wordpress-base`:
+	 * `content-security-policy`, `x-frame-options`, `referrer-policy`,
+	 * `strict-transport-security`, `x-content-type-options`, `x-xss-protection`.
+	 *
+	 * @var string[]
+	 */
+	protected array $breeze_server_headers = array();
+
 	/** @var bool Surface a Site Health warning when the live response carries a managed security header more than once — the signature of a second, server-level source (Apache .htaccess mod_headers, nginx add_header, a security plugin) emitting the same headers $security_headers already sends. Only registered when $security_headers is on. */
 	protected bool $warn_duplicate_security_headers = true;
 
@@ -1134,6 +1158,7 @@ class StarterBase extends Site {
 		$this->setup_dev_media_proxy();
 		$this->setup_wpforms_config_bridge();
 		$this->setup_breeze_warmup_sitemap();
+		$this->setup_breeze_server_headers();
 		$this->registerCliCommands();
 
 		parent::__construct();
@@ -1851,6 +1876,19 @@ class StarterBase extends Site {
 			$this->breeze_warmup_tail,
 			$this->breeze_warmup_tail_batch
 		);
+	}
+
+	/**
+	 * Wire {@see ServerHeaders} when the site lists headers its server sends.
+	 *
+	 * @return void
+	 */
+	protected function setup_breeze_server_headers(): void {
+		if ( array() === $this->breeze_server_headers || ! $this->breeze_is_active() ) {
+			return;
+		}
+
+		ServerHeaders::register( $this->breeze_server_headers );
 	}
 
 	/**
