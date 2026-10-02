@@ -127,6 +127,74 @@ class BreadcrumbListRenderedTest extends HealthTestCase {
 		$this->assertSame( 'recommended', $this->run_check()->status() );
 	}
 
+	/**
+	 * Body shapes the detection must read as markup, not as text.
+	 *
+	 * @return array<string, array{0: string, 1: string}>
+	 */
+	public static function bodies(): array {
+		$ld = static fn ( string $json ): string => '<script type="application/ld+json">' . $json . '</script>';
+
+		return [
+			'JSON-LD: a description that mentions the word' => [
+				$ld( '{"@context":"https://schema.org","@type":"WebPage","description":"Our BreadcrumbList is gone."}' ),
+				'recommended',
+			],
+			'JSON-LD: a BreadcrumbList node in @graph' => [
+				$ld( '{"@context":"https://schema.org","@graph":[{"@type":"WebPage"},{"@type":"BreadcrumbList","itemListElement":[]}]}' ),
+				'good',
+			],
+			'JSON-LD: @type as an array that contains it' => [
+				$ld( '{"@type":["ItemList","BreadcrumbList"]}' ),
+				'good',
+			],
+			'JSON-LD: a top-level list of nodes' => [
+				$ld( '[{"@type":"WebSite"},{"@type":"BreadcrumbList"}]' ),
+				'good',
+			],
+			'JSON-LD: an invalid block next to a valid one' => [
+				$ld( '{"@type":"BreadcrumbList",' ) . $ld( '{"@type":"BreadcrumbList"}' ),
+				'good',
+			],
+			'JSON-LD: only an invalid block that names the type' => [
+				$ld( '{"@type":"BreadcrumbList",' ),
+				'recommended',
+			],
+			'microdata: several itemtype tokens' => [
+				'<ol itemscope itemtype="https://schema.org/ItemList https://schema.org/BreadcrumbList"></ol>',
+				'good',
+			],
+			'microdata: itemtype without itemscope' => [
+				'<ol itemtype="https://schema.org/BreadcrumbList"></ol>',
+				'recommended',
+			],
+			'microdata: single quotes' => [
+				"<ol itemscope itemtype='https://schema.org/BreadcrumbList'></ol>",
+				'good',
+			],
+			'microdata: itemtype before itemscope, more attributes' => [
+				'<nav aria-label="Breadcrumb"><ol class="crumbs" itemtype="https://schema.org/BreadcrumbList" id="x" itemscope=""></ol></nav>',
+				'good',
+			],
+			'microdata: a > inside a quoted value before itemtype' => [
+				'<ol title="Home > News" itemscope itemtype="https://schema.org/BreadcrumbList"></ol>',
+				'good',
+			],
+			'microdata: a type on another vocabulary' => [
+				'<ol itemscope itemtype="https://example.com/BreadcrumbList"></ol>',
+				'recommended',
+			],
+		];
+	}
+
+	#[\PHPUnit\Framework\Attributes\DataProvider( 'bodies' )]
+	public function test_detection_reads_markup_not_text( string $body, string $status ): void {
+		$this->stubPosts( [ 'post' => [ 42 ] ] );
+		$this->stubResponse( [ 200, '<html><head></head><body>' . $body . '</body></html>' ] );
+
+		$this->assertSame( $status, $this->run_check()->status() );
+	}
+
 	public function test_a_failed_loopback_is_recommended_could_not_verify(): void {
 		$this->stubPosts( [ 'post' => [ 42 ] ] );
 		$this->stubResponse( 'wp-error' );

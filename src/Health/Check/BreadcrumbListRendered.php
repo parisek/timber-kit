@@ -24,14 +24,21 @@ use Parisek\TimberKit\Health\Result;
  * It does not follow redirects, so a redirect to a login page is reported as
  * unverified, not as a page without a breadcrumb.
  *
- * Only JSON-LD blocks and microdata count. The word in visible text or in an
- * ordinary script is no markup a crawler reads.
+ * Only markup counts: a JSON-LD node typed BreadcrumbList, or a microdata
+ * item of that type. The word in visible text, in an ordinary script or in a
+ * JSON-LD string value is no list a crawler reads.
  */
 final class BreadcrumbListRendered implements HealthCheck {
 
 	private const JSON_LD_BLOCK = '#<script\b[^>]*\btype\s*=\s*["\']?application/ld\+json["\']?[^>]*>(.*?)</script>#is';
 
-	private const MICRODATA = '#\bitemtype\s*=\s*["\']https?://schema\.org/BreadcrumbList/?["\']#i';
+	/** A start tag. Quoted values may contain `>`. */
+	private const START_TAG = '#<[a-z][a-z0-9-]*(?:[^>"\']|"[^"]*"|\'[^\']*\')*>#i';
+
+	/** One attribute: name, then an optional double-quoted, single-quoted or bare value. */
+	private const ATTRIBUTE = '#([^\s"\'=<>/]+)(?:\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+)))?#';
+
+	private const ITEMTYPE_TOKEN = '#^https?://schema\.org/BreadcrumbList/?$#';
 
 	public function id(): string {
 		return 'breadcrumb_list_rendered';
@@ -150,16 +157,101 @@ final class BreadcrumbListRendered implements HealthCheck {
 	}
 
 	private function hasBreadcrumbList( string $body ): bool {
-		if ( 1 === preg_match( self::MICRODATA, $body ) ) {
-			return true;
+		return $this->hasMicrodataList( $body ) || $this->hasJsonLdList( $body );
+	}
+
+	/**
+	 * Microdata: an element with `itemscope` whose `itemtype` token list holds
+	 * the schema.org BreadcrumbList URL. `itemtype` may list several absolute
+	 * URLs; without `itemscope` it creates no item.
+	 *
+	 * A small tokenizer reads the start tags, so the package needs no DOM
+	 * extension.
+	 */
+	private function hasMicrodataList( string $body ): bool {
+		if ( false === stripos( $body, 'itemtype' ) || false === preg_match_all( self::START_TAG, $body, $tags ) ) {
+			return false;
 		}
 
+		foreach ( $tags[0] as $tag ) {
+			if ( false === stripos( $tag, 'itemtype' ) ) {
+				continue;
+			}
+
+			$attributes = $this->attributes( $tag );
+
+			if ( ! array_key_exists( 'itemscope', $attributes ) || ! isset( $attributes['itemtype'] ) ) {
+				continue;
+			}
+
+			$tokens = preg_split( '/\s+/', trim( $attributes['itemtype'] ) );
+			foreach ( false === $tokens ? array() : $tokens as $token ) {
+				if ( 1 === preg_match( self::ITEMTYPE_TOKEN, $token ) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Attributes of one start tag, keyed by lower-case name. A bare attribute
+	 * maps to an empty string. The first occurrence of a name wins, as in HTML.
+	 *
+	 * @return array<string, string>
+	 */
+	private function attributes( string $tag ): array {
+		$inner = (string) preg_replace( '#^<[a-z][a-z0-9-]*|/?>$#i', '', $tag );
+
+		if ( false === preg_match_all( self::ATTRIBUTE, $inner, $matches, PREG_SET_ORDER ) ) {
+			return array();
+		}
+
+		$attributes = array();
+		foreach ( $matches as $match ) {
+			$name = strtolower( $match[1] );
+			if ( ! array_key_exists( $name, $attributes ) ) {
+				$attributes[ $name ] = ( $match[2] ?? '' ) . ( $match[3] ?? '' ) . ( $match[4] ?? '' );
+			}
+		}
+
+		return $attributes;
+	}
+
+	/**
+	 * JSON-LD: a node whose `@type` is BreadcrumbList, or a list that holds it.
+	 * The word in a string value, such as a description, is no list. A block
+	 * that is not valid JSON is skipped; the other blocks still count.
+	 */
+	private function hasJsonLdList( string $body ): bool {
 		if ( false === preg_match_all( self::JSON_LD_BLOCK, $body, $blocks ) ) {
 			return false;
 		}
 
 		foreach ( $blocks[1] as $block ) {
-			if ( str_contains( $block, 'BreadcrumbList' ) ) {
+			$data = json_decode( trim( $block ), true );
+			if ( is_array( $data ) && $this->holdsBreadcrumbList( $data ) ) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Walks every nested array, so a list of nodes, `@graph` and a node
+	 * embedded in a property (such as `WebPage.breadcrumb`) are all found.
+	 *
+	 * @param array<mixed> $node Decoded JSON value.
+	 */
+	private function holdsBreadcrumbList( array $node ): bool {
+		if ( in_array( 'BreadcrumbList', (array) ( $node['@type'] ?? array() ), true ) ) {
+			return true;
+		}
+
+		foreach ( $node as $value ) {
+			if ( is_array( $value ) && $this->holdsBreadcrumbList( $value ) ) {
 				return true;
 			}
 		}

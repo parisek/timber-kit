@@ -387,8 +387,12 @@ switch is not on. On every other site it is absent and sends no request.
 It requests one page as an anonymous visitor (`GET`, 5 second timeout, no
 redirects): the newest published post of the first public post type that has
 one. It never requests the home page, the static front page or the posts page,
-because a home page can carry no breadcrumb by design. Only a JSON-LD block or
-microdata (`itemtype="https://schema.org/BreadcrumbList"`) counts.
+because a home page can carry no breadcrumb by design. Only markup counts: a
+JSON-LD node whose `@type` is or contains `BreadcrumbList` (top level, a list,
+`@graph` or nested), or a microdata element with `itemscope` whose `itemtype`
+tokens include `http(s)://schema.org/BreadcrumbList`. The word in a JSON-LD
+string value or in page text does not count. An invalid JSON-LD block is
+skipped, and the other blocks still count.
 
 | Answer | Result |
 | --- | --- |
