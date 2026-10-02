@@ -9,6 +9,7 @@
 /docs                export-ignore
 /phpunit.xml         export-ignore
 /phpunit.property.xml export-ignore
+/phpunit.integration.xml export-ignore
 /phpstan.neon        export-ignore
 /patchwork.json      export-ignore
 CHANGELOG.md         export-ignore

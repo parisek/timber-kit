@@ -8,6 +8,12 @@ parameters:
         - src/
     scanDirectories:
         - vendor/
+    excludePaths:
+        analyseAndScan:
+            # The Integration suite's real WordPress. Scanning it lets core's
+            # own source shadow the szepeviktor stubs this analysis is typed against.
+            - vendor/roots/wordpress-no-content
+            - vendor/wp-phpunit/wp-phpunit
     treatPhpDocTypesAsCertain: false
     stubFiles:
         - phpstan-stubs/wpml.stub

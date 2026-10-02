@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PHPUnit configuration for the Integration test suite only.
+
+  This suite boots real WordPress (the core test library from
+  wp-phpunit/wp-phpunit, core from roots/wordpress-no-content) against a real
+  MySQL or MariaDB database. It is kept out of phpunit.xml so `composer test`
+  stays fast and needs no database.
+
+  The database comes from TIMBERKIT_TEST_DB_HOST, TIMBERKIT_TEST_DB_NAME,
+  TIMBERKIT_TEST_DB_USER and TIMBERKIT_TEST_DB_PASSWORD. When no database
+  answers, every test is skipped with the reason. TIMBERKIT_REQUIRE_TEST_DB=1
+  turns that skip into a failure (CI sets it).
+-->
+<phpunit
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:noNamespaceSchemaLocation="vendor/phpunit/phpunit/phpunit.xsd"
+	bootstrap="tests/Integration/bootstrap.php"
+	colors="true"
+	beStrictAboutTestsThatDoNotTestAnything="true"
+	displayDetailsOnSkippedTests="true"
+>
+	<testsuites>
+		<testsuite name="Integration">
+			<directory suffix="Test.php">tests/Integration</directory>
+		</testsuite>
+	</testsuites>
+</phpunit>
