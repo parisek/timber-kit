@@ -180,6 +180,54 @@ class BreadcrumbListRenderedTest extends HealthTestCase {
 				'<ol title="Home > News" itemscope itemtype="https://schema.org/BreadcrumbList"></ol>',
 				'good',
 			],
+			'JSON-LD: @type as an https IRI' => [
+				$ld( '{"@type":"https://schema.org/BreadcrumbList"}' ),
+				'good',
+			],
+			'JSON-LD: @type as an http IRI with a trailing slash' => [
+				$ld( '{"@type":"http://schema.org/BreadcrumbList/"}' ),
+				'good',
+			],
+			'JSON-LD: an IRI inside a @type array' => [
+				$ld( '{"@type":["ItemList","https://schema.org/BreadcrumbList"]}' ),
+				'good',
+			],
+			'JSON-LD: an IRI on another domain' => [
+				$ld( '{"@type":"https://example.com/BreadcrumbList"}' ),
+				'recommended',
+			],
+			'JSON-LD: a block inside an HTML comment' => [
+				'<!-- ' . $ld( '{"@type":"BreadcrumbList"}' ) . ' -->',
+				'recommended',
+			],
+			'JSON-LD: a live block after a comment' => [
+				'<!-- old markup -->' . $ld( '{"@type":"BreadcrumbList"}' ),
+				'good',
+			],
+			'microdata: a commented-out list' => [
+				'<!-- <ol itemscope itemtype="https://schema.org/BreadcrumbList"></ol> -->',
+				'recommended',
+			],
+			'microdata: an unterminated comment' => [
+				'<!-- <ol itemscope itemtype="https://schema.org/BreadcrumbList"></ol>',
+				'recommended',
+			],
+			'microdata: markup inside a script string' => [
+				'<script>var m = \'<ol itemscope itemtype="https://schema.org/BreadcrumbList"></ol>\';</script>',
+				'recommended',
+			],
+			'microdata: markup inside a textarea' => [
+				'<TEXTAREA name="x"><ol itemscope itemtype="https://schema.org/BreadcrumbList"></ol></TEXTAREA>',
+				'recommended',
+			],
+			'microdata: markup inside a style' => [
+				'<style media="all">/* <ol itemscope itemtype="https://schema.org/BreadcrumbList"> */</style>',
+				'recommended',
+			],
+			'microdata: a live list after a comment' => [
+				'<!-- header --><ol itemscope itemtype="https://schema.org/BreadcrumbList"></ol>',
+				'good',
+			],
 			'microdata: a type on another vocabulary' => [
 				'<ol itemscope itemtype="https://example.com/BreadcrumbList"></ol>',
 				'recommended',

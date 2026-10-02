@@ -26,11 +26,21 @@ use Parisek\TimberKit\Health\Result;
  *
  * Only markup counts: a JSON-LD node typed BreadcrumbList, or a microdata
  * item of that type. The word in visible text, in an ordinary script or in a
- * JSON-LD string value is no list a crawler reads.
+ * JSON-LD string value is no list a crawler reads. Neither is markup inside
+ * an HTML comment or inside a script, style or textarea element.
  */
 final class BreadcrumbListRendered implements HealthCheck {
 
-	private const JSON_LD_BLOCK = '#<script\b[^>]*\btype\s*=\s*["\']?application/ld\+json["\']?[^>]*>(.*?)</script>#is';
+	/**
+	 * Regions whose content is not markup: an HTML comment (to the end of the
+	 * document when it is not closed), and the content of a script, style or
+	 * textarea element. One left-to-right pass, so whichever region opens
+	 * first wins: a comment marker inside a script string does not start a
+	 * comment, and a script tag inside a comment does not start a script.
+	 */
+	private const INERT_REGION = '#<!--.*?(?:-->|\z)|<(script|style|textarea)\b([^>]*)>(.*?)(?:</\1\s*>|\z)#is';
+
+	private const JSON_LD_TYPE = '#\btype\s*=\s*["\']?\s*application/ld\+json#i';
 
 	/** A start tag. Quoted values may contain `>`. */
 	private const START_TAG = '#<[a-z][a-z0-9-]*(?:[^>"\']|"[^"]*"|\'[^\']*\')*>#i';
@@ -38,7 +48,7 @@ final class BreadcrumbListRendered implements HealthCheck {
 	/** One attribute: name, then an optional double-quoted, single-quoted or bare value. */
 	private const ATTRIBUTE = '#([^\s"\'=<>/]+)(?:\s*=\s*(?:"([^"]*)"|\'([^\']*)\'|([^\s>]+)))?#';
 
-	private const ITEMTYPE_TOKEN = '#^https?://schema\.org/BreadcrumbList/?$#';
+	private const TYPE_IRI = '#^https?://schema\.org/BreadcrumbList/?$#';
 
 	public function id(): string {
 		return 'breadcrumb_list_rendered';
@@ -156,8 +166,39 @@ final class BreadcrumbListRendered implements HealthCheck {
 		return null;
 	}
 
+	/**
+	 * JSON-LD blocks are collected and every inert region is removed in one
+	 * pass. A JSON-LD block inside a comment is part of the comment, so it is
+	 * never collected. Microdata is then read from the remaining live markup.
+	 */
 	private function hasBreadcrumbList( string $body ): bool {
-		return $this->hasMicrodataList( $body ) || $this->hasJsonLdList( $body );
+		$blocks = array();
+		$live   = preg_replace_callback(
+			self::INERT_REGION,
+			static function ( array $match ) use ( &$blocks ): string {
+				if ( 'script' === strtolower( $match[1] ?? '' ) && 1 === preg_match( self::JSON_LD_TYPE, $match[2] ) ) {
+					$blocks[] = $match[3];
+				}
+
+				return '';
+			},
+			$body
+		);
+
+		return $this->hasJsonLdList( $blocks ) || $this->hasMicrodataList( (string) $live );
+	}
+
+	/**
+	 * The one test for the type name, shared by both paths so they cannot
+	 * drift. Microdata `itemtype` takes only the absolute IRI; JSON-LD `@type`
+	 * also takes the bare term, which the schema.org context expands.
+	 */
+	private static function isBreadcrumbType( string $type, bool $allowTerm ): bool {
+		if ( $allowTerm && 'BreadcrumbList' === $type ) {
+			return true;
+		}
+
+		return 1 === preg_match( self::TYPE_IRI, $type );
 	}
 
 	/**
@@ -166,10 +207,11 @@ final class BreadcrumbListRendered implements HealthCheck {
 	 * URLs; without `itemscope` it creates no item.
 	 *
 	 * A small tokenizer reads the start tags, so the package needs no DOM
-	 * extension.
+	 * extension. The caller has already removed comments and the content of
+	 * script, style and textarea elements.
 	 */
-	private function hasMicrodataList( string $body ): bool {
-		if ( false === stripos( $body, 'itemtype' ) || false === preg_match_all( self::START_TAG, $body, $tags ) ) {
+	private function hasMicrodataList( string $live ): bool {
+		if ( false === stripos( $live, 'itemtype' ) || false === preg_match_all( self::START_TAG, $live, $tags ) ) {
 			return false;
 		}
 
@@ -186,7 +228,7 @@ final class BreadcrumbListRendered implements HealthCheck {
 
 			$tokens = preg_split( '/\s+/', trim( $attributes['itemtype'] ) );
 			foreach ( false === $tokens ? array() : $tokens as $token ) {
-				if ( 1 === preg_match( self::ITEMTYPE_TOKEN, $token ) ) {
+				if ( self::isBreadcrumbType( $token, false ) ) {
 					return true;
 				}
 			}
@@ -223,13 +265,11 @@ final class BreadcrumbListRendered implements HealthCheck {
 	 * JSON-LD: a node whose `@type` is BreadcrumbList, or a list that holds it.
 	 * The word in a string value, such as a description, is no list. A block
 	 * that is not valid JSON is skipped; the other blocks still count.
+	 *
+	 * @param list<string> $blocks Content of the live JSON-LD script elements.
 	 */
-	private function hasJsonLdList( string $body ): bool {
-		if ( false === preg_match_all( self::JSON_LD_BLOCK, $body, $blocks ) ) {
-			return false;
-		}
-
-		foreach ( $blocks[1] as $block ) {
+	private function hasJsonLdList( array $blocks ): bool {
+		foreach ( $blocks as $block ) {
 			$data = json_decode( trim( $block ), true );
 			if ( is_array( $data ) && $this->holdsBreadcrumbList( $data ) ) {
 				return true;
@@ -246,8 +286,10 @@ final class BreadcrumbListRendered implements HealthCheck {
 	 * @param array<mixed> $node Decoded JSON value.
 	 */
 	private function holdsBreadcrumbList( array $node ): bool {
-		if ( in_array( 'BreadcrumbList', (array) ( $node['@type'] ?? array() ), true ) ) {
-			return true;
+		foreach ( (array) ( $node['@type'] ?? array() ) as $type ) {
+			if ( is_string( $type ) && self::isBreadcrumbType( $type, true ) ) {
+				return true;
+			}
 		}
 
 		foreach ( $node as $value ) {
