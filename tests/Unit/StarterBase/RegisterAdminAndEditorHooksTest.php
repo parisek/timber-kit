@@ -33,7 +33,10 @@ class RegisterAdminAndEditorHooksTest extends StarterBaseTestCase {
 			$filters[] = $hook;
 		} );
 
-		$this->invokeRegisterAdminAndEditorHooks( $this->bareInstance() );
+		$instance = $this->bareInstance();
+		( new \ReflectionClass( StarterBase::class ) )->getProperty( 'disable_search' )->setValue( $instance, false );
+
+		$this->invokeRegisterAdminAndEditorHooks( $instance );
 
 		$this->assertContains( 'template_redirect', $actions );
 		$this->assertContains( 'restrict_manage_posts', $actions );
@@ -45,6 +48,32 @@ class RegisterAdminAndEditorHooksTest extends StarterBaseTestCase {
 		$this->assertContains( 'tiny_mce_before_init', $filters );
 		$this->assertContains( 'pre_get_posts', $filters );
 		$this->assertContains( 'mce_css', $filters );
+	}
+
+	private function searchFilterIsWired( bool $disableSearch ): bool {
+		$filters  = [];
+		$instance = $this->bareInstance();
+
+		( new \ReflectionClass( StarterBase::class ) )->getProperty( 'disable_search' )->setValue( $instance, $disableSearch );
+
+		Functions\when( 'add_action' )->justReturn( true );
+		Functions\when( 'add_filter' )->alias( function ( $hook, $callback = null ) use ( &$filters ) {
+			$filters[] = [ $hook, $callback ];
+		} );
+
+		$this->invokeRegisterAdminAndEditorHooks( $instance );
+
+		return in_array( [ 'pre_get_posts', [ $instance, 'search_post_type_filter' ] ], $filters, true );
+	}
+
+	// The filter scopes the frontend search. With the search switched off the
+	// main query is a 404 and the filter has nothing to scope.
+	public function test_wires_the_search_post_type_filter_when_search_is_enabled(): void {
+		$this->assertTrue( $this->searchFilterIsWired( false ) );
+	}
+
+	public function test_does_not_wire_the_search_post_type_filter_when_search_is_disabled(): void {
+		$this->assertFalse( $this->searchFilterIsWired( true ) );
 	}
 
 	private function collectFilters( bool $excludeEditorStyles ): array {

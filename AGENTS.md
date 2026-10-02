@@ -215,3 +215,19 @@ If you ever need to back-fill a missing GitHub Release for an older tag manually
 - No emojis in code, comments, or commits unless the user explicitly asks.
 - Comments should explain *why*, not *what*. Avoid changelog-style comments referencing specific tasks/PRs (those rot).
 - When fixing review feedback that suggests a change which would break an unrelated integration (e.g. `instanceof WP_Post` would regress `Timber\MenuItem`), don't blindly apply — find the layered fix that satisfies the concern without the regression.
+
+- **Approved exception:** `search_post_type_filter()` acts on the main query only,
+  and is hooked only when `$disable_search` is `false` (#210). No flag. The owner
+  reviewed it explicitly. The old behaviour was a defect that failed silently: the
+  filter rewrote `post_type` on every `WP_Query` with a search term, so the block
+  editor's Parent picker (`/wp/v2/pages?search=`) listed posts instead of pages and
+  its media picker (`/wp/v2/media?search=`) found nothing. Measured on one project:
+  24 posts for 0 pages before, 65 pages after; 0 media results before, 20 after.
+  A default-off flag would keep that running on every site that did not flip it, and
+  nobody flips a flag for a defect they cannot see. A frontend `/?s=` request is
+  unchanged, because it is the main query. The kit disables the frontend search by
+  default, so on most sites the filter is no longer hooked at all. A grep of theme
+  PHP in the 26 projects on this kit found no secondary search query that relied on
+  the rewrite. Plugin code was not audited. A theme that did rely on it must pass
+  `post_type` itself. This is a named exception to the rule above, not a case of
+  the rule being skipped.

@@ -6,6 +6,26 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `search_post_type_filter()` rewrote `post_type` on every `WP_Query` with a
+  search term, not only on the frontend search. REST searches
+  (`/wp/v2/pages?search=`, `/wp/v2/media?search=`, `/wp/v2/search`),
+  `get_posts()` and WP-CLI got `$search_post_types` instead of the type they
+  asked for. In the block editor the "Parent" picker listed posts instead of
+  pages, and the media picker found nothing. The filter now acts on the main
+  query only, the same guard `disable_search()` has. A frontend `/?s=` request
+  is unchanged. A theme that relied on the filter for a secondary search query
+  must now pass `post_type` itself.
+
+### Changed
+
+- `search_post_type_filter()` is hooked only when `$disable_search` is `false`.
+  With the search disabled, the main search query is a 404 and the filter had
+  nothing to scope. A project that sets `$disable_search = false` gets the same
+  behaviour as before. A project that calls `search_post_type_filter()` itself
+  is not affected.
+
 ## [1.61.0] - 2026-09-29
 
 ### Added

@@ -1381,7 +1381,10 @@ class StarterBase extends Site {
 		if ( $this->mce_exclude_editor_styles ) {
 			add_filter( 'mce_css', array( $this, 'mce_css' ) );
 		}
-		add_filter( 'pre_get_posts', array( $this, 'search_post_type_filter' ) );
+		// With $disable_search on, the main search query is a 404 and the filter has nothing to scope.
+		if ( ! $this->disable_search ) {
+			add_filter( 'pre_get_posts', array( $this, 'search_post_type_filter' ) );
+		}
 		if ( $this->wpml_menu_sync_read_only ) {
 			if ( did_action( 'init' ) ) {
 				// Built during init: priority 0 would never run. register() hooks the guard or blocks the screen.
@@ -4457,16 +4460,23 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Restrict frontend search queries to post types defined in $this->search_post_types.
+	 * Restrict the frontend search to post types defined in $this->search_post_types.
 	 *
-	 * Hooked to `pre_get_posts`.
+	 * Acts on the main query only. REST controllers (`/wp/v2/pages?search=`,
+	 * `/wp/v2/media?search=`, `/wp/v2/search`), `get_posts()` and WP-CLI build
+	 * their own `WP_Query`: none is `is_admin()`, none is the main query. A
+	 * rewrite there made the block editor's "Parent" picker list posts instead
+	 * of pages and made its media picker find nothing. Same guard as
+	 * `disable_search()`.
+	 *
+	 * Hooked to `pre_get_posts`, only when `$disable_search` is `false`.
 	 *
 	 * @param \WP_Query $query The current query object.
 	 * @return \WP_Query Modified query.
 	 */
 	public function search_post_type_filter( $query ) {
 
-		if ( $query->is_search && ! is_admin() ) {
+		if ( $query->is_search && $query->is_main_query() && ! is_admin() ) {
 			$query->set( 'post_type', $this->search_post_types );
 		}
 
