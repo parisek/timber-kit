@@ -35,6 +35,42 @@ class SiteHealthRegisterChecksTest extends StarterBaseTestCase {
 		}
 	}
 
+	public function test_package_assets_check_is_not_registered_without_resizable_sidebar(): void {
+		$base = $this->createStarterBase( [ 'admin_resizable_sidebar' => false ] );
+
+		$tests = $base->site_health_register_checks( [ 'direct' => [], 'async' => [] ] );
+
+		$this->assertArrayNotHasKey( 'timber_kit_health_package_assets_reachable', $tests['direct'] );
+	}
+
+	public function test_package_assets_check_probes_the_sidebar_stylesheet_url(): void {
+		Functions\when( 'wp_normalize_path' )->returnArg();
+		Functions\when( 'content_url' )->alias( fn ( string $path = '' ): string => 'https://example.test/wp-content' . $path );
+		Functions\when( 'get_template_directory_uri' )->justReturn( 'https://example.test/wp-content/themes/test' );
+		Functions\when( 'is_wp_error' )->justReturn( false );
+		Functions\when( 'wp_remote_retrieve_response_code' )->justReturn( 200 );
+
+		$probed = [];
+		Functions\when( 'wp_remote_head' )->alias( function ( string $url ) use ( &$probed ): array {
+			$probed[] = $url;
+			return [ 'response' => [ 'code' => 200 ] ];
+		} );
+
+		$base = $this->createStarterBase( [ 'admin_resizable_sidebar' => true ] );
+
+		$tests = $base->site_health_register_checks( [ 'direct' => [], 'async' => [] ] );
+
+		$this->assertArrayHasKey( 'timber_kit_health_package_assets_reachable', $tests['direct'] );
+
+		Functions\when( 'esc_html' )->returnArg();
+		Functions\when( 'wp_kses_post' )->returnArg();
+		$result = ( $tests['direct']['timber_kit_health_package_assets_reachable']['test'] )();
+
+		$this->assertSame( 'good', $result['status'] );
+		$this->assertCount( 1, $probed );
+		$this->assertStringEndsWith( '/assets/css/gutenberg-resizable-sidebar.css', $probed[0] );
+	}
+
 	public function test_health_checks_override_can_drop_a_default(): void {
 		Functions\when( 'add_action' )->justReturn( true );
 		Functions\when( 'add_filter' )->justReturn( true );
