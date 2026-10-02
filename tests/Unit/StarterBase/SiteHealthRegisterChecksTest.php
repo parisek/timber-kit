@@ -43,7 +43,7 @@ class SiteHealthRegisterChecksTest extends StarterBaseTestCase {
 		$this->assertArrayNotHasKey( 'timber_kit_health_package_assets_reachable', $tests['direct'] );
 	}
 
-	public function test_package_assets_check_probes_the_sidebar_stylesheet_url(): void {
+	public function test_package_assets_check_probes_the_sidebar_stylesheet_and_script_urls(): void {
 		Functions\when( 'wp_normalize_path' )->returnArg();
 		Functions\when( 'content_url' )->alias( fn ( string $path = '' ): string => 'https://example.test/wp-content' . $path );
 		Functions\when( 'get_template_directory_uri' )->justReturn( 'https://example.test/wp-content/themes/test' );
@@ -67,8 +67,9 @@ class SiteHealthRegisterChecksTest extends StarterBaseTestCase {
 		$result = ( $tests['direct']['timber_kit_health_package_assets_reachable']['test'] )();
 
 		$this->assertSame( 'good', $result['status'] );
-		$this->assertCount( 1, $probed );
+		$this->assertCount( 2, $probed );
 		$this->assertStringEndsWith( '/assets/css/gutenberg-resizable-sidebar.css', $probed[0] );
+		$this->assertStringEndsWith( '/assets/js/gutenberg-resizable-sidebar.js', $probed[1] );
 	}
 
 	public function test_health_checks_override_can_drop_a_default(): void {
