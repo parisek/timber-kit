@@ -1279,6 +1279,44 @@ saved copy changes only when Breeze rebuilds its config, for example when you
 save the Breeze settings. Cache state changes over time, so one clean result is
 not proof. The check changes no Breeze setting and no header.
 
+### Keeping server headers out of Breeze's replay
+
+`$breeze_skip_server_headers` (default `true`) stops Breeze from replaying
+headers your web server already sends. It needs no list of names: they follow
+`$security_headers`. Set it to `false` to keep Breeze's own list.
+
+| `$security_headers` | Kit drops from Breeze's list |
+| --- | --- |
+| off (default) | the managed set without `Permissions-Policy`: Content-Security-Policy, Referrer-Policy, Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options, X-XSS-Protection |
+| on | nothing. The theme sends them, and on a hit Breeze's replay is the only way they reach the visitor |
+
+`Permissions-Policy` stays out because plugins send it from PHP (WPForms
+captcha does). The `timber_kit_breeze_server_headers` filter receives the
+resolved list. Use it when a PHP plugin sends one of the names and the server
+does not.
+
+`Breeze\ServerHeaders` does two things, only when Breeze is active:
+
+- It removes those names from the list Breeze may save
+  (`breeze_custom_headers_allow`).
+- Breeze writes that list into `wp-content/breeze-config/breeze-config.php`
+  only when it builds its config. A purge does not rebuild it. When the stored
+  fingerprint of your list differs, the kit calls `Breeze_ConfigCache::write_config_cache()`
+  once, after the response, and stores the fingerprint when the new config no
+  longer holds the names. It retries after 5 minutes if it does.
+
+The rebuild runs only on a front-end request, never from WP-CLI, cron, wp-admin, the login page,
+AJAX or REST. Turning the flag off restores Breeze's own config the same way.
+
+| Method | Use |
+| --- | --- |
+| `ServerHeaders::register( array $names )` | Wire the filter and the rebuild check. `StarterBase` calls it. |
+| `ServerHeaders::filter_allowed( $allowed, array $names )` | The filter body: `$allowed` without `$names`, case-insensitive. |
+| `ServerHeaders::fingerprint( array $names )` | Order- and case-independent hash of a list. |
+| `ServerHeaders::config_lists_headers( string $config, array $names )` | Whether a config text stores any of the names under `breeze_custom_headers`. |
+| `ServerHeaders::maybe_schedule_rebuild( array $names )` | The `init` check. |
+| `ServerHeaders::rebuild( array $names )` | The rebuild, run on `shutdown`. |
+
 ### Image resizer output format
 
 The Site Health check `resizer_output_format_writable` (category `performance`,
