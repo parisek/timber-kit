@@ -6,6 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- Site Health check `security_headers_single_on_cache_hit`
+  (`Breeze\Health\SecurityHeadersSingleOnCacheHit`, category `security`,
+  needs `$site_health`). It is registered only when Breeze is active, and it
+  does not depend on `$security_headers`. It sends three anonymous `GET`
+  requests to the home URL: one with a random query (a cache miss), then the
+  plain URL twice, so the last one can be a cache hit. It counts each managed
+  security header on the miss and on the hit, as repeated lines and as a value
+  repeated inside one comma-joined line. A header that is single on the miss
+  and repeated on the hit is `recommended`. The message names Breeze as the
+  likely source and gives a `breeze_custom_headers_allow` filter that drops
+  those headers from what Breeze saves. A hit that cannot be confirmed (no
+  `x-cache` with `HIT`, no `Age` above 0, no Breeze `Cache-Provider` for a
+  cached file), a failed request or a non-2xx answer is `recommended`
+  ("could not verify"), never critical. Detection and advice only.
+
 ### Changed
 
 - `package_assets_reachable` probes the sidebar script
@@ -508,7 +525,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   the 26 projects on this kit are in that position — so on those either set the
   flag `false` or switch the plugin's own breadcrumbs on.
 
-
 ## [1.49.0] - 2026-09-10
 
 ### Added
@@ -848,7 +864,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   fixed in acfml 3.0-b.1: every file on the hot path is byte-identical to 2.2.4,
   and so is the bundled `wpml/fp`.
 
-
 ### Changed
 
 - `StarterBase::$disable_404_permalink_guess` — **on by default, which reverses
@@ -1092,7 +1107,6 @@ Behaviour is unchanged for every caller. `get_permalink()` returning `false`
   entry with the next anonymous group.
 
   `Helpers::flushFieldGroups()` drops it alongside the screen memo.
-
 
 - Two capability probes that ran once per object now run once per request.
   Both had a memo already; both stored it on the instance the caller throws
@@ -1607,7 +1621,6 @@ The saving is **~37 ms of a 3.1 s render**, about 1.2 %. An earlier draft of
 
 - `DevMediaProxy` probes the origin for the variant the Resizer would actually have written. It rebuilt the cache directory name and took the output format from the request rather than from the variant, so with per-variant formats it probed for a file that was never written, and it could not see a quality-keyed directory at all. Both values now come off the variant, which carries the cache key the Resizer resolved; the request-wide format survives only as the fallback for a variant that carries none.
 - A variant's `image_style` is stripped to path-safe characters before it becomes a directory name. It reaches `wp_mkdir_p()`, so a caller could previously walk out of the cache directory with it. Every style the pipeline recognises consists of such characters already, so recognised values are untouched.
-
 
 ## [1.31.1] - 2026-08-11
 
