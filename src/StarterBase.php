@@ -1007,12 +1007,13 @@ class StarterBase extends Site {
 	 * because the replay is then that header's only path on a hit. Measure first
 	 * (`probe-security-headers.sh`).
 	 *
-	 * Off by default: it rewrites Breeze's config and changes which headers a
-	 * cached page carries.
+	 * On by default, a named exception in AGENTS.md: it changes which headers
+	 * Breeze saves, and only where the server already sends them. Set `false`
+	 * to keep Breeze's own list.
 	 *
 	 * @var bool
 	 */
-	protected bool $breeze_skip_server_headers = false;
+	protected bool $breeze_skip_server_headers = true;
 
 	/** @var bool Surface a Site Health warning when the live response carries a managed security header more than once — the signature of a second, server-level source (Apache .htaccess mod_headers, nginx add_header, a security plugin) emitting the same headers $security_headers already sends. Only registered when $security_headers is on. */
 	protected bool $warn_duplicate_security_headers = true;

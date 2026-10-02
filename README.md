@@ -1281,10 +1281,9 @@ not proof. The check changes no Breeze setting and no header.
 
 ### Keeping server headers out of Breeze's replay
 
-`$breeze_skip_server_headers = true` (default `false`) stops Breeze from
-replaying headers your web server already sends. Set it when the check above
-reports a header sent twice on a hit. It needs no list of names: they follow
-`$security_headers`.
+`$breeze_skip_server_headers` (default `true`) stops Breeze from replaying
+headers your web server already sends. It needs no list of names: they follow
+`$security_headers`. Set it to `false` to keep Breeze's own list.
 
 | `$security_headers` | Kit drops from Breeze's list |
 | --- | --- |

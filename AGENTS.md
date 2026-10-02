@@ -175,6 +175,22 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   migration. This is a named exception to the rule above, not a case of the rule
   being skipped.
 
+- **Approved exception:** `$breeze_skip_server_headers` defaults `true`, not
+  `false`. The owner decided it directly, in a working session. Measured on a
+  fleet audit: 80 of 86 sibling projects keep security headers in `.htaccess`
+  and run Breeze, and 9 of the 36 live sites that answered the probe serve a
+  doubled header on a cache hit. Default-off would be safe and useless: the
+  sites carrying the doubled header are the ones nobody flips a flag on. The
+  names follow `$security_headers`. Off: the kit drops the managed set without
+  `Permissions-Policy`. On: it drops nothing, because PHP then sends them and
+  Breeze's replay is the only way they reach the visitor. What the default
+  changes is the list Breeze saves, and only where a header the server already
+  sends was being sent twice. The one loss case is a PHP plugin that sends one
+  of the six names while the server does not. The
+  `timber_kit_breeze_server_headers` filter removes the name from the list, and
+  `$breeze_skip_server_headers = false` turns the feature off. This is a named
+  exception to the rule above, not a case of the rule being skipped.
+
 ## Architecture decisions (ADRs)
 
 Significant decisions live in `docs/adr/` — the only tracked subtree under the

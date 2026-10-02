@@ -15,9 +15,16 @@ use PHPUnit\Framework\TestCase;
 
 class BreezeServerHeadersSetupStarterBaseStub extends StarterBase {
 
-	public function __construct( bool $skip = false, bool $security_headers = false ) {
-		$this->breeze_skip_server_headers = $skip;
-		$this->security_headers           = $security_headers;
+	public function __construct( ?bool $skip = null, bool $security_headers = false ) {
+		if ( null !== $skip ) {
+			$this->breeze_skip_server_headers = $skip;
+		}
+
+		$this->security_headers = $security_headers;
+	}
+
+	public function flag(): bool {
+		return $this->breeze_skip_server_headers;
 	}
 
 	public function run_setup(): void {
@@ -31,10 +38,9 @@ class BreezeServerHeadersSetupStarterBaseStub extends StarterBase {
 }
 
 /**
- * Covers `StarterBase::setup_breeze_server_headers()`: off by default (it
- * rewrites Breeze's config and changes what a cached page carries), wired only
- * when the flag is on and Breeze is loaded, and the header names follow
- * `$security_headers`.
+ * Covers `StarterBase::setup_breeze_server_headers()`: on by default (a named
+ * exception in AGENTS.md), wired only when the flag is on and Breeze is
+ * loaded, and the header names follow `$security_headers`.
  */
 class BreezeServerHeadersSetupTest extends TestCase {
 
@@ -64,6 +70,10 @@ class BreezeServerHeadersSetupTest extends TestCase {
 		$stub->run_setup();
 
 		return $filters;
+	}
+
+	public function test_the_flag_defaults_to_on(): void {
+		$this->assertTrue( ( new BreezeServerHeadersSetupStarterBaseStub() )->flag() );
 	}
 
 	#[PreserveGlobalState( false )]
