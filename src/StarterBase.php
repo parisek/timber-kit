@@ -6307,8 +6307,12 @@ class StarterBase extends Site {
 			return null;
 		}
 
+		// WordPress hands back a `CaseInsensitiveDictionary`: ArrayAccess with a
+		// case-insensitive key. It has no `getValues()`. A header sent on several
+		// lines reads as an array. A header Apache folded into one line reads as one
+		// comma-joined string, so both shapes count.
 		$headers = wp_remote_retrieve_headers( $response );
-		if ( ! is_object( $headers ) || ! method_exists( $headers, 'getValues' ) ) {
+		if ( ! $headers instanceof \ArrayAccess ) {
 			return null;
 		}
 
@@ -6322,8 +6326,7 @@ class StarterBase extends Site {
 
 		$duplicated = array();
 		foreach ( $managed as $name ) {
-			$values = $headers->getValues( $name );
-			if ( is_array( $values ) && count( $values ) > 1 ) {
+			if ( self::header_is_repeated( $headers[ $name ] ?? null ) ) {
 				$duplicated[] = $name;
 			}
 		}
@@ -6331,6 +6334,35 @@ class StarterBase extends Site {
 		set_transient( 'timber_kit_duplicate_security_headers', $duplicated, 10 * MINUTE_IN_SECONDS );
 
 		return $duplicated;
+	}
+
+	/**
+	 * Whether one response header value carries the same header twice.
+	 *
+	 * Two shapes occur: an array (the header came on several lines) and one string
+	 * with a value repeated inside it (`SAMEORIGIN, SAMEORIGIN`, from Apache folding
+	 * a second `Header append`). A comma list of different tokens is one source: a
+	 * Referrer-Policy fallback list such as `no-referrer, strict-origin` is valid.
+	 * Two sources that send different values in one folded line are not caught.
+	 *
+	 * @param mixed $value Header value from the response: string, array or null.
+	 */
+	private static function header_is_repeated( mixed $value ): bool {
+		if ( is_array( $value ) ) {
+			return count( $value ) > 1;
+		}
+
+		if ( ! is_string( $value ) || ! str_contains( $value, ',' ) ) {
+			return false;
+		}
+
+		$tokens = array_map(
+			static fn ( string $token ): string => strtolower( trim( $token ) ),
+			explode( ',', $value )
+		);
+		$tokens = array_filter( $tokens, static fn ( string $token ): bool => '' !== $token );
+
+		return count( $tokens ) !== count( array_unique( $tokens ) );
 	}
 
 	/**
