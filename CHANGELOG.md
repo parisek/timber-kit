@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.63.1] - 2026-10-02
+
 ### Fixed
 
 - The duplicate security header warning behind `$warn_duplicate_security_headers`
