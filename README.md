@@ -1306,7 +1306,7 @@ protected array $breeze_server_headers = array(
   once, after the response, and stores the fingerprint when the new config no
   longer holds the names. It retries after 5 minutes if it does.
 
-The rebuild runs only on a front-end request, never from WP-CLI, cron, wp-admin,
+The rebuild runs only on a front-end request, never from WP-CLI, cron, wp-admin, the login page,
 AJAX or REST. Clearing the list restores Breeze's own config the same way.
 
 List only headers the server sends. A header that only PHP sends

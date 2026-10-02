@@ -313,4 +313,18 @@ PHP;
 
 		$this->assertFileDoesNotExist( WP_CONTENT_DIR . '/breeze-config/breeze-config.php' );
 	}
+
+	public function test_check_skips_the_login_page(): void {
+		$GLOBALS['pagenow'] = 'wp-login.php';
+		Functions\when( 'get_option' )->justReturn( '' );
+		Functions\expect( 'add_action' )->never();
+
+		try {
+			ServerHeaders::maybe_schedule_rebuild( array( 'x-frame-options' ) );
+		} finally {
+			unset( $GLOBALS['pagenow'] );
+		}
+
+		$this->addToAssertionCount( 1 );
+	}
 }

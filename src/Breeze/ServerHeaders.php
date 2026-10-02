@@ -22,7 +22,7 @@ namespace Parisek\TimberKit\Breeze;
  *   and rebuilds the config once, after the response is sent.
  *
  * The rebuild is best effort. It runs only on a front-end request: never from
- * WP-CLI, cron, wp-admin, AJAX or REST, so a deploy
+ * WP-CLI, cron, wp-admin, the login page, AJAX or REST, so a deploy
  * in maintenance mode cannot make Breeze save an empty list. It records the
  * list as done only after the new config no longer holds those headers. A
  * transient lock spaces the retries.
@@ -200,12 +200,13 @@ final class ServerHeaders {
 	}
 
 	/**
-	 * @return bool False for WP-CLI, cron, wp-admin, AJAX and REST.
+	 * @return bool False for WP-CLI, cron, wp-admin, the login page, AJAX and REST.
 	 */
 	private static function is_front_end_request(): bool {
 		return ! ( ( defined( 'WP_CLI' ) && WP_CLI )
 			|| defined( 'DOING_CRON' )
 			|| is_admin()
+			|| 'wp-login.php' === ( $GLOBALS['pagenow'] ?? '' )
 			|| wp_doing_ajax()
 			|| ( defined( 'REST_REQUEST' ) && REST_REQUEST ) );
 	}
