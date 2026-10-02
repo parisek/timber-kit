@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- The duplicate security header warning behind `$warn_duplicate_security_headers`
+  never found a duplicate. It asked the response headers object for
+  `getValues()`. On WordPress that object is a
+  `WpOrg\Requests\Utility\CaseInsensitiveDictionary`, an `ArrayAccess` with no
+  such method, so the check ended as "could not verify" on every site. It now
+  reads the headers through `ArrayAccess`. A header sent on several lines
+  (an array) counts, and so does a value repeated inside one folded line
+  (`SAMEORIGIN, SAMEORIGIN`, which Apache produces). A comma list of different
+  tokens, such as a `Referrer-Policy` fallback list, is not a duplicate. Two
+  sources that send different values in one folded line are still not caught.
+  A site with `$security_headers` on may now see a warning that was silent
+  before.
+
 ## [1.63.0] - 2026-10-02
 
 ### Added
