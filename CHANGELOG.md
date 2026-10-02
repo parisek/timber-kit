@@ -8,6 +8,44 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- Site Health check `security_headers_single_on_cache_hit`
+  (`Breeze\Health\SecurityHeadersSingleOnCacheHit`, category `security`,
+  needs `$site_health`). It is registered only when Breeze is active, and it
+  does not depend on `$security_headers`. It sends three anonymous `GET`
+  requests to the home URL: one with a random query (a cache miss), then the
+  plain URL twice, so the last one can be a cache hit. It counts each managed
+  security header on the miss and on the hit, as repeated lines and as a value
+  repeated inside one comma-joined line. A header with exactly one copy on the
+  miss and two or more on the hit is `recommended`. The message names Breeze
+  as the likely source and gives a `breeze_custom_headers_allow` filter that
+  drops those headers from what Breeze saves. A header absent on the miss and
+  repeated on the hit is named separately, with no filter, because the cache
+  file is its only source. A hit that cannot be confirmed (no
+  `x-cache` with `HIT`, no `Age` above 0, no Breeze `Cache-Provider` for a
+  cached file), a failed request or a non-2xx answer is `recommended`
+  ("could not verify"), never critical. Detection and advice only.
+
+- Site Health check `breadcrumb_list_rendered` (`Health\Check\BreadcrumbListRendered`,
+  category `seo`, needs `$site_health`). It is registered only while
+  `$seo_suppress_plugin_breadcrumb` removes the SEO plugin's `BreadcrumbList`:
+  the flag is `true`, an SEO plugin is detected, and the plugin's own breadcrumb
+  switch is not on. It sends one anonymous `GET` to the newest published post
+  of the first public post type that has one. It never requests the home page,
+  the static front page or the posts page. A JSON-LD node whose `@type` is or
+  contains `BreadcrumbList` or `http(s)://schema.org/BreadcrumbList` (top
+  level, a list, `@graph` or nested), or a microdata element with `itemscope`
+  and the schema.org `BreadcrumbList` URL among its `itemtype` tokens, is
+  `good`. The word in a string value or in text does not count, and an invalid
+  JSON-LD block is skipped. Markup inside an HTML comment or inside a script,
+  style or textarea element does not count. No list is `recommended` and names both
+  fixes: render a breadcrumb in the theme, or set
+  `$seo_suppress_plugin_breadcrumb = false`. A failed loopback or a status
+  other than 200 is `recommended` ("could not verify"), never critical. The
+  request does not follow redirects. With no published post, the check sends
+  no request and reports `good`. No new flag.
+- `Seo\BreadcrumbSchema::resolve()` returns the running SEO plugin and its own
+  breadcrumb switch. `boot()` now uses it.
+
 ### Changed
 
 - `package_assets_reachable` probes the sidebar script
