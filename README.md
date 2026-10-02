@@ -1281,20 +1281,20 @@ not proof. The check changes no Breeze setting and no header.
 
 ### Keeping server headers out of Breeze's replay
 
-`$breeze_server_headers` (default `null`) names the headers your web server
-already sends. The default follows `$security_headers`, so a theme needs no
-setting:
+`$breeze_skip_server_headers = true` (default `false`) stops Breeze from
+replaying headers your web server already sends. Set it when the check above
+reports a header sent twice on a hit. It needs no list of names: they follow
+`$security_headers`.
 
-| `$security_headers` | `$breeze_server_headers` | Kit drops from Breeze's list |
-| --- | --- | --- |
-| off (default) | `null` | the managed set without `Permissions-Policy`: Content-Security-Policy, Referrer-Policy, Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options, X-XSS-Protection |
-| on | `null` | nothing. The theme sends them, and on a hit Breeze's replay is the only way they reach the visitor |
-| any | an array | exactly that array |
-| any | `array()` | nothing |
+| `$security_headers` | Kit drops from Breeze's list |
+| --- | --- |
+| off (default) | the managed set without `Permissions-Policy`: Content-Security-Policy, Referrer-Policy, Strict-Transport-Security, X-Content-Type-Options, X-Frame-Options, X-XSS-Protection |
+| on | nothing. The theme sends them, and on a hit Breeze's replay is the only way they reach the visitor |
 
-`Permissions-Policy` stays out of the default because plugins send it from
-PHP (WPForms captcha does). Set an array, or `array()`, when a PHP plugin sends
-one of the default names and the server does not.
+`Permissions-Policy` stays out because plugins send it from PHP (WPForms
+captcha does). The `timber_kit_breeze_server_headers` filter receives the
+resolved list. Use it when a PHP plugin sends one of the names and the server
+does not.
 
 `Breeze\ServerHeaders` does two things, only when Breeze is active:
 
@@ -1307,10 +1307,7 @@ one of the default names and the server does not.
   longer holds the names. It retries after 5 minutes if it does.
 
 The rebuild runs only on a front-end request, never from WP-CLI, cron, wp-admin, the login page,
-AJAX or REST. Clearing the list restores Breeze's own config the same way.
-
-List only headers the server sends. A header that only PHP sends
-(`$security_headers`) must stay: a cache hit does not run PHP.
+AJAX or REST. Turning the flag off restores Breeze's own config the same way.
 
 | Method | Use |
 | --- | --- |

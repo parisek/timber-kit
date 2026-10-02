@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Tests\Unit\StarterBase;
 
 use Brain\Monkey;
+use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
 use Parisek\TimberKit\Breeze\ServerHeaders;
 use Parisek\TimberKit\StarterBase;
@@ -14,26 +15,26 @@ use PHPUnit\Framework\TestCase;
 
 class BreezeServerHeadersSetupStarterBaseStub extends StarterBase {
 
-	/** @param string[]|null $names */
-	public function __construct( ?array $names = null, bool $security_headers = false ) {
-		$this->breeze_server_headers = $names;
-		$this->security_headers      = $security_headers;
+	public function __construct( bool $skip = false, bool $security_headers = false ) {
+		$this->breeze_skip_server_headers = $skip;
+		$this->security_headers           = $security_headers;
+	}
+
+	public function run_setup(): void {
+		$this->setup_breeze_server_headers();
 	}
 
 	/** @return string[] */
 	public function resolved_names(): array {
 		return $this->resolve_breeze_server_headers();
 	}
-
-	public function run_setup(): void {
-		$this->setup_breeze_server_headers();
-	}
 }
 
 /**
- * Covers `StarterBase::setup_breeze_server_headers()`: off by default (only
- * the site knows what its server sends), and wired only when Breeze is
- * loaded and the site lists header names.
+ * Covers `StarterBase::setup_breeze_server_headers()`: off by default (it
+ * rewrites Breeze's config and changes what a cached page carries), wired only
+ * when the flag is on and Breeze is loaded, and the header names follow
+ * `$security_headers`.
  */
 class BreezeServerHeadersSetupTest extends TestCase {
 
@@ -50,10 +51,8 @@ class BreezeServerHeadersSetupTest extends TestCase {
 		parent::tearDown();
 	}
 
-	#[PreserveGlobalState( false )]
-	#[RunInSeparateProcess]
-	public function test_wires_nothing_when_the_list_is_set_empty_even_with_breeze(): void {
-		define( 'BREEZE_VERSION', '2.5.0' );
+	/** @return string[] The filter tags registered while running the setup. */
+	private function filtersFor( BreezeServerHeadersSetupStarterBaseStub $stub ): array {
 		$filters = array();
 		Functions\when( 'add_filter' )->alias(
 			function ( string $tag ) use ( &$filters ) {
@@ -62,84 +61,47 @@ class BreezeServerHeadersSetupTest extends TestCase {
 			}
 		);
 
-		( new BreezeServerHeadersSetupStarterBaseStub( array() ) )->run_setup();
+		$stub->run_setup();
 
-		$this->assertNotContains( 'breeze_custom_headers_allow', $filters );
+		return $filters;
+	}
+
+	#[PreserveGlobalState( false )]
+	#[RunInSeparateProcess]
+	public function test_wires_nothing_when_the_flag_is_off_even_with_breeze(): void {
+		define( 'BREEZE_VERSION', '2.5.0' );
+
+		$this->assertNotContains( 'breeze_custom_headers_allow', $this->filtersFor( new BreezeServerHeadersSetupStarterBaseStub( false ) ) );
 	}
 
 	#[PreserveGlobalState( false )]
 	#[RunInSeparateProcess]
 	public function test_wires_nothing_when_breeze_is_absent(): void {
-		$filters = array();
-		Functions\when( 'add_filter' )->alias(
-			function ( string $tag ) use ( &$filters ) {
-				$filters[] = $tag;
-				return true;
-			}
-		);
-
-		( new BreezeServerHeadersSetupStarterBaseStub( array( 'x-frame-options' ) ) )->run_setup();
-
-		$this->assertNotContains( 'breeze_custom_headers_allow', $filters );
+		$this->assertNotContains( 'breeze_custom_headers_allow', $this->filtersFor( new BreezeServerHeadersSetupStarterBaseStub( true ) ) );
 	}
 
 	#[PreserveGlobalState( false )]
 	#[RunInSeparateProcess]
-	public function test_wires_the_filter_when_names_are_listed_and_breeze_is_active(): void {
+	public function test_wires_the_filter_when_the_theme_sends_no_security_headers(): void {
 		define( 'BREEZE_VERSION', '2.5.0' );
-		$filters = array();
-		Functions\when( 'add_filter' )->alias(
-			function ( string $tag ) use ( &$filters ) {
-				$filters[] = $tag;
-				return true;
-			}
-		);
 
-		( new BreezeServerHeadersSetupStarterBaseStub( array( 'x-frame-options' ) ) )->run_setup();
-
-		$this->assertContains( 'breeze_custom_headers_allow', $filters );
+		$this->assertContains( 'breeze_custom_headers_allow', $this->filtersFor( new BreezeServerHeadersSetupStarterBaseStub( true, false ) ) );
 	}
 
 	#[PreserveGlobalState( false )]
 	#[RunInSeparateProcess]
-	public function test_the_default_wires_the_filter_when_the_theme_sends_no_security_headers(): void {
+	public function test_drops_nothing_when_the_theme_sends_the_security_headers(): void {
 		define( 'BREEZE_VERSION', '2.5.0' );
-		$filters = array();
-		Functions\when( 'add_filter' )->alias(
-			function ( string $tag ) use ( &$filters ) {
-				$filters[] = $tag;
-				return true;
-			}
-		);
 
-		( new BreezeServerHeadersSetupStarterBaseStub( null, false ) )->run_setup();
-
-		$this->assertContains( 'breeze_custom_headers_allow', $filters );
+		$this->assertNotContains( 'breeze_custom_headers_allow', $this->filtersFor( new BreezeServerHeadersSetupStarterBaseStub( true, true ) ) );
 	}
 
-	#[PreserveGlobalState( false )]
-	#[RunInSeparateProcess]
-	public function test_the_default_drops_nothing_when_the_theme_sends_the_security_headers(): void {
-		define( 'BREEZE_VERSION', '2.5.0' );
-		$filters = array();
-		Functions\when( 'add_filter' )->alias(
-			function ( string $tag ) use ( &$filters ) {
-				$filters[] = $tag;
-				return true;
-			}
-		);
-
-		( new BreezeServerHeadersSetupStarterBaseStub( null, true ) )->run_setup();
-
-		$this->assertNotContains( 'breeze_custom_headers_allow', $filters );
-	}
-
-	public function test_the_default_names_are_the_managed_security_headers_without_permissions_policy(): void {
+	public function test_the_names_are_the_managed_security_headers_without_permissions_policy(): void {
 		Functions\when( 'is_ssl' )->justReturn( true );
 
-		$managed = array_map( 'strtolower', array_keys( ( new BreezeServerHeadersSetupStarterBaseStub( null, false ) )->security_headers( array() ) ) );
+		$managed = array_map( 'strtolower', array_keys( ( new BreezeServerHeadersSetupStarterBaseStub( true, false ) )->security_headers( array() ) ) );
 		$managed = array_values( array_diff( $managed, array( 'permissions-policy' ) ) );
-		$names   = ( new BreezeServerHeadersSetupStarterBaseStub( null, false ) )->resolved_names();
+		$names   = ( new BreezeServerHeadersSetupStarterBaseStub( true, false ) )->resolved_names();
 
 		sort( $managed );
 		sort( $names );
@@ -147,11 +109,13 @@ class BreezeServerHeadersSetupTest extends TestCase {
 		$this->assertSame( $managed, $names );
 	}
 
-	public function test_an_explicit_list_wins_over_the_default(): void {
-		$this->assertSame( array( 'x-frame-options' ), ( new BreezeServerHeadersSetupStarterBaseStub( array( 'x-frame-options' ), false ) )->resolved_names() );
+	public function test_there_are_no_names_when_the_theme_sends_the_security_headers(): void {
+		$this->assertSame( array(), ( new BreezeServerHeadersSetupStarterBaseStub( true, true ) )->resolved_names() );
 	}
 
-	public function test_an_empty_list_turns_the_default_off(): void {
-		$this->assertSame( array(), ( new BreezeServerHeadersSetupStarterBaseStub( array(), false ) )->resolved_names() );
+	public function test_the_filter_can_change_the_names(): void {
+		Filters\expectApplied( 'timber_kit_breeze_server_headers' )->once()->andReturn( array( 'x-frame-options' ) );
+
+		$this->assertSame( array( 'x-frame-options' ), ( new BreezeServerHeadersSetupStarterBaseStub( true, false ) )->resolved_names() );
 	}
 }

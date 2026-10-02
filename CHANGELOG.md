@@ -8,21 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
-- `$breeze_server_headers` (default `null`). Breeze pings the site's own home
-  URL, saves every allowed header it sees under `breeze_custom_headers`, and
-  replays the list on each cache hit. A header the web server also sends then
-  appears twice. The kit removes the server's headers from Breeze's list
-  (`breeze_custom_headers_allow`). The default follows `$security_headers`.
+- `$breeze_skip_server_headers` (default `false`). Breeze pings the site's own
+  home URL, saves every allowed header it sees under `breeze_custom_headers`,
+  and replays the list on each cache hit. A header the web server also sends
+  then appears twice. On, the kit removes the server's headers from Breeze's
+  list (`breeze_custom_headers_allow`). The names follow `$security_headers`.
   With it off, the theme sends none, so the kit drops the managed set without
-  `Permissions-Policy`. With it on, nothing is dropped. An array replaces
-  that choice and `array()` turns it off. A Breeze config written before the
-  filter still holds the headers, because a purge does not rewrite it. The kit
-  rebuilds it once, after the response, from a front-end request only. It never
-  rebuilds from WP-CLI, cron, wp-admin, the login page, AJAX or REST, so a
-  deploy in maintenance mode cannot make Breeze save an empty list. Clearing
-  the list restores Breeze's own config the same way. List only what the
-  server sends: a header that only PHP sends must stay, because on a hit PHP
-  does not run.
+  `Permissions-Policy`. With it on, nothing is dropped. The
+  `timber_kit_breeze_server_headers` filter can change the resolved list. A
+  Breeze config written before the filter still holds the headers, because a
+  purge does not rewrite it. The kit rebuilds it once, after the response, from
+  a front-end request only. It never rebuilds from WP-CLI, cron, wp-admin, the
+  login page, AJAX or REST, so a deploy in maintenance mode cannot make Breeze
+  save an empty list. Turning the flag off restores Breeze's own config the
+  same way. A header that only PHP sends must not be dropped: on a hit PHP does
+  not run.
 
 ## [1.63.1] - 2026-10-02
 

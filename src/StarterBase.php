@@ -985,30 +985,34 @@ class StarterBase extends Site {
 	protected array $gtm_containers = array();
 
 	/**
-	 * Header names the web server (Apache `.htaccess`, nginx) already sends, to
-	 * keep out of the headers Breeze saves and replays on a cache hit.
+	 * Keep the headers the web server (Apache `.htaccess`, nginx) already sends
+	 * out of the headers Breeze saves and replays on a cache hit.
 	 *
 	 * Breeze pings the home URL, saves each allowed header it sees, and sends
 	 * them again on every hit. A header the server also sends then appears
-	 * twice. The kit removes the named headers from Breeze's list
-	 * (`breeze_custom_headers_allow`), and rebuilds a Breeze config that still
+	 * twice. On, the kit removes those headers from Breeze's list
+	 * (`breeze_custom_headers_allow`) and rebuilds a Breeze config that still
 	 * holds them (once, from a front-end request).
 	 *
-	 * `null` (default) picks the names from `$security_headers`, one source of
-	 * truth for the security headers:
-	 * - Off: the theme sends none, so the server owns them. The kit drops the
-	 *   managed set without `Permissions-Policy` (`ServerHeaders::DEFAULT_NAMES`).
-	 * - On: the theme sends them. Nothing is dropped. On a hit PHP does not
-	 *   run, so Breeze's replay is the only way they reach the visitor.
+	 * Which headers follows `$security_headers`, one source of truth:
+	 * - `$security_headers` off: the theme sends none, so the server owns them.
+	 *   The kit drops the managed set without `Permissions-Policy`
+	 *   (`ServerHeaders::DEFAULT_NAMES`).
+	 * - `$security_headers` on: the theme sends them. Nothing is dropped. On a
+	 *   hit PHP does not run, so Breeze's replay is the only way they reach the
+	 *   visitor.
 	 *
-	 * An array replaces that choice. `array()` turns it off. Set it when a PHP
-	 * plugin sends one of the default names and the server does not: the
-	 * replay is then that header's only path on a hit. Measure first
+	 * The `timber_kit_breeze_server_headers` filter receives the resolved list.
+	 * Use it when a PHP plugin sends one of the names and the server does not,
+	 * because the replay is then that header's only path on a hit. Measure first
 	 * (`probe-security-headers.sh`).
 	 *
-	 * @var string[]|null
+	 * Off by default: it rewrites Breeze's config and changes which headers a
+	 * cached page carries.
+	 *
+	 * @var bool
 	 */
-	protected ?array $breeze_server_headers = null;
+	protected bool $breeze_skip_server_headers = false;
 
 	/** @var bool Surface a Site Health warning when the live response carries a managed security header more than once — the signature of a second, server-level source (Apache .htaccess mod_headers, nginx add_header, a security plugin) emitting the same headers $security_headers already sends. Only registered when $security_headers is on. */
 	protected bool $warn_duplicate_security_headers = true;
@@ -1887,7 +1891,7 @@ class StarterBase extends Site {
 	 * @return void
 	 */
 	protected function setup_breeze_server_headers(): void {
-		if ( ! $this->breeze_is_active() ) {
+		if ( ! $this->breeze_skip_server_headers || ! $this->breeze_is_active() ) {
 			return;
 		}
 
@@ -1895,17 +1899,16 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * The header names to keep out of Breeze's replay: the explicit list, else
-	 * the managed set when the theme leaves security headers to the server.
+	 * The header names to keep out of Breeze's replay: the managed set when the
+	 * theme leaves security headers to the server, none when it sends them,
+	 * then the `timber_kit_breeze_server_headers` filter.
 	 *
 	 * @return string[]
 	 */
 	protected function resolve_breeze_server_headers(): array {
-		if ( null !== $this->breeze_server_headers ) {
-			return $this->breeze_server_headers;
-		}
+		$names = $this->security_headers ? array() : ServerHeaders::DEFAULT_NAMES;
 
-		return $this->security_headers ? array() : ServerHeaders::DEFAULT_NAMES;
+		return array_values( array_map( 'strval', (array) apply_filters( 'timber_kit_breeze_server_headers', $names ) ) );
 	}
 
 	/**

@@ -27,9 +27,9 @@ namespace Parisek\TimberKit\Breeze;
  * list as done only after the new config no longer holds those headers. A
  * transient lock spaces the retries.
  *
- * `StarterBase::$breeze_server_headers` picks the names. Left at `null`, the
- * names are {@see self::DEFAULT_NAMES} when the theme sends no security
- * headers itself (`$security_headers` off), and none when it does.
+ * `StarterBase::$breeze_skip_server_headers` turns it on. The names are
+ * {@see self::DEFAULT_NAMES} when the theme sends no security headers itself
+ * (`$security_headers` off), and none when it does.
  */
 final class ServerHeaders {
 
@@ -194,6 +194,7 @@ final class ServerHeaders {
 
 		$path    = WP_CONTENT_DIR . '/breeze-config/breeze-config.php';
 		$started = time();
+		$before  = is_readable( $path ) ? (int) filemtime( $path ) : 0;
 
 		call_user_func( array( 'Breeze_ConfigCache', 'write_config_cache' ) );
 
@@ -206,7 +207,7 @@ final class ServerHeaders {
 		}
 
 		if ( array() === self::normalize( $names ) ) {
-			if ( (int) filemtime( $path ) >= $started ) {
+			if ( (int) filemtime( $path ) >= $started && (int) filemtime( $path ) > $before ) {
 				delete_option( self::OPTION );
 			}
 
