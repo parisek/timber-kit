@@ -4457,7 +4457,14 @@ class StarterBase extends Site {
 	}
 
 	/**
-	 * Restrict frontend search queries to post types defined in $this->search_post_types.
+	 * Restrict the frontend search to post types defined in $this->search_post_types.
+	 *
+	 * Acts on the main query only. REST controllers (`/wp/v2/pages?search=`,
+	 * `/wp/v2/media?search=`, `/wp/v2/search`), `get_posts()` and WP-CLI build
+	 * their own `WP_Query`: none is `is_admin()`, none is the main query. A
+	 * rewrite there made the block editor's "Parent" picker list posts instead
+	 * of pages and made its media picker find nothing. Same guard as
+	 * `disable_search()`.
 	 *
 	 * Hooked to `pre_get_posts`.
 	 *
@@ -4466,7 +4473,7 @@ class StarterBase extends Site {
 	 */
 	public function search_post_type_filter( $query ) {
 
-		if ( $query->is_search && ! is_admin() ) {
+		if ( $query->is_search && $query->is_main_query() && ! is_admin() ) {
 			$query->set( 'post_type', $this->search_post_types );
 		}
 
