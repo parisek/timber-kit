@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.63.0] - 2026-10-02
+
 ### Added
 
 - Site Health check `security_headers_single_on_cache_hit`
