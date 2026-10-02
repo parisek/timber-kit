@@ -235,6 +235,92 @@ class SecurityHeadersSingleOnCacheHitTest extends TestCase {
 	}
 
 	/**
+	 * Only a header with exactly one copy on the miss gets the removal advice.
+	 *
+	 * @return array<string, array{0: int, 1: int, 2: string}>
+	 */
+	public static function copyCounts(): array {
+		return array(
+			'1 on miss, 2 on hit'  => array( 1, 2, Result::RECOMMENDED ),
+			'1 on miss, 3 on hit'  => array( 1, 3, Result::RECOMMENDED ),
+			'1 on miss, 1 on hit'  => array( 1, 1, Result::GOOD ),
+			'2 on miss, 2 on hit'  => array( 2, 2, Result::GOOD ),
+			'2 on miss, 3 on hit'  => array( 2, 3, Result::GOOD ),
+		);
+	}
+
+	#[DataProvider( 'copyCounts' )]
+	public function test_removal_advice_needs_exactly_one_copy_on_the_miss( int $on_miss, int $on_hit, string $status ): void {
+		$this->stubResponses(
+			self::miss( array( 'x-frame-options' => array_fill( 0, $on_miss, 'SAMEORIGIN' ) ) ),
+			self::miss(),
+			self::hit( array( 'x-frame-options' => array_fill( 0, $on_hit, 'SAMEORIGIN' ) ) )
+		);
+
+		$result = $this->runCheck();
+
+		$this->assertSame( $status, $result->status() );
+		if ( Result::RECOMMENDED === $status ) {
+			$this->assertStringContainsString( "'x-frame-options'", $result->actions() );
+		} else {
+			$this->assertStringNotContainsString( 'breeze_custom_headers_allow', $result->actions() );
+		}
+	}
+
+	public function test_comma_joined_repeat_on_hit_with_one_copy_on_miss_is_flagged(): void {
+		$this->stubResponses(
+			self::miss(),
+			self::miss(),
+			self::hit( array( 'strict-transport-security' => 'max-age=31536000, max-age=31536000' ) )
+		);
+
+		$result = $this->runCheck();
+
+		$this->assertSame( Result::RECOMMENDED, $result->status() );
+		$this->assertStringContainsString( "'strict-transport-security'", $result->actions() );
+	}
+
+	public function test_header_absent_on_miss_and_repeated_on_hit_gets_no_removal_advice(): void {
+		$miss = self::miss();
+		unset( $miss['strict-transport-security'] );
+		$this->stubResponses(
+			$miss,
+			$miss,
+			self::hit( array( 'strict-transport-security' => array( 'max-age=1', 'max-age=1' ) ) )
+		);
+
+		$result = $this->runCheck();
+
+		$this->assertSame( Result::RECOMMENDED, $result->status() );
+		$this->assertStringContainsString( 'Strict-Transport-Security', $result->summary() );
+		$this->assertStringContainsString( 'only on a cache hit', $result->summary() );
+		$this->assertStringNotContainsString( 'breeze_custom_headers_allow', $result->actions() );
+		$this->assertStringNotContainsString( 'breeze_custom_headers_allow', $result->summary() );
+	}
+
+	public function test_hit_only_header_stays_out_of_the_removal_snippet(): void {
+		$miss = self::miss();
+		unset( $miss['strict-transport-security'] );
+		$this->stubResponses(
+			$miss,
+			$miss,
+			self::hit(
+				array(
+					'x-frame-options'           => array( 'SAMEORIGIN', 'SAMEORIGIN' ),
+					'strict-transport-security' => array( 'max-age=1', 'max-age=1' ),
+				)
+			)
+		);
+
+		$result = $this->runCheck();
+
+		$this->assertSame( Result::RECOMMENDED, $result->status() );
+		$this->assertStringContainsString( "'x-frame-options'", $result->actions() );
+		$this->assertStringNotContainsString( "'strict-transport-security'", $result->actions() );
+		$this->assertStringContainsString( 'only on a cache hit', $result->summary() );
+	}
+
+	/**
 	 * @return array<string, array{0: array<string, string>}>
 	 */
 	public static function hitEvidence(): array {

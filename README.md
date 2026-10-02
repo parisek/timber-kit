@@ -1237,7 +1237,8 @@ and so does a value repeated inside one line (`SAMEORIGIN, SAMEORIGIN`).
 | Outcome | Result |
 | --- | --- |
 | Each header single on the miss and on the hit | `good` |
-| A header single on the miss and repeated on the hit | `recommended`. Names the headers, names Breeze as the likely source, and gives a `breeze_custom_headers_allow` filter that drops them from what Breeze saves |
+| A header with exactly one copy on the miss and two or more on the hit | `recommended`. Names the headers, names Breeze as the likely source, and gives a `breeze_custom_headers_allow` filter that drops them from what Breeze saves |
+| A header absent on the miss and repeated on the hit | `recommended`, named separately as "sent only on a cache hit", with no filter. The cache file is its only source, so removing it from the Breeze list would drop it. A stale cache file is the usual cause: purge and run again |
 | A header repeated on the miss too (for example two different Permissions-Policy values) | not reported |
 | Hit not confirmed (no `x-cache` with `HIT`, no `Age` above 0, no Breeze `Cache-Provider` ending in `E`) | `recommended` ("could not verify") |
 | Request error or non-2xx answer | `recommended` ("could not verify"), never critical |

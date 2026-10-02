@@ -103,27 +103,41 @@ final class SecurityHeadersSingleOnCacheHit implements HealthCheck {
 			);
 		}
 
-		$flagged = array();
+		$flagged  = array();
+		$hit_only = array();
 		foreach ( self::MANAGED as $name => $label ) {
 			$on_miss = count( $this->copies( $miss, $name ) );
 			$on_hit  = count( $this->copies( $hit, $name ) );
 
-			// A header that is already repeated on the miss has a second source
-			// that is not the cache, for example PHP and the server sending two
-			// different Permissions-Policy values. The cache did not add it, so
-			// this check does not report it.
-			if ( $on_miss <= 1 && $on_hit > 1 ) {
-				$flagged[ $name ] = $label;
+			if ( $on_hit < 2 ) {
+				continue;
 			}
+
+			// One copy on the miss means one live source (the web server, as PHP
+			// does not run on a hit). The extra copy on the hit is the Breeze
+			// replay, so removing the header from the Breeze list is safe.
+			if ( 1 === $on_miss ) {
+				$flagged[ $name ] = $label;
+			} elseif ( 0 === $on_miss ) {
+				// No copy on the miss: the cache file is the only source, for
+				// example a stale file saved before a header was removed. Removing
+				// the header from the Breeze list would drop it on a hit too, so
+				// this case gets no removal advice.
+				$hit_only[ $name ] = $label;
+			}
+			// Two or more copies on the miss: a second source that is not the
+			// cache, for example PHP and the server sending two different
+			// Permissions-Policy values. The cache did not add it, so the check
+			// does not report it.
 		}
 
-		if ( array() === $flagged ) {
+		if ( array() === $flagged && array() === $hit_only ) {
 			return Result::good(
 				__( 'Each security header is sent once on a cache miss and once on a cache hit. Cache state changes over time, so one clean result is not proof.', 'timber-kit' )
 			);
 		}
 
-		return $this->duplicated( $flagged );
+		return $this->duplicated( $flagged, $hit_only );
 	}
 
 	/**
@@ -268,14 +282,29 @@ final class SecurityHeadersSingleOnCacheHit implements HealthCheck {
 	}
 
 	/**
-	 * @param array<string, string> $flagged Lower-case name => display name.
+	 * @param array<string, string> $flagged  One copy on the miss, two or more on the hit.
+	 * @param array<string, string> $hit_only No copy on the miss, two or more on the hit.
 	 */
-	private function duplicated( array $flagged ): Result {
+	private function duplicated( array $flagged, array $hit_only ): Result {
+		$hit_only_note = array() === $hit_only ? '' : sprintf(
+			/* translators: %s: comma-separated list of HTTP header names. */
+			__( 'These security headers are sent only on a cache hit, more than once: %s. The cache miss does not send them, so the cache file is their only source. Do not remove them from the Breeze list. A stale cache file can cause this: purge the cache and run the check again.', 'timber-kit' ),
+			implode( ', ', $hit_only )
+		);
+
+		if ( array() === $flagged ) {
+			return Result::recommended( $hit_only_note );
+		}
+
 		$summary = sprintf(
 			/* translators: %s: comma-separated list of HTTP header names. */
 			__( 'These security headers are sent once on a cache miss and more than once on a cache hit: %s. Breeze is the likely source. It saves the response headers of the front page and sends them again on every cache hit. The web server then adds its own copy.', 'timber-kit' ),
 			implode( ', ', $flagged )
 		);
+
+		if ( '' !== $hit_only_note ) {
+			$summary .= ' ' . $hit_only_note;
+		}
 
 		$names   = "'" . implode( "', '", array_keys( $flagged ) ) . "'";
 		$snippet = "add_filter( 'breeze_custom_headers_allow', static function ( array \$headers ): array {\n"

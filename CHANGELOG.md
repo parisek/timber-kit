@@ -15,10 +15,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   requests to the home URL: one with a random query (a cache miss), then the
   plain URL twice, so the last one can be a cache hit. It counts each managed
   security header on the miss and on the hit, as repeated lines and as a value
-  repeated inside one comma-joined line. A header that is single on the miss
-  and repeated on the hit is `recommended`. The message names Breeze as the
-  likely source and gives a `breeze_custom_headers_allow` filter that drops
-  those headers from what Breeze saves. A hit that cannot be confirmed (no
+  repeated inside one comma-joined line. A header with exactly one copy on the
+  miss and two or more on the hit is `recommended`. The message names Breeze
+  as the likely source and gives a `breeze_custom_headers_allow` filter that
+  drops those headers from what Breeze saves. A header absent on the miss and
+  repeated on the hit is named separately, with no filter, because the cache
+  file is its only source. A hit that cannot be confirmed (no
   `x-cache` with `HIT`, no `Age` above 0, no Breeze `Cache-Provider` for a
   cached file), a failed request or a non-2xx answer is `recommended`
   ("could not verify"), never critical. Detection and advice only.
