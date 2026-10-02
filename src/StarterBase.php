@@ -25,6 +25,7 @@ use Parisek\Twig\TypographyExtension;
 use Parisek\TimberKit\BlockRenderer;
 use Parisek\TimberKit\Wpml\MenuSyncReadOnly;
 use Parisek\TimberKit\Breeze\Health\PreloadChainHealthy;
+use Parisek\TimberKit\Breeze\Health\SecurityHeadersSingleOnCacheHit;
 use Parisek\TimberKit\Breeze\Health\WarmupSitemapResolved;
 use Parisek\TimberKit\Breeze\WarmupSitemap;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
@@ -1728,6 +1729,13 @@ class StarterBase extends Site {
 			$checks[] = new WarmupSitemapResolved();
 		}
 
+		// Only a Breeze cache replays saved headers on a hit. The check does
+		// not read $security_headers: the duplicate appears with the flag off
+		// too, when the web server is the only other source.
+		if ( $this->breeze_is_active() ) {
+			$checks[] = new SecurityHeadersSingleOnCacheHit();
+		}
+
 		// Same reason: only a site that enqueues the sidebar assets needs to
 		// know whether the server serves them. Both files are probed: a host
 		// rule can deny .js and allow .css.
@@ -1807,7 +1815,7 @@ class StarterBase extends Site {
 			return;
 		}
 
-		if ( ! defined( 'BREEZE_VERSION' ) && ! function_exists( 'breeze_get_option' ) && ! class_exists( 'Breeze_Admin' ) ) {
+		if ( ! $this->breeze_is_active() ) {
 			return;
 		}
 
@@ -1818,6 +1826,16 @@ class StarterBase extends Site {
 			$this->breeze_warmup_tail,
 			$this->breeze_warmup_tail_batch
 		);
+	}
+
+	/**
+	 * Whether the Breeze plugin is loaded. Any one of its constant, its option
+	 * reader or its admin class is enough.
+	 *
+	 * @return bool
+	 */
+	private function breeze_is_active(): bool {
+		return defined( 'BREEZE_VERSION' ) || function_exists( 'breeze_get_option' ) || class_exists( 'Breeze_Admin' );
 	}
 
 	/**

@@ -6,6 +6,9 @@ namespace Tests\Unit\StarterBase;
 
 use Brain\Monkey\Filters;
 use Brain\Monkey\Functions;
+use PHPUnit\Framework\Attributes\DataProvider;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 use Parisek\TimberKit\StarterBase;
 use Tests\Unit\StarterBaseTestCase;
 
@@ -70,6 +73,44 @@ class SiteHealthRegisterChecksTest extends StarterBaseTestCase {
 		$this->assertCount( 2, $probed );
 		$this->assertStringEndsWith( '/assets/css/gutenberg-resizable-sidebar.css', $probed[0] );
 		$this->assertStringEndsWith( '/assets/js/gutenberg-resizable-sidebar.js', $probed[1] );
+	}
+
+	/**
+	 * @return array<string, array{0: bool}>
+	 */
+	public static function securityHeadersStates(): array {
+		return [
+			'security_headers off' => [ false ],
+			'security_headers on'  => [ true ],
+		];
+	}
+
+	// BREEZE_VERSION is a constant, so the test runs in its own process and
+	// the constant cannot leak into the "Breeze absent" case below.
+	#[DataProvider( 'securityHeadersStates' )]
+	#[PreserveGlobalState( false )]
+	#[RunInSeparateProcess]
+	public function test_cache_hit_headers_check_is_registered_when_breeze_is_active( bool $security_headers ): void {
+		define( 'BREEZE_VERSION', '2.5.0' );
+
+		$base = $this->createStarterBase( [ 'security_headers' => $security_headers ] );
+
+		$tests = $base->site_health_register_checks( [ 'direct' => [], 'async' => [] ] );
+
+		$this->assertArrayHasKey( 'timber_kit_health_security_headers_single_on_cache_hit', $tests['direct'] );
+	}
+
+	// Another test in a shared run may mock breeze_get_option(), and
+	// Brain\Monkey keeps that function defined for the rest of the process.
+	// The "Breeze absent" state is only observable in a fresh process.
+	#[PreserveGlobalState( false )]
+	#[RunInSeparateProcess]
+	public function test_cache_hit_headers_check_is_not_registered_without_breeze(): void {
+		$base = $this->createStarterBase( [ 'security_headers' => true ] );
+
+		$tests = $base->site_health_register_checks( [ 'direct' => [], 'async' => [] ] );
+
+		$this->assertArrayNotHasKey( 'timber_kit_health_security_headers_single_on_cache_hit', $tests['direct'] );
 	}
 
 	public function test_health_checks_override_can_drop_a_default(): void {

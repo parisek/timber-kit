@@ -336,7 +336,9 @@ Each check declares its verification method: `effect` (probe the real outcome,
 plugin-agnostic — survives plugin swaps), `config` (read stored config when
 there is no observable effect), or `both`. Seed set (security): XML-RPC
 disabled, WP version hidden, author sitemap disabled, file editing disabled,
-REST users endpoint restricted (anonymous loopback probe).
+REST users endpoint restricted (anonymous loopback probe). With Breeze active,
+security headers single on a cache hit (see
+[§ Security headers on a cache hit](#security-headers-on-a-cache-hit)).
 
 Customize in the project `Base` class — conscious exceptions stay visible in
 code review:
@@ -1212,6 +1214,40 @@ drives that queue through an Action Scheduler loopback; when the loopback
 can't reach the site, the queue simply stops advancing and nothing anywhere
 reports it. The check flags a queue that hasn't made progress in the last
 minute.
+
+### Security headers on a cache hit
+
+The Site Health check `security_headers_single_on_cache_hit` (category
+`security`, needs `$site_health`) is registered only when Breeze is active. It
+does not depend on `$security_headers`.
+
+Breeze saves the response headers of the front page and sends them again on
+every cache hit. When the web server sends the same header, a hit carries two
+copies and a miss carries one. The `$warn_duplicate_security_headers` test
+reads one response, so it does not see this.
+
+The check sends three anonymous `GET` requests to the home URL (5 second
+timeout, no redirects): one with a random `timber-kit-cache-probe` query, which
+is a cache miss, then the plain URL twice, so the last one can be a hit. It
+counts X-Frame-Options, X-Content-Type-Options, Referrer-Policy,
+Content-Security-Policy, Permissions-Policy, X-XSS-Protection and
+Strict-Transport-Security on the miss and on the hit. A repeated line counts,
+and so does a value repeated inside one line (`SAMEORIGIN, SAMEORIGIN`).
+
+| Outcome | Result |
+| --- | --- |
+| Each header single on the miss and on the hit | `good` |
+| A header with exactly one copy on the miss and two or more on the hit | `recommended`. Names the headers, names Breeze as the likely source, and gives a `breeze_custom_headers_allow` filter that drops them from what Breeze saves |
+| A header absent on the miss and repeated on the hit | `recommended`, named separately as "sent only on a cache hit", with no filter. The cache file is its only source, so removing it from the Breeze list would drop it. A stale cache file is the usual cause: purge and run again |
+| A header repeated on the miss too (for example two different Permissions-Policy values) | not reported |
+| Hit not confirmed (no `x-cache` with `HIT`, no `Age` above 0, no Breeze `Cache-Provider` ending in `E`) | `recommended` ("could not verify") |
+| Request error or non-2xx answer | `recommended` ("could not verify"), never critical |
+
+Drop only the headers the web server already sends. A header that only PHP
+sends must stay in the Breeze list, because a cache hit does not run PHP. The
+saved copy changes only when Breeze rebuilds its config, for example when you
+save the Breeze settings. Cache state changes over time, so one clean result is
+not proof. The check changes no Breeze setting and no header.
 
 ### Image resizer output format
 
