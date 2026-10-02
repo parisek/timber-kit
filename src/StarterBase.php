@@ -1381,7 +1381,10 @@ class StarterBase extends Site {
 		if ( $this->mce_exclude_editor_styles ) {
 			add_filter( 'mce_css', array( $this, 'mce_css' ) );
 		}
-		add_filter( 'pre_get_posts', array( $this, 'search_post_type_filter' ) );
+		// With $disable_search on, the main search query is a 404 and the filter has nothing to scope.
+		if ( ! $this->disable_search ) {
+			add_filter( 'pre_get_posts', array( $this, 'search_post_type_filter' ) );
+		}
 		if ( $this->wpml_menu_sync_read_only ) {
 			if ( did_action( 'init' ) ) {
 				// Built during init: priority 0 would never run. register() hooks the guard or blocks the screen.
@@ -4466,7 +4469,7 @@ class StarterBase extends Site {
 	 * of pages and made its media picker find nothing. Same guard as
 	 * `disable_search()`.
 	 *
-	 * Hooked to `pre_get_posts`.
+	 * Hooked to `pre_get_posts`, only when `$disable_search` is `false`.
 	 *
 	 * @param \WP_Query $query The current query object.
 	 * @return \WP_Query Modified query.
