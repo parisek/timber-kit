@@ -6,6 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- `package_assets_reachable` probes the sidebar script
+  (`assets/js/gutenberg-resizable-sidebar.js`) as well as the stylesheet. A host
+  rule that denies `.js` and allows `.css` no longer passes the check. The result
+  is `good` only when both files answer 200. The message names each file that
+  failed. A blocked file (403 or 404) wins over a file that could not be
+  verified, and the message names both. `PackageAssetsReachable` takes one or
+  more URLs (`string $url, string ...$urls`), so a call with one URL still works.
+- `package_assets_reachable` runs the `GET` fallback only when `HEAD` answers
+  403, 404, 405 or 501. A transport error or any other status on `HEAD` ends
+  that file's probe as "could not verify". A host that times out now costs one
+  5 second wait per file, not two. A `HEAD` that answers 3xx or 5xx gets no
+  `GET` retry. Those answers already ended as "could not verify".
+
 ## [1.62.0] - 2026-10-02
 
 ### Added

@@ -360,14 +360,18 @@ per-environment tweaks. Custom checks implement `Health\HealthCheck` (`id`,
 
 The `package_assets_reachable` check (category `timber-kit`) is registered
 only when `$admin_resizable_sidebar` is `true`. It requests the sidebar
-stylesheet from the package `vendor/` directory as an anonymous visitor
-(`HEAD`, then `GET` when the answer is not 200, 5 second timeout).
+stylesheet and the sidebar script from the package `vendor/` directory as an
+anonymous visitor. Each file gets a `HEAD` request (5 second timeout, no
+redirects). Only a `HEAD` answer of 403, 404, 405 or 501 is repeated as `GET`:
+a host may reject `HEAD` (405 or 501), and only a `GET` carries the 403 body
+that tells the two causes apart. A loopback error or any other `HEAD` status
+ends that file's probe at once.
 
-| Answer | Result |
+| Answer per file | Result |
 | --- | --- |
-| 200 | `good` |
-| 403 or 404 | `recommended`. Names both causes and the fix for each: the theme `.htaccess` denies `vendor/` without the static-file allow rule (see [§ Gutenberg](#gutenberg)), or the web server user cannot enter a `vendor/` directory (mode 750 with ACL `group::---`; fix with `setfacl -m g::--x` or `chmod g+x` on `vendor/` down to the package). A 403 body with `Server unable to read htaccess file` points to the second cause |
-| loopback error or other status | `recommended` ("could not verify"), never critical |
+| 200 for every file | `good` |
+| 403 or 404 for any file | `recommended`. Names each blocked file, both causes and the fix for each: the theme `.htaccess` denies `vendor/` without the static-file allow rule (see [§ Gutenberg](#gutenberg)), or the web server user cannot enter a `vendor/` directory (mode 750 with ACL `group::---`; fix with `setfacl -m g::--x` or `chmod g+x` on `vendor/` down to the package). A 403 body with `Server unable to read htaccess file` points to the second cause. A file that could not be verified is named too |
+| loopback error or other status for any file, none blocked | `recommended` ("could not verify"), never critical. Names each such file |
 
 The check never changes `.htaccess`, file modes or ACLs. It only reports.
 

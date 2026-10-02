@@ -13,6 +13,8 @@ class PackageAssetsReachableTest extends HealthTestCase {
 
 	private const URL = 'https://example.com/wp-content/themes/t/vendor/parisek/timber-kit/assets/css/gutenberg-resizable-sidebar.css';
 
+	private const JS_URL = 'https://example.com/wp-content/themes/t/vendor/parisek/timber-kit/assets/js/gutenberg-resizable-sidebar.js';
+
 	private const FS_BODY = '<p>You don\'t have permission to access this resource.Server unable to read htaccess file, denying access to be safe</p>';
 
 	private const REWRITE_BODY = '<p>You don\'t have permission to access this resource.</p>';
@@ -52,6 +54,37 @@ class PackageAssetsReachableTest extends HealthTestCase {
 		} );
 	}
 
+	/**
+	 * Per-URL responses for the two-file cases.
+	 *
+	 * @param array<string, array{head: array{0: int, 1?: string}|string, get?: array{0: int, 1?: string}|string}> $map
+	 */
+	private function stubResponsesByUrl( array $map ): void {
+		$shape = static fn ( array|string $r ) => is_array( $r )
+			? [ 'response' => [ 'code' => $r[0] ], 'body' => $r[1] ?? '' ]
+			: $r;
+
+		Functions\when( 'wp_remote_head' )->alias( function ( string $url, array $args = [] ) use ( $map, $shape ) {
+			$this->requests[] = [ 'method' => 'HEAD', 'url' => $url, 'args' => $args ];
+			return $shape( $map[ $url ]['head'] );
+		} );
+		Functions\when( 'wp_remote_get' )->alias( function ( string $url, array $args = [] ) use ( $map, $shape ) {
+			$this->requests[] = [ 'method' => 'GET', 'url' => $url, 'args' => $args ];
+			return $shape( $map[ $url ]['get'] ?? 'unused' );
+		} );
+	}
+
+	private function run_both(): \Parisek\TimberKit\Health\Result {
+		return ( new PackageAssetsReachable( self::URL, self::JS_URL ) )->run();
+	}
+
+	/**
+	 * @return list<string> "METHOD url" per request, in order.
+	 */
+	private function requestLog(): array {
+		return array_map( static fn ( array $r ): string => $r['method'] . ' ' . $r['url'], $this->requests );
+	}
+
 	private function run_check(): \Parisek\TimberKit\Health\Result {
 		return ( new PackageAssetsReachable( self::URL ) )->run();
 	}
@@ -80,18 +113,29 @@ class PackageAssetsReachableTest extends HealthTestCase {
 	 * Regression from review: `wp_remote_get()` follows redirects by default.
 	 * A redirect to a login page, a CDN challenge or a soft-404 handler ends
 	 * in HTTP 200 on an HTML document, and the check would report `good` for
-	 * a stylesheet the browser cannot use. The GET must not follow redirects,
-	 * so a 3xx stays a 3xx and the check says it could not verify.
+	 * a stylesheet the browser cannot use. Neither request may follow
+	 * redirects, so a 3xx stays a 3xx and the check says it could not verify.
 	 */
-	public function test_get_does_not_follow_redirects_so_a_redirect_is_not_reported_good(): void {
-		$this->stubResponses( [ 302 ], [ 302 ] );
+	public function test_head_does_not_follow_redirects_and_a_redirect_ends_without_get(): void {
+		$this->stubResponses( [ 302 ] );
 
 		$result = $this->run_check();
 
 		$this->assertSame( 'recommended', $result->status() );
 		$this->assertStringContainsString( 'Could not verify', $result->summary() );
-		$this->assertCount( 2, $this->requests );
-		$this->assertSame( 'GET', $this->requests[1]['method'] );
+		$this->assertStringContainsString( '302', $result->summary() );
+		$this->assertSame( [ 'HEAD' ], array_column( $this->requests, 'method' ) );
+		$this->assertSame( 0, $this->requests[0]['args']['redirection'] ?? null );
+	}
+
+	public function test_get_fallback_does_not_follow_redirects(): void {
+		$this->stubResponses( [ 405 ], [ 302 ] );
+
+		$result = $this->run_check();
+
+		$this->assertSame( 'recommended', $result->status() );
+		$this->assertStringContainsString( 'Could not verify', $result->summary() );
+		$this->assertSame( [ 'HEAD', 'GET' ], array_column( $this->requests, 'method' ) );
 		$this->assertSame( 0, $this->requests[1]['args']['redirection'] ?? null );
 	}
 
@@ -182,12 +226,115 @@ class PackageAssetsReachableTest extends HealthTestCase {
 	}
 
 	public function test_unexpected_status_is_recommended_could_not_verify(): void {
-		$this->stubResponses( [ 401 ], [ 401 ] );
+		$this->stubResponses( [ 401 ] );
 
 		$result = $this->run_check();
 
 		$this->assertSame( 'recommended', $result->status() );
 		$this->assertStringContainsString( 'Could not verify', $result->summary() );
 		$this->assertStringContainsString( '401', $result->summary() );
+	}
+
+	public function test_head_5xx_ends_the_check_without_a_get(): void {
+		$this->stubResponses( [ 503 ] );
+
+		$result = $this->run_check();
+
+		$this->assertSame( 'recommended', $result->status() );
+		$this->assertStringContainsString( 'Could not verify', $result->summary() );
+		$this->assertStringContainsString( '503', $result->summary() );
+		$this->assertSame( [ 'HEAD' ], array_column( $this->requests, 'method' ) );
+	}
+
+	public function test_transport_error_on_head_ends_the_check_without_a_get(): void {
+		$this->stubResponses( 'wp-error' );
+
+		$result = $this->run_check();
+
+		$this->assertSame( 'recommended', $result->status() );
+		$this->assertStringContainsString( 'loopback request failed', $result->summary() );
+		$this->assertSame( [ 'HEAD' ], array_column( $this->requests, 'method' ) );
+	}
+
+	public function test_head_404_falls_back_to_get(): void {
+		$this->stubResponses( [ 404 ], [ 200 ] );
+
+		$this->assertSame( 'good', $this->run_check()->status() );
+		$this->assertSame( [ 'HEAD', 'GET' ], array_column( $this->requests, 'method' ) );
+	}
+
+	public function test_both_files_good_with_one_head_each(): void {
+		$this->stubResponsesByUrl( [
+			self::URL    => [ 'head' => [ 200 ] ],
+			self::JS_URL => [ 'head' => [ 200 ] ],
+		] );
+
+		$result = $this->run_both();
+
+		$this->assertSame( 'good', $result->status() );
+		$this->assertSame( [ 'HEAD ' . self::URL, 'HEAD ' . self::JS_URL ], $this->requestLog() );
+	}
+
+	public function test_script_403_while_stylesheet_200_names_only_the_script(): void {
+		$this->stubResponsesByUrl( [
+			self::URL    => [ 'head' => [ 200 ] ],
+			self::JS_URL => [ 'head' => [ 403 ], 'get' => [ 403, self::REWRITE_BODY ] ],
+		] );
+
+		$result = $this->run_both();
+
+		$this->assertSame( 'recommended', $result->status() );
+		$this->assertStringContainsString( self::JS_URL . ' answered HTTP 403', $result->summary() );
+		$this->assertStringNotContainsString( self::URL, $result->summary() );
+		$this->assertStringContainsString( 'The response points to the .htaccess rule', $result->summary() );
+		$this->assertStringContainsString( 'RewriteRule', $result->actions() );
+		$this->assertSame(
+			[ 'HEAD ' . self::URL, 'HEAD ' . self::JS_URL, 'GET ' . self::JS_URL ],
+			$this->requestLog()
+		);
+	}
+
+	public function test_both_files_403_names_both_files_once_each(): void {
+		$this->stubResponsesByUrl( [
+			self::URL    => [ 'head' => [ 403 ], 'get' => [ 403, self::FS_BODY ] ],
+			self::JS_URL => [ 'head' => [ 403 ], 'get' => [ 403, self::FS_BODY ] ],
+		] );
+
+		$result = $this->run_both();
+
+		$this->assertSame( 'recommended', $result->status() );
+		$this->assertStringContainsString( self::URL . ' answered HTTP 403', $result->summary() );
+		$this->assertStringContainsString( self::JS_URL . ' answered HTTP 403', $result->summary() );
+		$this->assertSame( 1, substr_count( $result->summary(), 'Two causes produce this' ) );
+		$this->assertStringContainsString( 'The response points to the directory permissions', $result->summary() );
+	}
+
+	public function test_transport_error_on_one_file_and_200_on_the_other_is_could_not_verify(): void {
+		$this->stubResponsesByUrl( [
+			self::URL    => [ 'head' => [ 200 ] ],
+			self::JS_URL => [ 'head' => 'wp-error' ],
+		] );
+
+		$result = $this->run_both();
+
+		$this->assertSame( 'recommended', $result->status() );
+		$this->assertStringContainsString( 'Could not verify that ' . self::JS_URL, $result->summary() );
+		$this->assertStringNotContainsString( self::URL, $result->summary() );
+		$this->assertSame( '', $result->actions() );
+		$this->assertSame( [ 'HEAD ' . self::URL, 'HEAD ' . self::JS_URL ], $this->requestLog() );
+	}
+
+	public function test_a_blocked_file_wins_over_an_unverified_one_and_both_are_named(): void {
+		$this->stubResponsesByUrl( [
+			self::URL    => [ 'head' => [ 404 ], 'get' => [ 404 ] ],
+			self::JS_URL => [ 'head' => [ 500 ] ],
+		] );
+
+		$result = $this->run_both();
+
+		$this->assertSame( 'recommended', $result->status() );
+		$this->assertStringContainsString( self::URL . ' answered HTTP 404', $result->summary() );
+		$this->assertStringContainsString( 'Could not verify that ' . self::JS_URL, $result->summary() );
+		$this->assertStringContainsString( 'RewriteRule', $result->actions() );
 	}
 }

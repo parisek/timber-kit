@@ -1729,9 +1729,13 @@ class StarterBase extends Site {
 		}
 
 		// Same reason: only a site that enqueues the sidebar assets needs to
-		// know whether the server serves them.
+		// know whether the server serves them. Both files are probed: a host
+		// rule can deny .js and allow .css.
 		if ( $this->admin_resizable_sidebar ) {
-			$checks[] = new PackageAssetsReachable( $this->packageAssetUrl( '/assets/css/gutenberg-resizable-sidebar.css' ) );
+			$checks[] = new PackageAssetsReachable(
+				$this->packageAssetUrl( '/assets/css/gutenberg-resizable-sidebar.css' ),
+				$this->packageAssetUrl( '/assets/js/gutenberg-resizable-sidebar.js' ),
+			);
 		}
 
 		return $checks;
