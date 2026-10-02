@@ -131,7 +131,7 @@ final class ServerHeaders {
 	 * @return void
 	 */
 	public static function maybe_schedule_rebuild( array $names ): void {
-		if ( ( defined( 'WP_CLI' ) && WP_CLI ) || defined( 'DOING_CRON' ) || is_admin() || wp_doing_ajax() || ( defined( 'REST_REQUEST' ) && REST_REQUEST ) ) {
+		if ( ! self::is_front_end_request() ) {
 			return;
 		}
 
@@ -161,6 +161,12 @@ final class ServerHeaders {
 	 * @return void
 	 */
 	public static function rebuild( array $names ): void {
+		// WordPress defines REST_REQUEST after `init`, so this is the first
+		// point where a REST request can be told apart.
+		if ( ! self::is_front_end_request() ) {
+			return;
+		}
+
 		if ( ! is_callable( array( 'Breeze_ConfigCache', 'write_config_cache' ) ) ) {
 			return;
 		}
@@ -191,6 +197,17 @@ final class ServerHeaders {
 		}
 
 		update_option( self::OPTION, self::fingerprint( $names ), true );
+	}
+
+	/**
+	 * @return bool False for WP-CLI, cron, wp-admin, AJAX and REST.
+	 */
+	private static function is_front_end_request(): bool {
+		return ! ( ( defined( 'WP_CLI' ) && WP_CLI )
+			|| defined( 'DOING_CRON' )
+			|| is_admin()
+			|| wp_doing_ajax()
+			|| ( defined( 'REST_REQUEST' ) && REST_REQUEST ) );
 	}
 
 	/**

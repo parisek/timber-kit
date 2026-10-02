@@ -299,4 +299,18 @@ PHP;
 		ServerHeaders::rebuild( array() );
 		$this->addToAssertionCount( 1 );
 	}
+
+	#[PreserveGlobalState( false )]
+	#[RunInSeparateProcess]
+	public function test_rebuild_does_nothing_when_the_request_turned_out_to_be_rest(): void {
+		// WordPress defines REST_REQUEST after init, so only the shutdown-time
+		// check can see it.
+		define( 'REST_REQUEST', true );
+		$this->fakeBreeze( array() );
+		Functions\expect( 'update_option' )->never();
+
+		ServerHeaders::rebuild( array( 'x-frame-options' ) );
+
+		$this->assertFileDoesNotExist( WP_CONTENT_DIR . '/breeze-config/breeze-config.php' );
+	}
 }
