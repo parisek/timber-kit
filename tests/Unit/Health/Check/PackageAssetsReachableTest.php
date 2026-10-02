@@ -76,6 +76,25 @@ class PackageAssetsReachableTest extends HealthTestCase {
 		$this->assertSame( 5, $this->requests[0]['args']['timeout'] );
 	}
 
+	/**
+	 * Regression from review: `wp_remote_get()` follows redirects by default.
+	 * A redirect to a login page, a CDN challenge or a soft-404 handler ends
+	 * in HTTP 200 on an HTML document, and the check would report `good` for
+	 * a stylesheet the browser cannot use. The GET must not follow redirects,
+	 * so a 3xx stays a 3xx and the check says it could not verify.
+	 */
+	public function test_get_does_not_follow_redirects_so_a_redirect_is_not_reported_good(): void {
+		$this->stubResponses( [ 302 ], [ 302 ] );
+
+		$result = $this->run_check();
+
+		$this->assertSame( 'recommended', $result->status() );
+		$this->assertStringContainsString( 'Could not verify', $result->summary() );
+		$this->assertCount( 2, $this->requests );
+		$this->assertSame( 'GET', $this->requests[1]['method'] );
+		$this->assertSame( 0, $this->requests[1]['args']['redirection'] ?? null );
+	}
+
 	public function test_403_with_filesystem_body_points_at_directory_permissions(): void {
 		$this->stubResponses( [ 403 ], [ 403, self::FS_BODY ] );
 

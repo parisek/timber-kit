@@ -24,9 +24,10 @@ use Parisek\TimberKit\Health\Result;
  * outcome on every host, nginx included, and also catches cause 2.
  *
  * It sends HEAD first. Any answer other than 200 is repeated as GET: a host
- * may reject HEAD (405/501), core does not follow redirects on HEAD, and only
- * a GET carries the 403 body that tells the two causes apart. The GET costs
- * one extra request, on the failure path only.
+ * may reject HEAD (405/501), and only a GET carries the 403 body that tells
+ * the two causes apart. The GET costs one extra request, on the failure path
+ * only. Neither request follows redirects, so a redirect to a login page or a
+ * soft-404 handler is reported as unverified, not as a healthy stylesheet.
  */
 final class PackageAssetsReachable implements HealthCheck {
 
@@ -54,7 +55,12 @@ final class PackageAssetsReachable implements HealthCheck {
 	}
 
 	public function run(): Result {
-		$args     = array( 'timeout' => 5 );
+		// No redirects: a redirect to a login page or a soft-404 handler would
+		// end in HTTP 200 on an HTML document and read as a healthy stylesheet.
+		$args     = array(
+			'timeout'     => 5,
+			'redirection' => 0,
+		);
 		$response = wp_remote_head( $this->url, $args );
 
 		if ( ! is_wp_error( $response ) && 200 === (int) wp_remote_retrieve_response_code( $response ) ) {
