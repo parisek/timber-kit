@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.62.0] - 2026-10-02
+
 ### Added
 
 - Site Health check `package_assets_reachable` (`Health\Check\PackageAssetsReachable`,
