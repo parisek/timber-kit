@@ -28,7 +28,10 @@
         "php-stubs/acf-pro-stubs": "^6.5",
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^12.0",
-        "szepeviktor/phpstan-wordpress": "^2.0"
+        "roots/wordpress-no-content": "7.1.1",
+        "szepeviktor/phpstan-wordpress": "^2.0",
+        "wp-phpunit/wp-phpunit": "7.1.1",
+        "yoast/phpunit-polyfills": "^4.0"
     },
     "suggest": {
         "ext-imagick": "Required for smart-crop feature in Resizer"
@@ -67,6 +70,7 @@
             "@test",
             "@test:property"
         ],
+        "test:integration": "vendor/bin/phpunit -c phpunit.integration.xml",
         "test:property": "vendor/bin/phpunit -c phpunit.property.xml"
     }
 }

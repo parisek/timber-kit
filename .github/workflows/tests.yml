@@ -64,6 +64,42 @@ jobs:
           TIMBERKIT_REQUIRE_AVIF_ENCODER: '1'
         run: vendor/bin/phpunit tests/Unit/Resizer/EncoderQualityTest.php
 
+  integration:
+    # Real WordPress against a real database. A separate job, so it never
+    # gates the unit jobs. TIMBERKIT_REQUIRE_TEST_DB turns "no database" into
+    # a failure instead of a skip.
+    name: Integration (PHP 8.3)
+    runs-on: ubuntu-latest
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: root
+          MARIADB_DATABASE: wordpress_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mysqli, gd
+          coverage: none
+      - run: composer install --no-interaction --prefer-dist
+      - name: Integration tests
+        env:
+          TIMBERKIT_TEST_DB_HOST: 127.0.0.1:3306
+          TIMBERKIT_TEST_DB_NAME: wordpress_test
+          TIMBERKIT_TEST_DB_USER: root
+          TIMBERKIT_TEST_DB_PASSWORD: root
+          TIMBERKIT_REQUIRE_TEST_DB: '1'
+        run: composer test:integration
+
   adr-index:
     runs-on: ubuntu-latest
     name: docs/adr/ index is in sync
