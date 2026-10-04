@@ -140,7 +140,7 @@ class ServerHeadersTest extends TestCase {
 	 *
 	 * @param string[] $stored Names Breeze_ConfigCache will write.
 	 */
-	private function fakeBreeze( array $stored, bool $writes = true ): void {
+	private function fakeBreeze( array $stored, bool $writes = true, bool $loaded = true ): void {
 		$dir = WP_CONTENT_DIR . '/tk-test-' . uniqid();
 		mkdir( $dir, 0777, true );
 		if ( ! is_dir( WP_CONTENT_DIR . '/breeze-config' ) ) {
@@ -166,8 +166,18 @@ class Breeze_ConfigCache {
 	}
 }
 PHP;
-		file_put_contents( $dir . '/fake-breeze.php', $class );
-		require $dir . '/fake-breeze.php';
+		if ( $loaded ) {
+			file_put_contents( $dir . '/fake-breeze.php', $class );
+			require $dir . '/fake-breeze.php';
+
+			return;
+		}
+
+		// A front-end request: Breeze loads the class only for wp-admin and
+		// the CLI, so the file exists but nothing has required it.
+		mkdir( $dir . '/inc/cache', 0777, true );
+		file_put_contents( $dir . '/inc/cache/config-cache.php', $class );
+		define( 'BREEZE_PLUGIN_DIR', $dir . '/' );
 	}
 
 	#[PreserveGlobalState( false )]
@@ -326,5 +336,24 @@ PHP;
 		}
 
 		$this->addToAssertionCount( 1 );
+	}
+
+	#[PreserveGlobalState( false )]
+	#[RunInSeparateProcess]
+	public function test_rebuild_loads_the_breeze_class_when_a_front_end_request_has_not(): void {
+		$this->fakeBreeze( array( 'permissions-policy' ), true, false );
+		$saved = null;
+		Functions\when( 'update_option' )->alias(
+			function ( $key ) use ( &$saved ) {
+				$saved = $key;
+				return true;
+			}
+		);
+
+		$this->assertFalse( class_exists( 'Breeze_ConfigCache', false ) );
+
+		ServerHeaders::rebuild( array( 'x-frame-options' ) );
+
+		$this->assertSame( ServerHeaders::OPTION, $saved );
 	}
 }
