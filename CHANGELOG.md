@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.64.0] - 2026-10-04
+
 ### Added
 
 - `$breeze_skip_server_headers` (default `true`, a named exception in
