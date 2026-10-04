@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.64.1] - 2026-10-04
+
 ### Fixed
 
 - `$breeze_skip_server_headers` never rebuilt a stale Breeze config on a live
