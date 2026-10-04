@@ -26,6 +26,7 @@ use Parisek\TimberKit\BlockRenderer;
 use Parisek\TimberKit\Wpml\MenuSyncReadOnly;
 use Parisek\TimberKit\Breeze\Health\PreloadChainHealthy;
 use Parisek\TimberKit\Breeze\Health\SecurityHeadersSingleOnCacheHit;
+use Parisek\TimberKit\Breeze\ServerHeaders;
 use Parisek\TimberKit\Breeze\Health\WarmupSitemapResolved;
 use Parisek\TimberKit\Breeze\WarmupSitemap;
 use Parisek\TimberKit\Health\Check\AuthorSitemapDisabled;
@@ -983,6 +984,37 @@ class StarterBase extends Site {
 	 */
 	protected array $gtm_containers = array();
 
+	/**
+	 * Keep the headers the web server (Apache `.htaccess`, nginx) already sends
+	 * out of the headers Breeze saves and replays on a cache hit.
+	 *
+	 * Breeze pings the home URL, saves each allowed header it sees, and sends
+	 * them again on every hit. A header the server also sends then appears
+	 * twice. On, the kit removes those headers from Breeze's list
+	 * (`breeze_custom_headers_allow`) and rebuilds a Breeze config that still
+	 * holds them (once, from a front-end request).
+	 *
+	 * Which headers follows `$security_headers`, one source of truth:
+	 * - `$security_headers` off: the theme sends none, so the server owns them.
+	 *   The kit drops the managed set without `Permissions-Policy`
+	 *   (`ServerHeaders::DEFAULT_NAMES`).
+	 * - `$security_headers` on: the theme sends them. Nothing is dropped. On a
+	 *   hit PHP does not run, so Breeze's replay is the only way they reach the
+	 *   visitor.
+	 *
+	 * The `timber_kit_breeze_server_headers` filter receives the resolved list.
+	 * Use it when a PHP plugin sends one of the names and the server does not,
+	 * because the replay is then that header's only path on a hit. Measure first
+	 * (`probe-security-headers.sh`).
+	 *
+	 * On by default, a named exception in AGENTS.md: it changes which headers
+	 * Breeze saves, and only where the server already sends them. Set `false`
+	 * to keep Breeze's own list.
+	 *
+	 * @var bool
+	 */
+	protected bool $breeze_skip_server_headers = true;
+
 	/** @var bool Surface a Site Health warning when the live response carries a managed security header more than once — the signature of a second, server-level source (Apache .htaccess mod_headers, nginx add_header, a security plugin) emitting the same headers $security_headers already sends. Only registered when $security_headers is on. */
 	protected bool $warn_duplicate_security_headers = true;
 
@@ -1134,6 +1166,7 @@ class StarterBase extends Site {
 		$this->setup_dev_media_proxy();
 		$this->setup_wpforms_config_bridge();
 		$this->setup_breeze_warmup_sitemap();
+		$this->setup_breeze_server_headers();
 		$this->registerCliCommands();
 
 		parent::__construct();
@@ -1851,6 +1884,32 @@ class StarterBase extends Site {
 			$this->breeze_warmup_tail,
 			$this->breeze_warmup_tail_batch
 		);
+	}
+
+	/**
+	 * Wire {@see ServerHeaders} when the site lists headers its server sends.
+	 *
+	 * @return void
+	 */
+	protected function setup_breeze_server_headers(): void {
+		if ( ! $this->breeze_skip_server_headers || ! $this->breeze_is_active() ) {
+			return;
+		}
+
+		ServerHeaders::register( $this->resolve_breeze_server_headers() );
+	}
+
+	/**
+	 * The header names to keep out of Breeze's replay: the managed set when the
+	 * theme leaves security headers to the server, none when it sends them,
+	 * then the `timber_kit_breeze_server_headers` filter.
+	 *
+	 * @return string[]
+	 */
+	protected function resolve_breeze_server_headers(): array {
+		$names = $this->security_headers ? array() : ServerHeaders::DEFAULT_NAMES;
+
+		return array_values( array_map( 'strval', (array) apply_filters( 'timber_kit_breeze_server_headers', $names ) ) );
 	}
 
 	/**
