@@ -188,6 +188,12 @@ final class ServerHeaders {
 			return;
 		}
 
+		// Breeze loads the class only for wp-admin and the CLI. A front-end
+		// request has to require it, as Breeze does where it needs it there.
+		if ( ! class_exists( 'Breeze_ConfigCache', false ) && defined( 'BREEZE_PLUGIN_DIR' ) && is_readable( BREEZE_PLUGIN_DIR . 'inc/cache/config-cache.php' ) ) {
+			require_once BREEZE_PLUGIN_DIR . 'inc/cache/config-cache.php';
+		}
+
 		if ( ! is_callable( array( 'Breeze_ConfigCache', 'write_config_cache' ) ) ) {
 			return;
 		}

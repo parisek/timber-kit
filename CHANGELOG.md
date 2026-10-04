@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `$breeze_skip_server_headers` never rebuilt a stale Breeze config on a live
+  site. The rebuild runs on a front-end request, and Breeze loads
+  `Breeze_ConfigCache` only for wp-admin and the CLI. The call found no class
+  and returned without a sign. The kit now requires Breeze's
+  `inc/cache/config-cache.php` when the class is missing, as Breeze does where
+  it needs the class on the front end. The unit test used a fake class that was
+  already loaded, so it could not see the gap.
+
 ## [1.64.0] - 2026-10-04
 
 ### Added
