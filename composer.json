@@ -3,12 +3,25 @@
     "description": "WordPress/Timber starter kit — StarterBase, Helpers, Resizer",
     "license": "GPL-3.0-or-later",
     "type": "library",
+    "keywords": [
+        "wordpress",
+        "timber",
+        "twig",
+        "starter-kit",
+        "acf"
+    ],
     "authors": [
         {
             "name": "Petr Parimucha",
             "email": "petr.parimucha@portadesign.cz"
         }
     ],
+    "homepage": "https://github.com/parisek/timber-kit",
+    "support": {
+        "issues": "https://github.com/parisek/timber-kit/issues",
+        "source": "https://github.com/parisek/timber-kit",
+        "security": "https://github.com/parisek/timber-kit/security/policy"
+    },
     "require": {
         "php": "^8.3",
         "ext-gd": "*",
