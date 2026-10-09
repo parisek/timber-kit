@@ -137,6 +137,12 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   source the code cannot name defers; and the bridge still switches off. This is
   a named exception to the rule above, not a case of the rule being skipped.
 
+- **Approved exception:** the `yaml_parse` and `t` Twig filters and the
+  `{% trans %}` tag left with `parisek/twig-common` — no flag. The owner
+  confirmed that no project in the fleet uses them, so a flag would protect
+  nobody; `uniqueId()` stays, now owned by the kit (ADR 0010). This is a named
+  exception to the rule above, not a case of the rule being skipped.
+
 - **Approved exception:** `$wpml_theme_domain_authoritative` defaults `true`,
   not `false`. The owner reviewed it explicitly: the theme's translation file
   in git has priority over WPML String Translation. The default has been on
