@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\StarterBase;
 
+use Brain\Monkey\Actions;
 use Brain\Monkey\Functions;
 use Tests\Unit\StarterBaseTestCase;
 
@@ -127,5 +128,113 @@ class DisableSearchTest extends StarterBaseTestCase {
 		$this->assertSame( 'test', $query->query_vars['s'] );
 		$this->assertSame( 'test', $query->query['s'] );
 		$this->assertFalse( $query->is_404 );
+	}
+
+	private function enableSetFourOhFour( bool $on ): void {
+		( new \ReflectionClass( \Parisek\TimberKit\StarterBase::class ) )
+			->getProperty( 'disable_search_use_set_404' )
+			->setValue( $this->base, $on );
+	}
+
+	private function searchQueryOnArchive(): \WP_Query {
+		$query             = new \WP_Query();
+		$query->is_search  = true;
+		$query->is_archive = true;
+		$query->is_date    = true;
+		$query->query_vars = [ 's' => 'test', 'year' => 2020 ];
+		$query->query      = [ 's' => 'test', 'year' => 2020 ];
+		$query->set_is_main_query( true );
+		return $query;
+	}
+
+	public function test_set_404_flag_is_off_by_default(): void {
+		$prop = new \ReflectionProperty( \Parisek\TimberKit\StarterBase::class, 'disable_search_use_set_404' );
+		$this->assertFalse( $prop->getDefaultValue() );
+	}
+
+	public function test_flag_off_keeps_the_hand_written_flags(): void {
+		Functions\when( 'is_admin' )->justReturn( false );
+		Functions\when( 'status_header' )->justReturn( null );
+		Functions\when( 'nocache_headers' )->justReturn( null );
+		Actions\expectDone( 'set_404' )->never();
+		$this->enableSetFourOhFour( false );
+
+		$query = $this->searchQueryOnArchive();
+		$this->base->disable_search( $query );
+
+		$this->assertTrue( $query->is_404 );
+		$this->assertFalse( $query->is_search );
+		$this->assertTrue( $query->is_archive, 'legacy path leaves other conditionals alone' );
+		$this->assertFalse( $query->query_vars['s'] );
+		$this->assertFalse( $query->query['s'] );
+	}
+
+	public function test_flag_on_resets_every_conditional_through_set_404(): void {
+		Functions\when( 'is_admin' )->justReturn( false );
+		Functions\when( 'status_header' )->justReturn( null );
+		Functions\when( 'nocache_headers' )->justReturn( null );
+		$this->enableSetFourOhFour( true );
+
+		$query = $this->searchQueryOnArchive();
+		$this->base->disable_search( $query );
+
+		$this->assertTrue( $query->is_404 );
+		$this->assertFalse( $query->is_search );
+		$this->assertFalse( $query->is_archive );
+		$this->assertFalse( $query->is_date );
+		$this->assertSame( '', $query->get( 's' ) );
+		$this->assertSame( '', $query->query['s'], 'pre_get_posts readers of $query->query[s] see no term' );
+	}
+
+	public function test_flag_on_fires_the_set_404_action(): void {
+		Functions\when( 'is_admin' )->justReturn( false );
+		Functions\when( 'status_header' )->justReturn( null );
+		Functions\when( 'nocache_headers' )->justReturn( null );
+		Actions\expectDone( 'set_404' )->once();
+		$this->enableSetFourOhFour( true );
+
+		$query = $this->searchQueryOnArchive();
+		$this->base->disable_search( $query );
+
+		$this->assertTrue( $query->is_404 );
+	}
+
+	public function test_flag_on_keeps_the_status_header_and_cache_headers(): void {
+		Functions\when( 'is_admin' )->justReturn( false );
+		Functions\expect( 'status_header' )->once()->with( 404 );
+		Functions\expect( 'nocache_headers' )->once();
+		$this->enableSetFourOhFour( true );
+
+		$query = $this->searchQueryOnArchive();
+		$this->base->disable_search( $query );
+
+		$this->assertTrue( $query->is_404 );
+	}
+
+	public function test_flag_on_keeps_is_feed(): void {
+		Functions\when( 'is_admin' )->justReturn( false );
+		Functions\when( 'status_header' )->justReturn( null );
+		Functions\when( 'nocache_headers' )->justReturn( null );
+		$this->enableSetFourOhFour( true );
+
+		$query          = $this->searchQueryOnArchive();
+		$query->is_feed = true;
+		$this->base->disable_search( $query );
+
+		$this->assertTrue( $query->is_feed );
+	}
+
+	public function test_flag_on_still_ignores_a_secondary_query(): void {
+		Functions\when( 'is_admin' )->justReturn( false );
+		Functions\expect( 'status_header' )->never();
+		Actions\expectDone( 'set_404' )->never();
+		$this->enableSetFourOhFour( true );
+
+		$query = $this->searchQueryOnArchive();
+		$query->set_is_main_query( false );
+		$this->base->disable_search( $query );
+
+		$this->assertFalse( $query->is_404 );
+		$this->assertTrue( $query->is_search );
 	}
 }

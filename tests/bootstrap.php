@@ -76,20 +76,52 @@ if ( ! class_exists( 'WP_Query' ) ) {
 		public bool $is_404 = false;
 		public bool $is_search = false;
 		public bool $is_author = false;
+		public bool $is_feed = false;
+		public bool $is_home = false;
+		public bool $is_archive = false;
+		public bool $is_date = false;
 		public array $query_vars = [];
 		public array $query = [];
 		private bool $is_main_query_result = true;
 
 		/**
-		 * Core's set_404() calls init_query_flags() first, which clears every
-		 * is_* flag, and only then sets is_404. A stub that just sets is_404
-		 * lets a test pass on production code that redundantly clears a flag by
-		 * hand — which is exactly what happened once, so the stub clears them.
+		 * Mirrors core: every conditional goes back to false. A subset is enough
+		 * for the tests; add a flag here when a test needs it.
+		 */
+		public function init_query_flags(): void {
+			$this->is_search  = false;
+			$this->is_author  = false;
+			$this->is_feed    = false;
+			$this->is_home    = false;
+			$this->is_archive = false;
+			$this->is_date    = false;
+			$this->is_404     = false;
+		}
+
+		/**
+		 * Mirrors core: set_404() resets the conditionals through
+		 * init_query_flags(), sets is_404, carries is_feed across the reset on
+		 * purpose, and fires the `set_404` action. A stub that only set is_404
+		 * would let a test pass on production code that clears a flag by hand,
+		 * or that skips the reset.
 		 */
 		public function set_404(): void {
-			$this->is_search = false;
-			$this->is_author = false;
+			$is_feed = $this->is_feed;
+
+			$this->init_query_flags();
 			$this->is_404 = true;
+
+			$this->is_feed = $is_feed;
+
+			do_action_ref_array( 'set_404', [ $this ] );
+		}
+
+		public function set( string $query_var, mixed $value ): void {
+			$this->query_vars[ $query_var ] = $value;
+		}
+
+		public function get( string $query_var, mixed $default_value = '' ): mixed {
+			return $this->query_vars[ $query_var ] ?? $default_value;
 		}
 
 		public function is_main_query(): bool {
