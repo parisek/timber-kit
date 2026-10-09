@@ -148,4 +148,13 @@ final class IsOrientationMapTest extends TestCase {
 
 		$this->assertFalse( Resizer::isOrientationMap( $variants ) );
 	}
+
+	public function test_rejects_a_named_argument_even_if_its_value_is_an_orientation_map(): void {
+		// A Twig call like `image|resizer(sizes: {landscape: [...]})` reaches the
+		// variadic tail with a string key, not `0`. The predicate reads index 0
+		// only, so a named argument takes the positional `resizer()` path.
+		$variants = [ 'sizes' => [ 'landscape' => [ [ 800, 600 ] ] ] ];
+
+		$this->assertFalse( Resizer::isOrientationMap( $variants ) );
+	}
 }
