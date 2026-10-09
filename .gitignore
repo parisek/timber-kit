@@ -14,3 +14,4 @@ Thumbs.db
 /docs/*
 # ADRs are the one committed thing under docs/ — keep them tracked.
 !/docs/adr/
+/composer.lock
