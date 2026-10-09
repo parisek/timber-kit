@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.65.0] - 2026-10-09
+
 ### Changed
 
 - `uniqueId()` now comes from the kit (`Parisek\TimberKit\Twig\UniqueIdExtension`),
