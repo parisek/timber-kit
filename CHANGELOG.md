@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- `uniqueId()` now comes from the kit (`Parisek\TimberKit\Twig\UniqueIdExtension`),
+  not from `parisek/twig-common`. The function is the same: one letter, then
+  six hex digits, never repeated within one extension instance. The kit no
+  longer requires `parisek/twig-common`, which is archived.
+  `Parisek\Twig\CommonExtension` stays as an alias of the new class, set only
+  when `twig-common` itself is not installed.
+
+### Removed
+
+- The `yaml_parse` and `t` Twig filters and the `{% trans %}` tag, which came
+  with `parisek/twig-common`. The owner confirmed that no project in the fleet
+  uses them. The `{% trans with {...} %}` form already fatalled on Twig 3, as
+  it called the removed `\Twig_Token` class.
+
 ## [1.64.1] - 2026-10-04
 
 ### Fixed

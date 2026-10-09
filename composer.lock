@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "5c3bf1f6227bf3d24672b230416667ab",
+    "content-hash": "247cf87eef8232bfc6075e04d7242d80",
     "packages": [
         {
             "name": "masterminds/html5",
@@ -187,45 +187,6 @@
                 "source": "https://github.com/parisek/twig-attribute/tree/v1.6.0"
             },
             "time": "2026-05-25T20:33:23+00:00"
-        },
-        {
-            "name": "parisek/twig-common",
-            "version": "v1.1.0",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/parisek/twig-common.git",
-                "reference": "d3493d784c65e8ab3695c003012e84194e26fabd"
-            },
-            "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/parisek/twig-common/zipball/d3493d784c65e8ab3695c003012e84194e26fabd",
-                "reference": "d3493d784c65e8ab3695c003012e84194e26fabd",
-                "shasum": ""
-            },
-            "require": {
-                "symfony/yaml": "^5.0 || ^6.0 || ^7.0",
-                "twig/twig": "^2.4 || ^3.0"
-            },
-            "type": "library",
-            "autoload": {
-                "psr-4": {
-                    "Parisek\\Twig\\": ""
-                }
-            },
-            "notification-url": "https://packagist.org/downloads/",
-            "license": [
-                "GPL-2.0-or-later"
-            ],
-            "description": "A Twig extension with common functions and filters",
-            "homepage": "https://github.com/parisek/twig-common",
-            "keywords": [
-                "twig"
-            ],
-            "support": {
-                "issues": "https://github.com/parisek/twig-common/issues",
-                "source": "https://github.com/parisek/twig-common/tree/v1.1.0"
-            },
-            "time": "2024-10-10T08:27:27+00:00"
         },
         {
             "name": "parisek/twig-typography",

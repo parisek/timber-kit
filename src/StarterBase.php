@@ -19,7 +19,7 @@ use Twig\Extension\StringLoaderExtension;
 use Twig\Extra\String\StringExtension;
 use Symfony\Bridge\Twig\Extension\DumpExtension;
 use Symfony\Component\VarDumper\Cloner\VarCloner;
-use Parisek\Twig\CommonExtension;
+use Parisek\TimberKit\Twig\UniqueIdExtension;
 use Parisek\Twig\AttributeExtension;
 use Parisek\Twig\TypographyExtension;
 use Parisek\TimberKit\BlockRenderer;
@@ -2215,7 +2215,7 @@ class StarterBase extends Site {
 	 */
 	public function timber_twig( $twig ) {
 		$twig->addExtension( new StringLoaderExtension() );
-		$twig->addExtension( new CommonExtension() );
+		$twig->addExtension( new UniqueIdExtension() );
 		$twig->addExtension( new AttributeExtension() );
 		$typography_settings = get_template_directory() . '/static/' . $this->typography_config;
 		$twig->addExtension( new TypographyExtension( $typography_settings, $this->typography_locale_resolver() ) );

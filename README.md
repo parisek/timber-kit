@@ -197,6 +197,16 @@ Off until configured: with no `$gtm_containers`, `gtm_container()` prints nothin
 
 See [ADR 0005](docs/adr/0005-first-party-gtm-container.md) for the rationale.
 
+### UniqueIdExtension
+
+Twig function `uniqueId()`. It returns an HTML id that is unique within one render: one letter, then six hex digits (`k3f9a01`). Components use it where a loop index would repeat across instances.
+
+```twig
+{% set dialog_id = content.id ? content.id : 'dialog-' ~ uniqueId() %}
+```
+
+`StarterBase` registers it. It came from `parisek/twig-common`, which the kit no longer requires. A theme that registers `Parisek\Twig\CommonExtension` by hand keeps working: the name is an alias of `UniqueIdExtension`. The `yaml_parse` and `t` filters and the `{% trans %}` tag of that package are gone.
+
 ### WPFormsConfigBridge
 
 Bridges `wp-config.php` constants to entries of the `wpforms_settings` option, so per-environment values such as Cloudflare Turnstile test keys can be stored in environment config rather than the WordPress database.
