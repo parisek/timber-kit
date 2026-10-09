@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `$disable_search_use_set_404` (default `false`). With `$disable_search` on, a
+  blocked search is marked 404 through core's `WP_Query::set_404()` instead of
+  four hand-written flag assignments. Core resets every conditional first, so
+  `is_archive()`, `is_date()` and the like stop answering true on the 404, and
+  the `set_404` action fires. `is_feed` is kept, as in core. The raw request
+  arg `$query->query['s']` is still blanked, because `pre_get_posts` runs next.
+  Opt-in: a theme could rely on a surviving conditional (#173).
+
 ### Fixed
 
 - A theme without a `Text Domain` header no longer enqueues its script under
