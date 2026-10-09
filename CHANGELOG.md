@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `$disable_search_empty_query` (default `false`). With `$disable_search` on,
+  the main query was marked 404 but still ran with no search term, so
+  `$wp_query->posts` held real posts under a 404 status and the database ran
+  a wasted query on every `?s=` URL. With the flag on, the query gets
+  `post__in => [0]` and matches nothing. Opt-in: a 404 template that loops
+  over `$wp_query->posts` goes from a populated list to an empty one (#175).
+
 ### Fixed
 
 - A theme without a `Text Domain` header no longer enqueues its script under

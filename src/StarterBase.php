@@ -300,6 +300,18 @@ class StarterBase extends Site {
 	/** @var bool Disable frontend search (redirects to 404). */
 	protected bool $disable_search = true;
 
+	/**
+	 * @var bool Stop the posts query behind a blocked search.
+	 *
+	 * `disable_search()` marks the main query 404 on `parse_query`, which runs
+	 * before `get_posts()`. Without this flag the query still runs with no
+	 * search term and fills `$wp_query->posts` with real posts under a 404
+	 * status. With the flag on, the query gets `post__in => [0]`, so it matches
+	 * nothing. Opt-in: a 404 template that loops over `$wp_query->posts` goes
+	 * from a populated list to an empty one. Needs `$disable_search`.
+	 */
+	protected bool $disable_search_empty_query = false;
+
 	/** @var bool Remove default dashboard widgets and hide dashboard for non-admins. */
 	protected bool $cleanup_dashboard = true;
 
@@ -5666,6 +5678,14 @@ class StarterBase extends Site {
 		$query->query_vars['s'] = false;
 		$query->query['s']      = false;
 		$query->is_404          = true;
+
+		if ( $this->disable_search_empty_query ) {
+			// parse_query runs before get_posts(). Clearing `s` leaves the
+			// query unconstrained, so give it a condition no row can meet.
+			// posts_per_page => 0 is inconsistent across versions, and a
+			// posts_pre_query short-circuit is harder to follow from here.
+			$query->query_vars['post__in'] = array( 0 );
+		}
 
 		// Core's WP::handle_404() bails on is_404() before it ever calls
 		// status_header(), so without this the response stays HTTP 200.
