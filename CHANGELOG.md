@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Added
 
+- `$disable_search_empty_query` (default `false`). With `$disable_search` on,
+  the main query was marked 404 but still ran with no search term, so
+  `$wp_query->posts` held real posts under a 404 status and the database ran
+  a wasted query on every `?s=` URL. With the flag on, the query gets
+  `post__in => [0]` and matches nothing. Opt-in: a 404 template that loops
+  over `$wp_query->posts` goes from a populated list to an empty one (#175).
 - `$disable_search_use_set_404` (default `false`). With `$disable_search` on, a
   blocked search is marked 404 through core's `WP_Query::set_404()` instead of
   four hand-written flag assignments. Core resets every conditional first, so

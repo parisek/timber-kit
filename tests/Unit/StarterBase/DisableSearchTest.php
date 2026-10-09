@@ -130,6 +130,73 @@ class DisableSearchTest extends StarterBaseTestCase {
 		$this->assertFalse( $query->is_404 );
 	}
 
+	private function setEmptyQueryFlag( bool $on ): void {
+		( new \ReflectionClass( \Parisek\TimberKit\StarterBase::class ) )
+			->getProperty( 'disable_search_empty_query' )
+			->setValue( $this->base, $on );
+	}
+
+	private function mainSearchQuery(): \WP_Query {
+		$query             = new \WP_Query();
+		$query->is_search  = true;
+		$query->query_vars = [ 's' => 'test' ];
+		$query->query      = [ 's' => 'test' ];
+		$query->set_is_main_query( true );
+		return $query;
+	}
+
+	public function test_empty_query_flag_is_off_by_default(): void {
+		$prop = new \ReflectionProperty( \Parisek\TimberKit\StarterBase::class, 'disable_search_empty_query' );
+		$this->assertFalse( $prop->getDefaultValue() );
+	}
+
+	public function test_flag_off_leaves_the_posts_query_unconstrained(): void {
+		Functions\when( 'is_admin' )->justReturn( false );
+		Functions\when( 'status_header' )->justReturn( null );
+		Functions\when( 'nocache_headers' )->justReturn( null );
+		$this->setEmptyQueryFlag( false );
+
+		$query = $this->mainSearchQuery();
+		$this->base->disable_search( $query );
+
+		$this->assertArrayNotHasKey( 'post__in', $query->query_vars );
+	}
+
+	public function test_flag_on_constrains_the_posts_query_to_nothing(): void {
+		Functions\when( 'is_admin' )->justReturn( false );
+		Functions\when( 'status_header' )->justReturn( null );
+		Functions\when( 'nocache_headers' )->justReturn( null );
+		$this->setEmptyQueryFlag( true );
+
+		$query = $this->mainSearchQuery();
+		$this->base->disable_search( $query );
+
+		$this->assertSame( [ 0 ], $query->query_vars['post__in'] );
+		$this->assertTrue( $query->is_404 );
+	}
+
+	public function test_flag_on_leaves_a_secondary_query_alone(): void {
+		Functions\when( 'is_admin' )->justReturn( false );
+		$this->setEmptyQueryFlag( true );
+
+		$query = $this->mainSearchQuery();
+		$query->set_is_main_query( false );
+		$this->base->disable_search( $query );
+
+		$this->assertArrayNotHasKey( 'post__in', $query->query_vars );
+	}
+
+	public function test_flag_on_leaves_a_non_search_main_query_alone(): void {
+		Functions\when( 'is_admin' )->justReturn( false );
+		$this->setEmptyQueryFlag( true );
+
+		$query            = $this->mainSearchQuery();
+		$query->is_search = false;
+		$this->base->disable_search( $query );
+
+		$this->assertArrayNotHasKey( 'post__in', $query->query_vars );
+	}
+
 	private function enableSetFourOhFour( bool $on ): void {
 		( new \ReflectionClass( \Parisek\TimberKit\StarterBase::class ) )
 			->getProperty( 'disable_search_use_set_404' )
