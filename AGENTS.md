@@ -35,7 +35,7 @@ composer normalize      # tidy composer.json (CI checks it with --dry-run)
 composer audit          # scan the dependency tree for known advisories
 ```
 
-DDEV is the local-dev expectation (`ddev exec "composer test"`). CI runs the suites on PHP 8.3 + 8.4, an `integration` job on 8.3 with a MariaDB service, plus a `composer` hygiene job (validate + audit + normalize check). `config.platform.php` is pinned to 8.3 so the lock resolves for the supported floor.
+DDEV is the local-dev expectation (`ddev exec "composer test"`). CI runs the suites on PHP 8.3 + 8.4, an `integration` job on 8.3 with a MariaDB service, plus a `composer` hygiene job (validate + audit + normalize check). `composer.lock` is not tracked (git-ignored): a library lock reaches no consumer, so every `composer install` (CI, release guard, local) resolves the newest versions `composer.json` allows, and an upstream break shows up early. Run `composer update` locally to refresh. `config.platform.php` stays pinned to 8.3 so resolution picks versions that install on the supported floor, whichever PHP runs it.
 
 ## TDD — non-negotiable
 
