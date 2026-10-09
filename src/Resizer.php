@@ -1776,9 +1776,11 @@ class Resizer {
 	 * call could plausibly take. Tuples have integer keys so the recognised
 	 * orientation strings can't collide with a positional tuple's contents.
 	 *
-	 * @param array<int, mixed> $variants The variadic tail captured by the
+	 * @param array<int|string, mixed> $variants The variadic tail captured by the
 	 *                                    Twig filter callback (i.e. the
-	 *                                    arguments after the piped image).
+	 *                                    arguments after the piped image). A
+	 *                                    named Twig argument arrives under a
+	 *                                    string key.
 	 * @return bool True when the args should be dispatched to
 	 *              `resizerAspect()`; false routes to `resizer()`.
 	 */

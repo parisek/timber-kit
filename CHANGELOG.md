@@ -6,6 +6,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A theme without a `Text Domain` header no longer enqueues its script under
+  an empty handle. WordPress needs a non-empty handle to track a script, so
+  the script now uses the fixed handle `theme`. The script still loads.
+
 ## [1.65.0] - 2026-10-09
 
 ### Changed
