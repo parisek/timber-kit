@@ -1500,7 +1500,7 @@ For an admin label without a dedicated setup hook (e.g. an options-page `page_ti
 | `$disable_emojis` | bool | `true` | Remove emoji scripts/styles |
 | `$disable_feeds` | bool | `true` | Disable RSS feeds |
 | `$disable_comments` | bool | `true` | Disable comments site-wide: removes `comments`/`trackbacks` support from every registered post type (including those registered later via `registered_post_type`); closes `comments_open`/`pings_open`; redirects the Edit Comments admin page and Discussion Settings to the dashboard; unregisters the `WP_Widget_Recent_Comments` sidebar widget; removes `/wp/v2/comments` REST routes; rejects REST comment insertion with `403` even if a route is re-registered; removes comment + pingback XML-RPC methods; drops the `X-Pingback` header; and forces `default_comment_status`/`default_ping_status` to `closed`. Removal of the admin-bar `comments` node and the `dashboard_recent_comments` admin widget is controlled separately by `$cleanup_admin_bar` and `$cleanup_dashboard`. |
-| `$disable_search` | bool | `true` | Disable search |
+| `$disable_search` | bool | `true` | Turn the front-end search into a 404. See [Disabling search](#disabling-search) for what it changes and what it leaves alone |
 | `$cleanup_dashboard` | bool | `true` | Remove dashboard widgets |
 | `$cleanup_admin_bar` | bool | `true` | Clean up admin bar |
 | `$editor_role_enhancements` | bool | `true` | Enhanced editor role caps |
@@ -1514,6 +1514,24 @@ For an admin label without a dedicated setup hook (e.g. an options-page `page_ti
 | `$disable_file_editing` | bool | `true` | Define `DISALLOW_FILE_EDIT` so the Theme Editor and Plugin Editor screens are removed from `wp-admin` |
 | `$remove_wp_generator` | bool | `true` | Strip the WordPress version from the `the_generator` filter (covers both `<meta name="generator">` and RSS/Atom feed generators) |
 | `$remove_wpml_generator` | bool | `true` | Remove WPML's `<meta name="generator" content="WPML ver:…">` from `wp_head`. It prints the exact plugin version on every front-end page. No-op without WPML |
+
+#### Disabling search
+
+`$disable_search` is `true` by default. It turns off the front-end search for the whole site: the main query of every request that carries `?s=` becomes a 404 with the `404` status and no-cache headers.
+
+What it leaves alone, because the handler stops on `is_admin()` and on any query that is not the main query:
+
+- Admin screens, such as `edit.php?s=` and the media library search.
+- REST search (`/wp/v2/search`, `?search=` on any route) and `admin-ajax.php` actions.
+- Secondary `WP_Query` objects, `get_posts()` and WP-CLI.
+
+What stops working:
+
+- Anything that calls the site's own `/?s=` URL on the front end: a theme search form, an AJAX live search, a shop search.
+
+A site that needs search sets `$disable_search = false` in its `Base`. The kit then scopes the main search query to `$search_post_types` (see `search_post_type_filter()`).
+
+Known limits of the current behaviour. On a blocked search the kit sets the query flags by hand, not through `WP_Query::set_404()`, and it does not stop the posts query. A request such as `/?s=x&year=2020` therefore keeps `is_date()` true next to `is_404()`, the `set_404` action does not fire, and the main query still runs and fills `$wp_query->posts`. The measurements are in [#173](https://github.com/parisek/timber-kit/issues/173) and [#175](https://github.com/parisek/timber-kit/issues/175).
 
 ### Media Processing
 
