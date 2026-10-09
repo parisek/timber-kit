@@ -48,21 +48,25 @@ class EnqueueThemeScriptTest extends StarterBaseTestCase {
 	}
 
 	/** Capture the one enqueue call the method makes. */
-	private function enqueue( string $strategy = 'module' ): array {
+	private function enqueue( string $strategy = 'module', ?string $themeName = null ): array {
 		$calls = [];
 
 		Functions\when( 'wp_enqueue_script_module' )->alias(
 			function ( $handle, $src, $deps, $ver ) use ( &$calls ) {
-				$calls[] = [ 'fn' => 'module', 'src' => $src, 'ver' => $ver ];
+				$calls[] = [ 'fn' => 'module', 'handle' => $handle, 'src' => $src, 'ver' => $ver ];
 			}
 		);
 		Functions\when( 'wp_enqueue_script' )->alias(
 			function ( $handle, $src, $deps, $ver, $args ) use ( &$calls ) {
-				$calls[] = [ 'fn' => 'classic', 'src' => $src, 'ver' => $ver ];
+				$calls[] = [ 'fn' => 'classic', 'handle' => $handle, 'src' => $src, 'ver' => $ver ];
 			}
 		);
 
-		$base = $this->createStarterBase( [ 'theme_script_strategy' => $strategy ] );
+		$overrides = [ 'theme_script_strategy' => $strategy ];
+		if ( null !== $themeName ) {
+			$overrides['theme_name'] = $themeName;
+		}
+		$base = $this->createStarterBase( $overrides );
 		( new \ReflectionMethod( $base, 'enqueueThemeScript' ) )->invoke( $base );
 
 		$this->assertCount( 1, $calls, 'Expected exactly one enqueue call' );
@@ -198,5 +202,29 @@ class EnqueueThemeScriptTest extends StarterBaseTestCase {
 
 		$this->assertSame( 'classic', $call['fn'] );
 		$this->assertStringEndsWith( '/script.B7fm2cuz.min.js', $call['src'] );
+	}
+
+	public function test_the_handle_is_the_theme_text_domain(): void {
+		$this->writeEntry( 'script.B7fm2cuz.min.js' );
+
+		$this->assertSame( 'test_theme', $this->enqueue( 'defer', 'test_theme' )['handle'] );
+		$this->assertSame( 'test_theme', $this->enqueue( 'module', 'test_theme' )['handle'] );
+	}
+
+	/**
+	 * A theme without a `Text Domain` header resolves to an empty `$theme_name`.
+	 * WordPress needs a non-empty handle to track a script, so the script
+	 * falls back to a fixed handle and still loads. Skipping the enqueue would
+	 * drop the theme's JavaScript on such a site.
+	 */
+	public function test_an_empty_text_domain_still_enqueues_under_a_non_empty_handle(): void {
+		$this->writeEntry( 'script.B7fm2cuz.min.js' );
+
+		foreach ( [ 'defer', 'module' ] as $strategy ) {
+			$call = $this->enqueue( $strategy, '' );
+
+			$this->assertNotSame( '', $call['handle'], "Strategy {$strategy} must not enqueue an empty handle." );
+			$this->assertStringEndsWith( '/script.B7fm2cuz.min.js', $call['src'] );
+		}
 	}
 }

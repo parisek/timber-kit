@@ -465,7 +465,11 @@ class Helpers {
 	public static function resizeImage( $image, $variants ) {
 
 		$theme = wp_get_theme();
-		$theme_name = $theme->get( 'TextDomain' );
+		$text_domain = $theme->get( 'TextDomain' );
+		// `WP_Theme::get()` returns false for an unknown header. `strpos()` read
+		// that false as an empty needle, which matches at offset 0, so '' keeps
+		// the old result exactly.
+		$theme_name = is_string( $text_domain ) ? $text_domain : '';
 
 		$images = [];
 

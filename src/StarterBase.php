@@ -2883,6 +2883,12 @@ class StarterBase extends Site {
 		$src  = get_template_directory_uri() . '/static/dist/js/' . $file;
 		$ver  = $this->assetVersion( get_template_directory() . '/static/dist/js/' . $file );
 
+		// WordPress tracks a script by its handle, and the stubs type it as a
+		// non-empty string. A theme without a `Text Domain` header leaves
+		// `$theme_name` empty, so the script falls back to a fixed handle
+		// instead of vanishing from the page.
+		$handle = '' !== $this->theme_name ? $this->theme_name : 'theme';
+
 		if ( 'module' === $this->theme_script_strategy ) {
 			// A `?ver=` query splits a module's identity. Vite's split chunks
 			// import the entry by its own relative, query-less path, so the
@@ -2898,11 +2904,11 @@ class StarterBase extends Site {
 			// the WordPress version and reintroduce the split.
 			$hashed = self::isContentHashedEntryFile( $file );
 
-			wp_enqueue_script_module( $this->theme_name, $src, [], $hashed ? null : $ver );
+			wp_enqueue_script_module( $handle, $src, [], $hashed ? null : $ver );
 			return;
 		}
 
-		wp_enqueue_script( $this->theme_name, $src, [], $ver, [ 'strategy' => 'defer', 'in_footer' => true ] );
+		wp_enqueue_script( $handle, $src, [], $ver, [ 'strategy' => 'defer', 'in_footer' => true ] );
 	}
 
 	/**
