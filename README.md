@@ -1501,6 +1501,8 @@ For an admin label without a dedicated setup hook (e.g. an options-page `page_ti
 | `$disable_feeds` | bool | `true` | Disable RSS feeds |
 | `$disable_comments` | bool | `true` | Disable comments site-wide: removes `comments`/`trackbacks` support from every registered post type (including those registered later via `registered_post_type`); closes `comments_open`/`pings_open`; redirects the Edit Comments admin page and Discussion Settings to the dashboard; unregisters the `WP_Widget_Recent_Comments` sidebar widget; removes `/wp/v2/comments` REST routes; rejects REST comment insertion with `403` even if a route is re-registered; removes comment + pingback XML-RPC methods; drops the `X-Pingback` header; and forces `default_comment_status`/`default_ping_status` to `closed`. Removal of the admin-bar `comments` node and the `dashboard_recent_comments` admin widget is controlled separately by `$cleanup_admin_bar` and `$cleanup_dashboard`. |
 | `$disable_search` | bool | `true` | Turn the front-end search into a 404. See [Disabling search](#disabling-search) for what it changes and what it leaves alone |
+| `$disable_search_empty_query` | bool | `false` | With `$disable_search` on, also stop the posts query behind the blocked search. The query gets `post__in => [0]`, so `$wp_query->posts` stays empty under the 404 instead of listing real posts. Off by default: a 404 template that loops over `$wp_query->posts` goes from a populated list to an empty one |
+| `$disable_search_use_set_404` | bool | `false` | With `$disable_search` on, mark a blocked search through core's `WP_Query::set_404()` instead of flipping flags by hand. Core resets every conditional first (`is_archive()` and the like stop answering true on the 404) and fires the `set_404` action. Off by default: a theme could rely on a surviving conditional |
 | `$cleanup_dashboard` | bool | `true` | Remove dashboard widgets |
 | `$cleanup_admin_bar` | bool | `true` | Clean up admin bar |
 | `$editor_role_enhancements` | bool | `true` | Enhanced editor role caps |
@@ -1531,7 +1533,12 @@ What stops working:
 
 A site that needs search sets `$disable_search = false` in its `Base`. The kit then scopes the main search query to `$search_post_types` (see `search_post_type_filter()`).
 
-Known limits of the current behaviour. On a blocked search the kit sets the query flags by hand, not through `WP_Query::set_404()`, and it does not stop the posts query. A request such as `/?s=x&year=2020` therefore keeps `is_date()` true next to `is_404()`, the `set_404` action does not fire, and the main query still runs and fills `$wp_query->posts`. The measurements are in [#173](https://github.com/parisek/timber-kit/issues/173) and [#175](https://github.com/parisek/timber-kit/issues/175).
+Two opt-in flags change what a blocked search does. Both default to `false`, so nothing changes unless a site turns them on, and both need `$disable_search`:
+
+- `$disable_search_use_set_404` marks the query 404 through `WP_Query::set_404()`. Core then resets every conditional (`is_archive()`, `is_date()`, `is_category()` and the like) and fires the `set_404` action. Without it, `/?s=x&year=2020` keeps `is_date()` true next to `is_404()`.
+- `$disable_search_empty_query` stops the posts query behind the blocked search (`post__in => [0]`). Without it, the main query still runs and fills `$wp_query->posts` with real posts under the 404 status.
+
+Side effects of the flags, measured on WordPress 6.7.2 and 7.1.1: `$wp_query->posts` is empty on the 404, so a `404.php` that loops over it prints nothing. A plugin hooked to `set_404` now runs on a blocked search; WP Rocket then deletes the cache entry for the request path, which is the home page for `/?s=x`. See [#173](https://github.com/parisek/timber-kit/issues/173) and [#175](https://github.com/parisek/timber-kit/issues/175).
 
 ### Media Processing
 
