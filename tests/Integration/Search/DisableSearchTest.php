@@ -7,51 +7,46 @@ namespace Tests\Integration\Search;
 use Tests\Integration\IntegrationTestCase;
 
 /**
- * disable_search() against real WordPress: the posts query behind a `/?s=` 404.
+ * disable_search() against real WordPress: the main query on a `/?s=` request.
  */
 class DisableSearchTest extends IntegrationTestCase {
 
-	public function set_up(): void {
-		parent::set_up();
-		self::factory()->post->create_many( 3, array( 'post_status' => 'publish' ) );
-	}
+	private int $set404Calls = 0;
 
-	public function test_empty_query_flag_runs_no_posts_under_the_404(): void {
-		$this->bootKit( array( 'disable_search_empty_query' => true ) );
+	public function test_set_404_flag_resets_conditionals_and_fires_the_action(): void {
+		$this->bootKit( array( 'disable_search_use_set_404' => true ) );
+		add_action(
+			'set_404',
+			function (): void {
+				++$this->set404Calls;
+			}
+		);
 
-		$this->go_to( home_url( '/?s=needle' ) );
-
-		self::assertTrue( is_404() );
-		self::assertSame( array(), $GLOBALS['wp_query']->posts );
-		self::assertSame( 0, $GLOBALS['wp_query']->found_posts );
-		self::assertSame( 0, $GLOBALS['wp_query']->post_count );
-		self::assertStringContainsString( 'IN (0)', $GLOBALS['wp_query']->request, 'one trivial lookup, no table scan' );
-	}
-
-	public function test_flag_off_still_fills_posts_under_the_404(): void {
-		$this->bootKit( array( 'disable_search_empty_query' => false ) );
-
-		$this->go_to( home_url( '/?s=needle' ) );
+		// A date archive that is also a search: core sets is_search, is_date and is_archive.
+		$this->go_to( home_url( '/?s=needle&year=2020' ) );
 
 		self::assertTrue( is_404() );
-		self::assertNotEmpty( $GLOBALS['wp_query']->posts, 'the unconstrained query is the behaviour the flag exists to stop' );
+		self::assertFalse( is_search() );
+		self::assertFalse( is_archive(), 'core resets every conditional before is_404' );
+		self::assertFalse( is_date() );
+		self::assertSame( '', $GLOBALS['wp_query']->get( 's' ) );
+		self::assertSame( 1, $this->set404Calls );
 	}
 
-	public function test_flag_on_leaves_a_normal_listing_alone(): void {
-		$this->bootKit( array( 'disable_search_empty_query' => true ) );
+	public function test_flag_off_leaves_other_conditionals_on_the_404(): void {
+		$this->bootKit( array( 'disable_search_use_set_404' => false ) );
+		add_action(
+			'set_404',
+			function (): void {
+				++$this->set404Calls;
+			}
+		);
 
-		$this->go_to( home_url( '/' ) );
+		$this->go_to( home_url( '/?s=needle&year=2020' ) );
 
-		self::assertTrue( is_home() );
-		self::assertCount( 3, $GLOBALS['wp_query']->posts );
-	}
-
-	public function test_flag_on_leaves_a_secondary_query_alone(): void {
-		$this->bootKit( array( 'disable_search_empty_query' => true ) );
-		$this->go_to( home_url( '/?s=needle' ) );
-
-		$query = new \WP_Query( array( 'post_type' => 'post', 'fields' => 'ids' ) );
-
-		self::assertCount( 3, $query->posts );
+		self::assertTrue( is_404() );
+		self::assertFalse( is_search() );
+		self::assertTrue( is_archive(), 'the hand-written flags leave is_archive on' );
+		self::assertSame( 0, $this->set404Calls );
 	}
 }
