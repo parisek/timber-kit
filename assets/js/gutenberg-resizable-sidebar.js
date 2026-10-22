@@ -15,6 +15,10 @@
  * whose sidebar holds a large ACF block form: jQuery UI reads computed style
  * on every `.resizable()` call, and a timer that calls it blocked the main
  * thread for a quarter of a second per tick.
+ *
+ * Tests: tests/js/gutenberg-resizable-sidebar.test.js. Any change to this file
+ * must pass them (`npm install`, then `composer test:js`). CI does not run
+ * them: the file changes rarely, so they run by hand when it does.
  */
 ( function ( window, $ ) {
 	'use strict';

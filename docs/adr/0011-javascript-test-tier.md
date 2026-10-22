@@ -30,7 +30,10 @@ The repository gets a small Node test tier for the JavaScript in `assets/`.
   behaviour. The tests count the calls it makes while the page is idle and while
   a large DOM changes, and they check that its own writes end the cycle they
   start.
-- `composer test:js` runs the tier. CI has one job for it, with `npm audit`.
+- `composer test:js` runs the tier by hand. CI does not run it. The script changes
+  rarely, so a CI job would cost a Node setup on every PR to guard a file that
+  stays still. The file header and `AGENTS.md` say that a change to it must pass
+  the tests.
 
 jsdom has no layout engine, so the tier cannot prove pixel positions or measure
 real frame time. It proves what the script calls and writes. A claim about real
@@ -39,10 +42,13 @@ time needs a browser run, and the PR that introduced the tier records one.
 ## Consequences
 
 - Contributors who touch `assets/` need Node 22.22+, 24.15+ or 26+.
-- The package now has a second dependency tree to keep current and to audit.
+- The package now has a second dependency tree to keep current. Nothing audits
+  it automatically: run `npm audit` when you touch the tier.
   jQuery and jQuery UI are pinned to the versions WordPress ships, so a test
   run matches production. The pin moves with WordPress.
 - A jsdom upgrade can change timing or `MutationObserver` details. The tests wait
   on the 60 Hz frame clock, not on fixed sleeps inside the script, to stay stable.
 - New JavaScript in `assets/` is expected to arrive with tests in this tier.
   `AGENTS.md` and `CONTRIBUTING.md` say so.
+- Because CI does not run the tier, a change to the script that skips the tests
+  is not caught before merge. The note in the script header is the only guard.

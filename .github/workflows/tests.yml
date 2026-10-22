@@ -100,23 +100,6 @@ jobs:
           TIMBERKIT_REQUIRE_TEST_DB: '1'
         run: composer test:integration
 
-  js:
-    # The JavaScript in assets/ runs in the block editor, next to a very large
-    # DOM. jsdom runs it against real jQuery and jQuery UI. Node 24 is the
-    # lowest line jsdom supports that is still in LTS.
-    name: JavaScript (Node 24)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: '24'
-      - run: npm install --no-audit --no-fund
-      - name: Audit dependencies for known advisories
-        run: npm audit
-      - name: JavaScript tests
-        run: npm test
-
   adr-index:
     runs-on: ubuntu-latest
     name: docs/adr/ index is in sync
