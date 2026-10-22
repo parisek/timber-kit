@@ -1957,6 +1957,57 @@ When any override is active, an admin notice on WPForms admin screens lists whic
 >
 > PHP / source / config under `vendor/` stay forbidden. Projects scaffolded from `wordpress-base` (current `starter_theme`) already ship this allow rule. With `$site_health` on, the `package_assets_reachable` check reports when the assets still answer 403 (see [§ Package assets reachable](#package-assets-reachable)).
 
+#### How the sidebar script works
+
+`assets/js/gutenberg-resizable-sidebar.js` has no timer. React owns the sidebar element and can replace it, reset its class or inline style, or remove the drag handle. One `MutationObserver` watches for those changes and wakes the script at most once per animation frame. The script reads attributes only. It writes only when a check fails, so its own repair ends the cycle it starts.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant R as React (editor)
+    participant O as MutationObserver
+    participant F as requestAnimationFrame
+    participant S as sync()
+    participant J as jQuery UI / DOM
+
+    Note over S: Page ready: sync() runs once
+    R->>O: Changes the DOM (class, style, nodes)
+    O->>F: schedule() - one frame request, extra batches are ignored
+    F->>S: Next frame: sync()
+    S->>S: Read-only checks (no layout reads)
+    alt a check fails
+        S->>J: Repair only that part
+        J-->>O: The repair is a DOM change
+        O->>F: schedule()
+        F->>S: sync() again, all checks pass
+        Note over S: Nothing is written, the cycle ends
+    else all checks pass
+        Note over S: Nothing is written
+    end
+```
+
+What `sync()` checks, in order:
+
+```mermaid
+flowchart TD
+    A([sync runs]) --> B[Find every sidebar element]
+    B --> C{Widget class and<br/>handle present?}
+    C -- no --> D[Destroy a stale widget,<br/>init resizable, handle on the west edge]
+    C -- yes --> E
+    D --> E{Stored width differs from<br/>what the script last saw?}
+    E -- yes --> F[Set the width once,<br/>remember it]
+    E -- no --> G
+    F --> G[Mirror the pinned-button state:<br/>set or clear is-sidebar-opened only if it differs]
+    G --> H([Done])
+
+    subgraph Drag [User drags the handle]
+        I[jQuery UI writes the width] --> J[resize callback: save to localStorage and memory,<br/>remember the inline width]
+    end
+    J -. the next sync sees no difference .-> E
+```
+
+The width has two copies: `localStorage`, and the script's memory for a browser that blocks storage. A width that is missing, not a plain positive number, or written with a unit (`420junk`, `100%`) is ignored. The tests in `tests/js/` pin all of this. Run them by hand after any change to the script (`npm install`, then `composer test:js`). CI does not run them.
+
 ### Options Pages
 
 `$options_pages` declares the ACF options page(s). Each entry requires `menu_slug` + `page_title`; optional per-entry keys are `parent_slug` (sub-page), `menu_title` (menu and admin-bar label, default `page_title`), `capability` (default `edit_posts`), `icon_url` (top-level pages only, default `dashicons-admin-generic`), `admin_bar` (bool, default off — add an admin-bar shortcut to this page; any number of entries may carry this key, including sub-pages), and `collapsed` (bool, default off — see below).
