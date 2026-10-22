@@ -10,6 +10,7 @@
 /phpunit.property.xml export-ignore
 /phpunit.integration.xml export-ignore
 /phpstan.neon        export-ignore
+/package.json        export-ignore
 /patchwork.json      export-ignore
 CHANGELOG.md         export-ignore
 AGENTS.md            export-ignore

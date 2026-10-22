@@ -15,3 +15,6 @@ Thumbs.db
 # ADRs are the one committed thing under docs/ — keep them tracked.
 !/docs/adr/
 /composer.lock
+
+node_modules/
+/package-lock.json

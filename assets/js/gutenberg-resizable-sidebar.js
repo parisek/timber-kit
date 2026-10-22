@@ -1,41 +1,145 @@
-jQuery(window).ready(function () {
-	setInterval(function () {
-		jQuery(".interface-interface-skeleton__sidebar").width(
-			localStorage.getItem("portadesign_gutenberg_sidebar_width")
-		);
-		jQuery(".interface-interface-skeleton__sidebar").resizable({
-			handles: "w",
-			resize: function (event, ui) {
-				jQuery(this).css({ left: 0 });
-				localStorage.setItem(
-					"portadesign_gutenberg_sidebar_width",
-					jQuery(this).width()
-				);
-			},
-		});
+/**
+ * Resizable block editor sidebar.
+ *
+ * Makes the settings sidebar draggable on its west edge, keeps its width in
+ * localStorage, and mirrors the pinned-items state onto the layout as
+ * `is-sidebar-opened` (the stylesheet hides the sidebar without it).
+ *
+ * React owns the sidebar element. It can replace the element, reset its class
+ * or inline style, and remove the widget's handle. The script repairs each of
+ * these once, when it happens.
+ *
+ * There is no timer. One MutationObserver wakes `sync()` at most once per
+ * frame, and `sync()` only reads attributes and writes when a check fails.
+ * Its own writes therefore end the cycle they start. This matters on a page
+ * whose sidebar holds a large ACF block form: jQuery UI reads computed style
+ * on every `.resizable()` call, and a timer that calls it blocked the main
+ * thread for a quarter of a second per tick.
+ *
+ * Tests: tests/js/gutenberg-resizable-sidebar.test.js. Any change to this file
+ * must pass them (`npm install`, then `composer test:js`). CI does not run
+ * them: the file changes rarely, so they run by hand when it does.
+ */
+( function ( window, $ ) {
+	'use strict';
 
-		determine_if_sidebar_open();
-	}, 500);
+	var STORAGE_KEY = 'portadesign_gutenberg_sidebar_width';
+	var SIDEBAR = '.interface-interface-skeleton__sidebar';
+	var LAYOUTS = '.edit-post-layout, .edit-site-layout';
+	var PRESSED = '.interface-pinned-items button.is-pressed';
+	var OPEN = 'is-sidebar-opened';
 
-	jQuery("body").on("click", ".interface-pinned-items button", function () {
-		determine_if_sidebar_open();
-	});
+	// Per sidebar element: the inline width this script last saw or wrote.
+	var seen = new WeakMap();
+	var queued = false;
+	// The last width the user dragged to. It outlives a replaced element when
+	// storage is blocked, and is the only copy then.
+	var dragged = null;
 
-	function determine_if_sidebar_open() {
-		var sidebar_enabled = false;
-		jQuery(".interface-pinned-items button").each(function () {
-			if (jQuery(this).hasClass("is-pressed")) {
-				sidebar_enabled = true;
-			}
-		});
-		if (sidebar_enabled) {
-			jQuery(".edit-post-layout, .edit-site-layout").addClass(
-				"is-sidebar-opened"
-			);
-		} else {
-			jQuery(".edit-post-layout, .edit-site-layout").removeClass(
-				"is-sidebar-opened"
-			);
+	function storedWidth() {
+		var raw = null;
+		try {
+			raw = window.localStorage.getItem( STORAGE_KEY );
+		} catch ( e ) {
+			// Storage is blocked. Fall back to the width held in memory.
+		}
+		// Number() rejects a trailing unit or junk, where parseFloat() would
+		// read "420junk" as 420.
+		var width = Number( raw );
+		if ( null !== raw && isFinite( width ) && width > 0 ) {
+			return width;
+		}
+		return dragged;
+	}
+
+	function remember( width ) {
+		dragged = width;
+		try {
+			window.localStorage.setItem( STORAGE_KEY, width );
+		} catch ( e ) {
+			// Storage is blocked. `dragged` keeps the width until the next load.
 		}
 	}
-});
+
+	function hasHandle( el ) {
+		for ( var i = 0; i < el.children.length; i++ ) {
+			if ( el.children[ i ].classList.contains( 'ui-resizable-handle' ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	function makeResizable( el ) {
+		var $el = $( el );
+		if ( ! $el.resizable ) {
+			return; // jQuery UI is missing.
+		}
+		if ( el.classList.contains( 'ui-resizable' ) && hasHandle( el ) ) {
+			return;
+		}
+		// React reset the class or removed the handle. Re-initialising over a
+		// live widget would stack a second handle, so remove the first.
+		if ( $el.resizable( 'instance' ) ) {
+			$el.resizable( 'destroy' );
+		}
+		$el.resizable( {
+			handles: 'w',
+			resize: function () {
+				var $this = $( this );
+				$this.css( { left: 0 } );
+				remember( $this.width() );
+				seen.set( this, this.style.width );
+			},
+		} );
+	}
+
+	function applyWidth( el ) {
+		var width = storedWidth();
+		if ( null === width || seen.get( el ) === el.style.width ) {
+			return;
+		}
+		$( el ).width( width );
+		seen.set( el, el.style.width );
+	}
+
+	function syncOpenState() {
+		var open = null !== window.document.querySelector( PRESSED );
+		var layouts = window.document.querySelectorAll( LAYOUTS );
+		for ( var i = 0; i < layouts.length; i++ ) {
+			if ( layouts[ i ].classList.contains( OPEN ) !== open ) {
+				layouts[ i ].classList.toggle( OPEN, open );
+			}
+		}
+	}
+
+	function sync() {
+		var sidebars = window.document.querySelectorAll( SIDEBAR );
+		for ( var i = 0; i < sidebars.length; i++ ) {
+			makeResizable( sidebars[ i ] );
+			applyWidth( sidebars[ i ] );
+		}
+		syncOpenState();
+	}
+
+	function schedule() {
+		if ( queued ) {
+			return;
+		}
+		queued = true;
+		( window.requestAnimationFrame || window.setTimeout )( function () {
+			queued = false;
+			sync();
+		} );
+	}
+
+	$( function () {
+		sync();
+		new window.MutationObserver( schedule ).observe( window.document.body, {
+			childList: true,
+			subtree: true,
+			attributes: true,
+			attributeFilter: [ 'class', 'style' ],
+		} );
+	} );
+}( window, window.jQuery ) );

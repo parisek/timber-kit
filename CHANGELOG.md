@@ -24,6 +24,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Fixed
 
+- The resizable editor sidebar no longer polls. `assets/js/gutenberg-resizable-sidebar.js`
+  ran a `setInterval` every 500 ms that called `.resizable()` again on a widget
+  that already existed. jQuery UI then read computed style across the whole
+  document on each tick. With a large ACF block form in the sidebar (about
+  11,000 DOM nodes) the main thread was blocked for 230-280 ms per tick, about
+  60 percent of the time, even when the editor was idle, and a click into a
+  field took one to two seconds. The script now uses one `MutationObserver`
+  with a per-frame debounce. It initialises each sidebar element once and
+  repairs it only when React replaces the element, resets its class or inline
+  style, or removes the handle. It applies the stored width only when the
+  inline width differs from it, and writes nothing when nothing changed.
+  Behaviour that users see is the same; it stays behind
+  `$admin_resizable_sidebar`. Measured on one page: 3,741 ms blocked in 6 s
+  before, 0 ms after; a click into a field 22-31 ms. A new Node test tier
+  (`tests/js/`, `composer test:js`) pins this (#242).
 - A theme without a `Text Domain` header no longer enqueues its script under
   an empty handle. WordPress needs a non-empty handle to track a script, so
   the script now uses the fixed handle `theme`. The script still loads.
