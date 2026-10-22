@@ -73,6 +73,7 @@
         "adr": "python3 scripts/check-adr-index.py",
         "check": [
             "@test:all",
+            "@test:js",
             "@phpstan",
             "@adr"
         ],
@@ -83,6 +84,7 @@
             "@test:property"
         ],
         "test:integration": "vendor/bin/phpunit -c phpunit.integration.xml",
+        "test:js": "npm test",
         "test:property": "vendor/bin/phpunit -c phpunit.property.xml"
     }
 }

@@ -74,3 +74,4 @@ guard (test, CI check, convention) that keeps it from drifting, if any.
 - [0008](0008-resizer-source-path-cache-key.md) — Scope the resizer cache key by the source's upload path
 - [0009](0009-wpml-menu-sync-read-only.md) — Roll back the page load of WPML Menus Sync in a transaction
 - [0010](0010-own-unique-id-drop-twig-common.md) — Own `uniqueId()` in the kit and drop `parisek/twig-common`
+- [0011](0011-javascript-test-tier.md) — Test the JavaScript in `assets/` with a Node tier

@@ -26,6 +26,7 @@ composer adr             # docs/adr/ index is in sync
 composer validate --strict
 composer audit
 composer normalize --dry-run
+npm install && npm test   # JavaScript in assets/ (Node 22.22+, 24.15+ or 26+)
 ```
 
 `composer test:integration` needs a real WordPress and a database you can lose.

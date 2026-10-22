@@ -30,6 +30,7 @@ composer test           # Unit suite (Brain\Monkey, fast — default)
 composer test:property  # Eris property suite (invariant-based, ~100 iterations/test)
 composer test:all       # both suites
 composer test:integration # real WordPress + database (skips without one)
+composer test:js        # JavaScript in assets/ (jsdom + real jQuery/jQuery UI; needs `npm install`)
 composer phpstan        # static analysis
 composer normalize      # tidy composer.json (CI checks it with --dry-run)
 composer audit          # scan the dependency tree for known advisories
@@ -44,6 +45,7 @@ Always work test-first. The discipline, not just the coverage:
 - **Failing test first.** Write it, run it, watch it go red *for the right reason*, then write the minimal code to green. No production change lands without a test that failed before it existed.
 - **Bug fixes too** — reproduce the bug as a failing test first; it doubles as the regression guard (e.g. `AcfBlocksParseNodeAttrCompatTest` pins the ACF↔Alpine attribute filter so it can't silently narrow back to `x-`-only).
 - **Keep output pristine.** `composer test` must stay green *and notice/deprecation-free* for code you touch. PHPUnit 12 deprecates **all** doc-comment metadata — use attributes: `#[DataProvider('method')]` (static provider), `#[RunInSeparateProcess]` + `#[PreserveGlobalState(false)]`, etc. Use `createStub()` (not `createMock()`) for objects you only stub return values on, or PHPUnit 12 emits a "no expectations configured" notice.
+- **JS in `assets/`** has a Node tier: `tests/js/`, `node:test`, jsdom, jQuery 3.7.1 and jQuery UI 1.14 as WordPress ships them (ADR 0011). A script that runs in the editor needs a contract test for what it costs, not only for what it does: count the calls it makes while the page is idle and while a large DOM changes. `package-lock.json` is git-ignored for the same reason as `composer.lock`.
 - **JS embedded in PHP** (admin-footer shims etc.) has no JS runtime here — assert against the emitted source string, the same way the sibling `acf_input_admin_footer` test does.
 
 ## Per-PR conventions
