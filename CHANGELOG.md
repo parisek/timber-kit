@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.66.0] - 2026-10-22
+
 ### Added
 
 - `$disable_search_empty_query` (default `false`). With `$disable_search` on,
