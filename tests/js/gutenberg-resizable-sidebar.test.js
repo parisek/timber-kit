@@ -121,6 +121,23 @@ describe( 'gutenberg-resizable-sidebar.js', () => {
 			assert.deepEqual( env.counts, before, 'and it called nothing' );
 		} );
 
+		it( 'runs at most once per frame, however many mutation batches arrive', async () => {
+			const env = boot();
+			await env.settle();
+			const before = env.scans.sidebar;
+
+			// Each await ends a microtask checkpoint, so the observer is called once per mutation.
+			for ( let i = 0; i < 200; i++ ) {
+				env.document.querySelector( '.interface-interface-skeleton__content' ).classList.toggle( 'busy' );
+				await Promise.resolve();
+			}
+			await env.settle();
+
+			const runs = env.scans.sidebar - before;
+			assert.ok( runs >= 1, 'it did run' );
+			assert.ok( runs <= 10, `200 batches caused ${ runs } runs; a debounce keeps this near one per frame` );
+		} );
+
 		it( 'settles: its own writes do not wake it again', async () => {
 			const env = boot( { width: '420' } );
 			await env.settle();
@@ -196,7 +213,7 @@ describe( 'gutenberg-resizable-sidebar.js', () => {
 			assert.equal( env.counts.widthSetter, 0 );
 		} );
 
-		for ( const bad of [ '', 'abc', '0', '-5', 'NaN', 'Infinity' ] ) {
+		for ( const bad of [ '', 'abc', '0', '-5', 'NaN', 'Infinity', '420junk', '100%', '1e' ] ) {
 			it( `ignores the stored value ${ JSON.stringify( bad ) }`, async () => {
 				const env = boot( { width: bad } );
 				await env.settle();
@@ -241,6 +258,52 @@ describe( 'gutenberg-resizable-sidebar.js', () => {
 			assert.equal( env.window.localStorage.getItem( STORAGE_KEY ), '500' );
 			assert.equal( sidebar.style.width, '500px', 'the stored width is the dragged width' );
 			assert.equal( sidebar.style.left, '0px' );
+		} );
+
+		it( 'does not rewrite the width on any frame of a drag', async () => {
+			const env = boot( { width: '420' } );
+			await env.settle();
+			const sidebar = env.sidebar();
+			const setters = env.counts.widthSetter;
+			const resize = env.$( sidebar ).resizable( 'option', 'resize' );
+
+			for ( let step = 1; step <= 6; step++ ) {
+				sidebar.style.width = `${ 420 + step * 15 }px`; // jQuery UI writes this on every mouse move
+				resize.call( sidebar, {}, {} );
+				await env.settle();
+
+				assert.equal( sidebar.style.width, `${ 420 + step * 15 }px`, `frame ${ step } keeps the dragged width` );
+			}
+			assert.equal( env.counts.widthSetter, setters, 'the script never wrote the width while the user dragged' );
+		} );
+
+		it( 'keeps the dragged width on a replacement element when storage is blocked', async () => {
+			const env = boot( { storageThrows: true } );
+			await env.settle();
+			const sidebar = env.sidebar();
+
+			sidebar.style.width = '500px';
+			env.$( sidebar ).resizable( 'option', 'resize' ).call( sidebar, {}, {} );
+			const fresh = env.document.createElement( 'div' );
+			fresh.className = 'interface-interface-skeleton__sidebar';
+			sidebar.replaceWith( fresh );
+			await env.settle();
+
+			assert.equal( fresh.style.width, '500px' );
+			assert.equal( env.handles( fresh ).length, 1 );
+		} );
+
+		it( 'manages every sidebar element, as the old jQuery selection did', async () => {
+			const shell = `<div class="edit-post-layout"><div class="interface-interface-skeleton__sidebar" id="a"></div>
+				<div class="interface-interface-skeleton__sidebar" id="b"></div></div>`;
+			const env = boot( { shell, width: '420' } );
+			await env.settle();
+
+			for ( const id of [ 'a', 'b' ] ) {
+				const el = env.document.getElementById( id );
+				assert.equal( el.style.width, '420px', `#${ id } width` );
+				assert.equal( env.handles( el ).length, 1, `#${ id } handle` );
+			}
 		} );
 	} );
 

@@ -79,6 +79,19 @@ export function boot( options = {} ) {
 	const $ = window.jQuery;
 
 	const counts = { resizable: 0, destroy: 0, computedStyle: 0, widthSetter: 0 };
+	// Runs of sync() leave one scan for the sidebar each. Kept apart from `counts`,
+	// which tests compare for "the script called nothing".
+	const scans = { sidebar: 0 };
+	const { document } = window;
+	for ( const method of [ 'querySelector', 'querySelectorAll' ] ) {
+		const original = document[ method ].bind( document );
+		document[ method ] = ( selector, ...rest ) => {
+			if ( '.interface-interface-skeleton__sidebar' === selector ) {
+				scans.sidebar++;
+			}
+			return original( selector, ...rest );
+		};
+	}
 	if ( $.fn.resizable ) {
 		const original = $.fn.resizable;
 		$.fn.resizable = function ( ...args ) {
@@ -119,7 +132,8 @@ export function boot( options = {} ) {
 		document: window.document,
 		$,
 		counts,
-		sidebar: () => window.document.querySelector( '.interface-interface-skeleton__sidebar' ),
+		scans,
+		sidebar: () => window.document.getElementsByClassName( 'interface-interface-skeleton__sidebar' )[ 0 ],
 		layout: () => window.document.querySelector( '.edit-post-layout' ),
 		pin: () => window.document.getElementById( 'pin' ),
 		handles: ( el = api.sidebar() ) => [ ...el.children ].filter( ( c ) => c.classList.contains( 'ui-resizable-handle' ) ),
@@ -130,8 +144,12 @@ export function boot( options = {} ) {
 			writes = 0;
 			return n;
 		},
-		/** Let the script's debounce and the 60 Hz frame clock run. */
-		settle: () => wait( 120 ),
+		/** Let the script's debounce run: three animation frames, then a short tick. */
+		settle: () => new Promise( ( resolve ) => {
+			let frames = 3;
+			const next = () => ( --frames > 0 ? window.requestAnimationFrame( next ) : setTimeout( resolve, 20 ) );
+			window.requestAnimationFrame( next );
+		} ),
 		start() {
 			window.eval( readFile( SCRIPT_PATH ) );
 			return api;

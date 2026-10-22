@@ -32,23 +32,32 @@
 	// Per sidebar element: the inline width this script last saw or wrote.
 	var seen = new WeakMap();
 	var queued = false;
+	// The last width the user dragged to. It outlives a replaced element when
+	// storage is blocked, and is the only copy then.
+	var dragged = null;
 
 	function storedWidth() {
-		var raw;
+		var raw = null;
 		try {
 			raw = window.localStorage.getItem( STORAGE_KEY );
 		} catch ( e ) {
-			return null; // Storage is blocked.
+			// Storage is blocked. Fall back to the width held in memory.
 		}
-		var width = parseFloat( raw );
-		return isFinite( width ) && width > 0 ? width : null;
+		// Number() rejects a trailing unit or junk, where parseFloat() would
+		// read "420junk" as 420.
+		var width = Number( raw );
+		if ( null !== raw && isFinite( width ) && width > 0 ) {
+			return width;
+		}
+		return dragged;
 	}
 
 	function remember( width ) {
+		dragged = width;
 		try {
 			window.localStorage.setItem( STORAGE_KEY, width );
 		} catch ( e ) {
-			// Storage is blocked. The width lasts until the next load.
+			// Storage is blocked. `dragged` keeps the width until the next load.
 		}
 	}
 
@@ -105,10 +114,10 @@
 	}
 
 	function sync() {
-		var sidebar = window.document.querySelector( SIDEBAR );
-		if ( sidebar ) {
-			makeResizable( sidebar );
-			applyWidth( sidebar );
+		var sidebars = window.document.querySelectorAll( SIDEBAR );
+		for ( var i = 0; i < sidebars.length; i++ ) {
+			makeResizable( sidebars[ i ] );
+			applyWidth( sidebars[ i ] );
 		}
 		syncOpenState();
 	}
