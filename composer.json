@@ -73,7 +73,6 @@
         "adr": "python3 scripts/check-adr-index.py",
         "check": [
             "@test:all",
-            "@test:js",
             "@phpstan",
             "@adr"
         ],
