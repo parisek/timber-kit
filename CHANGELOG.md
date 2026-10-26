@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `$seo_not_found_title` (default `true`, approved exception to the default-off rule). On a 404, Timber's context calls
+  `wp_title( ' ' )` before the head renders, and an SEO plugin that has no 404
+  title format and caches the first title it sees prints core's padded
+  `   Page not found` with no site name. Measured on every live site of a
+  downstream fleet running that combination; a site on a plugin that writes
+  its own 404 title was unaffected. With the flag on, `Seo\NotFoundTitle`
+  hands a whitespace-padded 404 title back to core, which builds
+  `Page not found - <site name>`. Only on a 404, and only for a title with
+  whitespace at either end. Set `false` to keep the plugin's title.
+
 ## [1.66.0] - 2026-10-22
 
 ### Added
