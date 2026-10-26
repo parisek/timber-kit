@@ -199,6 +199,19 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   `$breeze_skip_server_headers = false` turns the feature off. This is a named
   exception to the rule above, not a case of the rule being skipped.
 
+- **Approved exception:** `$seo_not_found_title` defaults `true`, not `false`.
+  The owner decided it directly, in a working session on 2026-10-26. Measured
+  downstream: every one of 19 live sites on this kit that run an SEO plugin
+  without a 404 title format printed `   Page not found` with no site name, and
+  the one site on a plugin that writes its own 404 title was correct.
+  Default-off would be safe and useless for the same reason as
+  `$disable_author_archives`: the broken title is invisible, and nobody flips a
+  flag for a defect they cannot see. What bounds it: it acts only on a 404, and
+  only on a title with whitespace at either end, so a title any plugin wrote on
+  purpose passes through; the replacement is core's own, in the site's
+  language. Set the flag to `false` to keep the plugin's value. This is a named
+  exception to the rule above, not a case of the rule being skipped.
+
 ## Architecture decisions (ADRs)
 
 Significant decisions live in `docs/adr/` — the only tracked subtree under the

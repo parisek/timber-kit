@@ -83,4 +83,56 @@ final class RegisterSeoHooksTest extends StarterBaseTestCase {
 
 		$this->assertLessThanOrEqual( 1, count( $added ) );
 	}
+
+	/**
+	 * `pre_get_document_title` callbacks added during one call to
+	 * `registerSeoHooks()` with `$seo_not_found_title` set as given.
+	 *
+	 * @return array<int, mixed>
+	 */
+	private function notFoundTitleFiltersAddedWith( bool $flag ): array {
+		$base = $this->createStarterBase( array( 'seo_not_found_title' => $flag, 'seo_canonical_pagination' => false ) );
+
+		$added = array();
+		Functions\when( 'add_filter' )->alias(
+			static function ( string $hook, $callback ) use ( &$added ): bool {
+				if ( 'pre_get_document_title' === $hook ) {
+					$added[] = $callback;
+				}
+
+				return true;
+			}
+		);
+
+		( new \ReflectionMethod( $base, 'registerSeoHooks' ) )->invoke( $base );
+
+		return $added;
+	}
+
+	/**
+	 * Approved exception to the default-off rule for new behaviour -- see the
+	 * flag's docblock and AGENTS.md § Feature flags & breaking changes.
+	 */
+	public function testTheNotFoundTitleFlagIsOnByDefault(): void {
+		$base = $this->createStarterBase();
+
+		$property = new \ReflectionProperty( $base, 'seo_not_found_title' );
+
+		$this->assertTrue( $property->getValue( $base ) );
+	}
+
+	public function testTheNotFoundTitleFilterIsNotRegisteredWhileTheFlagIsOff(): void {
+		$this->assertSame( array(), $this->notFoundTitleFiltersAddedWith( false ) );
+	}
+
+	/**
+	 * Registered even when the canonical feature is off: the two flags are
+	 * independent, and `registerSeoHooks()` returns early for that one.
+	 */
+	public function testTheNotFoundTitleFilterIsRegisteredWhileTheFlagIsOn(): void {
+		$this->assertSame(
+			array( array( \Parisek\TimberKit\Seo\NotFoundTitle::class, 'filter' ) ),
+			$this->notFoundTitleFiltersAddedWith( true )
+		);
+	}
 }

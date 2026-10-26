@@ -44,6 +44,7 @@ use Parisek\TimberKit\Health\HealthCheck;
 use Parisek\TimberKit\Health\SiteHealthAdapter;
 use Parisek\TimberKit\Seo\BreadcrumbSchema;
 use Parisek\TimberKit\Seo\Canonical;
+use Parisek\TimberKit\Seo\NotFoundTitle;
 
 /**
  * Base class for WordPress themes using Timber/Twig templating.
@@ -346,6 +347,21 @@ class StarterBase extends Site {
 
 	/** @var bool Block ?author=N URL enumeration that leaks usernames via canonical redirect. */
 	protected bool $block_author_enumeration = true;
+
+	/**
+	 * @var bool Repair a 404 `<title>` that arrives whitespace-padded.
+	 *
+	 * Timber's context calls `wp_title( ' ' )` before the head renders, and an
+	 * SEO plugin that has no 404 title format and caches the first title it
+	 * sees then prints core's padded `'   Page not found'` with no site name.
+	 * With the flag on, such a title goes back to core, which builds
+	 * `Page not found - <site name>`. Only a 404, and only a title with
+	 * whitespace at either end, so a plugin that writes its own 404 title is
+	 * left alone. Default on: an approved exception to the default-off rule,
+	 * see AGENTS.md § Feature flags. Set false to keep the plugin's title.
+	 * See `Seo\NotFoundTitle`.
+	 */
+	protected bool $seo_not_found_title = true;
 
 	/** @var bool Suppress the SEO plugin's own BreadcrumbList so the theme's microdata is the only one on the page. Default on, and tied to the plugin's own "Enable Breadcrumbs" switch: turn that on and this stands aside, because an editor who asked for the plugin's breadcrumbs wants the markup too. Set false to keep both. */
 	protected bool $seo_suppress_plugin_breadcrumb = true;
@@ -1730,6 +1746,10 @@ class StarterBase extends Site {
 	 */
 	private function registerSeoHooks(): void {
 		$this->registerBreadcrumbSchemaSuppression();
+
+		if ( $this->seo_not_found_title ) {
+			NotFoundTitle::register();
+		}
 
 		if ( ! $this->seo_canonical_pagination ) {
 			return;
