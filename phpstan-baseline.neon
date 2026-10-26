@@ -145,7 +145,7 @@ parameters:
 			path: src/Helpers.php
 
 		-
-			message: '#^Cannot access offset ''acf_fc_layout'' on non\-empty\-array\|Countable\.$#'
+			message: '#^Cannot access offset ''acf_fc_layout'' on non\-empty\-array(\<mixed\>)?\|Countable\.$#'
 			identifier: offsetAccess.nonOffsetAccessible
 			count: 1
 			path: src/Helpers.php
