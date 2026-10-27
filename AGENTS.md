@@ -212,6 +212,19 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   language. Set the flag to `false` to keep the plugin's value. This is a named
   exception to the rule above, not a case of the rule being skipped.
 
+- **Approved exception:** `$wpforms_local_captcha_off` defaults `true`, not
+  `false`. The owner decided it directly, in a working session on 2026-10-27.
+  A CAPTCHA key is bound to the production domain, so on a local install the
+  WPForms widget cannot pass, and its script from the provider's domain failed
+  every local screenshot capture of a page with a form on a downstream project.
+  The fix had to reach every project: `wp-config.php` is git-ignored, so a
+  constant there reaches only one machine. What bounds it: it acts only where
+  `wp_get_environment_type()` is `local`, so staging and production keep their
+  provider; a defined `WPFORMS_CAPTCHA_PROVIDER` always wins; nothing is
+  written to the database. Set the flag to `false` to keep the saved provider.
+  This is a named exception to the rule above, not a case of the rule being
+  skipped.
+
 ## Architecture decisions (ADRs)
 
 Significant decisions live in `docs/adr/` — the only tracked subtree under the

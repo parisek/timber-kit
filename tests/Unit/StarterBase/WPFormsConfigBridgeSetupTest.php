@@ -20,6 +20,10 @@ class WPFormsConfigBridgeSetupStarterBaseStub extends StarterBase {
 	public function run_setup_wpforms_config_bridge(): void {
 		$this->setup_wpforms_config_bridge();
 	}
+
+	public function set_wpforms_local_captcha_off( bool $value ): void {
+		$this->wpforms_local_captcha_off = $value;
+	}
 }
 
 class WPFormsConfigBridgeSetupTest extends TestCase {
@@ -72,5 +76,37 @@ class WPFormsConfigBridgeSetupTest extends TestCase {
 
 		$this->assertContains( 'option_wpforms_settings', $filters );
 		$this->assertContains( 'default_option_wpforms_settings', $filters );
+	}
+
+	#[PreserveGlobalState( false )]
+	#[RunInSeparateProcess]
+	public function test_local_captcha_default_is_on(): void {
+		define( 'WPFORMS_VERSION', '1.0.0' );
+		Functions\when( 'add_filter' )->justReturn( true );
+		Functions\when( 'add_action' )->justReturn( true );
+		Functions\when( 'is_admin' )->justReturn( false );
+		Functions\when( 'wp_get_environment_type' )->justReturn( 'local' );
+
+		( new WPFormsConfigBridgeSetupStarterBaseStub() )->run_setup_wpforms_config_bridge();
+
+		$result = WPFormsConfigBridge::applyOverrides( array( 'captcha-provider' => 'turnstile' ) );
+		$this->assertSame( 'none', $result['captcha-provider'] );
+	}
+
+	#[PreserveGlobalState( false )]
+	#[RunInSeparateProcess]
+	public function test_local_captcha_flag_off_keeps_the_saved_provider(): void {
+		define( 'WPFORMS_VERSION', '1.0.0' );
+		Functions\when( 'add_filter' )->justReturn( true );
+		Functions\when( 'add_action' )->justReturn( true );
+		Functions\when( 'is_admin' )->justReturn( false );
+		Functions\when( 'wp_get_environment_type' )->justReturn( 'local' );
+
+		$base = new WPFormsConfigBridgeSetupStarterBaseStub();
+		$base->set_wpforms_local_captcha_off( false );
+		$base->run_setup_wpforms_config_bridge();
+
+		$result = WPFormsConfigBridge::applyOverrides( array( 'captcha-provider' => 'turnstile' ) );
+		$this->assertSame( 'turnstile', $result['captcha-provider'] );
 	}
 }
