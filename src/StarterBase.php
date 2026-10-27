@@ -1054,6 +1054,29 @@ class StarterBase extends Site {
 	 */
 	protected bool $breeze_skip_server_headers = true;
 
+	/**
+	 * Read the WPForms CAPTCHA provider as `none` on a local install.
+	 *
+	 * A CAPTCHA key (Cloudflare Turnstile, reCAPTCHA, hCaptcha) is bound to the
+	 * production domain, so the widget cannot pass on a local install. Its
+	 * script from the provider's domain also fails a local screenshot run that
+	 * allows only local requests. With the flag on, `WPFormsConfigBridge`
+	 * returns `none` for `captcha-provider` when `wp_get_environment_type()`
+	 * is `local`. WPForms then prints no widget, loads no script and skips the
+	 * server check. The database keeps its settings.
+	 *
+	 * A non-empty `WPFORMS_CAPTCHA_PROVIDER` always wins, for example to try
+	 * Cloudflare's always-pass test keys locally. Staging and production are
+	 * not touched: a public staging site keeps its spam protection.
+	 *
+	 * On by default, a named exception in AGENTS.md: it changes only a local
+	 * install, where the CAPTCHA cannot work. Set `false` to keep the saved
+	 * provider.
+	 *
+	 * @var bool
+	 */
+	protected bool $wpforms_local_captcha_off = true;
+
 	/** @var bool Surface a Site Health warning when the live response carries a managed security header more than once — the signature of a second, server-level source (Apache .htaccess mod_headers, nginx add_header, a security plugin) emitting the same headers $security_headers already sends. Only registered when $security_headers is on. */
 	protected bool $warn_duplicate_security_headers = true;
 
@@ -1889,7 +1912,8 @@ class StarterBase extends Site {
 	 * Activate the WPForms config bridge when WPForms is loaded.
 	 *
 	 * Only runs for projects that have WPForms active; otherwise the filter
-	 * would never fire but registering it is unnecessary overhead.
+	 * would never fire but registering it is unnecessary overhead. Passes
+	 * `$wpforms_local_captcha_off` to the bridge.
 	 *
 	 * @return void
 	 */
@@ -1898,7 +1922,7 @@ class StarterBase extends Site {
 			return;
 		}
 
-		WPFormsConfigBridge::register();
+		WPFormsConfigBridge::register( $this->wpforms_local_captcha_off );
 	}
 
 	/**
