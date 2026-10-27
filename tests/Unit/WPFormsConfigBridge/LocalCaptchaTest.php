@@ -64,6 +64,36 @@ class LocalCaptchaTest extends TestCase {
 	}
 
 	/**
+	 * WPForms reads an empty setting as missing and falls back to `recaptcha`.
+	 *
+	 * @return array<string, array{mixed}>
+	 */
+	public static function emptyProviderConstants(): array {
+		return array(
+			'empty string' => array( '' ),
+			'false'        => array( false ),
+			'zero'         => array( 0 ),
+			'string zero'  => array( '0' ),
+		);
+	}
+
+	#[DataProvider( 'emptyProviderConstants' )]
+	public function test_an_empty_constant_keeps_the_local_default( mixed $value ): void {
+		define( 'WPFORMS_CAPTCHA_PROVIDER', $value );
+		Functions\when( 'wp_get_environment_type' )->justReturn( 'local' );
+		Functions\when( 'get_option' )->justReturn( array() );
+		WPFormsConfigBridge::register( true );
+
+		$result = WPFormsConfigBridge::applyOverrides( array( 'captcha-provider' => 'turnstile' ) );
+
+		$this->assertSame( 'none', $result['captcha-provider'] );
+		$this->assertSame(
+			array( 'captcha-provider' => 'WP_ENVIRONMENT_TYPE=local' ),
+			WPFormsConfigBridge::collectActiveOverrides()
+		);
+	}
+
+	/**
 	 * @return array<string, array{string}>
 	 */
 	public static function nonLocalEnvironments(): array {

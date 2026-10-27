@@ -1065,7 +1065,7 @@ class StarterBase extends Site {
 	 * is `local`. WPForms then prints no widget, loads no script and skips the
 	 * server check. The database keeps its settings.
 	 *
-	 * A defined `WPFORMS_CAPTCHA_PROVIDER` always wins, for example to try
+	 * A non-empty `WPFORMS_CAPTCHA_PROVIDER` always wins, for example to try
 	 * Cloudflare's always-pass test keys locally. Staging and production are
 	 * not touched: a public staging site keeps its spam protection.
 	 *

@@ -220,7 +220,7 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   The fix had to reach every project: `wp-config.php` is git-ignored, so a
   constant there reaches only one machine. What bounds it: it acts only where
   `wp_get_environment_type()` is `local`, so staging and production keep their
-  provider; a defined `WPFORMS_CAPTCHA_PROVIDER` always wins; nothing is
+  provider; a non-empty `WPFORMS_CAPTCHA_PROVIDER` always wins; nothing is
   written to the database. Set the flag to `false` to keep the saved provider.
   This is a named exception to the rule above, not a case of the rule being
   skipped.

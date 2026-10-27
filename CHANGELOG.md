@@ -15,7 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   requests. With the flag on, `WPFormsConfigBridge` reads `captcha-provider`
   as `none` when `wp_get_environment_type()` is `local`. WPForms then prints
   no widget, loads no script and skips the server check; the database keeps
-  its settings. A defined `WPFORMS_CAPTCHA_PROVIDER` always wins, and staging
+  its settings. A non-empty `WPFORMS_CAPTCHA_PROVIDER` always wins, and staging
   and production are not touched. The WPForms admin notice lists the override
   as `WP_ENVIRONMENT_TYPE=local`. Set `false` to keep the saved provider.
 
