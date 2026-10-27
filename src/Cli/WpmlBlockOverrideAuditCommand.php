@@ -82,32 +82,29 @@ class WpmlBlockOverrideAuditCommand {
 			\remove_filter( self::VETO_FILTER, $veto, $veto_priority );
 		}
 
-		// Originals only: WPML marks them with no source language.
+		// Originals only: WPML marks them with no source language. The query
+		// does not filter on the original's content. On a site whose originals
+		// are not in the default language, the override reads its source from
+		// the default-language version, so an original without ACF blocks can
+		// still head a group whose translations get overridden.
 		$originals = $wpdb->get_results(
 			"SELECT p.ID, p.post_type FROM {$wpdb->posts} p
 			 JOIN {$wpdb->prefix}icl_translations t
 			   ON t.element_id = p.ID AND t.element_type = CONCAT( 'post_', p.post_type )
 			 WHERE p.post_status = 'publish'
 			   AND t.source_language_code IS NULL
-			   AND p.post_content LIKE '%<!-- wp:acf/%'
 			 ORDER BY p.ID"
 		);
 
 		$filter = static fn( array $block ): array => WpmlBlockOverride::filter( $block, $block );
 
-		$rows             = array();
-		$wordpress_editor = 0;
-		$total_blocks     = 0;
+		$rows         = array();
+		$checked      = 0;
+		$total_blocks = 0;
 
 		try {
 			foreach ( (array) $originals as $original ) {
-				$original_id = (int) $original->ID;
-				$settings    = (array) \WPML_TM_Post_Edit_TM_Editor_Mode::get_editor_settings( null, $original_id );
-				if ( ! BlockOverrideAudit::usesWordPressEditor( $settings ) ) {
-					continue;
-				}
-				++$wordpress_editor;
-
+				$original_id  = (int) $original->ID;
 				$element_type = 'post_' . $original->post_type;
 				$trid         = \apply_filters( 'wpml_element_trid', null, $original_id, $element_type );
 				$translations = \apply_filters( 'wpml_get_element_translations', null, $trid, $element_type );
@@ -122,9 +119,17 @@ class WpmlBlockOverrideAuditCommand {
 						continue;
 					}
 					$translated = \get_post( $translation_id );
-					if ( ! $translated || 'publish' !== $translated->post_status ) {
+					if ( ! $translated || 'publish' !== $translated->post_status || ! \str_contains( $translated->post_content, '<!-- wp:acf/' ) ) {
 						continue;
 					}
+
+					// Same call, same ID as skipWordPressEditorPages(): the page
+					// being rendered, not its original.
+					$settings = (array) \WPML_TM_Post_Edit_TM_Editor_Mode::get_editor_settings( null, $translation_id );
+					if ( ! BlockOverrideAudit::usesWordPressEditor( $settings ) ) {
+						continue;
+					}
+					++$checked;
 
 					\do_action( 'wpml_switch_language', $language );
 					$post = $translated; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- the override reads the global post; restored below.
@@ -137,11 +142,11 @@ class WpmlBlockOverrideAuditCommand {
 
 					$total_blocks += $blocks;
 					$rows[]        = array(
-						'original'    => $original_id,
-						'post'        => $translation_id,
-						'language'    => (string) $language,
-						'blocks'      => $blocks,
-						'url'         => (string) \get_permalink( $translation_id ),
+						'original' => $original_id,
+						'post'     => $translation_id,
+						'language' => (string) $language,
+						'blocks'   => $blocks,
+						'url'      => (string) \get_permalink( $translation_id ),
 					);
 				}
 			}
@@ -156,7 +161,7 @@ class WpmlBlockOverrideAuditCommand {
 		\WP_CLI\Utils\format_items( $format, $rows, self::FIELDS );
 
 		if ( 'table' === $format ) {
-			\WP_CLI::log( BlockOverrideAudit::summary( \count( (array) $originals ), $wordpress_editor, \count( $rows ), $total_blocks ) );
+			\WP_CLI::log( BlockOverrideAudit::summary( $checked, \count( $rows ), $total_blocks ) );
 		}
 	}
 }

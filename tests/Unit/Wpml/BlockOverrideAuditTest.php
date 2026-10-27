@@ -78,10 +78,9 @@ class BlockOverrideAuditTest extends TestCase {
 	}
 
 	public function test_summary_names_every_count(): void {
-		$line = BlockOverrideAudit::summary( 97, 9, 21, 129 );
+		$line = BlockOverrideAudit::summary( 25, 21, 129 );
 
-		$this->assertStringContainsString( '97 original(s)', $line );
-		$this->assertStringContainsString( '9 translated in the WordPress editor', $line );
-		$this->assertStringContainsString( '21 published page(s), 129 block(s)', $line );
+		$this->assertStringContainsString( '25 published page(s)', $line );
+		$this->assertStringContainsString( 'would change 21 of them, 129 block(s)', $line );
 	}
 }

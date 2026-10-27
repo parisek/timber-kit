@@ -67,13 +67,15 @@ final class BlockOverrideAudit {
 
 	/**
 	 * One line for the end of the report.
+	 *
+	 * @param int $checked Published non-default-language pages with ACF blocks
+	 *                     that WPML resolves to the WordPress editor.
 	 */
-	public static function summary( int $originals, int $wordpress_editor, int $pages, int $blocks ): string {
+	public static function summary( int $checked, int $pages, int $blocks ): string {
 		return \sprintf(
-			'%d original(s) with ACF blocks, %d translated in the WordPress editor. '
-			. '$wpml_block_override_skip_wp_editor would change %d published page(s), %d block(s).',
-			$originals,
-			$wordpress_editor,
+			'%d published page(s) with ACF blocks are translated in the WordPress editor. '
+			. '$wpml_block_override_skip_wp_editor would change %d of them, %d block(s).',
+			$checked,
 			$pages,
 			$blocks
 		);
