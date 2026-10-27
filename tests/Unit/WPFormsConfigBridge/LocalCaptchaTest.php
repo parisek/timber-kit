@@ -102,6 +102,40 @@ class LocalCaptchaTest extends TestCase {
 		$this->assertSame( 'turnstile', $result['captcha-provider'] );
 	}
 
+	public function test_a_later_register_call_can_turn_the_local_default_off(): void {
+		Functions\when( 'wp_get_environment_type' )->justReturn( 'local' );
+		WPFormsConfigBridge::register( true );
+		WPFormsConfigBridge::register( false );
+
+		$result = WPFormsConfigBridge::applyOverrides( array( 'captcha-provider' => 'turnstile' ) );
+
+		$this->assertSame( 'turnstile', $result['captcha-provider'] );
+	}
+
+	public function test_a_later_register_call_can_turn_the_local_default_on(): void {
+		Functions\when( 'wp_get_environment_type' )->justReturn( 'local' );
+		WPFormsConfigBridge::register( false );
+		WPFormsConfigBridge::register( true );
+
+		$result = WPFormsConfigBridge::applyOverrides( array( 'captcha-provider' => 'turnstile' ) );
+
+		$this->assertSame( 'none', $result['captcha-provider'] );
+	}
+
+	public function test_a_second_register_call_adds_no_second_filter(): void {
+		$filters = array();
+		Functions\when( 'add_filter' )->alias(
+			function ( string $tag ) use ( &$filters ) {
+				$filters[] = $tag;
+				return true;
+			}
+		);
+		WPFormsConfigBridge::register( true );
+		WPFormsConfigBridge::register( false );
+
+		$this->assertSame( array( 'option_wpforms_settings', 'default_option_wpforms_settings' ), $filters );
+	}
+
 	public function test_admin_notice_names_the_local_default(): void {
 		Functions\when( 'wp_get_environment_type' )->justReturn( 'local' );
 		Functions\when( 'get_option' )->justReturn( array( 'captcha-provider' => 'turnstile' ) );

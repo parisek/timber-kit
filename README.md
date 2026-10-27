@@ -1913,7 +1913,7 @@ The Cloudflare always-pass test sitekey/secret pair above (`1x000…AA` / `1x000
 protected bool $wpforms_local_captcha_off = false;
 ```
 
-When any override is active, an admin notice on WPForms admin screens lists which setting keys are read from `wp-config.php`, so values saved through the WP admin do not silently disappear at runtime without explanation.
+When any override is active, an admin notice on WPForms admin screens lists which setting keys are read from `wp-config.php` or from the local-install default (shown as `WP_ENVIRONMENT_TYPE=local`), so values saved through the WP admin do not silently disappear at runtime without explanation.
 
 ### ACF
 

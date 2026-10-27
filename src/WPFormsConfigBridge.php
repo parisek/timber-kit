@@ -63,16 +63,20 @@ final class WPFormsConfigBridge {
 	 * bypass the bridge entirely because WordPress short-circuits
 	 * `get_option()` to the default-value path before firing `option_*`.
 	 *
+	 * The hooks register once. `$local_captcha_off` takes the value of the
+	 * latest call, so a later caller can still change it.
+	 *
 	 * @param bool $local_captcha_off Read the CAPTCHA provider as `none` on a
 	 *                                local install when no constant sets it.
 	 * @return void
 	 */
 	public static function register( bool $local_captcha_off = false ): void {
+		self::$local_captcha_off = $local_captcha_off;
+
 		if ( self::$registered ) {
 			return;
 		}
-		self::$registered        = true;
-		self::$local_captcha_off = $local_captcha_off;
+		self::$registered = true;
 
 		add_filter( 'option_wpforms_settings', array( self::class, 'applyOverrides' ), 11 );
 		add_filter( 'default_option_wpforms_settings', array( self::class, 'applyOverrides' ), 11 );
@@ -185,7 +189,7 @@ final class WPFormsConfigBridge {
 
 		printf(
 			'<div class="notice notice-info"><p><strong>%s</strong></p><ul>%s</ul><p>%s</p></div>',
-			esc_html__( 'WPForms settings overridden via wp-config.php', 'timber-kit' ),
+			esc_html__( 'WPForms settings overridden at runtime', 'timber-kit' ),
 			$items, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- pre-escaped above.
 			esc_html__( 'These values come from PHP constants, or from the local-install default for the CAPTCHA provider, at runtime. Changes saved on this screen are stored in the database but ignored until the override is removed.', 'timber-kit' )
 		);
