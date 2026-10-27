@@ -78,23 +78,6 @@ class WpmlBlockOverrideAuditCommand {
 
 		$veto          = array( WpmlBlockOverride::class, 'skipWordPressEditorPages' );
 		$veto_priority = \has_filter( self::VETO_FILTER, $veto );
-		if ( false !== $veto_priority ) {
-			\remove_filter( self::VETO_FILTER, $veto, $veto_priority );
-		}
-
-		// Originals only: WPML marks them with no source language. The query
-		// does not filter on the original's content. On a site whose originals
-		// are not in the default language, the override reads its source from
-		// the default-language version, so an original without ACF blocks can
-		// still head a group whose translations get overridden.
-		$originals = $wpdb->get_results(
-			"SELECT p.ID, p.post_type FROM {$wpdb->posts} p
-			 JOIN {$wpdb->prefix}icl_translations t
-			   ON t.element_id = p.ID AND t.element_type = CONCAT( 'post_', p.post_type )
-			 WHERE p.post_status = 'publish'
-			   AND t.source_language_code IS NULL
-			 ORDER BY p.ID"
-		);
 
 		$filter = static fn( array $block ): array => WpmlBlockOverride::filter( $block, $block );
 
@@ -103,6 +86,25 @@ class WpmlBlockOverrideAuditCommand {
 		$total_blocks = 0;
 
 		try {
+			if ( false !== $veto_priority ) {
+				\remove_filter( self::VETO_FILTER, $veto, $veto_priority );
+			}
+
+			// Originals only: WPML marks them with no source language. Neither
+			// the original's status nor its content filters the query: a
+			// published translation can outlive a draft original, and on a site
+			// whose originals are not in the default language the override reads
+			// its source from the default-language version, so an original
+			// without ACF blocks can still head a group that gets overridden.
+			// Each page is checked on its own below.
+			$originals = $wpdb->get_results(
+				"SELECT p.ID, p.post_type FROM {$wpdb->posts} p
+				 JOIN {$wpdb->prefix}icl_translations t
+				   ON t.element_id = p.ID AND t.element_type = CONCAT( 'post_', p.post_type )
+				 WHERE t.source_language_code IS NULL
+				 ORDER BY p.ID"
+			);
+
 			foreach ( (array) $originals as $original ) {
 				$original_id  = (int) $original->ID;
 				$element_type = 'post_' . $original->post_type;
@@ -151,11 +153,11 @@ class WpmlBlockOverrideAuditCommand {
 				}
 			}
 		} finally {
-			$post = $saved_post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restores the value saved above.
-			\do_action( 'wpml_switch_language', $current_language );
 			if ( false !== $veto_priority ) {
 				\add_filter( self::VETO_FILTER, $veto, $veto_priority, 2 );
 			}
+			$post = $saved_post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restores the value saved above.
+			\do_action( 'wpml_switch_language', $current_language );
 		}
 
 		\WP_CLI\Utils\format_items( $format, $rows, self::FIELDS );
