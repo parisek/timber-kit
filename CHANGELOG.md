@@ -14,7 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   page, so a translation's own image never showed. With the flag on, the new
   `WpmlBlockOverride::skipWordPressEditorPages()` vetoes the override on those pages through
   `timber_kit/wpml_block_override/should_override` (last, at `PHP_INT_MAX`). It decides with WPML's own resolver
-  (`WPML_TM_Post_Edit_TM_Editor_Mode::uses_native_editor()`), once per page and request (#248).
+  (`WPML_TM_Post_Edit_TM_Editor_Mode::get_editor_settings()`, present in WPML 4.9 and 5), once per page and request (#248).
 
 ## [1.67.0] - 2026-10-26
 

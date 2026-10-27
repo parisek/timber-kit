@@ -20,7 +20,7 @@ class SkipWordPressEditorPagesTest extends WpmlBlockOverrideTestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		require_once __DIR__ . '/Stubs/WpmlTmPostEditTmEditorModeStub.php';
-		\WPML_TM_Post_Edit_TM_Editor_Mode::$native = [];
+		\WPML_TM_Post_Edit_TM_Editor_Mode::$settings = [];
 		\WPML_TM_Post_Edit_TM_Editor_Mode::$calls  = [];
 		$GLOBALS['post'] = (object) [ 'ID' => 10, 'post_type' => 'page' ];
 	}
@@ -31,19 +31,26 @@ class SkipWordPressEditorPagesTest extends WpmlBlockOverrideTestCase {
 	}
 
 	public function test_vetoes_a_page_that_uses_the_wordpress_editor(): void {
-		\WPML_TM_Post_Edit_TM_Editor_Mode::$native[10] = true;
+		\WPML_TM_Post_Edit_TM_Editor_Mode::$settings[10] = [ false, false ];
 
 		$this->assertFalse( WpmlBlockOverride::skipWordPressEditorPages( true, self::BLOCK ) );
 	}
 
 	public function test_keeps_a_page_that_uses_a_wpml_editor(): void {
-		\WPML_TM_Post_Edit_TM_Editor_Mode::$native[10] = false;
+		\WPML_TM_Post_Edit_TM_Editor_Mode::$settings[10] = [ true, false ];
 
 		$this->assertTrue( WpmlBlockOverride::skipWordPressEditorPages( true, self::BLOCK ) );
 	}
 
+	public function test_vetoes_a_page_whose_wpml_editor_is_blocked(): void {
+		// WPML edits a blocked page in the WordPress editor too (uses_native_editor() in WPML 5).
+		\WPML_TM_Post_Edit_TM_Editor_Mode::$settings[10] = [ true, true ];
+
+		$this->assertFalse( WpmlBlockOverride::skipWordPressEditorPages( true, self::BLOCK ) );
+	}
+
 	public function test_an_earlier_veto_stands_and_the_resolver_is_not_called(): void {
-		\WPML_TM_Post_Edit_TM_Editor_Mode::$native[10] = false;
+		\WPML_TM_Post_Edit_TM_Editor_Mode::$settings[10] = [ true, false ];
 
 		$this->assertFalse( WpmlBlockOverride::skipWordPressEditorPages( false, self::BLOCK ) );
 		$this->assertSame( [], \WPML_TM_Post_Edit_TM_Editor_Mode::$calls );
@@ -56,7 +63,7 @@ class SkipWordPressEditorPagesTest extends WpmlBlockOverrideTestCase {
 	}
 
 	public function test_resolves_each_page_once_per_request(): void {
-		\WPML_TM_Post_Edit_TM_Editor_Mode::$native[10] = true;
+		\WPML_TM_Post_Edit_TM_Editor_Mode::$settings[10] = [ false, false ];
 
 		WpmlBlockOverride::skipWordPressEditorPages( true, self::BLOCK );
 		WpmlBlockOverride::skipWordPressEditorPages( true, self::BLOCK );

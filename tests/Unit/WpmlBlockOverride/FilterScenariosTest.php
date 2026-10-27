@@ -258,13 +258,13 @@ class FilterScenariosTest extends WpmlBlockOverrideTestCase {
 		$src   = [ self::block( 'acf/hero', [ 'img' => 901 ] ), self::block( 'acf/hero', [ 'img' => 902 ] ) ];
 		$trans = [ self::block( 'acf/hero', [ 'img' => 111 ] ), self::block( 'acf/hero', [ 'img' => 112 ] ) ];
 
-		\WPML_TM_Post_Edit_TM_Editor_Mode::$native = [ self::TRANS => true ];
+		\WPML_TM_Post_Edit_TM_Editor_Mode::$settings = [ self::TRANS => [ false, false ] ];
 		$out = self::all( $this->render( $src, $trans ), 'acf/hero' );
 		$this->assertSame( [ 111, 112 ], array_map( fn( $b ) => $b['attrs']['data']['img'], $out ) );
 
 		( new \ReflectionProperty( WpmlBlockOverride::class, 'wordPressEditorMemo' ) )->setValue( null, [] );
 		( new \ReflectionProperty( WpmlBlockOverride::class, 'blockOrdinals' ) )->setValue( null, [] );
-		\WPML_TM_Post_Edit_TM_Editor_Mode::$native = [ self::TRANS => false ];
+		\WPML_TM_Post_Edit_TM_Editor_Mode::$settings = [ self::TRANS => [ true, false ] ];
 		$out = self::all( $this->render( $src, $trans ), 'acf/hero' );
 		$this->assertSame( [ 901, 902 ], array_map( fn( $b ) => $b['attrs']['data']['img'], $out ) );
 	}

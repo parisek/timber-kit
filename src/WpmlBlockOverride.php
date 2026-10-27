@@ -37,8 +37,9 @@ declare(strict_types=1);
  *   With the WordPress editor each language keeps its own blocks, so the override
  *   would hide values the translation owns on purpose. The flag hooks
  *   skipWordPressEditorPages() into the `should_override` filter, which asks
- *   WPML's own resolver (`WPML_TM_Post_Edit_TM_Editor_Mode::uses_native_editor()`:
- *   per-page choice, then post type, then site, plus WPML's own filters).
+ *   WPML's own resolver (`WPML_TM_Post_Edit_TM_Editor_Mode::get_editor_settings()`,
+ *   present in WPML 4.9 and 5: per-page choice, then post type, then site, plus
+ *   WPML's own filters and blocked posts).
  *
  * Filters exposed (package-owned, stable across versions):
  *   - timber_kit/wpml_block_override/should_override  (bool $default, array $block, string $current_lang, string $default_lang)
@@ -204,7 +205,11 @@ final class WpmlBlockOverride {
 
 		$id = (int) $post->ID;
 		if ( ! isset( self::$wordPressEditorMemo[ $id ] ) ) {
-			self::$wordPressEditorMemo[ $id ] = (bool) \WPML_TM_Post_Edit_TM_Editor_Mode::uses_native_editor( $id );
+			// get_editor_settings() exists in WPML 4.9 and 5; uses_native_editor()
+			// only from 5, and is this same expression. A page whose WPML editor
+			// is blocked (page builders) is edited in the WordPress editor too.
+			$settings = (array) \WPML_TM_Post_Edit_TM_Editor_Mode::get_editor_settings( null, $id );
+			self::$wordPressEditorMemo[ $id ] = ! ( $settings[0] ?? true ) || ! empty( $settings[1] );
 		}
 
 		return ! self::$wordPressEditorMemo[ $id ];
