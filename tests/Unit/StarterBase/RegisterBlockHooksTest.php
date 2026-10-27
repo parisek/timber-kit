@@ -121,10 +121,10 @@ class RegisterBlockHooksTest extends StarterBaseTestCase {
 			[ [
 				'hook'     => 'timber_kit/wpml_block_override/should_override',
 				'callback' => [ \Parisek\TimberKit\WpmlBlockOverride::class, 'skipWordPressEditorPages' ],
-				'priority' => 5,
+				'priority' => PHP_INT_MAX,
 			] ],
 			$this->captureFilters( $this->withFlags( true, true ) ),
-			'priority 5, so a project filter at 10 still has the last word'
+			'last, so a project filter that returns true cannot undo the veto'
 		);
 	}
 

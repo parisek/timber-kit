@@ -620,7 +620,7 @@ $this->wpml_block_override = true;
 $this->wpml_block_override_skip_wp_editor = true;
 ```
 
-StarterBase then hooks `WpmlBlockOverride::skipWordPressEditorPages()` on `should_override` at priority 5. It asks WPML's own resolver (`WPML_TM_Post_Edit_TM_Editor_Mode::uses_native_editor()`: the page choice, then the post type, then the site, with WPML's filters applied) once per page and request, and vetoes every block of a page that uses the WordPress editor. Pages in a WPML editor keep the override. Without WPML Translation Management loaded the editor is unknown, and the override stays on.
+StarterBase then hooks `WpmlBlockOverride::skipWordPressEditorPages()` on `should_override` at priority `PHP_INT_MAX`, so it runs after your own `should_override` callbacks: it only turns `true` into `false`, and a callback that returns `true` cannot undo it. It asks WPML's own resolver (`WPML_TM_Post_Edit_TM_Editor_Mode::uses_native_editor()`: the page choice, then the post type, then the site, with WPML's filters applied) once per page and request, and vetoes every block of a page that uses the WordPress editor. Pages in a WPML editor keep the override. Without WPML Translation Management loaded the editor is unknown, and the override stays on.
 
 **Per block** — skip specific block types via `should_override` (full `acf/` name here):
 

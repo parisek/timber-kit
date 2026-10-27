@@ -685,8 +685,9 @@ class StarterBase extends Site {
 	 * value the translation set on purpose (its own image) must not be replaced
 	 * by the source's. Opt-in (default off): it changes rendered output on those
 	 * pages. Needs `$wpml_block_override`; alone it wires nothing. The callback
-	 * runs at priority 5 on `timber_kit/wpml_block_override/should_override`, so
-	 * a project filter at the default priority still decides last.
+	 * runs last on `timber_kit/wpml_block_override/should_override`
+	 * (`PHP_INT_MAX`), so a project filter that returns `true` cannot undo the
+	 * veto. It only ever turns `true` into `false`, so every other veto stands.
 	 *
 	 * @var bool
 	 */
@@ -1390,7 +1391,7 @@ class StarterBase extends Site {
 			// register() self-guards on WPML + ACF Pro, so it no-ops otherwise.
 			add_action( 'init', array( WpmlBlockOverride::class, 'register' ) );
 			if ( $this->wpml_block_override_skip_wp_editor ) {
-				add_filter( 'timber_kit/wpml_block_override/should_override', array( WpmlBlockOverride::class, 'skipWordPressEditorPages' ), 5, 2 );
+				add_filter( 'timber_kit/wpml_block_override/should_override', array( WpmlBlockOverride::class, 'skipWordPressEditorPages' ), PHP_INT_MAX, 2 );
 			}
 		}
 	}
