@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.69.0] - 2026-10-27
+
 ### Added
 
 - `$wpml_block_override_skip_wp_editor` (default `false`, needs `$wpml_block_override`). WPML lets an
