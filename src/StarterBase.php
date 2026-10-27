@@ -686,8 +686,9 @@ class StarterBase extends Site {
 	 * by the source's. Opt-in (default off): it changes rendered output on those
 	 * pages. Needs `$wpml_block_override`; alone it wires nothing. The callback
 	 * runs last on `timber_kit/wpml_block_override/should_override`
-	 * (`PHP_INT_MAX`), so a project filter that returns `true` cannot undo the
-	 * veto. It only ever turns `true` into `false`, so every other veto stands.
+	 * (`PHP_INT_MAX`), so a project callback at any lower priority cannot undo
+	 * the veto; only a callback added later at `PHP_INT_MAX` itself runs after
+	 * it. It only ever turns `true` into `false`, so every other veto stands.
 	 *
 	 * @var bool
 	 */
