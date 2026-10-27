@@ -232,4 +232,40 @@ class FilterScenariosTest extends WpmlBlockOverrideTestCase {
 		$this->assertSame( 112, $hero[1]['attrs']['data']['img'], 'drifted block name must stay stale' );
 		$this->assertSame( 940, $gal[0]['attrs']['data']['img'], 'matched block name still overridden' );
 	}
+
+	/**
+	 * With the skip callback on the should_override filter, a page translated in
+	 * the WordPress editor keeps every translation value, and a page translated
+	 * in a WPML editor is still overridden.
+	 */
+	public function test_wordpress_editor_page_keeps_its_own_copy_values(): void {
+		require_once __DIR__ . '/Stubs/WpmlTmPostEditTmEditorModeStub.php';
+		\WPML_TM_Post_Edit_TM_Editor_Mode::$calls = [];
+		Functions\when( 'apply_filters' )->alias(
+			static function ( string $tag, mixed $value = null, mixed ...$args ) {
+				if ( $tag === 'wpml_current_language' ) return 'en';
+				if ( $tag === 'wpml_default_language' ) return 'cs';
+				if ( $tag === 'wpml_object_id' ) {
+					return ( $args[1] ?? null ) === false && $value === self::TRANS ? self::SRC : $value;
+				}
+				if ( $tag === 'timber_kit/wpml_block_override/should_override' ) {
+					return WpmlBlockOverride::skipWordPressEditorPages( $value, $args[0] );
+				}
+				return $value;
+			}
+		);
+		self::topLevelCopy();
+		$src   = [ self::block( 'acf/hero', [ 'img' => 901 ] ), self::block( 'acf/hero', [ 'img' => 902 ] ) ];
+		$trans = [ self::block( 'acf/hero', [ 'img' => 111 ] ), self::block( 'acf/hero', [ 'img' => 112 ] ) ];
+
+		\WPML_TM_Post_Edit_TM_Editor_Mode::$settings = [ self::TRANS => [ false, false ] ];
+		$out = self::all( $this->render( $src, $trans ), 'acf/hero' );
+		$this->assertSame( [ 111, 112 ], array_map( fn( $b ) => $b['attrs']['data']['img'], $out ) );
+
+		( new \ReflectionProperty( WpmlBlockOverride::class, 'wordPressEditorMemo' ) )->setValue( null, [] );
+		( new \ReflectionProperty( WpmlBlockOverride::class, 'blockOrdinals' ) )->setValue( null, [] );
+		\WPML_TM_Post_Edit_TM_Editor_Mode::$settings = [ self::TRANS => [ true, false ] ];
+		$out = self::all( $this->render( $src, $trans ), 'acf/hero' );
+		$this->assertSame( [ 901, 902 ], array_map( fn( $b ) => $b['attrs']['data']['img'], $out ) );
+	}
 }

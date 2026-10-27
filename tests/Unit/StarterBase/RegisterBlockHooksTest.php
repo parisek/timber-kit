@@ -91,6 +91,47 @@ class RegisterBlockHooksTest extends StarterBaseTestCase {
 		$this->assertNotEmpty( $wbo, 'flag on → WpmlBlockOverride::register() hooked on init' );
 	}
 
+	/** @return array<int, array{hook: string, callback: mixed, priority: int}> */
+	private function captureFilters( StarterBase $instance ): array {
+		$filters = [];
+		Functions\when( 'add_filter' )->alias( function ( $hook, $callback, $priority = 10, ...$rest ) use ( &$filters ) {
+			$filters[] = [ 'hook' => $hook, 'callback' => $callback, 'priority' => $priority ];
+		} );
+		Functions\when( 'add_action' )->justReturn( true );
+		$this->invokeRegisterBlockHooks( $instance );
+		return array_values( array_filter(
+			$filters,
+			fn( $f ) => $f['hook'] === 'timber_kit/wpml_block_override/should_override'
+		) );
+	}
+
+	private function withFlags( bool $override, bool $skip ): StarterBase {
+		$instance = $this->bareInstance();
+		( new \ReflectionProperty( StarterBase::class, 'wpml_block_override' ) )->setValue( $instance, $override );
+		( new \ReflectionProperty( StarterBase::class, 'wpml_block_override_skip_wp_editor' ) )->setValue( $instance, $skip );
+		return $instance;
+	}
+
+	public function test_does_not_skip_wordpress_editor_pages_by_default(): void {
+		$this->assertSame( [], $this->captureFilters( $this->withFlags( true, false ) ) );
+	}
+
+	public function test_skips_wordpress_editor_pages_when_both_flags_are_on(): void {
+		$this->assertSame(
+			[ [
+				'hook'     => 'timber_kit/wpml_block_override/should_override',
+				'callback' => [ \Parisek\TimberKit\WpmlBlockOverride::class, 'skipWordPressEditorPages' ],
+				'priority' => PHP_INT_MAX,
+			] ],
+			$this->captureFilters( $this->withFlags( true, true ) ),
+			'last, so a project filter that returns true cannot undo the veto'
+		);
+	}
+
+	public function test_skip_flag_alone_wires_nothing(): void {
+		$this->assertSame( [], $this->captureFilters( $this->withFlags( false, true ) ) );
+	}
+
 	public function test_does_not_register_allowed_block_types_filter_when_restriction_disabled(): void {
 		$filters = [];
 		Functions\when( 'add_filter' )->alias( function ( $hook, ...$rest ) use ( &$filters ) {

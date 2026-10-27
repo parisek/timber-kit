@@ -32,6 +32,15 @@ declare(strict_types=1);
  * without manual ATE re-job. ACF configuration becomes the single source of truth
  * for Copy fields; no DB writes, no admin UI, no drift.
  *
+ * Pages translated in the WordPress editor (opt-in, `$wpml_block_override_skip_wp_editor`):
+ *   WPML lets an editor pick, on the original, which editor translates a page.
+ *   With the WordPress editor each language keeps its own blocks, so the override
+ *   would hide values the translation owns on purpose. The flag hooks
+ *   skipWordPressEditorPages() into the `should_override` filter, which asks
+ *   WPML's own resolver (`WPML_TM_Post_Edit_TM_Editor_Mode::get_editor_settings()`,
+ *   present in WPML 4.9 and 5: per-page choice, then post type, then site, plus
+ *   WPML's own filters and blocked posts).
+ *
  * Filters exposed (package-owned, stable across versions):
  *   - timber_kit/wpml_block_override/should_override  (bool $default, array $block, string $current_lang, string $default_lang)
  *   - timber_kit/wpml_block_override/copy_fields      (array $copy_fields, string $block_name)
@@ -74,6 +83,9 @@ final class WpmlBlockOverride {
 
 	/** @var array<int, array<string, int>> per-render-pass positional counter: source_post_id → block_name → next ordinal */
 	private static array $blockOrdinals = [];
+
+	/** @var array<int, bool> per-request memo: post id → translated in the WordPress editor */
+	private static array $wordPressEditorMemo = [];
 
 	public static function register(): void {
 		if ( ! self::dependenciesAvailable() ) return;
@@ -172,6 +184,35 @@ final class WpmlBlockOverride {
 			'timber_kit/wpml_block_override/should_override',
 			true, $block, $current, $default
 		);
+	}
+
+	/**
+	 * `timber_kit/wpml_block_override/should_override` callback: veto the
+	 * override on a page whose translations are edited in the WordPress editor.
+	 *
+	 * The decision is per page, never per block, so the positional ordinals stay
+	 * in step (see findSourceBlock()). Without WPML's editor resolver (Translation
+	 * Management not loaded) the editor is unknown and the override stays on.
+	 *
+	 * @param array<string, mixed> $block
+	 */
+	public static function skipWordPressEditorPages( bool $should_override, array $block ): bool {
+		if ( ! $should_override ) return false;
+
+		global $post;
+		if ( ! \is_object( $post ) || ! isset( $post->ID ) ) return true;
+		if ( ! \class_exists( 'WPML_TM_Post_Edit_TM_Editor_Mode' ) ) return true;
+
+		$id = (int) $post->ID;
+		if ( ! isset( self::$wordPressEditorMemo[ $id ] ) ) {
+			// get_editor_settings() exists in WPML 4.9 and 5; uses_native_editor()
+			// only from 5, and is this same expression. A page whose WPML editor
+			// is blocked (page builders) is edited in the WordPress editor too.
+			$settings = (array) \WPML_TM_Post_Edit_TM_Editor_Mode::get_editor_settings( null, $id );
+			self::$wordPressEditorMemo[ $id ] = ! ( $settings[0] ?? true ) || ! empty( $settings[1] );
+		}
+
+		return ! self::$wordPressEditorMemo[ $id ];
 	}
 
 	private static function getAcfBlockName( string $full_name ): string {

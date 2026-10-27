@@ -678,6 +678,23 @@ class StarterBase extends Site {
 	protected bool $wpml_block_override = false;
 
 	/**
+	 * Leave pages translated in the WordPress editor out of
+	 * {@see WpmlBlockOverride}. WPML lets an editor choose, on the original,
+	 * whether a page is translated in a WPML editor or in the WordPress editor.
+	 * With the WordPress editor each language owns its own blocks, so a Copy
+	 * value the translation set on purpose (its own image) must not be replaced
+	 * by the source's. Opt-in (default off): it changes rendered output on those
+	 * pages. Needs `$wpml_block_override`; alone it wires nothing. The callback
+	 * runs last on `timber_kit/wpml_block_override/should_override`
+	 * (`PHP_INT_MAX`), so a project callback at any lower priority cannot undo
+	 * the veto; only a callback added later at `PHP_INT_MAX` itself runs after
+	 * it. It only ever turns `true` into `false`, so every other veto stands.
+	 *
+	 * @var bool
+	 */
+	protected bool $wpml_block_override_skip_wp_editor = false;
+
+	/**
 	 * Read-only page load for WPML → WP Menus Sync
 	 * ({@see \Parisek\TimberKit\Wpml\MenuSyncReadOnly}). WPML repairs menu
 	 * items and translation rows when that screen only loads. The guard switches
@@ -1397,6 +1414,9 @@ class StarterBase extends Site {
 			// Opt-in render-time Copy-field sync for ACF blocks under WPML.
 			// register() self-guards on WPML + ACF Pro, so it no-ops otherwise.
 			add_action( 'init', array( WpmlBlockOverride::class, 'register' ) );
+			if ( $this->wpml_block_override_skip_wp_editor ) {
+				add_filter( 'timber_kit/wpml_block_override/should_override', array( WpmlBlockOverride::class, 'skipWordPressEditorPages' ), PHP_INT_MAX, 2 );
+			}
 		}
 	}
 

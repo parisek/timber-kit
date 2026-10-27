@@ -6,6 +6,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- `$wpml_block_override_skip_wp_editor` (default `false`, needs `$wpml_block_override`). WPML lets an
+  editor translate a page in the WordPress editor instead of a WPML editor; each language then owns its
+  blocks. `WpmlBlockOverride` ignored that choice and still rendered the source's Copy values on such a
+  page, so a translation's own image never showed. With the flag on, the new
+  `WpmlBlockOverride::skipWordPressEditorPages()` vetoes the override on those pages through
+  `timber_kit/wpml_block_override/should_override` (last, at `PHP_INT_MAX`). It decides with WPML's own resolver
+  (`WPML_TM_Post_Edit_TM_Editor_Mode::get_editor_settings()`, present in WPML 4.9 and 5), once per page and request (#248).
+
 ## [1.68.0] - 2026-10-27
 
 ### Added
