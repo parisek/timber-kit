@@ -649,6 +649,21 @@ add_filter( 'timber_kit/wpml_block_override/copy_fields', function ( $copy_field
 }, 10, 2 );
 ```
 
+#### Auditing pages translated in the WordPress editor
+
+`$wpml_block_override_skip_wp_editor` stops the override on pages translated in the WordPress editor. On a running site that changes what some translations render: each one goes from the source value to its own stored value. Before you turn the flag on, list those translations:
+
+```bash
+wp timber-kit wpml-block-override-audit
+wp timber-kit wpml-block-override-audit --format=csv > audit.csv
+```
+
+Each row is a published page where the override changes at least one block today: original ID, post ID, language, changed blocks, URL. Open each one and decide whether its own value is intended or stale. An empty list means the flag changes nothing on this site.
+
+A row can be the original itself. The override takes its source values from the default language, so on a site whose originals are written in another language the original receives the default-language values too.
+
+The command writes nothing. It measures with the skip veto removed, so it gives the same answer before and after the flag is on. It reads the editor mode through `get_editor_settings()`, which WPML 4.9 and 5 both have.
+
 #### Not supported (this iteration)
 
 - `flexible_content` sub-fields — per-layout `sub_fields` require layout-name awareness
@@ -849,12 +864,13 @@ of these went undocumented for several releases.
 | `wp timber-kit convert-utf8mb4` | Converts legacy `utf8` tables and columns to `utf8mb4`. |
 | `wp timber-kit acfml-sync-preferences` | Reconciles WPML translation preferences for programmatically written ACF meta. See § ACFML preference sync. |
 | `wp timber-kit wpml-cleanup-theme-domain` | Purges WPML String Translation rows and compiled files left behind for a text domain that is no longer registered with ST. See § WPML theme-domain cleanup. |
+| `wp timber-kit wpml-block-override-audit` | Lists the published pages `$wpml_block_override_skip_wp_editor` would change. Read-only. See § Auditing pages translated in the WordPress editor. |
 | `wp timber-kit outage-screen` | Installs the drop-ins that serve the theme's prerendered outage screen. See § Outage screen. |
 | `wp timber-kit migrate-image-cache` | Moves existing resizer cache derivatives into the source-path layout, ahead of enabling `$resizer_source_path_in_cache_key`. Dry-run by default, `--apply` to write. |
 | `wp timber-kit clear-image-cache` | Deletes resizer derivatives so they regenerate: all, one `--format`, or selected images by attachment ID or file name. Dry-run by default, `--apply` to delete. See § Clearing the image cache. |
 | `wp timber-kit regenerate-image-cache` | Re-encodes resizer derivatives at their existing paths, so none of them is ever missing. Dry-run by default, `--apply` to write. See § Regenerating the image cache. |
 
-Write flags differ between commands: `migrate-image-cache`, `rescale-originals`, `clear-image-cache` and `regenerate-image-cache` write only with `--apply`; the others write by default and take `--dry-run`. Check `wp help timber-kit <command>`.
+Write flags differ between commands: `migrate-image-cache`, `rescale-originals`, `clear-image-cache` and `regenerate-image-cache` write only with `--apply`; `wpml-block-override-audit` only reads; the others write by default and take `--dry-run`. Check `wp help timber-kit <command>`.
 
 ---
 
