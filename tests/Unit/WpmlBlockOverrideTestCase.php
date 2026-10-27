@@ -17,6 +17,7 @@ abstract class WpmlBlockOverrideTestCase extends TestCase {
 		$this->resetMemo( 'sourceBlocksMemo', [] );
 		$this->resetMemo( 'copyFieldsIndex', null );
 		$this->resetMemo( 'blockOrdinals', [] );
+		$this->resetMemo( 'wordPressEditorMemo', [] );
 	}
 
 	protected function tearDown(): void {

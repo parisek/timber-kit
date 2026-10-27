@@ -613,6 +613,15 @@ Note the two filters receive the block name differently: `should_override` gets 
 add_filter( 'timber_kit/wpml_block_override/should_override', '__return_false' );
 ```
 
+**Per page, by translation editor** — WPML lets an editor choose, on the original, whether a page is translated in a WPML editor or in the WordPress editor (Language box, "Translate with"). With the WordPress editor each language owns its blocks, so a translation's own image must not be replaced by the source's. Opt in with a second flag:
+
+```php
+$this->wpml_block_override = true;
+$this->wpml_block_override_skip_wp_editor = true;
+```
+
+StarterBase then hooks `WpmlBlockOverride::skipWordPressEditorPages()` on `should_override` at priority 5. It asks WPML's own resolver (`WPML_TM_Post_Edit_TM_Editor_Mode::uses_native_editor()`: the page choice, then the post type, then the site, with WPML's filters applied) once per page and request, and vetoes every block of a page that uses the WordPress editor. Pages in a WPML editor keep the override. Without WPML Translation Management loaded the editor is unknown, and the override stays on.
+
 **Per block** — skip specific block types via `should_override` (full `acf/` name here):
 
 ```php
