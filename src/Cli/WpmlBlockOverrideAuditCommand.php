@@ -20,8 +20,9 @@ use Parisek\TimberKit\WpmlBlockOverride;
  * the pages to look at.
  *
  * It measures the override with the skip veto removed, so the answer is the
- * same before and after the flag is on. It restores the veto, the global
- * `$post` and the WPML language before it returns.
+ * same before and after the flag is on. Before it returns it restores the
+ * filter hook as it was, the global `$post` and the WPML language, and resets
+ * the override's block counters.
  *
  * Thin adapter over {@see BlockOverrideAudit}; the WP_CLI I/O here is not
  * unit-tested (same doctrine as the other `Cli/*` commands).
@@ -70,7 +71,7 @@ class WpmlBlockOverrideAuditCommand {
 			return;
 		}
 
-		global $wpdb, $post;
+		global $wpdb, $post, $wp_filter;
 
 		$default_language = (string) \apply_filters( 'wpml_default_language', null );
 		$current_language = \apply_filters( 'wpml_current_language', null );
@@ -78,6 +79,9 @@ class WpmlBlockOverrideAuditCommand {
 
 		$veto          = array( WpmlBlockOverride::class, 'skipWordPressEditorPages' );
 		$veto_priority = \has_filter( self::VETO_FILTER, $veto );
+		// Snapshot the whole hook, so the restore keeps the callback order a
+		// remove + add would change inside the PHP_INT_MAX bucket.
+		$saved_hook = isset( $wp_filter[ self::VETO_FILTER ] ) ? clone $wp_filter[ self::VETO_FILTER ] : null;
 
 		$filter = static fn( array $block ): array => WpmlBlockOverride::filter( $block, $block );
 
@@ -153,9 +157,13 @@ class WpmlBlockOverrideAuditCommand {
 				}
 			}
 		} finally {
-			if ( false !== $veto_priority ) {
-				\add_filter( self::VETO_FILTER, $veto, $veto_priority, 2 );
+			if ( null !== $saved_hook ) {
+				$wp_filter[ self::VETO_FILTER ] = $saved_hook; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restores the snapshot taken above.
 			}
+			// The audit advanced the override's per-post block counters. Reset
+			// them, as the_content does, so later rendering in this process
+			// pairs blocks from the start.
+			WpmlBlockOverride::resetBlockOrdinals( '' );
 			$post = $saved_post; // phpcs:ignore WordPress.WP.GlobalVariablesOverride.Prohibited -- restores the value saved above.
 			\do_action( 'wpml_switch_language', $current_language );
 		}
