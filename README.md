@@ -213,6 +213,8 @@ Bridges `wp-config.php` constants to entries of the `wpforms_settings` option, s
 
 A setting key `turnstile-site-key` is overridden by a constant `WPFORMS_TURNSTILE_SITE_KEY` (hyphens become underscores, the whole name uppercased). The bridge is activated automatically by `StarterBase` when WPForms is loaded.
 
+On a local install (`wp_get_environment_type() === 'local'`) the bridge reads the CAPTCHA provider as `none`, because a CAPTCHA key is bound to the production domain. `StarterBase::$wpforms_local_captcha_off` (default `true`) controls it, and a non-empty `WPFORMS_CAPTCHA_PROVIDER` always wins. Details: [WPForms Config Bridge](#wpforms-config-bridge).
+
 ### BlockRenderer
 
 Render callback for ACF Gutenberg blocks defined via `block.json`. Migrated from per-theme `functions.php` so projects derived from `portadesign/wordpress-base` carry one versioned source of truth instead of duplicating ~140 lines per theme.
@@ -1932,7 +1934,13 @@ Bridged keys:
 
 The Cloudflare always-pass test sitekey/secret pair above (`1x000…AA` / `1x000…AA`) is recommended for staging/CI to avoid headless detection blocking the challenge widget.
 
-When any override is active, an admin notice on WPForms admin screens lists which setting keys are read from `wp-config.php`, so values saved through the WP admin do not silently disappear at runtime without explanation.
+**Local installs get no CAPTCHA.** With `$wpforms_local_captcha_off` on (the default) and `WP_ENVIRONMENT_TYPE=local`, the bridge returns `none` for `captcha-provider` when no non-empty `WPFORMS_CAPTCHA_PROVIDER` is defined. WPForms then prints no widget, loads no script from the provider's domain and skips the server check, so a local form submits and a local screenshot run that blocks external requests passes. The database keeps the saved settings. Staging and production keep their provider. To try the test keys locally, define `WPFORMS_CAPTCHA_PROVIDER` as above. To keep the saved provider, set the flag to `false` in the theme's `Base`:
+
+```php
+protected bool $wpforms_local_captcha_off = false;
+```
+
+When any override is active, an admin notice on WPForms admin screens lists which setting keys are read from `wp-config.php` or from the local-install default (shown as `WP_ENVIRONMENT_TYPE=local`), so values saved through the WP admin do not silently disappear at runtime without explanation.
 
 ### ACF
 

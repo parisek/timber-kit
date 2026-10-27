@@ -17,11 +17,22 @@ namespace Parisek\TimberKit;
  *
  * Activation is gated by `StarterBase` to projects where WPForms is loaded;
  * the filter is otherwise inert because no other consumer reads the option.
+ *
+ * Local CAPTCHA: with `$local_captcha_off` on (`StarterBase::$wpforms_local_captcha_off`),
+ * a local install (`wp_get_environment_type() === 'local'`) reads the
+ * provider as `none` unless a non-empty `WPFORMS_CAPTCHA_PROVIDER` is defined. A CAPTCHA
+ * key is bound to the production domain, so the widget cannot pass locally.
  */
 final class WPFormsConfigBridge {
 
 	/** @var bool Prevent duplicate hook registration. */
 	private static bool $registered = false;
+
+	/** @var bool Read the CAPTCHA provider as `none` on a local install. */
+	private static bool $local_captcha_off = false;
+
+	/** @var string Shown in the admin notice for the local default. */
+	private const LOCAL_SOURCE = 'WP_ENVIRONMENT_TYPE=local';
 
 	/**
 	 * Captcha-related keys bridged even when absent from the saved option.
@@ -52,9 +63,16 @@ final class WPFormsConfigBridge {
 	 * bypass the bridge entirely because WordPress short-circuits
 	 * `get_option()` to the default-value path before firing `option_*`.
 	 *
+	 * The hooks register once. `$local_captcha_off` takes the value of the
+	 * latest call, so a later caller can still change it.
+	 *
+	 * @param bool $local_captcha_off Read the CAPTCHA provider as `none` on a
+	 *                                local install when no constant sets it.
 	 * @return void
 	 */
-	public static function register(): void {
+	public static function register( bool $local_captcha_off = false ): void {
+		self::$local_captcha_off = $local_captcha_off;
+
 		if ( self::$registered ) {
 			return;
 		}
@@ -106,7 +124,29 @@ final class WPFormsConfigBridge {
 			}
 		}
 
+		if ( self::localCaptchaOff() ) {
+			$settings['captcha-provider'] = 'none';
+		}
+
 		return $settings;
+	}
+
+	/**
+	 * Whether the local default sets the CAPTCHA provider to `none`.
+	 *
+	 * A non-empty `WPFORMS_CAPTCHA_PROVIDER` wins, so a developer who wants
+	 * to try Cloudflare's test keys locally can still do it. An empty one
+	 * (`''`, `false`, `0`, `'0'`) does not: WPForms reads an empty setting as
+	 * missing and falls back to `recaptcha`, so it would bring a CAPTCHA back.
+	 *
+	 * @return bool
+	 */
+	private static function localCaptchaOff(): bool {
+		$const = self::constantName( 'captcha-provider' );
+
+		return self::$local_captcha_off
+			&& ! ( defined( $const ) && ! empty( constant( $const ) ) )
+			&& 'local' === wp_get_environment_type();
 	}
 
 	/**
@@ -153,9 +193,9 @@ final class WPFormsConfigBridge {
 
 		printf(
 			'<div class="notice notice-info"><p><strong>%s</strong></p><ul>%s</ul><p>%s</p></div>',
-			esc_html__( 'WPForms settings overridden via wp-config.php', 'timber-kit' ),
+			esc_html__( 'WPForms settings overridden at runtime', 'timber-kit' ),
 			$items, // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- pre-escaped above.
-			esc_html__( 'These values come from PHP constants at runtime. Changes saved on this screen are stored in the database but ignored until the constant is removed.', 'timber-kit' )
+			esc_html__( 'These values come from PHP constants, or from the local-install default for the CAPTCHA provider, at runtime. Changes saved on this screen are stored in the database but ignored until the override is removed.', 'timber-kit' )
 		);
 	}
 
@@ -186,6 +226,10 @@ final class WPFormsConfigBridge {
 			}
 		}
 
+		if ( self::localCaptchaOff() ) {
+			$active['captcha-provider'] = self::LOCAL_SOURCE;
+		}
+
 		ksort( $active );
 
 		return $active;
@@ -197,6 +241,7 @@ final class WPFormsConfigBridge {
 	 * @return void
 	 */
 	public static function reset_for_tests(): void {
-		self::$registered = false;
+		self::$registered        = false;
+		self::$local_captcha_off = false;
 	}
 }

@@ -22,6 +22,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   running site. Measured on two sites: one had 0 such pages, the other 21
   pages with 129 blocks. Works on WPML 4.9 and 5 (#251).
 
+## [1.68.0] - 2026-10-27
+
+### Added
+
+- `$wpforms_local_captcha_off` (default `true`, approved exception to the
+  default-off rule). A CAPTCHA key is bound to the production domain, so on a
+  local install the WPForms widget cannot pass and its script from the
+  provider's domain fails a local screenshot run that allows only local
+  requests. With the flag on, `WPFormsConfigBridge` reads `captcha-provider`
+  as `none` when `wp_get_environment_type()` is `local`. WPForms then prints
+  no widget, loads no script and skips the server check; the database keeps
+  its settings. A non-empty `WPFORMS_CAPTCHA_PROVIDER` always wins, and staging
+  and production are not touched. The WPForms admin notice lists the override
+  as `WP_ENVIRONMENT_TYPE=local`. Set `false` to keep the saved provider.
+
 ## [1.67.0] - 2026-10-26
 
 ### Added
