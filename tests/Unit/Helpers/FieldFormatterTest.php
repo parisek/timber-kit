@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Tests\Unit\Helpers;
 
 use Brain\Monkey\Functions;
+use Mockery;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Parisek\TimberKit\Helpers;
 use Tests\Unit\HelpersTestCase;
 
@@ -420,6 +422,117 @@ class FieldFormatterTest extends HelpersTestCase {
 		$result = Helpers::fieldFormatter( $field );
 
 		$this->assertSame( $invalid_utf8, $result );
+	}
+
+	// --- Non-string wysiwyg / textarea value ---
+
+	/**
+	 * @return array<string, array{0: string, 1: mixed}>
+	 */
+	public static function nonStringTextProvider(): array {
+		return [
+			'wysiwyg array'  => [ 'wysiwyg', [ 'a' => 'b' ] ],
+			'textarea array' => [ 'textarea', [ 'a' => 'b' ] ],
+			'wysiwyg int'    => [ 'wysiwyg', 5 ],
+			'textarea object' => [ 'textarea', new \stdClass() ],
+		];
+	}
+
+	#[DataProvider( 'nonStringTextProvider' )]
+	public function test_non_string_text_value_renders_empty_and_does_not_reach_do_shortcode( string $type, mixed $value ): void {
+		Functions\expect( 'do_shortcode' )->never();
+		Functions\expect( '_doing_it_wrong' )->once();
+
+		$result = Helpers::fieldFormatter( [ 'type' => $type, 'name' => 'body', 'value' => $value ] );
+
+		$this->assertSame( '', $result );
+	}
+
+	public function test_non_string_value_notice_names_the_field(): void {
+		Functions\when( 'do_shortcode' )->returnArg();
+		Functions\expect( '_doing_it_wrong' )
+			->once()
+			->with( Mockery::any(), Mockery::pattern( '/"body"/' ), Mockery::any() );
+
+		$this->assertSame( '', Helpers::fieldFormatter( [ 'type' => 'wysiwyg', 'name' => 'body', 'value' => [ 'x' ] ] ) );
+	}
+
+	public function test_non_string_value_notice_fires_once_per_field(): void {
+		Functions\expect( '_doing_it_wrong' )->once();
+
+		$field = [ 'type' => 'wysiwyg', 'name' => 'body', 'value' => [ 'x' ] ];
+		$this->assertSame( '', Helpers::fieldFormatter( $field ) );
+		$this->assertSame( '', Helpers::fieldFormatter( $field ) );
+		$this->assertSame( '', Helpers::fieldFormatter( $field ) );
+	}
+
+	public function test_non_string_value_notice_fires_for_each_distinct_field(): void {
+		Functions\expect( '_doing_it_wrong' )->twice();
+
+		$this->assertSame( '', Helpers::fieldFormatter( [ 'type' => 'wysiwyg', 'name' => 'one', 'value' => [ 'x' ] ] ) );
+		$this->assertSame( '', Helpers::fieldFormatter( [ 'type' => 'textarea', 'name' => 'two', 'value' => [ 'x' ] ] ) );
+	}
+
+	public function test_string_value_still_expands_shortcodes_and_raises_no_notice(): void {
+		Functions\when( 'do_shortcode' )->alias( static fn ( $c ) => str_replace( '[hello]', 'HELLO', $c ) );
+		Functions\expect( '_doing_it_wrong' )->never();
+
+		$result = Helpers::fieldFormatter( [ 'type' => 'wysiwyg', 'name' => 'body', 'value' => '<p>[hello]</p>' ] );
+
+		$this->assertSame( '<p>HELLO</p>', $result );
+	}
+
+	public function test_non_string_value_in_repeater_row_renders_empty_and_keeps_siblings(): void {
+		Functions\when( 'do_shortcode' )->returnArg();
+		Functions\expect( '_doing_it_wrong' )->once();
+
+		$field = [
+			'type'       => 'repeater',
+			'name'       => 'rows',
+			'sub_fields' => [
+				[ 'name' => 'title', 'type' => 'text' ],
+				[ 'name' => 'body', 'type' => 'wysiwyg' ],
+			],
+			'value'      => [
+				[ 'title' => 'One', 'body' => [ 'x' ] ],
+				[ 'title' => 'Two', 'body' => '<p>Fine</p>' ],
+				[ 'title' => 'Three', 'body' => [ 'y' ] ],
+			],
+		];
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertSame( 'One', $result[0]['title'] );
+		$this->assertSame( '', $result[0]['body'] );
+		$this->assertSame( '<p>Fine</p>', $result[1]['body'] );
+		$this->assertSame( '', $result[2]['body'] );
+	}
+
+	public function test_non_string_value_in_flexible_content_layout_renders_empty(): void {
+		Functions\when( 'do_shortcode' )->returnArg();
+		Functions\expect( '_doing_it_wrong' )->once();
+
+		$field = [
+			'type'    => 'flexible_content',
+			'name'    => 'blocks',
+			'layouts' => [
+				[
+					'name'       => 'text_block',
+					'sub_fields' => [
+						[ 'name' => 'heading', 'type' => 'text' ],
+						[ 'name' => 'copy', 'type' => 'textarea' ],
+					],
+				],
+			],
+			'value'   => [
+				[ 'acf_fc_layout' => 'text_block', 'heading' => 'Title', 'copy' => [ 'x' ] ],
+			],
+		];
+
+		$result = Helpers::fieldFormatter( $field );
+
+		$this->assertSame( 'Title', $result[0]['heading'] );
+		$this->assertSame( '', $result[0]['copy'] );
 	}
 
 	// --- Post Object ---
