@@ -322,6 +322,8 @@ The memo freezes the first answer until something flushes it, and `acf_get_field
 
 These are in-process memos, not a persistent cache. They remove repeated work inside one render; they do not remove the first call of each request. Moving either into the object cache is a separate decision, and its cost is invalidation rather than implementation: ACF field groups load from theme JSON files and no hook fires when a deploy changes one. A persistent cache would also still want a static in front of it, because `wp_cache_get()` is not free.
 
+`Helpers::fieldFormatter()` reports a `wysiwyg` or `textarea` field whose value is not a string with `_doing_it_wrong()`, once per field name. The field renders as an empty string. It keeps that list of reported names on a static too. `Helpers::flushNonStringFieldNotices()` resets it. A web request never needs it. A long-running caller and a test do.
+
 ### Deriving a value from a post body
 
 `$post->content()` is not an accessor. It ends in `apply_filters( 'the_content' )`, and `do_blocks()` sits on that filter at priority 9 — so asking for it renders the whole article. Ask for it to derive a word count, a reading time, a length or a "does this have an image" flag, and each of those cheap answers costs one full render.
