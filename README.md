@@ -43,7 +43,7 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
   returns the shortcode text instead (`[wpforms id="12"]`), because the form does not render there. The
   kit runs `do_shortcode()` once, inside `fieldFormatter()`. Do not run it again on the value. The template
   prints the value with `|raw`. That is safe only because the value is the form plugin's own rendered
-  output, not field content. With the return format "Post ID" the field returns the ID and nothing renders. A rendered form carries a nonce, so the kit counts it as dynamic. Open PR [#93](https://github.com/parisek/timber-kit/pull/93) may change this: it lets a
+  output, not field content. With the return format "Post ID" the field returns the ID and nothing renders. The kit counts each rendered form as dynamic, because a replayed copy of the markup skips what the render does, such as registering the plugin's assets. Open PR [#93](https://github.com/parisek/timber-kit/pull/93) may change this: it lets a
   context build defer the form embed and print it where the template needs it. If it lands, this paragraph
   must say when the field returns the deferred form.
 - `formatLink()` — link/button formatting
