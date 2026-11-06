@@ -1665,17 +1665,23 @@ class Helpers {
 
 		} elseif ( $field['type'] === 'wysiwyg' ) {
 
-			$field['value'] = self::sanitizeEditorContent( $field['value'] );
+			if ( ! is_string( $field['value'] ) ) {
+				$field['value'] = self::emptyNonStringText( $field );
+			} else {
+				$field['value'] = self::sanitizeEditorContent( $field['value'] );
 
-			if ( self::isEditorContentEmpty( $field['value'], true ) ) {
-				$field['value'] = '';
+				if ( self::isEditorContentEmpty( $field['value'], true ) ) {
+					$field['value'] = '';
+				}
+
+				$field['value'] = self::expandShortcodes( $field['value'] );
 			}
-
-			$field['value'] = self::expandShortcodes( $field['value'] );
 
 		} elseif ( $field['type'] === 'textarea' ) {
 
-			if ( self::isTextareaContentEmpty( $field['value'] ) ) {
+			if ( ! is_string( $field['value'] ) ) {
+				$field['value'] = self::emptyNonStringText( $field );
+			} elseif ( self::isTextareaContentEmpty( $field['value'] ) ) {
 				$field['value'] = '';
 			} else {
 				$field['value'] = self::expandShortcodes( $field['value'] );
@@ -1820,6 +1826,54 @@ class Helpers {
 		$field = apply_filters( 'field_formatter_' . $field['type'], $field, $post_id );
 
 		return $field['value'];
+	}
+
+	/** @var array<string, true> Field names already reported by {@see emptyNonStringText()}. */
+	private static array $nonStringFieldNotices = [];
+
+	/**
+	 * Replace the non-string value of a `wysiwyg` or `textarea` field with an empty string.
+	 *
+	 * Both types hand the value to `do_shortcode()`, and core calls
+	 * `str_contains()` on it. An array there is a TypeError and the page
+	 * returns 500. ACF returns an array for a field written by name that it
+	 * resolves in another field group. An empty string is what a field with
+	 * no content already renders as.
+	 *
+	 * The cause stays visible: `_doing_it_wrong()` names the field once per
+	 * request. Core prints that notice only under `WP_DEBUG`.
+	 *
+	 * @param array<string, mixed> $field ACF field definition with a non-string `value`.
+	 */
+	private static function emptyNonStringText( array $field ): string {
+		$name = (string) ( $field['name'] ?? $field['_name'] ?? $field['key'] ?? '' );
+
+		if ( ! isset( self::$nonStringFieldNotices[ $name ] ) ) {
+			self::$nonStringFieldNotices[ $name ] = true;
+			_doing_it_wrong(
+				__METHOD__,
+				sprintf(
+					'The %1$s field "%2$s" holds a %3$s, not a string. It renders as an empty string. Check that the field name resolves to this field and not to a field in another field group.',
+					(string) $field['type'],
+					$name,
+					get_debug_type( $field['value'] )
+				),
+				'1.69.1'
+			);
+		}
+
+		return '';
+	}
+
+	/**
+	 * Forget which fields {@see emptyNonStringText()} already reported.
+	 *
+	 * Tests call it between cases.
+	 *
+	 * @internal Not part of the public API. It can change or go away in any release.
+	 */
+	public static function flushNonStringFieldNotices(): void {
+		self::$nonStringFieldNotices = [];
 	}
 
 	/** @var array<string, int> Memoized URL-to-post-id answers, keyed by "<blog>|<language>|<url>". */

@@ -6,6 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `Helpers::fieldFormatter()` no longer throws a `TypeError` on a `wysiwyg` or `textarea` field whose value is not a
+  string. `expandShortcodes()` passed an array to `do_shortcode()`, and core called `str_contains()` on it, so the page
+  returned 500. This happens when a field is written by name and ACF resolves the name in another field group. The
+  field now renders as an empty string, also inside a repeater, a group and flexible content. `_doing_it_wrong()`
+  names the field once per request, and core prints it under `WP_DEBUG` (#255).
+
 ## [1.69.0] - 2026-10-27
 
 ### Added

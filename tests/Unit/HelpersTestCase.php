@@ -22,6 +22,9 @@ abstract class HelpersTestCase extends TestCase {
 		// of its own mocks being called.
 		Helpers::flushTranslatedLinkUrls();
 		Helpers::flushResolvedPostIds();
+		// The once-per-field notice for a non-string text value is memoized
+		// on a static too.
+		Helpers::flushNonStringFieldNotices();
 		// get_post_type is called by Helpers::isNavMenuItemPostId() on the
 		// function_exists() branch.  Default to 'post' so tests that don't
 		// need nav_menu_item dispatch don't have to mock it individually.

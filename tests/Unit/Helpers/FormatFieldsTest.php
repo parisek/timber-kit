@@ -35,6 +35,22 @@ class FormatFieldsTest extends HelpersTestCase {
 		$this->assertSame( 'Hello', $result['title'] );
 	}
 
+	public function test_wysiwyg_array_value_renders_empty_string_and_does_not_throw(): void {
+		// An array in a wysiwyg field reached do_shortcode() and core threw a
+		// TypeError from str_contains().
+		Functions\when( 'get_field_objects' )->justReturn( [
+			'body'  => [ 'type' => 'wysiwyg', 'name' => 'body', 'value' => [ 'oops' ] ],
+			'title' => [ 'type' => 'text', 'name' => 'title', 'value' => 'Hello' ],
+		] );
+		Functions\expect( 'do_shortcode' )->never();
+		Functions\expect( '_doing_it_wrong' )->once();
+
+		$result = Helpers::formatFields( (object) [ 'ID' => 42 ] );
+
+		$this->assertSame( 'Hello', $result['title'] );
+		$this->assertArrayNotHasKey( 'body', $result );
+	}
+
 	public function test_with_term_object(): void {
 		// Regression for #103: ACF addresses a taxonomy term as "term_<id>",
 		// never a bare integer — a bare int reads as a post id to ACF.
