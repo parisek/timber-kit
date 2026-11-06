@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.69.1] - 2026-11-06
+
 ### Fixed
 
 - `Helpers::fieldFormatter()` no longer throws a `TypeError` on a `wysiwyg` or `textarea` field whose value is not a
