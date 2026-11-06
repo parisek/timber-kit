@@ -1868,7 +1868,9 @@ class Helpers {
 	/**
 	 * Forget which fields {@see emptyNonStringText()} already reported.
 	 *
-	 * Tests call it between cases, and so can a long-running caller.
+	 * Tests call it between cases.
+	 *
+	 * @internal Not part of the public API. It can change or go away in any release.
 	 */
 	public static function flushNonStringFieldNotices(): void {
 		self::$nonStringFieldNotices = [];
