@@ -401,6 +401,7 @@ class RenderTest extends BlockRendererTestCase {
 	}
 
 	public function test_wpforms_block_is_not_cached_although_the_queues_never_move(): void {
+		Functions\when( 'shortcode_exists' )->justReturn( true );
 		// Regression: a block whose ACF post_object resolves a WPForms form must
 		// not be cached. WPForms enqueues nothing while it renders — output()
 		// only fills its own $forms array, and assets_footer() (wp_footer,

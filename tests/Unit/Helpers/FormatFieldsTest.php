@@ -494,6 +494,7 @@ class FormatFieldsTest extends HelpersTestCase {
 	}
 
 	public function test_is_preview_false_renders_shortcode(): void {
+		Functions\when( 'shortcode_exists' )->justReturn( true );
 		$this->define_wp_post_if_needed();
 
 		Functions\when( 'do_shortcode' )->alias( function ( $shortcode ) {
@@ -513,8 +514,8 @@ class FormatFieldsTest extends HelpersTestCase {
 		// Normal render: CF7 should call do_shortcode()
 		$result = Helpers::formatFields( (object) [ 'ID' => 1 ], false );
 
-		$this->assertStringContainsString( '<form>', $result['form'] );
-		$this->assertStringContainsString( 'contact-form-7', $result['form'] );
+		$this->assertStringContainsString( '<form>', (string) $result['form'] );
+		$this->assertStringContainsString( 'contact-form-7', (string) $result['form'] );
 	}
 
 	private function define_wp_post_if_needed(): void {

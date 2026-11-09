@@ -929,6 +929,47 @@ class Helpers {
 	}
 
 	/**
+	 * The shortcode of a form post, for the form plugins the kit knows.
+	 *
+	 * @param \WP_Post $post The `post_object` field value.
+	 * @return array{tag: string, shortcode: string}|null Null for any other post type.
+	 */
+	private static function formEmbed( \WP_Post $post ): ?array {
+		if ( 'wpcf7_contact_form' === $post->post_type ) {
+			return [
+				'tag'       => 'contact-form-7',
+				'shortcode' => '[contact-form-7 id="' . $post->ID . '" title=""]',
+			];
+		}
+
+		if ( 'wpforms' === $post->post_type ) {
+			return [
+				'tag'       => 'wpforms',
+				'shortcode' => '[wpforms id="' . $post->ID . '"]',
+			];
+		}
+
+		return null;
+	}
+
+	/**
+	 * Whether a form field may defer its render to the template (issue #92).
+	 *
+	 * A {@see LazyFormEmbed} is an object, and an object is always true in PHP
+	 * and Twig. It is created only when the form will render, so that
+	 * `{% if content.form %}` keeps its meaning. In any other case the field
+	 * keeps the old eager result: an unpublished form, or a plugin that is
+	 * not active (the shortcode is not registered, and `do_shortcode()` hands
+	 * the literal back, as it always did).
+	 *
+	 * @param \WP_Post $post The form post.
+	 * @param string   $tag  The shortcode tag.
+	 */
+	private static function isLazyFormEmbed( \WP_Post $post, string $tag ): bool {
+		return 'publish' === $post->post_status && shortcode_exists( $tag );
+	}
+
+	/**
 	 * Whether a {@see fieldFormatter()} result should survive into the
 	 * `formatFields()` output, or be dropped as "no such field".
 	 *
@@ -1727,21 +1768,17 @@ class Helpers {
 		} elseif ( $field['type'] === 'post_object' ) {
 
 			if ( $field['value'] instanceof \WP_Post ) {
-				if ( $field['value']->post_type === 'wpcf7_contact_form' ) {
-					// during preview we need to return only shortcode as preview is not working
-					if ( $is_preview ) {
-						$field['value'] = '[contact-form-7 id="' . $field['value']->ID . '" title=""]';
-					} else {
-						++self::$dynamic_format_count;
-						$field['value'] = do_shortcode( '[contact-form-7 id="' . $field['value']->ID . '" title=""]' );
-					}
-				} elseif ( $field['value']->post_type === 'wpforms' ) {
+				$embed = self::formEmbed( $field['value'] );
+				if ( null !== $embed ) {
 					if ( $is_preview ) {
 						// during preview we need to return only shortcode as preview is not working
-						$field['value'] = '[wpforms id="' . $field['value']->ID . '"]';
+						$field['value'] = $embed['shortcode'];
 					} else {
+						// A rendered form carries a nonce: whatever holds it is dynamic.
 						++self::$dynamic_format_count;
-						$field['value'] = do_shortcode( '[wpforms id="' . $field['value']->ID . '"]' );
+						$field['value'] = self::isLazyFormEmbed( $field['value'], $embed['tag'] )
+							? new LazyFormEmbed( $embed['shortcode'] )
+							: do_shortcode( $embed['shortcode'] );
 					}
 				}
 			}

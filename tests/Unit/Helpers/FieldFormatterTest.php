@@ -560,6 +560,7 @@ class FieldFormatterTest extends HelpersTestCase {
 	}
 
 	public function test_post_object_cf7_with_wp_post_render(): void {
+		Functions\when( 'shortcode_exists' )->justReturn( true );
 		$this->define_wp_post_if_needed();
 
 		Functions\when( 'do_shortcode' )->alias( function ( $shortcode ) {
@@ -576,7 +577,7 @@ class FieldFormatterTest extends HelpersTestCase {
 			'value' => $post,
 		];
 
-		$result = Helpers::fieldFormatter( $field, 1, false );
+		$result = (string) Helpers::fieldFormatter( $field, 1, false );
 
 		$this->assertStringContainsString( 'contact-form-7', $result );
 		$this->assertStringContainsString( '<form>', $result );
@@ -602,6 +603,7 @@ class FieldFormatterTest extends HelpersTestCase {
 	}
 
 	public function test_post_object_wpforms_render(): void {
+		Functions\when( 'shortcode_exists' )->justReturn( true );
 		$this->define_wp_post_if_needed();
 
 		Functions\when( 'do_shortcode' )->alias( function ( $shortcode ) {
@@ -618,7 +620,7 @@ class FieldFormatterTest extends HelpersTestCase {
 			'value' => $post,
 		];
 
-		$result = Helpers::fieldFormatter( $field, 1, false );
+		$result = (string) Helpers::fieldFormatter( $field, 1, false );
 
 		$this->assertStringContainsString( 'wpforms', $result );
 		$this->assertStringContainsString( 'id="200"', $result );

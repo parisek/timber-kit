@@ -6,6 +6,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- A form `post_object` field (Contact Form 7, WPForms) renders when a template prints it, not when
+  `fieldFormatter()` formats it. The field returns a `Parisek\TimberKit\LazyFormEmbed`: `{{ content.form|raw }}`,
+  `|length` and `json_encode()` render it once and return the form HTML. `formatFields( 'option' )` formats every
+  options field on every request, so every page rendered the options-page form and registered it with the plugin.
+  WPForms then enqueued its styles in `wp_footer`, and WordPress 6.9+ hoists late styles into `<head>`: five
+  render-blocking stylesheets on pages that print no form. Measured on a downstream site in DDEV: the pages that do
+  not print the form lose all five; the pages that print it keep them, and the form validates (#92).
+  - The value is created only for a published form whose shortcode is registered, so `{% if content.form %}` keeps
+    its meaning. A draft form or an inactive plugin keeps the old eager string.
+  - `$is_preview` still returns the shortcode text.
+  - The field still counts as dynamic, so `BlockRenderer` and the menu cache do not store it. A serialised value keeps
+    the shortcode and never the markup, which carries a nonce.
+  - Breaking for code that tests `is_string()` on the value. A Twig filter or PHP function with a `string` parameter
+    under `declare(strict_types=1)` throws a `TypeError` on it, for example `{{ content.form|typography }}`; cast it
+    first or print it with `|raw`. A survey of the downstream themes that set such a field found only `{% if %}`,
+    `|raw` and pass-through, and no `field_formatter_*` filter on a form field.
+
 ## [1.69.1] - 2026-11-06
 
 ### Fixed

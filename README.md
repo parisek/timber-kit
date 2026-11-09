@@ -39,13 +39,19 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
   let the return value gain metadata without touching a single call site.
 - `formatFields()`, `fieldFormatter()` — ACF field processing
   A `post_object` field with the return format "Post Object" that points to a Contact Form 7 form (`wpcf7_contact_form`) or a WPForms form
-  (`wpforms`) renders itself. `formatFields()` returns the form's HTML, not the post. In a block preview it
-  returns the shortcode text instead (`[wpforms id="12"]`), because the form does not render there. The
-  kit runs `do_shortcode()` once, inside `fieldFormatter()`. Do not run it again on the value. The template
-  prints the value with `|raw`. That is safe only because the value is the form plugin's own rendered
-  output, not field content. With the return format "Post ID" the field returns the ID and nothing renders. The kit counts each rendered form as dynamic, because a replayed copy of the markup skips what the render does, such as registering the plugin's assets. Open PR [#93](https://github.com/parisek/timber-kit/pull/93) may change this: it lets a
-  context build defer the form embed and print it where the template needs it. If it lands, this paragraph
-  must say when the field returns the deferred form.
+  (`wpforms`) returns a `LazyFormEmbed`, not the post and not the HTML. The form renders the first time the value
+  becomes a string: `{{ content.form|raw }}`, `|length`, `json_encode()` or a cast. It renders once per value, so a
+  second print returns the same markup. A page that never prints the field never renders the form, so the plugin
+  never registers it and loads no assets there (#92). `{% if content.form %}` still works: the kit creates the value
+  only for a published form whose shortcode is registered. A draft form, or an inactive plugin, keeps the old eager
+  string. In a block preview the field returns the shortcode text (`[wpforms id="12"]`), because the form does not
+  render there. `LazyFormEmbed::shortcode()` returns that text in any mode. Do not run `do_shortcode()` on the value.
+  The template prints it with `|raw`. That is safe only because the value is the form plugin's own rendered output,
+  not field content; autoescape without `|raw` escapes it, as it escaped the old string. Code that tested
+  `is_string()` on the value sees an object now, and a strict-typed `string` parameter (a Twig filter such as
+  `|typography`) throws a `TypeError` on it; cast it first. With the return format "Post ID" the field returns the ID and
+  nothing renders. The kit counts each form field as dynamic when it formats it, because a replayed copy of the
+  markup skips what the render does, such as registering the plugin's assets.
 - `formatLink()` — link/button formatting
 - `remapWpmlReference( $value, array $field, string $target_lang )` — remaps an ACF reference field's id(s) to a target WPML language via `wpml_object_id`, with the element type resolved per ACF field type (`image`/`file`/`gallery` → attachment, `post_object`/`relationship`/`page_link` → post, `taxonomy` → term; non-reference and non-numeric values pass through). Shared formatting-layer primitive that `WpmlBlockOverride` delegates to, reusable by any field formatter
 - `formatMenu( $menu_or_name )` — navigation menus. Returns a `MenuData` object exposing the menu's own metadata (`title`, `name`, `slug`, `description`, `id`) alongside `items`, **plus any ACF fields attached to the `nav_menu` term** — so a project can give a menu an icon, a colour or a visibility flag without a kit release. The object iterates, counts, indexes and JSON-encodes exactly as the plain item list it replaced, so existing `{% for item in menu %}` call sites need no change. An empty or missing menu returns a plain `[]`, keeping `{% if menu %}` guards falsy. Note: `id`, `title`, `name`, `slug`, `description` and `items` are reserved metadata keys — an ACF field on the `nav_menu` term with one of those names is silently dropped in favour of the built-in value
