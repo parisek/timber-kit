@@ -929,6 +929,83 @@ class Helpers {
 	}
 
 	/**
+	 * The shortcode of a form post, for the form plugins the kit knows.
+	 *
+	 * @param \WP_Post $post The `post_object` field value.
+	 * @return array{tag: string, shortcode: string}|null Null for any other post type.
+	 */
+	private static function formEmbed( \WP_Post $post ): ?array {
+		if ( 'wpcf7_contact_form' === $post->post_type ) {
+			return [
+				'tag'       => 'contact-form-7',
+				'shortcode' => '[contact-form-7 id="' . $post->ID . '" title=""]',
+			];
+		}
+
+		if ( 'wpforms' === $post->post_type ) {
+			return [
+				'tag'       => 'wpforms',
+				'shortcode' => '[wpforms id="' . $post->ID . '"]',
+			];
+		}
+
+		return null;
+	}
+
+	/**
+	 * Whether a form field may defer its render to the template (issue #92).
+	 *
+	 * Only WPForms defers. WPForms registers a form with its asset loader when
+	 * it renders it, so a render on a page that never prints the form loads the
+	 * plugin's styles there. Contact Form 7 enqueues its assets on
+	 * `wp_enqueue_scripts` for every page (CF7 6.2 `includes/controller.php`),
+	 * and its shortcode enqueues nothing, so a deferral buys it nothing. A
+	 * deferred CF7 render would also read `get_the_ID()` for its hidden
+	 * `_wpcf7_container_post` field at print time, inside whatever loop the
+	 * template runs. Contact Form 7 therefore keeps the eager string.
+	 *
+	 * A {@see LazyFormEmbed} is an object, and an object is always true in PHP
+	 * and Twig. The old string was false only when WPForms printed nothing:
+	 * an unpublished form, empty form data, or form data that does not decode
+	 * (WPForms 2.0 `src/Frontend/Frontend.php`, `output()`). Those cases keep
+	 * the eager string, so `{% if content.form %}` stays false for them. An
+	 * inactive plugin keeps it too: the shortcode is not registered, and
+	 * `do_shortcode()` hands the literal back, as it always did.
+	 *
+	 * A form the plugin hides later prints something: a comment for a form
+	 * with no fields, a wrapper when `wpforms_frontend_load` is false, a link
+	 * paragraph on AMP. That was true before too.
+	 *
+	 * @param \WP_Post $post The form post.
+	 * @param string   $tag  The shortcode tag.
+	 */
+	private static function isLazyFormEmbed( \WP_Post $post, string $tag ): bool {
+		return 'wpforms' === $tag
+			&& 'publish' === $post->post_status
+			&& self::hasWpformsData( $post )
+			&& shortcode_exists( $tag );
+	}
+
+	/**
+	 * Whether a WPForms post carries form data WPForms can decode.
+	 *
+	 * WPForms stores the form as JSON in `post_content` and prints nothing when
+	 * that is empty or does not decode to a non-empty value. This reads the
+	 * post the kit already has and calls no plugin code.
+	 *
+	 * @param \WP_Post $post The form post.
+	 */
+	private static function hasWpformsData( \WP_Post $post ): bool {
+		if ( '' === $post->post_content ) {
+			return false;
+		}
+
+		$data = json_decode( $post->post_content, true );
+
+		return is_array( $data ) && [] !== $data;
+	}
+
+	/**
 	 * Whether a {@see fieldFormatter()} result should survive into the
 	 * `formatFields()` output, or be dropped as "no such field".
 	 *
@@ -1591,8 +1668,10 @@ class Helpers {
 	 * - `image` → {@see formatImage()}
 	 * - `gallery` → each item formatted by type (image / file / video)
 	 * - `file` → {@see formatFile()}
-	 * - `post_object` → Contact Form 7 / WPForms shortcodes rendered (or kept
-	 *   as raw strings during preview)
+	 * - `post_object` → a WPForms form becomes a {@see LazyFormEmbed} that
+	 *   renders when a template prints it; a Contact Form 7 form, or a WPForms
+	 *   form that cannot render, is rendered here. During preview both return
+	 *   the shortcode text.
 	 * - `oembed` → iframe `src` attribute extracted
 	 * - `repeater` / `group` → sub-fields recursively formatted
 	 * - `flexible_content` → layout sub-fields recursively formatted
@@ -1727,21 +1806,17 @@ class Helpers {
 		} elseif ( $field['type'] === 'post_object' ) {
 
 			if ( $field['value'] instanceof \WP_Post ) {
-				if ( $field['value']->post_type === 'wpcf7_contact_form' ) {
-					// during preview we need to return only shortcode as preview is not working
-					if ( $is_preview ) {
-						$field['value'] = '[contact-form-7 id="' . $field['value']->ID . '" title=""]';
-					} else {
-						++self::$dynamic_format_count;
-						$field['value'] = do_shortcode( '[contact-form-7 id="' . $field['value']->ID . '" title=""]' );
-					}
-				} elseif ( $field['value']->post_type === 'wpforms' ) {
+				$embed = self::formEmbed( $field['value'] );
+				if ( null !== $embed ) {
 					if ( $is_preview ) {
 						// during preview we need to return only shortcode as preview is not working
-						$field['value'] = '[wpforms id="' . $field['value']->ID . '"]';
+						$field['value'] = $embed['shortcode'];
 					} else {
+						// A rendered form carries a nonce: whatever holds it is dynamic.
 						++self::$dynamic_format_count;
-						$field['value'] = do_shortcode( '[wpforms id="' . $field['value']->ID . '"]' );
+						$field['value'] = self::isLazyFormEmbed( $field['value'], $embed['tag'] )
+							? new LazyFormEmbed( $embed['shortcode'] )
+							: do_shortcode( $embed['shortcode'] );
 					}
 				}
 			}

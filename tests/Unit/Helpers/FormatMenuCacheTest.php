@@ -335,6 +335,31 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		$this->assertSame( [], $this->store );
 	}
 
+	public function test_a_menu_item_form_field_is_never_stored_and_not_rendered(): void {
+		// Issue #92: a form post_object formats to a LazyFormEmbed. The menu
+		// payload must not keep it. It is an object (isStorable() refuses it),
+		// and the form counts as dynamic, so either guard alone holds. The
+		// form must not render while the menu is formatted either.
+		$GLOBALS['shortcode_tags']['wpforms'] = '__return_empty_string';
+		Functions\when( 'shortcode_exists' )->alias( static fn ( string $tag ) => isset( $GLOBALS['shortcode_tags'][ $tag ] ) );
+		$renders = 0;
+		Functions\when( 'do_shortcode' )->alias(
+			static function ( $v ) use ( &$renders ) {
+				++$renders;
+				return '<form>' . $v . '</form>';
+			}
+		);
+		$this->menuItemsCarryField(
+			[ 'key' => 'f', 'name' => 'form', 'type' => 'post_object' ],
+			new \WP_Post( [ 'ID' => 12, 'post_type' => 'wpforms', 'post_status' => 'publish', 'post_content' => '{"fields":{"1":{"type":"text"}}}' ] )
+		);
+
+		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );
+
+		$this->assertSame( [], $this->store );
+		$this->assertSame( 0, $renders, 'formatting a menu rendered its form' );
+	}
+
 	public function test_a_walk_that_throws_stores_nothing(): void {
 		$calls = 0;
 		Functions\when( 'wp_get_post_terms' )->alias(
