@@ -32,7 +32,7 @@ namespace Parisek\TimberKit;
  * render (published, shortcode registered). Any other case keeps the old string
  * result, and an empty one stays falsy.
  */
-final class LazyFormEmbed implements \Stringable, \Countable, \JsonSerializable {
+final class LazyFormEmbed implements \Stringable, \JsonSerializable {
 
 	/** @var string|null Rendered markup, set on the first render. */
 	private ?string $rendered = null;
@@ -70,13 +70,6 @@ final class LazyFormEmbed implements \Stringable, \Countable, \JsonSerializable 
 
 	public function __toString(): string {
 		return $this->render();
-	}
-
-	/**
-	 * Twig `|length` and `is empty` read this.
-	 */
-	public function count(): int {
-		return mb_strlen( $this->render(), 'UTF-8' );
 	}
 
 	public function jsonSerialize(): string {
