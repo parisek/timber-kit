@@ -47,9 +47,10 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
   rendered string, so a form WPForms prints nothing for stays falsy. A field that points to a Contact Form 7 form
   (`wpcf7_contact_form`) returns the rendered string too: Contact Form 7 loads its assets on every page anyway, and a
   deferred render would read the loop post for its container-post field.
-  `{% if content.form %}` holds for a form that exists, is published, has form data and whose plugin is active. A
-  form the plugin still refuses to render (a filter, an access rule) is a `LazyFormEmbed`, so it is true and prints
-  `''`. `{% if content.form is not empty %}` is the exact test; it renders the form inside the guard, once.
+  `{% if content.form %}` gives the old answer. WPForms prints a comment or a wrapper for a form it hides (no fields,
+  `wpforms_frontend_load` false), so that form was true before and stays true. Only a third-party filter or add-on
+  that makes the shortcode print nothing gives a true `LazyFormEmbed` that prints `''`.
+  `{% if content.form is not empty %}` is the exact test; it renders the form inside the guard, once.
   In a block preview the field returns the shortcode text as a plain string (`[wpforms id="12"]`), because the form
   does not render there. Outside a preview, `LazyFormEmbed::shortcode()` returns the same text. Do not run
   `do_shortcode()` on the value. The template prints it with `|raw`. That is safe only because the value is the form

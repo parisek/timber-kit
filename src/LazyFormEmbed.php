@@ -35,9 +35,9 @@ namespace Parisek\TimberKit;
  * Twig and PHP treat an object as true, so {@see Helpers::fieldFormatter()}
  * creates this value only for a published form with decodable form data and
  * an active plugin. Any other case keeps the old string result, and an empty
- * one stays falsy. A form the plugin still refuses to render (a filter, an
- * access rule) is true here and prints `''`; `is not empty` gives the exact
- * answer.
+ * one stays falsy. Only a third-party filter or add-on that makes the
+ * shortcode print nothing gives a true value that prints `''`; `is not empty`
+ * gives the exact answer.
  */
 final class LazyFormEmbed implements \Stringable, \JsonSerializable {
 

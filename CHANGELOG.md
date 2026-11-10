@@ -26,8 +26,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
   five; the pages that print it keep them, and the form validates (#92).
   - The value is created only for a published form whose `post_content` decodes to form data, while the plugin is
     active. Any other case keeps the old eager string, so a form WPForms prints nothing for stays falsy.
-  - `{% if content.form %}` holds for a form that exists, is published, has form data and whose plugin is active. A
-    form the plugin still refuses to render (a filter, an access rule) is true and prints `''`.
+  - `{% if content.form %}` gives the old answer. WPForms prints a comment or a wrapper for a form it hides (no
+    fields, `wpforms_frontend_load` false), so that form was true before and stays true. Only a third-party filter or
+    add-on that makes the shortcode print nothing gives a true value that prints `''`.
     `{% if content.form is not empty %}` is the exact test; it renders the form inside the guard.
   - A Contact Form 7 field keeps the eager string. Contact Form 7 enqueues its assets on every page, so a deferral
     saves nothing, and a deferred render would read the loop post for its container-post field.

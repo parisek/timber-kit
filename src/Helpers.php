@@ -972,8 +972,9 @@ class Helpers {
 	 * inactive plugin keeps it too: the shortcode is not registered, and
 	 * `do_shortcode()` hands the literal back, as it always did.
 	 *
-	 * A form the plugin refuses later (no fields, `wpforms_frontend_load`
-	 * false, AMP) prints a comment or a wrapper. That was true before too.
+	 * A form the plugin hides later prints something: a comment for a form
+	 * with no fields, a wrapper when `wpforms_frontend_load` is false, a link
+	 * paragraph on AMP. That was true before too.
 	 *
 	 * @param \WP_Post $post The form post.
 	 * @param string   $tag  The shortcode tag.
