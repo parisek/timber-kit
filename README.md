@@ -52,15 +52,16 @@ Static methods for formatting ACF data into clean arrays for Twig templates:
   that makes the shortcode print nothing gives a true `LazyFormEmbed` that prints `''`.
   `{% if content.form is not empty %}` is the exact test; it renders the form inside the guard, once.
   In a block preview the field returns the shortcode text as a plain string (`[wpforms id="12"]`), because the form
-  does not render there. Outside a preview, `LazyFormEmbed::shortcode()` returns the same text. Do not run
+  does not render there. Outside a preview, a deferred value returns the same text from `LazyFormEmbed::shortcode()`. Do not run
   `do_shortcode()` on the value. The template prints it with `|raw`. That is safe only because the value is the form
   plugin's own rendered output, not field content; autoescape without `|raw` escapes it, as it escaped the old
   string. Twig filters and `==` cast the value, so `|typography`, `|upper` and `matches` work. Four Twig tests do not:
   `in`, `starts with`, `ends with` and `same as` check for a real string first, so they answer false and never render
   the form. Cast it with `(content.form ~ '')` there. In PHP, `is_string()` and `===` against a string fail on the
   object, and a `string` parameter in a `declare(strict_types=1)` file (`strlen( $form )`) throws a `TypeError`;
-  cast it with `(string)` first. With the return format "Post ID" the field returns the ID and nothing renders. The
-  kit counts each form field as dynamic when it formats it, because a replayed copy of the markup skips what the
+  cast it with `(string)` first. A field that allows both plugins returns a `LazyFormEmbed` or a string, by the form
+  the editor picks; `{% if %}` and `|raw` treat both alike. With the return format "Post ID" the field returns the ID
+  and nothing renders. Outside a preview, the kit counts each form field as dynamic when it formats it, because a replayed copy of the markup skips what the
   render does, such as registering the plugin's assets.
 - `formatLink()` — link/button formatting
 - `remapWpmlReference( $value, array $field, string $target_lang )` — remaps an ACF reference field's id(s) to a target WPML language via `wpml_object_id`, with the element type resolved per ACF field type (`image`/`file`/`gallery` → attachment, `post_object`/`relationship`/`page_link` → post, `taxonomy` → term; non-reference and non-numeric values pass through). Shared formatting-layer primitive that `WpmlBlockOverride` delegates to, reusable by any field formatter
