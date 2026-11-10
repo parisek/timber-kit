@@ -85,8 +85,8 @@ class FormFieldContractTest extends HelpersTestCase {
 	}
 
 	private function form_post( string $post_type, string $status = 'publish' ): \WP_Post {
-		// The shared WP_Post stub has no post_status property. A subclass declares
-		// it, so the stub in tests/bootstrap.php stays untouched.
+		// A subclass declares post_status, because the shared WP_Post stub may
+		// not. The stub in tests/bootstrap.php stays untouched.
 		$post = new class extends \WP_Post {
 			public string $post_status = 'publish';
 		};
@@ -161,8 +161,9 @@ class FormFieldContractTest extends HelpersTestCase {
 	}
 
 	// --- Trashed and draft forms ---
-	// The post_object branch does not read post_status. Main renders a trashed
-	// or draft form like a published one.
+	// A trashed or draft form prints its markup like a published one. Today
+	// the branch does not read post_status; a deferred render keeps such a
+	// form eager. Either way the template sees the same markup.
 
 	#[DataProvider( 'form_status_provider' )]
 	public function test_non_published_form_renders_like_a_published_one( string $post_type, string $tag, string $shortcode, string $status ): void {
