@@ -955,6 +955,15 @@ class Helpers {
 	/**
 	 * Whether a form field may defer its render to the template (issue #92).
 	 *
+	 * Only WPForms defers. WPForms registers a form with its asset loader when
+	 * it renders it, so a render on a page that never prints the form loads the
+	 * plugin's styles there. Contact Form 7 enqueues its assets on
+	 * `wp_enqueue_scripts` for every page (CF7 6.2 `includes/controller.php`),
+	 * and its shortcode enqueues nothing, so a deferral buys it nothing. A
+	 * deferred CF7 render would also read `get_the_ID()` for its hidden
+	 * `_wpcf7_container_post` field at print time, inside whatever loop the
+	 * template runs. Contact Form 7 therefore keeps the eager string.
+	 *
 	 * A {@see LazyFormEmbed} is an object, and an object is always true in PHP
 	 * and Twig. It is created only when the form will render, so that
 	 * `{% if content.form %}` keeps its meaning. In any other case the field
@@ -966,7 +975,9 @@ class Helpers {
 	 * @param string   $tag  The shortcode tag.
 	 */
 	private static function isLazyFormEmbed( \WP_Post $post, string $tag ): bool {
-		return 'publish' === $post->post_status && shortcode_exists( $tag );
+		return 'wpforms' === $tag
+			&& 'publish' === $post->post_status
+			&& shortcode_exists( $tag );
 	}
 
 	/**

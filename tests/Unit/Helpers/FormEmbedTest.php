@@ -19,6 +19,7 @@ use Twig\Loader\ArrayLoader;
  * Rendering the form there registered it with the plugin on every page, so
  * WPForms loaded its styles on pages that print no form. These tests pin the
  * deferred value and every place where it must behave like the old string.
+ * Only WPForms defers; Contact Form 7 keeps the eager string.
  */
 class FormEmbedTest extends HelpersTestCase {
 
@@ -54,19 +55,31 @@ class FormEmbedTest extends HelpersTestCase {
 		];
 	}
 
-	#[DataProvider( 'formTypeProvider' )]
-	public function test_formatting_a_published_form_does_not_render_it( string $post_type, string $shortcode ): void {
-		$value = Helpers::fieldFormatter( $this->formField( $post_type ) );
+	public function test_formatting_a_published_form_does_not_render_it(): void {
+		$value = Helpers::fieldFormatter( $this->formField( 'wpforms' ) );
 
 		$this->assertInstanceOf( LazyFormEmbed::class, $value );
-		$this->assertSame( $shortcode, $value->shortcode() );
+		$this->assertSame( '[wpforms id="12"]', $value->shortcode() );
 		$this->assertSame( 0, $this->renders, 'the form rendered while it was formatted' );
 		$this->assertFalse( $value->isRendered() );
 	}
 
-	#[DataProvider( 'formTypeProvider' )]
-	public function test_printing_renders_once_however_often_it_prints( string $post_type, string $shortcode ): void {
-		$value = Helpers::fieldFormatter( $this->formField( $post_type ) );
+	/**
+	 * Contact Form 7 enqueues its assets on every page, so a deferral buys
+	 * it nothing. A deferred render would read `get_the_ID()` inside the
+	 * template's loop for its container-post field. It keeps the string.
+	 */
+	public function test_contact_form_7_keeps_the_eager_string(): void {
+		$value = Helpers::fieldFormatter( $this->formField( 'wpcf7_contact_form' ) );
+
+		$this->assertIsString( $value );
+		$this->assertStringContainsString( '[contact-form-7 id="12" title=""]', $value );
+		$this->assertSame( 1, $this->renders );
+	}
+
+	public function test_printing_renders_once_however_often_it_prints(): void {
+		$shortcode = '[wpforms id="12"]';
+		$value     = Helpers::fieldFormatter( $this->formField( 'wpforms' ) );
 
 		$first  = (string) $value;
 		$second = (string) $value;
