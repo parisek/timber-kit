@@ -8,22 +8,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ### Changed
 
-- A form `post_object` field (Contact Form 7, WPForms) renders when a template prints it, not when
-  `fieldFormatter()` formats it. The field returns a `Parisek\TimberKit\LazyFormEmbed`: `{{ content.form|raw }}`,
-  `|length` and `json_encode()` render it once and return the form HTML. `formatFields( 'option' )` formats every
-  options field on every request, so every page rendered the options-page form and registered it with the plugin.
-  WPForms then enqueued its styles in `wp_footer`, and WordPress 6.9+ hoists late styles into `<head>`: five
-  render-blocking stylesheets on pages that print no form. Measured on a downstream site in DDEV: the pages that do
-  not print the form lose all five; the pages that print it keep them, and the form validates (#92).
-  - The value is created only for a published form whose shortcode is registered, so `{% if content.form %}` keeps
-    its meaning. A draft form or an inactive plugin keeps the old eager string.
-  - `$is_preview` still returns the shortcode text.
+- **BREAKING (return type):** `fieldFormatter()` and `formatFields()` return a `Parisek\TimberKit\LazyFormEmbed` for
+  a WPForms `post_object` field, not the rendered HTML string. Twig prints, filters (`|raw`, `|typography`), `==`,
+  `|length`, `is empty` and `json_encode()` cast it and work as before. These break:
+  - PHP `is_string()`, `===` against a string, and a `string` parameter in a `declare(strict_types=1)` file
+    (`strlen( $form )` throws a `TypeError`). Cast it with `(string)` first.
+  - The Twig tests `in`, `starts with`, `ends with` and `same as`. They check for a real string, so they answer
+    false and never render the form. Cast it with `(content.form ~ '')` first.
+
+  A survey of the downstream themes that set such a field found only `{% if %}`, `|raw` and pass-through, and no
+  `field_formatter_*` filter on a form field.
+- A WPForms `post_object` field renders when a template prints it, not when `fieldFormatter()` formats it. The value
+  renders once, the first time it becomes a string. `formatFields( 'option' )` formats every options field on every
+  request, so every page rendered the options-page form and registered it with the plugin. WPForms then enqueued its
+  styles in `wp_footer`, and WordPress 6.9+ hoists late styles into `<head>`: five render-blocking stylesheets on
+  pages that print no form. Measured on a downstream site in DDEV: the pages that do not print the form lose all
+  five; the pages that print it keep them, and the form validates (#92).
+  - The value is created only for a published form whose `post_content` decodes to form data, while the plugin is
+    active. Any other case keeps the old eager string, so a form WPForms prints nothing for stays falsy.
+  - `{% if content.form %}` holds for a form that exists, is published, has form data and whose plugin is active. A
+    form the plugin still refuses to render (a filter, an access rule) is true and prints `''`.
+    `{% if content.form is not empty %}` is the exact test; it renders the form inside the guard.
+  - A Contact Form 7 field keeps the eager string. Contact Form 7 enqueues its assets on every page, so a deferral
+    saves nothing, and a deferred render would read the loop post for its container-post field.
+  - `$is_preview` still returns the shortcode text as a plain string.
   - The field still counts as dynamic, so `BlockRenderer` and the menu cache do not store it. A serialised value keeps
     the shortcode and never the markup, which carries a nonce.
-  - Breaking for code that tests `is_string()` on the value. A Twig filter or PHP function with a `string` parameter
-    under `declare(strict_types=1)` throws a `TypeError` on it, for example `{{ content.form|typography }}`; cast it
-    first or print it with `|raw`. A survey of the downstream themes that set such a field found only `{% if %}`,
-    `|raw` and pass-through, and no `field_formatter_*` filter on a form field.
 
 ## [1.69.1] - 2026-11-06
 
