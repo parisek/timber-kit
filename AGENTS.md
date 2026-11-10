@@ -158,6 +158,21 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   it to `false` in its `Base`. This is a named exception to the rule above,
   not a case of the rule being skipped.
 
+- **Approved exception:** a WPForms `post_object` field renders when a template
+  prints it (`LazyFormEmbed`, #92) — no flag. The owner reviewed it explicitly
+  and calls the eager render a defect: `formatFields( 'option' )` rendered the
+  options-page form on every request, so WPForms loaded five render-blocking
+  stylesheets on pages that print no form. A default-off flag would leave that
+  cost on every site that does not flip it, and nobody flips a flag for
+  stylesheets they cannot see — the same reasoning as
+  `$disable_author_archives`. What bounds it: the value is deferred only for a
+  published WPForms form with decodable form data and an active plugin, so
+  every other case keeps the old string; Contact Form 7 stays eager; and a
+  survey of the downstream themes found only `{% if %}`, `|raw` and
+  pass-through on such a field. The return type still changes, so the entry
+  in `CHANGELOG.md` leads with the breaking note. This is a named exception to
+  the rule above, not a case of the rule being skipped.
+
 - **Approved exception:** `$remove_wpml_generator` defaults `true`, not
   `false`. The owner reviewed it explicitly and accepted the output change on
   upgrade. The tag it removes, `<meta name="generator" content="WPML ver:…">`,
