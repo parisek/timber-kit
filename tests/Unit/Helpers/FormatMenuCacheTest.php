@@ -351,7 +351,7 @@ class FormatMenuCacheTest extends HelpersTestCase {
 		);
 		$this->menuItemsCarryField(
 			[ 'key' => 'f', 'name' => 'form', 'type' => 'post_object' ],
-			new \WP_Post( [ 'ID' => 12, 'post_type' => 'wpforms', 'post_status' => 'publish' ] )
+			new \WP_Post( [ 'ID' => 12, 'post_type' => 'wpforms', 'post_status' => 'publish', 'post_content' => '{"fields":{"1":{"type":"text"}}}' ] )
 		);
 
 		Helpers::formatMenu( $this->makeMenu( [ $this->makeItem( 11 ) ] ) );

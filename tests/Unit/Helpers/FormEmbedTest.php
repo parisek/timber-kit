@@ -47,11 +47,21 @@ class FormEmbedTest extends HelpersTestCase {
 		];
 	}
 
-	private function formField( string $post_type, string $status = 'publish' ): array {
+	/** WPForms stores a form as JSON in `post_content`. */
+	private const FORM_DATA = '{"id":"12","fields":{"1":{"id":"1","type":"text"}}}';
+
+	private function formField( string $post_type, string $status = 'publish', string $content = self::FORM_DATA ): array {
 		return [
 			'type'  => 'post_object',
 			'name'  => 'form',
-			'value' => new \WP_Post( [ 'ID' => 12, 'post_type' => $post_type, 'post_status' => $status ] ),
+			'value' => new \WP_Post(
+				[
+					'ID'           => 12,
+					'post_type'    => $post_type,
+					'post_status'  => $status,
+					'post_content' => $content,
+				]
+			),
 		];
 	}
 
@@ -115,6 +125,57 @@ class FormEmbedTest extends HelpersTestCase {
 
 		$this->assertIsString( $value );
 		$this->assertStringContainsString( $shortcode, $value );
+		$this->assertSame( 1, $this->renders );
+	}
+
+	/**
+	 * WPForms prints nothing for empty or undecodable form data, so the old
+	 * string was `''` and `{% if content.form %}` was false. An object would
+	 * be true. These cases keep the eager string.
+	 *
+	 * @return array<string, array{0: string}>
+	 */
+	public static function unrenderableFormDataProvider(): array {
+		return [
+			'empty post_content' => [ '' ],
+			'invalid JSON'       => [ '{not json' ],
+			'empty JSON array'   => [ '[]' ],
+			'JSON scalar'        => [ '"text"' ],
+		];
+	}
+
+	#[DataProvider( 'unrenderableFormDataProvider' )]
+	public function test_wpforms_data_that_does_not_decode_keeps_the_eager_string( string $content ): void {
+		Functions\when( 'do_shortcode' )->alias( function (): string {
+			++$this->renders;
+			return '';
+		} );
+
+		$value = Helpers::fieldFormatter( $this->formField( 'wpforms', 'publish', $content ) );
+
+		$this->assertSame( '', $value );
+		$this->assertSame( 1, $this->renders );
+		$this->assertSame( 'none', $this->twig( '{% if form %}form{% else %}none{% endif %}', [ 'form' => $value ] ) );
+	}
+
+	/**
+	 * A form with data the plugin still refuses to render (a filter, an
+	 * access rule) is a deferred value. It is true in `{% if %}` and prints
+	 * `''`. `is not empty` renders it and gives the exact answer. README
+	 * documents this case.
+	 */
+	public function test_a_deferred_form_that_renders_empty_is_true_but_empty(): void {
+		Functions\when( 'do_shortcode' )->alias( function (): string {
+			++$this->renders;
+			return '';
+		} );
+
+		$value = Helpers::fieldFormatter( $this->formField( 'wpforms' ) );
+
+		$this->assertInstanceOf( LazyFormEmbed::class, $value );
+		$this->assertSame( 'true', $this->twig( '{% if form %}true{% else %}false{% endif %}', [ 'form' => $value ] ) );
+		$this->assertSame( 0, $this->renders, '{% if %} must not render the form' );
+		$this->assertSame( 'empty', $this->twig( '{% if form is not empty %}form{% else %}empty{% endif %}', [ 'form' => $value ] ) );
 		$this->assertSame( 1, $this->renders );
 	}
 

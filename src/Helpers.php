@@ -965,11 +965,15 @@ class Helpers {
 	 * template runs. Contact Form 7 therefore keeps the eager string.
 	 *
 	 * A {@see LazyFormEmbed} is an object, and an object is always true in PHP
-	 * and Twig. It is created only when the form will render, so that
-	 * `{% if content.form %}` keeps its meaning. In any other case the field
-	 * keeps the old eager result: an unpublished form, or a plugin that is
-	 * not active (the shortcode is not registered, and `do_shortcode()` hands
-	 * the literal back, as it always did).
+	 * and Twig. The old string was false only when WPForms printed nothing:
+	 * an unpublished form, empty form data, or form data that does not decode
+	 * (WPForms 2.0 `src/Frontend/Frontend.php`, `output()`). Those cases keep
+	 * the eager string, so `{% if content.form %}` stays false for them. An
+	 * inactive plugin keeps it too: the shortcode is not registered, and
+	 * `do_shortcode()` hands the literal back, as it always did.
+	 *
+	 * A form the plugin refuses later (no fields, `wpforms_frontend_load`
+	 * false, AMP) prints a comment or a wrapper. That was true before too.
 	 *
 	 * @param \WP_Post $post The form post.
 	 * @param string   $tag  The shortcode tag.
@@ -977,7 +981,27 @@ class Helpers {
 	private static function isLazyFormEmbed( \WP_Post $post, string $tag ): bool {
 		return 'wpforms' === $tag
 			&& 'publish' === $post->post_status
+			&& self::hasWpformsData( $post )
 			&& shortcode_exists( $tag );
+	}
+
+	/**
+	 * Whether a WPForms post carries form data WPForms can decode.
+	 *
+	 * WPForms stores the form as JSON in `post_content` and prints nothing when
+	 * that is empty or does not decode to a non-empty value. This reads the
+	 * post the kit already has and calls no plugin code.
+	 *
+	 * @param \WP_Post $post The form post.
+	 */
+	private static function hasWpformsData( \WP_Post $post ): bool {
+		if ( '' === $post->post_content ) {
+			return false;
+		}
+
+		$data = json_decode( $post->post_content, true );
+
+		return is_array( $data ) && [] !== $data;
 	}
 
 	/**
