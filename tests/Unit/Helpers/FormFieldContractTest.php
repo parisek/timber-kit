@@ -20,7 +20,7 @@ use Twig\Loader\ArrayLoader;
  *
  * These tests describe what a template sees, not when the render runs. They
  * pass before and after that change. They do not assume the value is a
- * string, and they count renders with `>= 1` or `=== 0`.
+ * string, and they count renders only after the template has printed.
  *
  * One case stays unpinned on purpose: a plain `{% if content.form %}` on a
  * form whose render is empty. #92 changes that answer. Only
@@ -93,6 +93,11 @@ class FormFieldContractTest extends HelpersTestCase {
 		$post->ID          = 55;
 		$post->post_type   = $post_type;
 		$post->post_status = $status;
+		// Real form data, as WPForms stores it, so a guard that reads the form
+		// data treats the fixture like a working form.
+		$post->post_content = 'wpforms' === $post_type
+			? '{"id":"55","field_id":2,"fields":{"1":{"id":"1","type":"email","label":"Email"}},"settings":{"form_title":"Contact"}}'
+			: '[email* your-email]';
 
 		return $post;
 	}
@@ -165,8 +170,8 @@ class FormFieldContractTest extends HelpersTestCase {
 
 		$content = $this->format( $this->form_post( $post_type, $status ) );
 
-		$this->assertGreaterThanOrEqual( 1, $this->render_calls );
 		$this->assertSame( '<form class="f">x</form>', $this->twig( '{{ content.form|raw }}', $content ) );
+		$this->assertSame( 1, $this->render_calls );
 	}
 
 	#[DataProvider( 'form_status_provider' )]
@@ -222,9 +227,10 @@ class FormFieldContractTest extends HelpersTestCase {
 
 		$content = $this->format( $this->form_post( $post_type ) );
 
-		$this->assertGreaterThanOrEqual( 1, $this->render_calls );
 		$this->assertSame( $markup, $this->twig( '{{ content.form|raw }}', $content ) );
 		$this->assertSame( 'yes', $this->twig( '{% if content.form is not empty %}yes{% endif %}', $content ) );
+		// One render in total, whether it ran at format time or at the first print.
+		$this->assertSame( 1, $this->render_calls );
 	}
 
 	#[DataProvider( 'form_post_type_provider' )]
