@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.70.0] - 2026-11-10
+
 ### Changed
 
 - **BREAKING (return type):** `fieldFormatter()` and `formatFields()` return a `Parisek\TimberKit\LazyFormEmbed` for
