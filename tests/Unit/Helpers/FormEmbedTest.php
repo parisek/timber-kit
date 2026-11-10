@@ -287,6 +287,31 @@ class FormEmbedTest extends HelpersTestCase {
 		$this->assertSame( 0, $this->renders );
 	}
 
+	/**
+	 * Twig compiles `in`, `starts with`, `ends with` and `same as` to an
+	 * `is_string()` check or `===`, never a cast. On the deferred value they
+	 * answer false without rendering it. README lists them and the `~ ''`
+	 * cast. If a Twig release starts to cast here, this test fails and the
+	 * README note can go.
+	 */
+	public function test_twig_string_tests_answer_false_without_a_cast(): void {
+		$value = Helpers::fieldFormatter( $this->formField( 'wpforms' ) );
+		$html  = (string) $value;
+		$this->renders = 0;
+		$value = Helpers::fieldFormatter( $this->formField( 'wpforms' ) );
+
+		$template = '{{ "rendered" in form ? 1 : 0 }}{{ form starts with "<form" ? 1 : 0 }}'
+			. '{{ form ends with "</form>" ? 1 : 0 }}{{ form is same as(html) ? 1 : 0 }}';
+
+		$this->assertSame( '0000', $this->twig( $template, [ 'form' => $value, 'html' => $html ] ) );
+		$this->assertSame( 0, $this->renders, 'a string test rendered the form' );
+
+		$cast = '{{ "rendered" in (form ~ "") ? 1 : 0 }}{{ (form ~ "") starts with "<form" ? 1 : 0 }}'
+			. '{{ (form ~ "") ends with "</form>" ? 1 : 0 }}{{ (form ~ "") is same as(html) ? 1 : 0 }}';
+		$this->assertSame( '1111', $this->twig( $cast, [ 'form' => $value, 'html' => $html ] ) );
+		$this->assertSame( 1, $this->renders );
+	}
+
 	public function test_twig_length_and_empty_render_and_read_the_markup(): void {
 		$value = Helpers::fieldFormatter( $this->formField( 'wpforms' ) );
 

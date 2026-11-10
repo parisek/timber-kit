@@ -10,27 +10,34 @@ declare(strict_types=1);
 namespace Parisek\TimberKit;
 
 /**
- * The formatted value of a form `post_object` field (WPForms, Contact Form 7).
+ * The formatted value of a WPForms `post_object` field.
  *
  * `fieldFormatter()` used to run the form shortcode while it formatted the
  * field. `formatFields( 'option' )` formats every field of the options page on
  * every request, so every page rendered the form, and the render registered
  * the form with the plugin. WPForms then enqueued its styles in `wp_footer`,
  * and WordPress (6.9 and later) hoisted them into `<head>`: render-blocking
- * styles on pages that print no form (issue #92).
+ * styles on pages that print no form (issue #92). Contact Form 7 enqueues on
+ * every page anyway, so its field keeps the eager string.
  *
  * This value defers the render to the first time it is turned into a string:
- * a Twig print, `|raw`, `|length`, `json_encode()` or a string cast. A page
- * that never prints it never renders the form. The render runs once per
- * object; a second print returns the same markup.
+ * a Twig print, `|raw`, `|length`, `is empty`, `json_encode()` or a string
+ * cast. A page that never prints it never renders the form. The render runs
+ * once per object; a second print returns the same markup.
  *
  * Templates print it the way they printed the old string, `{{ content.form|raw }}`.
  * Autoescape treats it like the old string too: `{{ content.form }}` without
  * `|raw` escapes it. It does not extend `Twig\Markup`, which Twig marks
- * `@final`. Twig and PHP treat an object as true, so
- * {@see Helpers::fieldFormatter()} creates this value only for a form that will
- * render (published, shortcode registered). Any other case keeps the old string
- * result, and an empty one stays falsy.
+ * `@final`. Twig tests that require a real string (`in`, `starts with`,
+ * `ends with`, `same as`) answer false without rendering it; cast it with
+ * `~ ''` first.
+ *
+ * Twig and PHP treat an object as true, so {@see Helpers::fieldFormatter()}
+ * creates this value only for a published form with decodable form data and
+ * an active plugin. Any other case keeps the old string result, and an empty
+ * one stays falsy. A form the plugin still refuses to render (a filter, an
+ * access rule) is true here and prints `''`; `is not empty` gives the exact
+ * answer.
  */
 final class LazyFormEmbed implements \Stringable, \JsonSerializable {
 

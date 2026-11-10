@@ -1667,8 +1667,10 @@ class Helpers {
 	 * - `image` → {@see formatImage()}
 	 * - `gallery` → each item formatted by type (image / file / video)
 	 * - `file` → {@see formatFile()}
-	 * - `post_object` → Contact Form 7 / WPForms shortcodes rendered (or kept
-	 *   as raw strings during preview)
+	 * - `post_object` → a WPForms form becomes a {@see LazyFormEmbed} that
+	 *   renders when a template prints it; a Contact Form 7 form, or a WPForms
+	 *   form that cannot render, is rendered here. During preview both return
+	 *   the shortcode text.
 	 * - `oembed` → iframe `src` attribute extracted
 	 * - `repeater` / `group` → sub-fields recursively formatted
 	 * - `flexible_content` → layout sub-fields recursively formatted
