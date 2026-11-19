@@ -73,11 +73,13 @@ class CropAnchorTest extends ResizerTestCase {
 	private function dominantChannel( string $path ): string {
 		$image = imagecreatefromstring( (string) file_get_contents( $path ) );
 		$this->assertNotFalse( $image );
-		$rgb = imagecolorat( $image, (int) ( imagesx( $image ) / 2 ), (int) ( imagesy( $image ) / 2 ) );
+		// imagecolorsforindex, not bit shifts: Imagick writes a three-colour
+		// image as a palette PNG, where imagecolorat returns an index.
+		$color = imagecolorsforindex( $image, imagecolorat( $image, (int) ( imagesx( $image ) / 2 ), (int) ( imagesy( $image ) / 2 ) ) );
 		$channels = array(
-			'red'   => ( $rgb >> 16 ) & 0xFF,
-			'green' => ( $rgb >> 8 ) & 0xFF,
-			'blue'  => $rgb & 0xFF,
+			'red'   => $color['red'],
+			'green' => $color['green'],
+			'blue'  => $color['blue'],
 		);
 		arsort( $channels );
 
