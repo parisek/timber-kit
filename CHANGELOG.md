@@ -6,6 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Fixed
+
+- A crop tuple's anchor (`top`, `bottom`, `left`, `right`) now decides which part of the source survives. `Resizer`
+  ran `fit( Fit::Crop, w, h )`, which crops to the exact size around the centre, and only then
+  `crop( w, h, $position )`, which had nothing left to cut: every anchor returned the centre crop, byte for byte, and
+  only the cache directory name (`1200x900-right-q80`) carried the anchor. The image is now scaled to cover the target
+  box and cropped once, at the anchor. `center` and `crop` keep the old path, so their output stays byte-identical
+  and their cached files stay valid.
+
+  **Derivatives already in the cache keep the centre crop under their anchor's directory name.** After the update, run
+  `wp timber-kit clear-image-cache` (dry run, then `--apply`), or `regenerate-image-cache --apply`, so anchored
+  variants are encoded again. A theme that worked around the old behaviour (an `object-position` on a centre-cropped
+  variant, a hand-picked tuple) may see the photo move.
+
 ## [1.70.0] - 2026-11-10
 
 ### Changed
