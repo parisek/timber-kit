@@ -122,6 +122,17 @@ New behavior that changes rendered output, admin behavior, or anything a consume
   already set 80 keep their `-q80` URLs. This is a named exception to the rule above, not a case of the rule being
   skipped.
 
+- **Approved exception:** the crop anchor of a `|resizer` tuple (`top`, `bottom`,
+  `left`, `right`) is honoured unconditionally — no flag, released as a bug fix
+  (#270). The owner decided it explicitly. The old behaviour was a defect in
+  documented API that failed invisibly: every anchor returned the centre crop,
+  byte for byte, and only the cache directory name carried the anchor. A
+  default-off flag would keep that running on every site that did not flip it.
+  What bounds it: `center` and `crop` keep the old encoder path and stay
+  pixel-identical, so only anchored derivatives change, and only after a site
+  clears or regenerates its image cache. This is a named exception to the rule
+  above, not a case of the rule being skipped.
+
 - **Approved exception:** the social image bridge changed what it does **under
   the existing `$social_image_bridge` flag**, with no second flag. The owner
   reviewed it explicitly. The rule above governs new behaviour arriving behind a
