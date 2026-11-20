@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [1.70.1] - 2026-11-20
+
 ### Fixed
 
 - A crop tuple's anchor (`top`, `bottom`, `left`, `right`) now decides which part of the source survives. `Resizer`
