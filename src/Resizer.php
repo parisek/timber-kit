@@ -1151,12 +1151,25 @@ class Resizer {
 			elseif ( in_array( $variant['image_style'], [ 'crop', 'center', 'top', 'bottom', 'left', 'right' ], true ) && $variant['width'] > 0 && $variant['height'] > 0 ) {
 				$position = $this->mapCropPosition( $variant['image_style'] );
 
-				// Use fit with Fit::Crop which resizes the image to fill the dimensions
-				// maintaining aspect ratio and cropping any overflow
-				$imageGenerator->fit( Fit::Crop, $variant['width'], $variant['height'] );
-
-				// Then crop to exact dimensions at the specified position
-				$imageGenerator->crop( $variant['width'], $variant['height'], $position );
+				if ( CropPosition::Center === $position ) {
+					// Fit::Crop scales to cover and crops around the centre in one
+					// step. Kept for the centre so its bytes stay what every site
+					// already has in its cache.
+					$imageGenerator->fit( Fit::Crop, $variant['width'], $variant['height'] );
+				} else {
+					// Fit::Crop cannot take an anchor: it crops around the centre
+					// itself, and a positioned crop after it has nothing left to
+					// cut. So scale to cover the target box (aspect kept, both
+					// sides at least the target), then cut at the anchor.
+					$source_width  = max( 1, $imageGenerator->getWidth() );
+					$source_height = max( 1, $imageGenerator->getHeight() );
+					$scale         = max( $variant['width'] / $source_width, $variant['height'] / $source_height );
+					$imageGenerator->resize(
+						max( (int) $variant['width'], (int) ceil( $source_width * $scale ) ),
+						max( (int) $variant['height'], (int) ceil( $source_height * $scale ) )
+					);
+					$imageGenerator->crop( $variant['width'], $variant['height'], $position );
+				}
 
 				$imageGenerator->format( $target_format );
 				$imageGenerator->quality( $variant['quality'] );
